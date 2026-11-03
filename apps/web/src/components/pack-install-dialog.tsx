@@ -197,8 +197,9 @@ export function useMarketplace() {
   });
 }
 
-export function useInstalledPacks(ws: string) {
+export function useInstalledPacks(ws: string, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ['packs-installed', ws],
     queryFn: async () => {
       const { data, error } = await api.GET(

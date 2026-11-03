@@ -198,9 +198,18 @@ export default function IntegrationsPage() {
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Integrations</h1>
-      <p className="mb-6 text-body text-muted">
+      <p className="mb-2 text-body text-muted">
         Connect StoryOS to the tools you already use. Credentials are stored on your server and
         never leave it — that's the point of self-hosting.
+      </p>
+      {/* Ticket #1185 — /connections lost its gear-menu entry and the prototype has no nav row for it (ticket #1188 merges it into the
+          provider pages and redirects it). Until then this is its visible way in; remove it with that merge. */}
+      <p className="mb-6 text-body text-muted">
+        Every credential StoryOS holds, with its status and Disconnect, is on{' '}
+        <Link href={`/w/${ws}/settings/connections`} className="text-ink underline underline-offset-2">
+          Connections
+        </Link>
+        .
       </p>
 
       <section className="mb-8 overflow-hidden rounded-[var(--radius-card)] border border-border-strong bg-card">

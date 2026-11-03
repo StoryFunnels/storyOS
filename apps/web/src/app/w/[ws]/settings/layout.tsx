@@ -1,14 +1,21 @@
 'use client';
 
-import { workspaceSettingsLinks } from '@/lib/settings-nav';
-import Link from 'next/link';
 import { usePathname, useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { api } from '@/lib/api';
+import { SettingsNav } from '@/components/settings/settings-nav';
+import { useSettingsSignals } from '@/components/settings/use-settings-signals';
+import { settingsNavCounts } from '@/lib/settings-home';
+import { canOpenAdminSettings, settingsFlags, settingsNavGroups } from '@/lib/settings-nav';
 
-/** Unified settings shell (#29/#30/#31): a left sub-nav + the active page.
- * Personal sections are available to everyone; workspace sections are admin-only. */
+/**
+ * The Settings shell (#29/#30/#31, rebuilt by ticket #1185): the nav on the left and the active page on the right.
+ *
+ * What the nav holds is decided in `lib/settings-nav.ts` (five groups, each page declared once with who may open it); this file only
+ * gathers the facts that decision needs (the viewer's role, whether this is a cloud deployment) and the real counts shown beside
+ * entries. The page itself is still refused in-page for a role that types its URL (`AdminsOnly`, #1092): the nav hiding a link is not a gate.
+ */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const { ws } = useParams<{ ws: string }>();
   const pathname = usePathname();
@@ -24,12 +31,9 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     },
   });
   const role = workspace.data?.role;
-  const isAdmin = role === 'admin';
-  const canEdit = role !== 'guest';
 
-  // MN-166: `enabled` is false on self-host (no STRIPE_SECRET_KEY) — the Billing
-  // link only makes sense on a cloud instance, so it's hidden rather than shown
-  // pointing at a section that would just 404/503 everything.
+  // MN-166: `enabled` is false on self-host (no STRIPE_SECRET_KEY) — Plan & billing only makes sense on a cloud instance, so it is
+  // hidden rather than shown pointing at a section that would just 404/503 everything.
   const billing = useQuery({
     queryKey: ['billing-status', ws],
     queryFn: async () => {
@@ -39,12 +43,11 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
       if (error) throw error;
       return data as unknown as { enabled: boolean };
     },
-    enabled: isAdmin,
+    enabled: canOpenAdminSettings(role),
   });
 
-  // #33: same cloud-only signal as Billing above, but user-scoped (not
-  // admin-gated) since a referral link belongs to a person, not a workspace —
-  // every member, not just admins, should see it once it's on.
+  // #33: same cloud-only signal as billing, but user-scoped (not admin-gated) since a referral link belongs to a person, not a
+  // workspace — every member, not just admins, sees it once it's on.
   const referrals = useQuery({
     queryKey: ['referrals-me'],
     queryFn: async () => {
@@ -54,82 +57,13 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
     },
   });
 
-  const base = `/w/${ws}/settings`;
-  const personal = [
-    { href: `${base}/account`, label: 'Account' },
-    { href: `${base}/preferences`, label: 'Preferences' },
-    { href: `${base}/notifications`, label: 'Notifications' },
-    ...(referrals.data?.enabled ? [{ href: `${base}/referrals`, label: 'Referrals' }] : []),
-  ];
-  const workspaceLinks = workspaceSettingsLinks(base, { isAdmin, canEdit, billingEnabled: Boolean(billing.data?.enabled) });
-  const allLinks = [...personal, ...workspaceLinks];
+  const groups = settingsNavGroups(ws, role, settingsFlags(role, billing.data?.enabled, referrals.data?.enabled));
+  const counts = settingsNavCounts(role, useSettingsSignals(ws, role));
 
   return (
     <div className="flex min-h-full flex-col md:flex-row">
-      {/* MN-230e: under md the two-pane side-nav collapses into a single
-       * horizontal scrollable tab bar; at md+ it's the grouped vertical
-       * side-nav (the `md:hidden` / `hidden md:block` pair below toggles it). */}
-      <nav className="shrink-0 border-b border-border-default bg-sidebar md:w-52 md:border-b-0 md:border-r md:p-3">
-        <div className="flex gap-1 overflow-x-auto px-3 py-2 md:hidden">
-          {allLinks.map((link) => {
-            const active = pathname === link.href;
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`shrink-0 whitespace-nowrap rounded px-3 py-1.5 text-body ${
-                  active
-                    ? 'bg-active font-medium text-ink'
-                    : 'text-ink-secondary hover:bg-hover'
-                }`}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </div>
-        <div className="hidden md:block">
-          <SettingsNavGroup title="Personal" links={personal} pathname={pathname} />
-          {workspaceLinks.length > 0 && (
-            <SettingsNavGroup title="Workspace" links={workspaceLinks} pathname={pathname} />
-          )}
-        </div>
-      </nav>
+      <SettingsNav ws={ws} pathname={pathname} groups={groups} counts={counts} />
       <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
-}
-
-function SettingsNavGroup({
-  title,
-  links,
-  pathname,
-}: {
-  title: string;
-  links: { href: string; label: string }[];
-  pathname: string;
-}) {
-  return (
-    <div className="mb-4">
-      <p className="px-2 pb-1 text-meta font-semibold uppercase tracking-wider text-faint">
-        {title}
-      </p>
-      {links.map((link) => {
-        const active = pathname === link.href;
-        return (
-          <Link
-            key={link.href}
-            href={link.href}
-            className={`block rounded px-2 py-1 text-body ${
-              active
-                ? 'bg-active font-medium text-ink'
-                : 'text-ink-secondary hover:bg-hover'
-            }`}
-          >
-            {link.label}
-          </Link>
-        );
-      })}
     </div>
   );
 }
