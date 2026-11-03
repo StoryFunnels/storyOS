@@ -517,7 +517,17 @@ export const packInstallResultSchema = z.object({
   relations: z.array(installedEntitySchema),
   states: z.array(installedEntitySchema),
   agents: z.array(installedEntitySchema),
-  triggers: z.array(installedEntitySchema),
+  /**
+   * #1192 - each `created` trigger also says whether it was switched on and, if off, why (`wakes_agent` = it would wake its agent on a
+   * state change by itself). A `human_gate` trigger reports `enabled: true` and `human_gate: true`: it never fires by itself.
+   */
+  triggers: z.array(
+    installedEntitySchema.extend({
+      enabled: z.boolean().optional(),
+      switched_off_because: z.literal('wakes_agent').optional(),
+      human_gate: z.boolean().optional(),
+    }),
+  ),
   derived_fields: z.array(installedEntitySchema),
   views: z.array(installedEntitySchema),
   /** #1107 — each `created` rule also says whether it was switched on and, if off for what it does, why (`outward` = leaves the workspace, `agent` = runs an agent). */
@@ -656,7 +666,9 @@ export const packPreviewItemSchema = z.object({
    * is off because of what it does, why (`switched_off_because`). A rule that already exists is left as it is, so it carries neither.
    */
   enabled_on_install: z.boolean().optional(),
-  switched_off_because: z.enum(['outward', 'agent']).optional(),
+  switched_off_because: z.enum(['outward', 'agent', 'wakes_agent']).optional(),
+  /** #1192 - triggers only: a human-gated trigger never starts a run by itself, so the review offers no switch for it. */
+  human_gate: z.boolean().optional(),
 });
 export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
 
@@ -681,6 +693,12 @@ export const packPreviewResultSchema = z.object({
   views: z.array(packPreviewItemSchema),
   automations: z.array(packPreviewItemSchema),
   agents: z.array(packPreviewItemSchema),
+  /**
+   * #1192 - every agent trigger (an agent bound to a state change), labelled "Agent <- Database.Field = State". `create` ones carry
+   * `enabled_on_install` (false unless the person switched it on) and `switched_off_because: 'wakes_agent'`; a `human_gate` one carries
+   * `human_gate: true` (it never fires by itself, so no switch). A trigger that already exists is `reuse` and carries neither.
+   */
+  triggers: z.array(packPreviewItemSchema),
 });
 export type PackPreviewResult = z.infer<typeof packPreviewResultSchema>;
 

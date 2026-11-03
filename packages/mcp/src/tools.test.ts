@@ -2490,6 +2490,18 @@ describe('view-scoped queries and bulk building (#332, #394)', () => {
       expect('target_space_id' in plainBody).toBe(false);
     });
 
+    // #1192 - the person's choice to switch a pack's state-bound agent trigger ON travels as enable_agent_triggers; absent means absent.
+    it('install_pack sends enable_agent_triggers only when named', async () => {
+      const on = harness();
+      await on.call('install_pack', { workspace: 'Eng', slug: 'crm', enable_agent_triggers: ['Triage \u2190 Tickets.Status = New'] });
+      const body = on.sent.find((s) => s.path === '/api/v1/workspaces/{ws}/packs/install')!.body as Record<string, unknown>;
+      expect(body['enable_agent_triggers']).toEqual(['Triage \u2190 Tickets.Status = New']);
+      const plain = harness();
+      await plain.call('install_pack', { workspace: 'Eng', slug: 'crm' });
+      const plainBody = plain.sent.find((s) => s.path === '/api/v1/workspaces/{ws}/packs/install')!.body as Record<string, unknown>;
+      expect('enable_agent_triggers' in plainBody).toBe(false);
+    });
+
     it('create_records sends ONE request for many records', async () => {
       const { call, sent } = harness();
       await call('create_records', {
