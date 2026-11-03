@@ -102,8 +102,17 @@ export interface ClaimedWake {
   credential: { token: string; scope: string; expires_at: string };
 }
 
+/** ticket #1137: why a 204 came back empty when the Runner itself may not claim (limit pause, outside working hours, reserve). */
+export interface ClaimHold {
+  reason: 'limit_reached' | 'working_hours' | 'reserve' | (string & {});
+  /** ISO instant it may claim again. Absent when the server cannot say (a reserve with no reset time reported). */
+  resumes_at?: string;
+}
+
 export interface ClaimResponse {
   wakes: ClaimedWake[];
+  /** Only on an empty answer: the Runner is being held back, and until when. The wire form is two headers on the 204. */
+  hold?: ClaimHold;
   protocol?: { minimum: number; maximum: number };
 }
 

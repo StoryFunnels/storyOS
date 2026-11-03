@@ -4380,8 +4380,8 @@ export interface paths {
         delete: operations["RunnersController_remove"];
         options?: never;
         head?: never;
-        /** Change which detected tool your agents use on this Runner */
-        patch: operations["RunnersController_setTool"];
+        /** Change a Runner you own: which detected tool your agents use (tool), the hours it may claim in (working_hours: days, start, end, IANA timezone; null = any hour) and "leave me X%" (reserve_percent 1-95; null = none). Any subset. The reserve is only kept for a tool that reports plan usage: reserve_measurable says whether. */
+        patch: operations["RunnersController_update"];
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/runner-assignments/{agent}": {
@@ -7129,6 +7129,16 @@ export interface components {
         };
         RunnerToolChoiceDto: {
             tool: string;
+        };
+        RunnerUpdateDto: {
+            tool?: string;
+            working_hours?: {
+                days: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
+                start: string;
+                end: string;
+                timezone: string;
+            } | null;
+            reserve_percent?: number | null;
         };
         RunnerAssignmentDto: {
             /** Format: uuid */
@@ -14116,7 +14126,7 @@ export interface operations {
             };
         };
     };
-    RunnersController_setTool: {
+    RunnersController_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -14127,7 +14137,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RunnerToolChoiceDto"];
+                "application/json": components["schemas"]["RunnerUpdateDto"];
             };
         };
         responses: {

@@ -435,6 +435,32 @@ export class RunnersService {
     return this.present(updated, now);
   }
 
+  /**
+   * ticket #1137: change the tool and/or the sharing rules of the caller's own Runner. Settings are stored on the row (`sharing`), merged
+   * key by key: an absent key is untouched, null removes that rule. A tool change keeps the rules (they belong to the person, not the tool).
+   */
+  async update(workspaceId: string, userId: string, id: string, input: { tool?: string; working_hours?: unknown; reserve_percent?: number | null }, now = new Date()) {
+    const runner = await this.ownRunner(workspaceId, userId, id);
+    if (runner.status !== 'active') throw codedException(409, 'not_active', 'Turn this Runner on first (press Done), then change its settings.');
+    if (input.tool !== undefined) this.pickTool(runner, input.tool);
+    const sharing: Record<string, unknown> = { ...(runner.sharing ?? {}) };
+    if (input.working_hours !== undefined) {
+      if (input.working_hours === null) delete sharing.working_hours;
+      else sharing.working_hours = input.working_hours;
+    }
+    if (input.reserve_percent !== undefined) {
+      if (input.reserve_percent === null) delete sharing.reserve_percent;
+      else sharing.reserve_percent = input.reserve_percent;
+    }
+    const [updated] = await this.db
+      .update(runners)
+      .set({ ...(input.tool !== undefined ? { chosenTool: input.tool } : {}), sharing: sharing as never })
+      .where(and(eq(runners.id, runner.id), eq(runners.status, 'active')))
+      .returning();
+    if (!updated) throw new NotFoundException(NOT_FOUND);
+    return this.present(updated, now);
+  }
+
   /** Remove: the owner's own Runner only. Also how a pending one is taken away. */
   async remove(workspaceId: string, userId: string, id: string, actor: { source: ChangeSource }, now = new Date()) {
     const runner = await this.ownRunner(workspaceId, userId, id);

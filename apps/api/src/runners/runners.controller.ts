@@ -4,10 +4,11 @@ import { createZodDto } from 'nestjs-zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { runnerAssignmentSchema, runnerToolChoiceSchema } from './runner.dto';
+import { runnerAssignmentSchema, runnerToolChoiceSchema, runnerUpdateSchema } from './runner.dto';
 import { GUEST_RUNNER_MESSAGE, RunnersService } from './runners.service';
 
 class RunnerToolChoiceDto extends createZodDto(runnerToolChoiceSchema) {}
+class RunnerUpdateDto extends createZodDto(runnerUpdateSchema) {}
 class RunnerAssignmentDto extends createZodDto(runnerAssignmentSchema) {}
 
 /**
@@ -81,11 +82,14 @@ export class RunnersController {
   }
 
   @Patch('runners/:id')
-  @ApiOperation({ summary: 'Change which detected tool your agents use on this Runner' })
-  setTool(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: RunnerToolChoiceDto) {
+  @ApiOperation({
+    summary:
+      'Change a Runner you own: which detected tool your agents use (tool), the hours it may claim in (working_hours: days, start, end, IANA timezone; null = any hour) and "leave me X%" (reserve_percent 1-95; null = none). Any subset. The reserve is only kept for a tool that reports plan usage: reserve_measurable says whether.',
+  })
+  update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: RunnerUpdateDto) {
     assertPerson(req, 'change a Runner');
     assertNotGuest(req);
-    return this.runners.setTool(req.membership.workspaceId, req.user.id, id, body.tool);
+    return this.runners.update(req.membership.workspaceId, req.user.id, id, body);
   }
 
   @Delete('runners/:id')

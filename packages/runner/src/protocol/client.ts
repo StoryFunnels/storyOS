@@ -48,6 +48,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Give up on the whole request after this long. The claim long poll needs more than the server's 25 s. */
   timeoutMs?: number;
+  /** What to return for a 204 (default: `undefined`). */
+  onNoContent?: (res: Response) => unknown;
 }
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -83,7 +85,17 @@ export class RunnerClient {
 
   /** The long poll. `undefined` means the server answered 204: nothing queued. */
   async claim(body: ClaimRequest, opts?: RequestOptions): Promise<ClaimResponse | undefined> {
-    const res = await this.post<ClaimResponse | undefined>('/claim', body, true, { timeoutMs: 45_000, ...opts });
+    const res = await this.post<ClaimResponse | undefined>('/claim', body, true, {
+      timeoutMs: 45_000,
+      ...opts,
+      // A 204 has no body; the server's "not now, and until when" rides on two headers (ticket #1137).
+      onNoContent: (r) => {
+        const reason = r.headers.get('x-runner-hold-reason');
+        if (!reason) return undefined;
+        const resumes = r.headers.get('x-runner-resumes-at');
+        return { wakes: [], hold: { reason, ...(resumes ? { resumes_at: resumes } : {}) } };
+      },
+    });
     return res && Array.isArray(res.wakes) ? res : undefined;
   }
 
@@ -115,7 +127,7 @@ export class RunnerClient {
       if (opts.signal?.aborted) throw e;
       throw new NetworkError(networkMessage(e), e);
     }
-    if (res.status === 204) return undefined as T;
+    if (res.status === 204) return (opts.onNoContent ? opts.onNoContent(res) : undefined) as T;
     let text: string;
     try {
       text = await res.text();

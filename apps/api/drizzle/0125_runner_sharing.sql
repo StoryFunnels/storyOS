@@ -1,0 +1,1 @@
+ALTER TABLE "runners" ADD COLUMN "sharing" jsonb DEFAULT '{}'::jsonb NOT NULL;

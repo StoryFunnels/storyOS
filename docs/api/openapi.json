@@ -10798,7 +10798,7 @@
     },
     "/api/v1/workspaces/{ws}/runners/{id}": {
       "patch": {
-        "operationId": "RunnersController_setTool",
+        "operationId": "RunnersController_update",
         "parameters": [
           {
             "name": "id",
@@ -10814,7 +10814,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RunnerToolChoiceDto"
+                "$ref": "#/components/schemas/RunnerUpdateDto"
               }
             }
           }
@@ -10829,7 +10829,7 @@
             "bearer": []
           }
         ],
-        "summary": "Change which detected tool your agents use on this Runner",
+        "summary": "Change a Runner you own: which detected tool your agents use (tool), the hours it may claim in (working_hours: days, start, end, IANA timezone; null = any hour) and \"leave me X%\" (reserve_percent 1-95; null = none). Any subset. The reserve is only kept for a tool that reports plan usage: reserve_measurable says whether.",
         "tags": [
           "runners"
         ]
@@ -20139,6 +20139,64 @@
         "required": [
           "tool"
         ]
+      },
+      "RunnerUpdateDto": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "working_hours": {
+            "type": "object",
+            "properties": {
+              "days": {
+                "minItems": 1,
+                "maxItems": 7,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ]
+                }
+              },
+              "start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "days",
+              "start",
+              "end",
+              "timezone"
+            ],
+            "nullable": true
+          },
+          "reserve_percent": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 95,
+            "nullable": true
+          }
+        }
       },
       "RunnerAssignmentDto": {
         "type": "object",

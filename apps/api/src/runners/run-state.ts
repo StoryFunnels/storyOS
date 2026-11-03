@@ -1,5 +1,6 @@
 import { offlineSince, runnerConnection } from './runner-present';
 import type { RunnerRow } from './runner-present';
+import { holdsFor } from './runner-sharing';
 import type { WakeStatus } from './wake.constants';
 
 /**
@@ -15,6 +16,8 @@ export type RunStateName =
   | 'waiting_for_runner'
   | 'runner_offline'
   | 'waiting_for_limit'
+  | 'waiting_for_hours'
+  | 'waiting_for_reserve'
   | 'waiting_for_turn';
 
 export interface RunState {
@@ -65,6 +68,12 @@ export function deriveRunState(i: RunStateInput): RunState {
   if (pausedMs || heldMs) {
     return { state: 'waiting_for_limit', until: new Date(Math.max(pausedMs, heldMs)).toISOString(), ...(r.chosenTool ? { tool: r.chosenTool } : {}), runner_name: r.name };
   }
+  // ticket #1137: the person's own rules. Working hours name when the window opens; a reserve names when the tool says it resets (or nothing).
+  const holds = holdsFor(r, i.now);
+  const hours = holds.find((h) => h.reason === 'working_hours');
+  if (hours) return { state: 'waiting_for_hours', until: hours.resumes_at!.toISOString(), runner_name: r.name };
+  const reserve = holds.find((h) => h.reason === 'reserve');
+  if (reserve) return { state: 'waiting_for_reserve', ...(reserve.resumes_at ? { until: reserve.resumes_at.toISOString() } : {}), ...(r.chosenTool ? { tool: r.chosenTool } : {}), runner_name: r.name };
   if (i.agentBusy) return { state: 'waiting_for_turn', runner_name: r.name };
   return { state: 'waiting_for_runner', runner_name: r.name };
 }
