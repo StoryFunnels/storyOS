@@ -14739,10 +14739,14 @@
                   "every": {
                     "type": "string",
                     "enum": [
+                      "minutes",
                       "hour",
                       "day",
                       "week"
                     ]
+                  },
+                  "minutes": {
+                    "type": "number"
                   },
                   "at": {
                     "type": "string",
@@ -14752,6 +14756,36 @@
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 6
+                  },
+                  "weekdays": {
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    }
+                  },
+                  "between": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "to": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "to"
+                    ]
+                  },
+                  "timezone": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -15461,10 +15495,14 @@
                   "every": {
                     "type": "string",
                     "enum": [
+                      "minutes",
                       "hour",
                       "day",
                       "week"
                     ]
+                  },
+                  "minutes": {
+                    "type": "number"
                   },
                   "at": {
                     "type": "string",
@@ -15474,6 +15512,36 @@
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 6
+                  },
+                  "weekdays": {
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    }
+                  },
+                  "between": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "to": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "to"
+                    ]
+                  },
+                  "timezone": {
+                    "type": "string"
                   }
                 },
                 "required": [

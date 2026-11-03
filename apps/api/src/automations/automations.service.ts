@@ -24,6 +24,15 @@ import type { ProjectedRecord } from '../records/records.service';
 import type { SortSpec } from '../records/query-compiler';
 import { sortExpr } from '../records/query-compiler';
 import { systemFieldDefsFor } from '@storyos/schemas';
+import {
+  isInScheduleWindow,
+  latestScheduleSlot,
+  nextScheduleSlot,
+  scheduleProblems,
+  scheduleRunsPerDay,
+  serverTimeZone,
+  type ScheduleTrigger,
+} from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
@@ -44,7 +53,12 @@ interface Trigger {
   relation_field_id?: string;
   /** #270 — a record_linked trigger may fire on only 'link' or only 'unlink'. */
   direction?: 'link' | 'unlink';
-  every?: 'hour' | 'day' | 'week';
+  every?: 'minutes' | 'hour' | 'day' | 'week';
+  /** #1194 — every: 'minutes' only (floor 10), weekdays set, active window, IANA zone. See packages/schemas/src/schedule.ts. */
+  minutes?: number;
+  weekdays?: number[];
+  between?: { from: string; to: string };
+  timezone?: string;
   at?: string;
   weekday?: number;
 }
@@ -156,7 +170,18 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
   /** Read shape: secret send_webhook header values become the presence flag (#249). */
   private present<R extends { actions: unknown }>(rule: R): R {
-    return { ...rule, actions: presentActionHeaders(rule.actions) };
+    const out = { ...rule, actions: presentActionHeaders(rule.actions) } as R & { schedule?: unknown };
+    const trigger = (rule as { trigger?: Trigger }).trigger;
+    if (trigger?.type === 'schedule') {
+      // #1194 — which zone the rule's times are read in (a rule saved without one keeps the server's), and the cost the hire card shows
+      const t = trigger as ScheduleTrigger;
+      out.schedule = {
+        timezone: t.timezone ?? serverTimeZone(),
+        timezone_source: t.timezone ? 'rule' : 'server_default',
+        runs_per_day: scheduleRunsPerDay(t),
+      };
+    }
+    return out;
   }
 
   async create(
@@ -190,6 +215,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     if (input.condition) {
       await this.assertConditionCompiles(await this.conditionDbFor(databaseId, input.trigger), input.condition, actorId);
     }
+    this.assertScheduleValid(input.trigger);
     this.assertTopNAllowed(input.trigger.type, input.sort, input.limit);
     if (input.sort) validateSorts(input.sort, await this.sortableDefsFor(databaseId));
     const [rule] = await this.db
@@ -232,6 +258,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   ) {
     const rule = await this.getRule(databaseId, ruleId);
     const trigger = (patch.trigger ?? rule.trigger) as Trigger;
+    if (patch.trigger) this.assertScheduleValid(patch.trigger); // #1194: only a trigger the caller is writing now; a stored one is not re-judged
     // Resolve write-only header presence flags against the stored actions so editing
     // an unrelated part of the rule can't clobber a secret webhook header (#249).
     const actions = patch.actions ? restoreActionHeaders(patch.actions, rule.actions) : undefined;
@@ -1042,28 +1069,23 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   // --- schedules ---
 
   nextDue(trigger: Trigger, from = new Date()): Date {
-    const due = new Date(from);
-    if (trigger.every === 'hour') {
-      due.setMinutes(0, 0, 0);
-      due.setHours(due.getHours() + 1);
-      return due;
-    }
-    const [h, m] = (trigger.at ?? '09:00').split(':').map(Number);
-    due.setHours(h!, m!, 0, 0);
-    if (trigger.every === 'day') {
-      if (due <= from) due.setDate(due.getDate() + 1);
-      return due;
-    }
-    // weekly
-    const targetDay = trigger.weekday ?? 1;
-    while (due.getDay() !== targetDay || due <= from) due.setDate(due.getDate() + 1);
-    return due;
+    return nextScheduleSlot(trigger as ScheduleTrigger, from);
+  }
+
+  /**
+   * #1194 — the trigger's schedule problems as a 422. ONE check for every way a rule is written: the controller's zod schema runs
+   * the same function, and a pack install or a manifest import reaches the rule through create()/update(), never the controller.
+   */
+  private assertScheduleValid(trigger: Trigger): void {
+    if (trigger.type !== 'schedule') return;
+    const problems = scheduleProblems(trigger as ScheduleTrigger);
+    if (problems.length > 0) throw new UnprocessableEntityException(problems.join(' '));
   }
 
   /** One scheduler pass — public so tests can invoke it directly. */
-  async tick(): Promise<void> {
+  async tick(now: Date = new Date()): Promise<void> {
     try {
-      await this.tickInner();
+      await this.tickInner(now);
     } catch (err) {
       /**
        * A transient DB blip here must NEVER take the whole process down with it.
@@ -1076,7 +1098,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async tickInner(): Promise<void> {
+  private async tickInner(now: Date): Promise<void> {
     // MN-255: expire pending approvals nobody decided on within 7 days —
     // piggybacks this tick rather than owning a second timer, same as
     // JobRunnerService's reaper piggybacks its own tick().
@@ -1087,7 +1109,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       where: and(
         eq(automations.enabled, true),
         isNotNull(automations.nextDueAt),
-        lte(automations.nextDueAt, new Date()),
+        lte(automations.nextDueAt, now),
       ),
       limit: 20,
     });
@@ -1099,13 +1121,23 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       // #1175 — claim THIS firing: advance nextDueAt only if it is still the slot we read. A second tick that read the same due
       // row before this one advanced it (another replica, an overlapping tick, the lock released in between) matches no row and
       // skips, so one slot fires once. `firedFor` is that slot, the same for every record and every retry of this firing.
-      const firedFor = rule.nextDueAt!;
+      const dueSlot = rule.nextDueAt!;
+      // #1194 — offline misses coalesce: however many slots went by while nothing was ticking, this is ONE firing, keyed to the LATEST
+      // missed slot (a rule with no #1194 keys keeps the oldest-slot key it always had), and the next slot is the first one after NOW.
+      // A window rule that recovers outside its window fires nothing: no catch-up outside the window.
+      const sched = trigger as ScheduleTrigger;
+      const firedFor = latestScheduleSlot(sched, now) ?? dueSlot;
+      const skipOutsideWindow = !isInScheduleWindow(sched, now);
       const claimed = await this.db
         .update(automations)
-        .set({ nextDueAt: this.nextDue(trigger) })
-        .where(and(eq(automations.id, rule.id), eq(automations.nextDueAt, firedFor)))
+        .set({ nextDueAt: this.nextDue(trigger, now) })
+        .where(and(eq(automations.id, rule.id), eq(automations.nextDueAt, dueSlot)))
         .returning({ id: automations.id });
       if (claimed.length === 0) continue;
+      if (skipOutsideWindow) {
+        this.logger.log(`schedule ${rule.id}: recovered outside its active window; no catch-up firing`);
+        continue;
+      }
 
       const database = await this.db.query.databases.findFirst({
         where: eq(databases.id, rule.databaseId),

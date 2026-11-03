@@ -8744,7 +8744,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         '{type:"record_created"} · {type:"record_updated", field?:"<name>"} · ' +
         // #297: `direction` shipped in #270 but was undocumented AND silently dropped.
         '{type:"record_linked", relation_field:"<name>", direction?:"link"|"unlink"} (omit direction to fire on both) · ' +
-        '{type:"schedule", every:"hour"|"day"|"week", at?:"HH:MM", weekday?:0-6} · {type:"webhook_received"}. ' +
+        '{type:"schedule", every:"minutes"|"hour"|"day"|"week", minutes?:10-1440 (every:"minutes" only; BELOW 10 is refused), at?:"HH:MM", weekday?:0-6 (weekly), weekdays?:[0-6,...] (0=Sunday; Mon-Fri = [1,2,3,4,5]; not with weekly), between?:{from:"HH:MM",to:"HH:MM"} (an active window, minutes/hourly only; to is exclusive; from after to spans midnight and belongs to the day it starts), timezone?:"<IANA zone, e.g. Europe/Madrid>"} ' +
+        '(every weekday at 9:00 = {every:"day", at:"09:00", weekdays:[1,2,3,4,5]}; every 15 minutes between 9 and 18 = {every:"minutes", minutes:15, between:{from:"09:00",to:"18:00"}}; ' +
+        'times, window and weekdays are read in `timezone`, DST included; a rule with no timezone uses the server\'s zone and the response says so in `schedule`; the response also carries `schedule.runs_per_day`. ' +
+        'Slots missed while nothing was ticking collapse into ONE firing, and a window rule that recovers outside its window does not fire) · {type:"webhook_received"}. ' +
         'ACTIONS (array): set_values{values} · create_record{database, values, link_via_relation_field?} · ' +
         // #246 + #297: create_records was reachable but undocumented, and its target db needed a raw uuid.
         'create_records{database, count, values, link_via_relation_field?} — batch-create `count` records, where count is a number ' +

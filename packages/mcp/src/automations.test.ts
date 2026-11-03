@@ -99,6 +99,14 @@ describe('buildAutomationTrigger (#334)', () => {
     });
   });
 
+  it('#1194 builds minutes / weekdays / window / timezone verbatim and refuses below the 10-minute floor', () => {
+    const t = { type: 'schedule', every: 'minutes', minutes: 15, weekdays: [1, 2, 3, 4, 5], between: { from: '09:00', to: '18:00' }, timezone: 'Europe/Madrid' };
+    expect(buildAutomationTrigger(t as never, detail)).toEqual(t);
+    expect(buildAutomationTrigger({ type: 'schedule', every: 'minutes', minutes: 10 }, detail)).toEqual({ type: 'schedule', every: 'minutes', minutes: 10 });
+    expect(() => buildAutomationTrigger({ type: 'schedule', every: 'minutes', minutes: 9 }, detail)).toThrow(/at most every 10 minutes/);
+    expect(() => buildAutomationTrigger({ type: 'schedule', every: 'minutes' }, detail)).toThrow(/needs "minutes"/);
+  });
+
   it('throws a structured error naming the type set on an unknown trigger', () => {
     expect(() => buildAutomationTrigger({ type: 'nope' } as never, detail)).toThrow(/Unknown trigger type "nope"/);
   });
