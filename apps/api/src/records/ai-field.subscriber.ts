@@ -11,6 +11,9 @@ import { JobRunnerService } from '../automations/job-runner.service';
 import type { JobHelpers } from '../automations/job-runner.service';
 import { defaultManagedAiClient } from '../agents/managed-ai-client';
 import type { ManagedAiClient } from '../agents/managed-ai-client';
+import { currentEventOrigin } from '../common/credential-context';
+import type { EventOrigin } from '../common/credential-context';
+import { logAgentOriginOutward } from '../activity/agent-origin-log';
 import { renderAiPrompt } from './ai-field-prompt';
 import { choiceInstruction, matchChoice } from './ai-field-choice';
 import { pendingAtKey } from './ai-field-state';
@@ -22,6 +25,11 @@ interface AiFieldRecomputePayload {
   fieldId: string;
   /** The `pending_at` this job's enqueue wrote (#925). It clears the marker only if it is still THIS value, so a job that started before a newer edit cannot clear the newer edit's marker. */
   pendingAt?: string;
+  /**
+   * #1179 — the agent and Runner run whose write caused this recompute (ADR-0021 §7). `ctx.origin` is where the job runner looks: it makes
+   * it ambient again around `recompute`, which is how the log row below names the agent. Absent when a person (or an automation) wrote.
+   */
+  ctx?: { origin: EventOrigin };
 }
 
 /** Suffixed sibling keys on `computed_values`, alongside the field's own
@@ -102,6 +110,7 @@ export class AiFieldSubscriber implements OnModuleInit {
         recordId: event.recordId,
         fieldId: field.id,
         pendingAt,
+        ...(event.origin ? { ctx: { origin: event.origin } } : {}),
       };
       // Not deduped against a prior recompute of the same record+field on
       // purpose — DomainEventsService fires exactly once per write, so each
@@ -169,6 +178,19 @@ export class AiFieldSubscriber implements OnModuleInit {
       displayToApi,
     );
 
+    // #1179 — the model is the workspace's OWN configured AI, not an outsider, so an agent's write recomputes as configured; the call (the
+    // record's prompt values go to the vendor, so it is logged BEFORE the call, whether or not the call succeeds) is LOGGED with the agent and the run. The result is written below WITHOUT a domain
+    // event: an AI field's value never wakes an agent or fires a rule, so agent write -> AI field -> agent wake cannot loop. If that
+    // write ever emits, the event carries this same ambient origin, and the run depth applies (ai-field-agent-origin test pins both).
+    if (currentEventOrigin()) {
+      await logAgentOriginOutward(this.db, {
+        workspaceId: payload.workspaceId,
+        recordId: payload.recordId,
+        recordTitle: record.title,
+        channel: 'ai_field',
+        summary: `Recomputed the AI field "${field.displayName}" (sent the record's prompt values to the workspace's AI)`,
+      }).catch((error: unknown) => this.logger.warn(`ai field: could not log the agent origin: ${String(error)}`));
+    }
     let text: string;
     try {
       // #1109 — an AI field's value is a bare string, so ask for a plain answer. The client's default is JSON mode, which OpenAI

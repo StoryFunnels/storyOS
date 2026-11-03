@@ -170,7 +170,7 @@ class LinearConfigDto extends createZodDto(
       .object({ enabled: z.boolean().optional(), interval_minutes: z.number().int().min(15).max(1440).optional() })
       .optional(),
     /** #907 — push StoryOS comments on mirrored records to Linear (needs a key that can write comments). Off by default. */
-    write_back: z.object({ enabled: z.boolean().optional() }).optional(),
+    write_back: z.object({ enabled: z.boolean().optional(), /** #1179 — hold a comment an agent wrote for a person's approval before it goes to Linear. Off by default. */ require_approval_for_agent_comments: z.boolean().optional() }).optional(),
   }),
 ) {}
 

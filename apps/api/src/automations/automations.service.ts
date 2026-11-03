@@ -829,6 +829,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     presetRunId?: string,
     /** #1174 / ADR-0021 §7 — the agent run whose write caused this event: its OUTWARD actions are held for a person. */
     origin?: EventOrigin | null,
+    /** #1175 — present only for a scheduled firing: the slot it fired for (the rule's nextDueAt, ISO). */
+    schedule?: { firedFor: string },
   ) {
     const started = Date.now();
     // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
@@ -951,6 +953,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
           changedRelationDirection: linkInfo?.direction ?? null,
           changesSummary,
           origin: origin ?? null,
+          ...(schedule ? { schedule } : {}),
         }),
       );
       await this.db
@@ -1089,92 +1092,95 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       limit: 20,
     });
     for (const rule of due) {
-      // Advisory lock: safe if multiple replicas tick simultaneously.
-      const lockResult = (await this.db.execute(
-        sql`SELECT pg_try_advisory_lock(hashtext(${rule.id})) AS locked`,
-      )) as unknown as { rows?: Array<{ locked: boolean }> };
-      if (!lockResult.rows?.[0]?.locked) continue;
-      try {
-        const trigger = rule.trigger as Trigger;
-        await this.db
-          .update(automations)
-          .set({ nextDueAt: this.nextDue(trigger) })
-          .where(eq(automations.id, rule.id));
+      // #1175 — no session advisory lock here any more: on a connection POOL the lock and its unlock land on different connections,
+      // so the lock leaked and a rule stopped firing (found in the test below: a second slot never ran). The claim below is the
+      // guard, and it is atomic across replicas.
+      const trigger = rule.trigger as Trigger;
+      // #1175 — claim THIS firing: advance nextDueAt only if it is still the slot we read. A second tick that read the same due
+      // row before this one advanced it (another replica, an overlapping tick, the lock released in between) matches no row and
+      // skips, so one slot fires once. `firedFor` is that slot, the same for every record and every retry of this firing.
+      const firedFor = rule.nextDueAt!;
+      const claimed = await this.db
+        .update(automations)
+        .set({ nextDueAt: this.nextDue(trigger) })
+        .where(and(eq(automations.id, rule.id), eq(automations.nextDueAt, firedFor)))
+        .returning({ id: automations.id });
+      if (claimed.length === 0) continue;
 
-        const database = await this.db.query.databases.findFirst({
-          where: eq(databases.id, rule.databaseId),
-        });
-        if (!database) continue;
-        // The condition IS the selection for scheduled rules; #392's sort +
-        // limit narrow and order that same selection into a top-N leaderboard.
-        const defs = await this.recordsService.fieldDefs(rule.databaseId);
-        const byApiName = new Map(defs.map((d) => [d.api_name, d]));
-        for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
-        const where = rule.condition
-          ? compileFilter(rule.condition as FilterNode, {
-              defs: byApiName,
-              currentUserId: rule.createdBy ?? '',
-            })
-          : undefined;
+      const database = await this.db.query.databases.findFirst({
+        where: eq(databases.id, rule.databaseId),
+      });
+      if (!database) continue;
+      // The condition IS the selection for scheduled rules; #392's sort +
+      // limit narrow and order that same selection into a top-N leaderboard.
+      const defs = await this.recordsService.fieldDefs(rule.databaseId);
+      const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+      for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+      const where = rule.condition
+        ? compileFilter(rule.condition as FilterNode, {
+            defs: byApiName,
+            currentUserId: rule.createdBy ?? '',
+          })
+        : undefined;
 
-        const ruleSort = rule.sort as Array<{ field: string; direction: 'asc' | 'desc' }> | null;
-        let orderBy: SQL[] | undefined;
-        if (ruleSort && ruleSort.length > 0) {
-          try {
-            const sorts: SortSpec[] = validateSorts(ruleSort, byApiName);
-            // #392 — deterministic tiebreak: record id, ascending, same tail
-            // RecordsService.query()'s own cursor sort already uses. Nulls
-            // land last regardless of direction, reusing query.ts's existing
-            // NULLS LAST default rather than inventing a leaderboard-specific
-            // nulls rule.
-            orderBy = [
-              ...sorts.map((s) =>
-                s.direction === 'asc' ? sql`${sortExpr(s.def)} ASC NULLS LAST` : sql`${sortExpr(s.def)} DESC NULLS LAST`,
-              ),
-              asc(records.id),
-            ];
-          } catch (error) {
-            // #392 — a renamed/deleted/retyped sort field fails LOUDLY: an
-            // explicit errored run naming the field, never a silent reorder
-            // or a silent no-op. Nothing is selected for this rule this tick.
-            await this.logRun(
-              rule.id,
-              database.workspaceId,
-              null,
-              'error',
-              (error as Error).message,
-              null,
-              0,
-              0,
-            );
-            continue;
-          }
-        }
-
-        const baseWhere = and(eq(records.databaseId, rule.databaseId), isNull(records.deletedAt), where);
-        const limit = orderBy ? (rule.topNLimit ?? 500) : 500;
-        const targets = orderBy
-          ? await this.db.select({ id: records.id }).from(records).where(baseWhere).orderBy(...orderBy).limit(limit)
-          : await this.db.select({ id: records.id }).from(records).where(baseWhere).limit(limit);
-        // The 500-truncation warning only applies to the legacy unsorted path
-        // — hitting a user-CHOSEN top-N limit is the rule working as intended,
-        // not a truncation.
-        if (!orderBy && targets.length === 500)
-          this.logger.warn(`schedule ${rule.id}: truncated at 500 records`);
-        for (const [index, target] of targets.entries()) {
-          await this.runRule(
+      const ruleSort = rule.sort as Array<{ field: string; direction: 'asc' | 'desc' }> | null;
+      let orderBy: SQL[] | undefined;
+      if (ruleSort && ruleSort.length > 0) {
+        try {
+          const sorts: SortSpec[] = validateSorts(ruleSort, byApiName);
+          // #392 — deterministic tiebreak: record id, ascending, same tail
+          // RecordsService.query()'s own cursor sort already uses. Nulls
+          // land last regardless of direction, reusing query.ts's existing
+          // NULLS LAST default rather than inventing a leaderboard-specific
+          // nulls rule.
+          orderBy = [
+            ...sorts.map((s) =>
+              s.direction === 'asc' ? sql`${sortExpr(s.def)} ASC NULLS LAST` : sql`${sortExpr(s.def)} DESC NULLS LAST`,
+            ),
+            asc(records.id),
+          ];
+        } catch (error) {
+          // #392 — a renamed/deleted/retyped sort field fails LOUDLY: an
+          // explicit errored run naming the field, never a silent reorder
+          // or a silent no-op. Nothing is selected for this rule this tick.
+          await this.logRun(
             rule.id,
             database.workspaceId,
-            rule.databaseId,
-            target.id,
+            null,
+            'error',
+            (error as Error).message,
+            null,
             0,
-            undefined,
-            undefined,
-            orderBy ? index + 1 : undefined,
+            0,
           );
+          continue;
         }
-      } finally {
-        await this.db.execute(sql`SELECT pg_advisory_unlock(hashtext(${rule.id}))`);
+      }
+
+      const baseWhere = and(eq(records.databaseId, rule.databaseId), isNull(records.deletedAt), where);
+      const limit = orderBy ? (rule.topNLimit ?? 500) : 500;
+      const targets = orderBy
+        ? await this.db.select({ id: records.id }).from(records).where(baseWhere).orderBy(...orderBy).limit(limit)
+        : await this.db.select({ id: records.id }).from(records).where(baseWhere).limit(limit);
+      // The 500-truncation warning only applies to the legacy unsorted path
+      // — hitting a user-CHOSEN top-N limit is the rule working as intended,
+      // not a truncation.
+      if (!orderBy && targets.length === 500)
+        this.logger.warn(`schedule ${rule.id}: truncated at 500 records`);
+      for (const [index, target] of targets.entries()) {
+        await this.runRule(
+          rule.id,
+          database.workspaceId,
+          rule.databaseId,
+          target.id,
+          0,
+          undefined,
+          undefined,
+          orderBy ? index + 1 : undefined,
+          undefined,
+          undefined,
+          { firedFor: firedFor.toISOString() },
+        );
       }
     }
     // Retention (MN-264): 90 days, up from the original 30 — the Runs page is

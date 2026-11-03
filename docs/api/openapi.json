@@ -16558,6 +16558,9 @@
             "properties": {
               "enabled": {
                 "type": "boolean"
+              },
+              "require_approval_for_agent_comments": {
+                "type": "boolean"
               }
             }
           }

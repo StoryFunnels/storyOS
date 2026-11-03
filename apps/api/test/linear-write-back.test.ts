@@ -104,7 +104,7 @@ describe('#907 write-back', () => {
     await wb.tick();
     expect(sent).toHaveLength(0);
     const cfg = await inject('GET', `/workspaces/${ws}/integrations/linear`);
-    expect(cfg.json().write_back).toEqual({ enabled: false, pending: 0, failed: 0, last_error: null });
+    expect(cfg.json().write_back).toEqual({ enabled: false, require_approval_for_agent_comments: false, pending: 0, failed: 0, last_error: null }); // #1179 added the approval flag, off by default
     expect(cfg.body, 'the key is never returned').not.toContain(KEY);
   });
 

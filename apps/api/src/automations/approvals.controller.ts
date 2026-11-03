@@ -1,4 +1,5 @@
-import { Body, Controller, ForbiddenException, Get, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, NotFoundException, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -53,17 +54,22 @@ export class ApprovalsController {
   @Post(':id/approve')
   @RequiresScope('admin')
   @ApiOperation({ summary: "Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only)" })
-  async approve(@Req() req: WorkspaceRequest, @Param('id') id: string) {
+  async approve(@Req() req: WorkspaceRequest, @Param('id') id: string, @Res({ passthrough: true }) res: FastifyReply) {
     await this.assertHuman(req, id);
-    return this.approvals.approve(req.membership.workspaceId, id, req.user.id);
+    const result = await this.approvals.approve(req.membership.workspaceId, id, req.user.id);
+    // #1179 — a repeat decision changed nothing: 200 and `already_decided`, never the 201 of "created"
+    if (result.already_decided) void res.status(200);
+    return result;
   }
 
   @Post(':id/reject')
   @RequiresScope('admin')
   @ApiOperation({ summary: 'Reject a pending approval — the gated action never runs (human-only)' })
-  async reject(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: RejectApprovalDto) {
+  async reject(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: RejectApprovalDto, @Res({ passthrough: true }) res: FastifyReply) {
     await this.assertHuman(req, id);
-    return this.approvals.reject(req.membership.workspaceId, id, req.user.id, body.reason);
+    const result = await this.approvals.reject(req.membership.workspaceId, id, req.user.id, body.reason);
+    if (result.already_decided) void res.status(200);
+    return result;
   }
 
   private async assertHuman(req: WorkspaceRequest, id: string): Promise<void> {

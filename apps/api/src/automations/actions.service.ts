@@ -109,6 +109,8 @@ export interface ActionContext {
    * in every job payload and approval snapshot so it survives the queue. Absent for a person's event.
    */
   origin?: EventOrigin | null;
+  /** ticket #1175: set only for a scheduled rule's firing; `firedFor` is the slot (the rule's nextDueAt) it fired for. */
+  schedule?: { firedFor: string };
   /** Loop-guard depth for automation-caused writes (MN-047). */
   depth?: number;
   /** MN-254: the inbound webhook body, addressable via {payload.a.b.0} tokens. */
@@ -1147,6 +1149,8 @@ export class AutomationActionsService implements OnModuleInit {
               depth: ctx.depth ?? 0,
               // #1174 — the agent run behind this event, so it survives the queue and a retry (see job-runner.service.ts).
               ...(ctx.origin ? { origin: ctx.origin } : {}),
+              // #1175 — which firing of which rule's action this job is, so a run_agent wake is keyed per firing, not per record.
+              ...(ctx.schedule && ctx.ruleId ? { schedule: { ruleId: ctx.ruleId, firedFor: ctx.schedule.firedFor, actionIndex } } : {}),
             },
           },
           idempotencyKey,

@@ -25,10 +25,29 @@ import {
 import { ConnectionsService } from '../connections/connections.service';
 import type { GoogleAuth } from '../connections/providers';
 import { DomainEventsService } from '../events/domain-events.service';
+import { currentEventOrigin, runWithEventOrigin } from '../common/credential-context';
+import { logAgentOriginOutward } from '../activity/agent-origin-log';
 import type { DomainEvent } from '../events/domain-events.service';
 import { RecordsService } from '../records/records.service';
 
 const API = 'https://www.googleapis.com/calendar/v3';
+
+/**
+ * #1179 / ADR-0021 §7 — the one thing in a calendar push that could reach an OUTSIDER: guests. Google mails an invitation to every
+ * `attendees` entry, so an event that carried guests taken from a record field would let an agent's write invite anyone. Today the body
+ * never carries them (summary, description, dates, our own marker), so an agent-caused push goes to the admin's calendar and is only
+ * logged. This is the tripwire for the day that changes: a body with a guest list is refused outright, for EVERY cause, until the
+ * invitation is staged for approval like an email to a non-member. Do not delete it to make a feature work: build the hold.
+ */
+export const CALENDAR_INVITE_KEYS = ['attendees', 'guestsCanInviteOthers', 'conferenceData'] as const;
+export function assertNoInvitees(body: Record<string, unknown>): void {
+  const present = CALENDAR_INVITE_KEYS.filter((k) => body[k] !== undefined);
+  if (present.length) {
+    throw new UnprocessableEntityException(
+      `A calendar push may not carry ${present.join(', ')}: invitations to people outside the workspace need an approval (ticket #1179)`,
+    );
+  }
+}
 const INBOUND_SYNC_DEPTH = 100;
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -84,7 +103,8 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
         event.type === 'record_updated' ||
         event.type === 'record_deleted'
       ) {
-        void this.handleRecordEvent(event).catch((error) => {
+        // #1179 — run under the event's own origin, so the push below knows an agent caused it (a timer-run retry has no request to ask)
+        void runWithEventOrigin(event.origin, () => this.handleRecordEvent(event)).catch((error) => {
           this.logger.warn(
             `calendar sync failed for record ${event.recordId}: ${
               error instanceof Error ? error.message : String(error)
@@ -508,6 +528,7 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
         },
       },
     };
+    assertNoInvitees(event);
     const contentHash = createHash('sha256').update(JSON.stringify(event)).digest('hex');
     if (existing?.contentHash === contentHash) return 'skipped';
 
@@ -522,6 +543,7 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
       body: JSON.stringify(event),
     });
     if (!result.id) throw new UnprocessableEntityException('Google returned no event id');
+    await this.logAgentCaused(binding, row.id, row.title, `${existing ? 'Updated' : 'Created'} the Google Calendar event "${event.summary}" on ${binding.calendarName ?? binding.calendarId}`);
     const externalUpdatedAt = result.updated ? new Date(result.updated) : null;
     await this.db
       .insert(calendarEventLinks)
@@ -573,6 +595,7 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
         `Google Calendar delete failed (HTTP ${response.status})`,
       );
     }
+    await this.logAgentCaused(binding, recordId, null, `Deleted a Google Calendar event on ${binding.calendarName ?? binding.calendarId}`);
     await this.db
       .delete(calendarEventLinks)
       .where(
@@ -581,6 +604,17 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
           eq(calendarEventLinks.recordId, recordId),
         ),
       );
+  }
+
+  /**
+   * #1179 — the bound calendar is the one an admin picked, so an agent's write runs as configured; it is LOGGED with the agent and the
+   * run (ADR-0021 §7, the same rule as the Slack mirror). Nothing when a person caused the write. Never fails the push it describes.
+   */
+  private async logAgentCaused(binding: Binding, recordId: string, title: string | null, summary: string): Promise<void> {
+    if (!currentEventOrigin()) return;
+    await logAgentOriginOutward(this.db, { workspaceId: binding.workspaceId, recordId, recordTitle: title, channel: 'calendar_sync', summary }).catch((error: unknown) =>
+      this.logger.warn(`calendar sync: could not log the agent origin: ${String(error)}`),
+    );
   }
 
   private async calendarAuth(workspaceId: string, connectionId: string) {
