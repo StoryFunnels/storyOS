@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
@@ -46,9 +47,10 @@ export class WorkspaceTemplatesController {
     return this.templates.apply(req.membership, slug, req.user.id, body);
   }
 
+  @HoldsAgentDeletes('sample_data')
   @Delete('sample-data')
   @ApiOperation({ summary: 'Remove exactly the sample records templates created' })
   removeSamples(@Req() req: WorkspaceRequest) {
-    return this.templates.removeSampleData(req.membership.workspaceId);
+    return this.templates.removeSampleData(req.membership.workspaceId, req.user.id);
   }
 }

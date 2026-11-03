@@ -25,6 +25,7 @@ function makeService(opts: {
     null as never, // recordsService — unused
     connectionsService,
     null as never, // notifications — unused
+    null as never, // agentDeletes — unused (#1178)
   );
   const calls: string[] = [];
   const fetcher: ConnectionFetcher = async (url) => {

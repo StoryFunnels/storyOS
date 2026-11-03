@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -106,6 +107,7 @@ export class SpaceViewsController {
    * undeletable by ANY route: the per-database delete matches on `database_id`,
    * which is NULL for these.
    */
+  @HoldsAgentDeletes('space_view')
   @Delete('views/:view')
   @ApiOperation({ summary: 'Delete a space-level view (#383)' })
   async remove(@Req() req: WorkspaceRequest, @Param('view') view: string) {

@@ -4,6 +4,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { call } from './members';
 import { requiredTokenScope } from '../../src/auth/auth.guard';
 import { NO_RUN_CREDENTIAL_KEY, RUN_BUTTON_KEY, SESSION_ONLY_KEY } from '../../src/auth/token-scope.guard';
+import { HOLDS_AGENT_DELETES_KEY } from '../../src/action-gates/agent-delete-route';
 
 /**
  * Shared by the restricted-resource sweeps (ticket #1098, ticket #1101): the LIVE route table, and the one comparison they make.
@@ -42,6 +43,8 @@ export interface AuditRoute extends SweepRoute {
   sessionOnly: boolean;
   noRunCredential: boolean;
   runButton: boolean;
+  /** #1178 — the `@HoldsAgentDeletes(kind)` on the handler, or null. */
+  holdsAgentDeletes: string | null;
   requiredScope: 'read' | 'write' | 'admin';
 }
 
@@ -70,6 +73,7 @@ export function liveRoutes(app: NestFastifyApplication): AuditRoute[] {
           sessionOnly: !!reflector.getAllAndOverride(SESSION_ONLY_KEY, targets),
           noRunCredential: !!reflector.getAllAndOverride(NO_RUN_CREDENTIAL_KEY, targets),
           runButton: !!reflector.getAllAndOverride(RUN_BUTTON_KEY, targets),
+          holdsAgentDeletes: (reflector.getAllAndOverride(HOLDS_AGENT_DELETES_KEY, targets) as string | undefined) ?? null,
           requiredScope: requiredTokenScope(reflector, targets, METHODS[method]!) as 'read' | 'write' | 'admin',
         });
       }

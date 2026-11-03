@@ -398,3 +398,43 @@ describe('7. destinations an admin fixed run as configured, and are LOGGED with 
     }
   });
 });
+
+describe('6. a decided held OUTWARD action wakes the agent that caused it (ticket #1178 follow-up, #1130 `approval_decided`)', () => {
+  const wakesOf = async (approvalId: string) =>
+    (await pool.query('select reason, status, record_id, source_key, context from agent_wakes where agent_id = $1 and source_key = $2', [w.agentId, `approval:${approvalId}`])).rows as Array<{ reason: string; status: string; record_id: string | null; context: { approval?: Record<string, unknown> } }>;
+
+  it('approve wakes the agent once with the verdict and the action kind; reject wakes it with rejected', async () => {
+    const wd = await world(() => [{ type: 'send_webhook', url: 'https://hooks.example.com/{Email}', require_approval: false }]);
+    expect((await patch(w.credential, wd, 'a@b.example')).statusCode).toBe(200);
+    await settle(wd.rec);
+    const [row] = await approvalsOf(wd.ruleId);
+    expect(await wakesOf(row!.id), 'being held is not a wake').toHaveLength(0);
+    await approve(row!.id);
+    await settle(wd.rec);
+    const woke = await wakesOf(row!.id);
+    expect(woke).toHaveLength(1);
+    expect(woke[0]).toMatchObject({ reason: 'approval_decided', status: 'queued' });
+    expect(woke[0]!.context.approval).toMatchObject({ id: row!.id, verdict: 'approved', kind: 'send_webhook' });
+
+    const wd2 = await world(() => [{ type: 'send_webhook', url: 'https://hooks.example.com/{Email}', require_approval: false }]);
+    expect((await patch(w.credential, wd2, 'c@d.example')).statusCode).toBe(200);
+    await settle(wd2.rec);
+    const [row2] = await approvalsOf(wd2.ruleId);
+    expect((await w.as(w.admin.token, 'POST', `/workspaces/${w.ws}/approvals/${row2!.id}/reject`, { reason: 'no' })).statusCode).toBeLessThan(300);
+    const rej = await wakesOf(row2!.id);
+    expect(rej).toHaveLength(1);
+    expect(rej[0]!.context.approval).toMatchObject({ verdict: 'rejected', kind: 'send_webhook', reason: 'no' });
+  });
+
+  it('CONTROL: an approval of the same action caused by a PERSON wakes nobody', async () => {
+    const wd = await world(() => [{ type: 'send_webhook', url: 'https://hooks.example.com/{Email}', require_approval: true }]);
+    const before = Number((await pool.query('select count(*)::int as n from agent_wakes where agent_id = $1', [w.agentId])).rows[0].n);
+    expect((await patch(w.admin.token, wd, 'p@q.example')).statusCode).toBe(200);
+    await settle(wd.rec);
+    const [row] = await approvalsOf(wd.ruleId);
+    expect(row, 'a person-caused action held by require_approval').toBeTruthy();
+    await approve(row!.id);
+    await settle(wd.rec);
+    expect(Number((await pool.query('select count(*)::int as n from agent_wakes where agent_id = $1', [w.agentId])).rows[0].n)).toBe(before);
+  });
+});
