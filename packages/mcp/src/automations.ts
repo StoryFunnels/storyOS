@@ -16,6 +16,8 @@
  * — never a 500.
  */
 
+import { scheduleProblems } from '@storyos/schemas/schedule-cadence';
+
 /** The subset of a field's schema these helpers need (structurally compatible with
  * tools.ts's FieldDef and the API's describe_database field shape). */
 export interface AutoField {
@@ -105,6 +107,14 @@ export interface TriggerInput {
   every?: string;
   at?: string;
   weekday?: number;
+  /** #1194 — every: "minutes" only, at least 10. */
+  minutes?: number;
+  /** #1194 — days the schedule runs on, 0 = Sunday ... 6 = Saturday (Mon-Fri = [1,2,3,4,5]). */
+  weekdays?: number[];
+  /** #1194 — active window, "HH:MM" each; `to` is exclusive; from > to spans midnight (the window belongs to the day it starts). */
+  between?: { from: string; to: string };
+  /** #1194 — IANA zone the times, window and weekdays are read in. Omit = the server's zone. */
+  timezone?: string;
 }
 
 const TRIGGER_TYPES = new Set([
@@ -173,10 +183,17 @@ export function buildAutomationTrigger(input: TriggerInput, detail: AutoDetail):
       return t;
     }
     case 'schedule': {
-      if (!input.every) throw new Error('schedule trigger needs "every" (hour | day | week).');
+      if (!input.every) throw new Error('schedule trigger needs "every" (minutes | hour | day | week).');
       const t: Record<string, unknown> = { type: 'schedule', every: input.every };
       if (input.at !== undefined) t.at = input.at;
       if (input.weekday !== undefined) t.weekday = input.weekday;
+      if (input.minutes !== undefined) t.minutes = input.minutes;
+      if (input.weekdays !== undefined) t.weekdays = input.weekdays;
+      if (input.between !== undefined) t.between = input.between;
+      if (input.timezone !== undefined) t.timezone = input.timezone;
+      // #1194 — the SAME check the API runs, so a floor breach is refused here with the API's own sentence, before a round trip.
+      const problems = scheduleProblems(t as never);
+      if (problems.length > 0) throw new Error(problems.join(' '));
       return t;
     }
     default:

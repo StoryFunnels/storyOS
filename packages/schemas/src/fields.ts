@@ -6,6 +6,7 @@ export const stateCategorySchema = z.enum(STATE_CATEGORIES);
 import { atLeastOneField } from './patch';
 import { PALETTE } from './colors';
 import { webhookUrlSchema } from './webhooks';
+import { scheduleTriggerSchema } from './schedule';
 import { AUTOMATION_TOP_N_LIMIT_CEILING, filterSchema, sortSchema } from './query';
 
 /** Field types a user can create. title/system/relation types are managed elsewhere. */
@@ -777,15 +778,7 @@ export const automationTriggerSchema = z.discriminatedUnion('type', [
      * ('unlink') through this relation field. Omit to fire on both. */
     direction: z.enum(['link', 'unlink']).optional(),
   }),
-  z.object({
-    type: z.literal('schedule'),
-    every: z.enum(['hour', 'day', 'week']),
-    at: z
-      .string()
-      .regex(/^\d{2}:\d{2}$/)
-      .optional(),
-    weekday: z.number().int().min(0).max(6).optional(),
-  }),
+  scheduleTriggerSchema, // #1194: every N minutes (floor 10) / hour / day / week + weekdays + active window + timezone
   /**
    * MN-254: an inbound URL the outside world can POST to. No config lives on
    * the trigger itself — the endpoint identity (token + secret) lives on the

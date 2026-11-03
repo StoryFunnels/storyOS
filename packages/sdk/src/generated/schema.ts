@@ -5738,9 +5738,16 @@ export interface components {
                 /** @enum {string} */
                 type: "schedule";
                 /** @enum {string} */
-                every: "hour" | "day" | "week";
+                every: "minutes" | "hour" | "day" | "week";
+                minutes?: number;
                 at?: string;
                 weekday?: number;
+                weekdays?: number[];
+                between?: {
+                    from: string;
+                    to: string;
+                };
+                timezone?: string;
             } | {
                 /** @enum {string} */
                 type: "webhook_received";
@@ -5932,9 +5939,16 @@ export interface components {
                 /** @enum {string} */
                 type: "schedule";
                 /** @enum {string} */
-                every: "hour" | "day" | "week";
+                every: "minutes" | "hour" | "day" | "week";
+                minutes?: number;
                 at?: string;
                 weekday?: number;
+                weekdays?: number[];
+                between?: {
+                    from: string;
+                    to: string;
+                };
+                timezone?: string;
             } | {
                 /** @enum {string} */
                 type: "webhook_received";
