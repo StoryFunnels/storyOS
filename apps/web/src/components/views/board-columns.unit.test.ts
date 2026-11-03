@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrangeBoardColumns, NO_VALUE } from './board-columns';
+import { arrangeBoardColumns, hiddenBoardColumns, NO_VALUE, showBoardColumn, visibleBoardColumns } from './board-columns';
 
 /**
  * #427 / #428 — the column rules, each of which is a judgement call.
@@ -132,3 +132,94 @@ describe('#427 — column ordering', () => {
     expect(out.map((c) => c.label)).toEqual(['Billing', 'onboarding', 'Unassigned']);
   });
 });
+
+/**
+ * #1182 — a view's `hidden_option_ids`. Each case below is a rule a plausible implementation breaks: dropping the
+ * no-value bucket, re-ordering the survivors, crashing on a stale id, or losing the cards of a hidden column.
+ */
+describe('#1182 — hidden board columns', () => {
+  const STATES = [
+    col('triage', 'Triage', 1),
+    col('todo', 'To Do', 2),
+    col('doing', 'In Progress', 3),
+    col('done', 'Done', 4),
+    { id: NO_VALUE, label: 'No value', rows: Array.from({ length: 1 }) },
+  ];
+  const ids = (xs: Array<{ id: string }>) => xs.map((c) => c.id);
+
+  it('removes the hidden columns and keeps the rest in their original order', () => {
+    expect(ids(visibleBoardColumns(STATES, ['done', 'triage']))).toEqual(['todo', 'doing', NO_VALUE]);
+  });
+
+  it('none hidden (absent, empty) is every column, as a board that never hid one', () => {
+    expect(ids(visibleBoardColumns(STATES, undefined))).toEqual(ids(STATES));
+    expect(ids(visibleBoardColumns(STATES, []))).toEqual(ids(STATES));
+  });
+
+  it('an id that matches no column is ignored — a stale one never throws and never hides anything else', () => {
+    expect(ids(visibleBoardColumns(STATES, ['ghost', 'done']))).toEqual(['triage', 'todo', 'doing', NO_VALUE]);
+    expect(hiddenBoardColumns(STATES, ['ghost'])).toEqual([]);
+  });
+
+  it('the no-value bucket can never be hidden, even by an entry that names it', () => {
+    expect(ids(visibleBoardColumns(STATES, [NO_VALUE]))).toContain(NO_VALUE);
+    expect(hiddenBoardColumns(STATES, [NO_VALUE])).toEqual([]);
+  });
+
+  it('the hidden list is the complement, in the field\'s own order (not the order the ids were saved in)', () => {
+    expect(ids(hiddenBoardColumns(STATES, ['done', 'triage']))).toEqual(['triage', 'done']);
+  });
+
+  it('hiding does not touch the input, and a hidden column KEEPS its cards (they stay counted, never re-bucketed)', () => {
+    const before = STATES.map((c) => c.rows.length);
+    visibleBoardColumns(STATES, ['done']);
+    expect(STATES.map((c) => c.rows.length)).toEqual(before);
+    const hidden = hiddenBoardColumns(STATES, ['done']);
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0]!.rows).toHaveLength(4);
+    // the shown columns do not gain the hidden column's cards: "No value" is still just its own one card
+    const shown = arrangeBoardColumns(STATES, { hidden_option_ids: ['done'] }, { groupType: 'select', hasMore: false });
+    expect(shown.find((c) => c.id === NO_VALUE)!.rows).toHaveLength(1);
+  });
+
+  it('arrangeBoardColumns hides them even while more pages are loading (a hidden column is a choice, not an inference)', () => {
+    const out = arrangeBoardColumns(STATES, { hidden_option_ids: ['triage'] }, { groupType: 'select', hasMore: true });
+    expect(ids(out)).toEqual(['todo', 'doing', 'done', NO_VALUE]);
+  });
+
+  it('composes with the other rules: hide-empty and column order act on what is left', () => {
+    const out = arrangeBoardColumns(
+      [col('a', 'Alpha', 0), col('b', 'Bravo', 2), col('c', 'Charlie', 5)],
+      { hidden_option_ids: ['c'], hide_empty_groups: true, column_sort: 'alpha' },
+      { groupType: 'select', hasMore: false },
+    );
+    expect(ids(out)).toEqual(['b']);
+  });
+
+  it('with every option hidden, only the No value bucket is left (it cannot be hidden)', () => {
+    expect(ids(arrangeBoardColumns(STATES, { hidden_option_ids: ['triage', 'todo', 'doing', 'done'] }, { groupType: 'select', hasMore: false }))).toEqual([NO_VALUE]);
+  });
+});
+
+describe('#1182 — Show (what the Display menu writes)', () => {
+  const OPTIONS = [{ id: 'triage' }, { id: 'todo' }, { id: 'done' }];
+
+  it('restoring a column removes it from the list; the others stay hidden', () => {
+    expect(showBoardColumn(OPTIONS, ['triage', 'done'], 'triage')).toEqual(['done']);
+    expect(ids2(hiddenBoardColumns(OPTIONS, showBoardColumn(OPTIONS, ['triage', 'done'], 'triage')))).toEqual(['done']);
+  });
+
+  it('restoring the last one leaves NO key at all (undefined), not an empty list', () => {
+    expect(showBoardColumn(OPTIONS, ['done'], 'done')).toBeUndefined();
+  });
+
+  it('a stale id is dropped on the way, so re-saving never sends the API an id it refuses', () => {
+    expect(showBoardColumn(OPTIONS, ['ghost', 'triage', 'done'], 'done')).toEqual(['triage']);
+    expect(showBoardColumn(OPTIONS, ['ghost'], 'triage')).toBeUndefined();
+  });
+
+  it('showing a column that is not hidden changes nothing about the rest', () => {
+    expect(showBoardColumn(OPTIONS, ['done'], 'todo')).toEqual(['done']);
+  });
+});
+const ids2 = (xs: Array<{ id: string }>) => xs.map((c) => c.id);
