@@ -32,11 +32,8 @@ import {
 } from '@/lib/pack-review';
 import { InstallList } from '@/components/pack-install-list';
 import { AutomationStateLine, InstalledAutomationLine } from '@/components/pack-automation-state';
-import {
-  enableAutomationsBody,
-  enableAutomationsList,
-  type AutomationPreviewItem,
-} from '@/lib/pack-automation-state';
+import type { AutomationPreviewItem } from '@/lib/pack-automation-state';
+import { automationItems, enableRequestBody, switchId, type SwitchableItem } from '@/lib/pack-switchable';
 import {
   buildInstallRows,
   notNew,
@@ -283,7 +280,7 @@ function AutomationLine({ item, controls }: { item: AutomationPreviewItem; contr
   return (
     <AutomationStateLine
       item={item}
-      chosen={controls.chosen[item.name] === true}
+      chosen={controls.chosen[switchId('automation', item.name)] === true}
       confirmed={controls.confirmed.get(item.name)}
       onChoose={controls.onChoose}
     />
@@ -686,11 +683,15 @@ export function InstallDialog({
   // #1172 — the automations a person switched ON in this review ("Database.Rule name" → true). Default: none, so every rule that
   // installs off stays off. Sent as `enable_automations` on the confirming preview AND the install, so they cannot disagree.
   const [turnedOn, setTurnedOn] = useState<Record<string, boolean>>({});
-  const enableList = preview.data ? enableAutomationsList(preview.data.automations, turnedOn) : [];
+  // Everything the review can switch, as one list of kinds (lib/pack-switchable.ts). Automations only today; ticket #1192's agent
+  // triggers join here, with their own kind, when the API returns them. The request is built from this list by kind.
+  const switchables: SwitchableItem[] = preview.data ? automationItems(preview.data.automations) : [];
+  const enableBody = enableRequestBody(switchables, turnedOn);
+  const enableKey = JSON.stringify(enableBody);
   // The SAME preview, asked with the person's choice: the row only says "On once installed" if the server's own answer agrees.
   const withChoice = useQuery({
-    queryKey: ['pack-preview-enable', ws, slug, target?.id ?? null, enableList.join('|')],
-    enabled: Boolean(entry.data) && enableList.length > 0,
+    queryKey: ['pack-preview-enable', ws, slug, target?.id ?? null, enableKey],
+    enabled: Boolean(entry.data) && Object.keys(enableBody).length > 0,
     retry: false,
     queryFn: async () => {
       const { data, error } = await api.POST(
@@ -700,7 +701,7 @@ export function InstallDialog({
           body: {
             manifest: entry.data!.manifest,
             ...(target ? { target_space_id: target.id } : {}),
-            ...enableAutomationsBody(enableList),
+            ...enableBody,
           } as never,
         } as never,
       );
@@ -714,7 +715,7 @@ export function InstallDialog({
     confirmed: new Map(
       (withChoice.isFetching || !withChoice.data ? [] : withChoice.data.automations).map((a) => [a.name, a]),
     ),
-    onChoose: (label, on) => setTurnedOn((prev) => ({ ...prev, [label]: on })),
+    onChoose: (label, on) => setTurnedOn((prev) => ({ ...prev, [switchId('automation', label)]: on })),
   };
 
   const install = useMutation({
@@ -730,7 +731,7 @@ export function InstallDialog({
           body: {
             manifest: entry.data!.manifest,
             ...(target ? { target_space_id: target.id } : {}),
-            ...enableAutomationsBody(enableList),
+            ...enableBody,
             resolutions: { ...payload, ...agentResolutions(preview.data!.agents, agentChoices), ...picked },
           } as never,
         } as never,
