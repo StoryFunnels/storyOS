@@ -298,3 +298,40 @@ export const OWN_STATE_DELETE_ROUTES: Record<string, string> = {
 export function isDeleteCapable(r: { method: string; path: string; handler: string }): boolean {
   return r.method === 'DELETE' || /delet|remov|purge|unlink/i.test(r.path) || /delet|remov|purge|unlink/i.test(r.handler);
 }
+
+/**
+ * #1179 — the FAN-OUT CONSUMERS: code that reacts to a record write without a request of its own (a domain-event subscriber, or a
+ * timer-driven sender), so the route table cannot see it. The sweep enumerates them from the SOURCE (every file under src/ that calls
+ * `domainEvents.subscribe(` or `setInterval(`), so a consumer added tomorrow FAILS until it is classified here. Verdicts:
+ *  - held     an agent-caused effect that can reach an outsider is staged for approval (proof named)
+ *  - logged   the destination is fixed by an admin, so it runs as configured and is LOGGED with the agent (proof named)
+ *  - none     reaches nothing outside StoryOS, or does not act on an agent's write at all (the reason says which)
+ */
+export type FanoutVerdict = 'held' | 'logged' | 'none';
+export interface FanoutEntry { verdict: FanoutVerdict; why: string }
+const P1174 = 'run-credential-outward-staging.test.ts';
+const P1179 = 'run-credential-outward-part2.test.ts';
+export const FANOUT_CONSUMERS: Record<string, FanoutEntry> = {
+  'automations/automations.service.ts': { verdict: 'held', why: `outward automation actions are staged when an agent caused the event. Proof: ${P1174}` },
+  'sources/write-back.subscriber.ts': { verdict: 'held', why: `a push on a source that opted in to approval is held; one that opted out is logged with the agent. Proof: ${P1174}` },
+  'webhooks/webhooks.service.ts': { verdict: 'logged', why: `outbound webhook subscriptions are admin-fixed; the delivery carries caused_by. Proof: ${P1174}` },
+  'calendar-sync/calendar-sync.service.ts': { verdict: 'logged', why: `the bound calendar is admin-fixed: logged as outward.calendar_sync; an event can never carry guests (assertNoInvitees tripwire). Proof: ${P1179}` },
+  'integrations/linear-write-back.service.ts': { verdict: 'held', why: `an agent's comment is posted as the agent and logged; held when write_back.require_approval_for_agent_comments is on. Proof: ${P1179}` },
+  'records/ai-field.subscriber.ts': { verdict: 'logged', why: `the workspace's own configured AI, not held; logged as outward.ai_field; the recompute emits no event, so no wake loop. Proof: ${P1179}` },
+  'records/bulk-record-jobs.service.ts': { verdict: 'held', why: `a timer-run bulk write carries the stored origin, so the rules it fires are staged. Proof: ${P1174}` },
+  'automations/job-runner.service.ts': { verdict: 'held', why: `makes the job payload's origin ambient around every executor. Proof: ${P1174}` },
+  'agents/trigger.subscriber.ts': { verdict: 'none', why: 'wakes an agent run: an agent trigger is not outward; the run it starts stages its own actions' },
+  'records/rollup-invalidation.subscriber.ts': { verdict: 'none', why: 'recomputes derived values inside StoryOS' },
+  'relations/auto-link.subscriber.ts': { verdict: 'none', why: 'links records inside StoryOS' },
+  'integrations/shopify-catalogue.subscriber.ts': { verdict: 'none', why: 'refreshes a local catalogue cache; no push to Shopify' },
+  'workspaces/workspace-activation-events.service.ts': { verdict: 'none', why: 'internal activation bookkeeping; does not act on an agent write' },
+  'workspaces/onboarding-nudge.service.ts': { verdict: 'none', why: 'a timer nudge to members, not caused by an agent write' },
+  'integrations/github.service.ts': { verdict: 'none', why: 'inbound GitHub sync on a timer; not caused by an agent write' },
+  'integrations/linear.service.ts': { verdict: 'none', why: 'inbound Linear import on a timer; writes only StoryOS records' },
+  'sources/sources.service.ts': { verdict: 'none', why: 'inbound source sync on a timer; pushes are write-back.subscriber.ts' },
+  'connections/connections.service.ts': { verdict: 'none', why: 'token refresh on a timer; not caused by an agent write' },
+  'billing/auto-reload-retry.service.ts': { verdict: 'none', why: 'billing retry timer, not caused by an agent write' },
+  'billing/trial-reminders.service.ts': { verdict: 'none', why: 'trial reminder timer, not caused by an agent write' },
+  'runners/runner-sweeper.service.ts': { verdict: 'none', why: 'Runner liveness sweep' },
+  'members/members-projection.subscriber.ts': { verdict: 'none', why: 'membership events, not record writes; projects into the Members database' },
+};

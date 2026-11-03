@@ -6193,6 +6193,7 @@ export interface components {
             };
             write_back?: {
                 enabled?: boolean;
+                require_approval_for_agent_comments?: boolean;
             };
         };
         SlackConfigDto: {

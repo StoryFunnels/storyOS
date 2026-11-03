@@ -3,10 +3,14 @@ import { and, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, sql } f
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { comments, databases, memberships, notifications, records, user, userPreferences } from '../db/schema';
+import { approvals, comments, databases, memberships, notifications, records, user, userPreferences } from '../db/schema';
 import { DEFAULT_PREFERENCES, mergePreferences } from '../users/preferences.constants';
 import type { UserPreferences } from '../users/preferences.constants';
 import { AccessService } from '../access/access.service';
+import { parseEventOrigin } from '../common/credential-context';
+import type { EventOrigin } from '../common/credential-context';
+import { presentEventOrigins } from '../common/describe-origin';
+import type { PresentedOrigin } from '../common/describe-origin';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 export type NotificationType =
@@ -154,6 +158,8 @@ interface NotifyInput {
    */
   allowSelf?: boolean;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Notification stream (MN-049). Producers are best-effort: a notification
@@ -401,6 +407,18 @@ export class NotificationsService {
       .limit(limit);
   }
 
+  /** #1179 — approval id -> the agent and run behind it, for the approval notifications on this page (one query for the page). */
+  private async causedByForApprovals(rows: Array<{ type: string; refId: string | null }>): Promise<Map<string, PresentedOrigin>> {
+    const ids = [...new Set(rows.filter((r) => (r.type === 'action_approval_requested' || r.type === 'approval_requested') && r.refId && UUID_RE.test(r.refId)).map((r) => r.refId as string))];
+    const out = new Map<string, PresentedOrigin>();
+    if (ids.length === 0) return out;
+    const found = await this.db.select({ id: approvals.id, snapshot: approvals.actionSnapshot }).from(approvals).where(inArray(approvals.id, ids));
+    const withOrigin = found.map((a) => ({ id: a.id, origin: parseEventOrigin((a.snapshot as { ctx?: { origin?: unknown } } | null)?.ctx?.origin) })).filter((a): a is { id: string; origin: EventOrigin } => a.origin !== null);
+    const presented = await presentEventOrigins(this.db, withOrigin.map((a) => a.origin));
+    withOrigin.forEach((a, i) => out.set(a.id, presented[i]!));
+    return out;
+  }
+
   private async shape(rows: Awaited<ReturnType<NotificationsService['page']>>, nextCursor: string | null) {
     const recordIds = [...new Set(rows.map((r) => r.recordId).filter((v): v is string => Boolean(v)))];
     const actorIds = [...new Set(rows.map((r) => r.actorId).filter((v): v is string => Boolean(v)))];
@@ -416,6 +434,7 @@ export class NotificationsService {
     ]);
     const recordById = new Map(recordRows.map((r) => [r.id, r]));
     const actorById = new Map(actorRows.map((a) => [a.id, a]));
+    const causedByApproval = await this.causedByForApprovals(rows);
 
     return {
       data: rows.map((n) => {
@@ -433,6 +452,9 @@ export class NotificationsService {
             ? { id: record.id, title: record.title, database_id: record.databaseId, database_name: record.databaseName, deleted: Boolean(record.deletedAt) }
             : null,
           actor: actor ? { id: actor.id, name: actor.name, image: actor.image } : null,
+          // #1179 — for an approval an agent's run caused: the agent and the run ('Sales assistant (run 42)'), so the Inbox row's header
+          // names them instead of the rule author `actor` points at. null for every other row, and for an approval a person caused.
+          caused_by: (n.refId ? causedByApproval.get(n.refId) : null) ?? null,
         };
       }),
       next_cursor: nextCursor,
