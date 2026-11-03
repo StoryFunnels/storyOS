@@ -196,6 +196,19 @@ describe('#1148 a real install creates everything the prototype shows', () => {
     expect(projects.views.filter((v) => v.isDefault).map((v) => v.name)).toEqual(['All records']);
   });
 
+  it('ticket #1182 — the Active board hides exactly Triage, Backlog, Done and Canceled (as the installed State option ids); no other view carries a hidden list', async () => {
+    const issues = await detail(ws, 'Issues');
+    const hiddenOf = (d: { views: View[] }, name: string) => d.views.find((v) => v.name === name)!.config.hidden_option_ids as string[] | undefined;
+    // The ids are the REAL option ids the installer minted, not the `$option:` refs; set equality, because order is not a promise.
+    expect([...(hiddenOf(issues, 'Active') ?? [])].sort()).toEqual(['Triage', 'Backlog', 'Done', 'Canceled'].map((l) => opt(issues, 'State', l)).sort());
+    // What must stay visible is the complement: the three states the board's filter shows. A hidden list that swallowed one would empty a lane.
+    for (const shown of ['To Do', 'In Progress', 'In Review']) expect(hiddenOf(issues, 'Active'), shown).not.toContain(opt(issues, 'State', shown));
+    // Hiding is a display choice: Triage is still an option of State, so a new issue still has somewhere to land.
+    expect(issues.fields.find((f) => f.displayName === 'State')!.options!.map((o) => o.label)).toContain('Triage');
+    for (const other of ['My issues', 'Triage']) expect(hiddenOf(issues, other), other).toBeUndefined();
+    expect(hiddenOf(await detail(ws, 'Projects'), 'Projects')).toBeUndefined();
+  });
+
   it('the Triage view sorts newest first by Created', async () => {
     const v = (await detail(ws, 'Issues')).views.find((x) => x.name === 'Triage')!;
     expect(v.config.sorts).toEqual([{ field: 'created_at', direction: 'desc' }]);

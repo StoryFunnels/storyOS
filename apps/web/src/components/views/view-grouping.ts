@@ -14,6 +14,8 @@ import type { ViewConfig } from './use-view-state';
  *    later regroup never overrides it. The key is `hide_empty_groups`; #960 was closed because it
  *    already existed.
  *
+ * 3. #1182 — `hidden_option_ids` belongs to the grouping field, so a regroup clears it.
+ *
  * Tables do not group today (only board and list read `group_by_field_id`), so the table half of
  * this default has no surface yet.
  */
@@ -27,6 +29,9 @@ export function groupingPatch(opts: {
   const { viewType, config, fieldId, isDateField } = opts;
   const patch: Partial<ViewConfig> = { group_by_field_id: fieldId || undefined };
   if (!isDateField) patch.group_by_granularity = undefined;
+  // #1182 — hidden columns are options of the OLD grouping field; the API refuses them on a different one, so the
+  // list is dropped whenever the field changes. Re-picking the same field keeps it (nothing to refuse).
+  if (fieldId !== (config.group_by_field_id ?? '')) patch.hidden_option_ids = undefined;
   const startingToGroup = !config.group_by_field_id && Boolean(fieldId);
   if (startingToGroup && viewType !== 'board' && config.hide_empty_groups === undefined) {
     patch.hide_empty_groups = true;

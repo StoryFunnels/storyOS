@@ -37,6 +37,12 @@ export interface ViewConfig {
   hide_empty_groups?: boolean;
   hide_empty_no_value_group?: boolean;
   /**
+   * #1182 — option ids of the group-by field whose board COLUMNS are not drawn (API ticket #1158). Records in them stay
+   * in the board's counts and in every other view; the Display menu lists these so a column can be shown again. Always
+   * cleared when the grouping changes (the API refuses an id that is not an option of the new field).
+   */
+  hidden_option_ids?: string[];
+  /**
    * #391 — the attachment field a gallery card draws its image from.
    *
    * Unset means no image, which is the pre-#391 behaviour and stays the default:

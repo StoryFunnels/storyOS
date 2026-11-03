@@ -199,6 +199,37 @@ describe('PublicViewClient — #709 board (AC1, B1–B3)', () => {
     expect(html).toContain('Issue 2');
   });
 
+  it('#1182: does not draw the columns the owner hid, but still draws the rest and every card in them', () => {
+    const def = boardDef();
+    const html = renderToStaticMarkup(
+      createElement(PublicViewClient, {
+        token: 't1',
+        initialDef: { ...def, board: { ...def.board!, hidden_option_ids: ['done'] } },
+        embed: false,
+      }),
+    );
+    expect(html).toContain('To Do');
+    expect(html).toContain('Issue 1');
+    expect(html).not.toContain('>Done<');
+    // the record in the hidden column is not drawn as a "No value" card either
+    expect(html).not.toContain('Issue 2');
+  });
+
+  it('#1182: a payload with no hidden_option_ids (older API) and a stale id both draw every column', () => {
+    const def = boardDef();
+    for (const hidden of [undefined, ['ghost']]) {
+      const html = renderToStaticMarkup(
+        createElement(PublicViewClient, {
+          token: 't1',
+          initialDef: { ...def, board: { ...def.board!, hidden_option_ids: hidden } },
+          embed: false,
+        }),
+      );
+      expect(html).toContain('To Do');
+      expect(html).toContain('Done');
+    }
+  });
+
   it('B1: shows a QUALIFIED "N loaded" count, never a bare number, while has_more is true', () => {
     const html = renderToStaticMarkup(
       createElement(PublicViewClient, {

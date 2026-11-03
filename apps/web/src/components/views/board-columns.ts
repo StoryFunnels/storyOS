@@ -40,12 +40,59 @@ export interface BoardColumnPrefs {
    * groups would be the obvious implementation and the wrong one.
    */
   hide_empty_no_value_group?: boolean;
+  /** #1182 — option ids of columns the view hides (`ViewConfig.hidden_option_ids`, API ticket #1158). */
+  hidden_option_ids?: readonly string[];
 }
 
 interface ArrangeableColumn {
   id: string;
   label: string;
   rows: unknown[];
+}
+
+/**
+ * #1182 — the shared "which board options are hidden / visible" helpers. A view's `hidden_option_ids` names columns it
+ * does not draw; the API validates them on save, but a list can still go stale later (an option deleted, a board
+ * regrouped), and "unconfigured is not invalid": an id that matches no column is IGNORED, never an error. The no-value
+ * bucket has no option id and can never be hidden, so it is never matched even by a stray `__none__` entry.
+ *
+ * Both work over ANY `{ id }` list: the board's columns, and the grouping field's option list the Display menu reads.
+ * Hiding is a display rule only: the records stay in the rows the board loads and in the grouped counts, so nothing
+ * here removes or re-buckets a record (a card in a hidden option does NOT fall into "No value").
+ */
+export function hiddenBoardColumns<T extends { id: string }>(
+  columns: readonly T[],
+  hiddenOptionIds: readonly string[] | undefined,
+): T[] {
+  if (!hiddenOptionIds?.length) return [];
+  const hidden = new Set(hiddenOptionIds);
+  return columns.filter((c) => c.id !== NO_VALUE && hidden.has(c.id));
+}
+
+/** The columns that are drawn: everything `hiddenBoardColumns` is not, in the original order. */
+export function visibleBoardColumns<T extends { id: string }>(
+  columns: readonly T[],
+  hiddenOptionIds: readonly string[] | undefined,
+): T[] {
+  if (!hiddenOptionIds?.length) return [...columns];
+  const hidden = new Set(hiddenBoardColumns(columns, hiddenOptionIds).map((c) => c.id));
+  return columns.filter((c) => !hidden.has(c.id));
+}
+
+/**
+ * What "Show" writes: the list without that column. Also drops ids that match no live column, so restoring one column
+ * never re-saves a stale id (the API refuses an id that is not an option of the group-by field). Empty becomes
+ * `undefined`, so a board with nothing hidden carries no key, exactly like a board that never hid anything.
+ */
+export function showBoardColumn(
+  columns: readonly { id: string }[],
+  hiddenOptionIds: readonly string[] | undefined,
+  columnId: string,
+): string[] | undefined {
+  const next = hiddenBoardColumns(columns, hiddenOptionIds)
+    .map((c) => c.id)
+    .filter((id) => id !== columnId);
+  return next.length > 0 ? next : undefined;
 }
 
 /**
@@ -73,7 +120,12 @@ export function arrangeBoardColumns<T extends ArrangeableColumn>(
 ): T[] {
   const isDate = opts.groupType === 'date';
   const noValue = columns.filter((c) => c.id === NO_VALUE);
-  let defs = columns.filter((c) => c.id !== NO_VALUE);
+  // #1182 — hidden columns go first and unconditionally (unlike hide-empty, not gated on `hasMore`: a hidden
+  // column is a choice, not an inference from the pages loaded so far).
+  let defs = visibleBoardColumns(
+    columns.filter((c) => c.id !== NO_VALUE),
+    prefs.hidden_option_ids,
+  );
 
   if (prefs.hide_empty_groups && !opts.hasMore) defs = defs.filter((c) => c.rows.length > 0);
 
