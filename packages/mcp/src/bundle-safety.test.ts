@@ -53,12 +53,23 @@ describe('mcp bundle safety', () => {
     expect(sources(SRC).length).toBeGreaterThan(5);
   });
 
-  it('the zod-free schema subpaths the mcp imports stay zod-free (a zod import in one breaks the image at boot)', () => {
+  it('every @storyos/schemas subpath the mcp imports, and everything it imports, is zod-free (#1194: a zod import crashed the image at boot)', () => {
     const schemasSrc = join(import.meta.dirname, '../../schemas/src');
-    for (const file of ['colors.ts', 'state-category.ts', 'icons.ts', 'markdown.ts', 'system-fields.ts']) {
-      let src: string;
-      try { src = readFileSync(join(schemasSrc, file), 'utf8'); } catch { continue; }
-      expect(src, `${file} must not import zod`).not.toMatch(/from ['"]zod['"]/);
+    // DERIVED from the mcp sources, not a hand-kept list: a list is a prefix of reality and passes for exactly the subpaths it omits.
+    const subpaths = new Set<string>();
+    for (const file of sources(SRC)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/^import\s+(?!type\s)[^;]*?\s+from\s+['"]@storyos\/schemas\/([\w-]+)['"]/gm)) subpaths.add(m[1]!);
     }
+    expect(subpaths.size).toBeGreaterThan(3);
+    expect(subpaths.has('schedule-cadence')).toBe(true);
+    const seen = new Set<string>();
+    const visit = (name: string, via: string) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      const src = readFileSync(join(schemasSrc, `${name}.ts`), 'utf8');
+      expect(src, `${name}.ts (reached via ${via}) must not import zod`).not.toMatch(/from ['"]zod['"]/);
+      for (const m of src.matchAll(/^(?:import|export)\s+(?!type\s)[^;]*?\s+from\s+['"]\.\/([\w-]+)['"]/gm)) visit(m[1]!, name);
+    };
+    for (const sub of subpaths) visit(sub, `@storyos/schemas/${sub}`);
   });
 });
