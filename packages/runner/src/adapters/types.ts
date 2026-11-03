@@ -40,6 +40,11 @@ export interface WakeContext {
   mcp: { url: string; token: string };
   /** The per-agent folder: the session's working directory, and the only directory it is given. */
   workdir: string;
+  /**
+   * StoryOS MCP tools this agent's role adds to the default record-work set (#1177), by tool name. Empty by default: nothing sends it
+   * yet. A run is offered ONLY the default set plus these, because every tool definition is billed on every request of the run.
+   */
+  mcpTools?: string[];
   /** Native tools the manager allowed for this agent. Empty by default (ADR-0021 section 7). */
   allowedNativeTools: string[];
   protocol: number;

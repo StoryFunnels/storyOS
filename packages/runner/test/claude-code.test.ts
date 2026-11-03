@@ -8,7 +8,7 @@ import { resolveAdapter, runTimeoutMs } from '../src/adapters/index.js';
 import { ClaudeCodeAdapter } from '../src/adapters/claude-code/index.js';
 import { readLimit, newStreamState, readLine } from '../src/adapters/claude-code/events.js';
 import { buildSystemPrompt, buildTaskText, noteOf } from '../src/adapters/claude-code/prompt.js';
-import { buildToolPolicy } from '../src/adapters/claude-code/tools.js';
+import { buildToolPolicy, withRunProfile } from '../src/adapters/claude-code/tools.js';
 import type { WakeContext } from '../src/adapters/types.js';
 import { nullLogger } from '../src/log.js';
 import type { Logger } from '../src/log.js';
@@ -109,7 +109,7 @@ describe('how the CLI is called', () => {
     expect(r.tokenInEnv).toBe(CREDENTIAL);
     // The config named it by variable, was 0600 while it existed, and is gone now.
     const cfg = JSON.parse(r.mcpConfig!) as { mcpServers: { storyos: { type: string; url: string; headers: { Authorization: string } } } };
-    expect(cfg.mcpServers.storyos).toEqual({ type: 'http', url: 'https://mcp.example.test/mcp', headers: { Authorization: 'Bearer ${STORYOS_RUN_TOKEN}' } });
+    expect(cfg.mcpServers.storyos).toEqual({ type: 'http', url: 'https://mcp.example.test/mcp?profile=agent-run', headers: { Authorization: 'Bearer ${STORYOS_RUN_TOKEN}' } });
     expect(r.mcpConfig).not.toContain(CREDENTIAL);
     expect(r.mcpConfigMode).toBe(0o600);
     expect(existsSync(r.mcpConfigPath!)).toBe(false);
@@ -196,6 +196,45 @@ describe('the allowlist', () => {
     expect(result.summary).toContain("Refused by this agent's tool allowlist: Bash.");
     expect(lines.join('\n')).toContain('the allowlist refused: Bash');
     expect(lines.join('\n')).not.toContain('id_rsa'); // the denied command's text is never logged
+  });
+});
+
+describe('the tool diet (#1177): a run is offered only its role\'s StoryOS tools', () => {
+  const cfgUrl = (r: Recorded) => new URL((JSON.parse(r.mcpConfig!) as { mcpServers: { storyos: { url: string } } }).mcpServers.storyos.url);
+
+  it('asks the MCP server for the agent-run profile, keeping the address and any query the operator set', async () => {
+    const { adapter, recorded } = make('ok');
+    await adapter.execute(wake({ mcp: { url: 'https://mcp.example.test/mcp?x=1', token: CREDENTIAL } }), new AbortController().signal);
+    const u = cfgUrl(recorded());
+    expect(u.origin + u.pathname).toBe('https://mcp.example.test/mcp');
+    expect(u.searchParams.get('profile')).toBe('agent-run');
+    expect(u.searchParams.get('x')).toBe('1');
+    expect(u.searchParams.has('tools')).toBe(false);
+  });
+
+  it('a role that adds tools sends their names; nothing else is added', async () => {
+    const { adapter, recorded } = make('ok');
+    await adapter.execute(wake({ mcpTools: ['create_record', 'link_records', 'create_record'] }), new AbortController().signal);
+    expect(cfgUrl(recorded()).searchParams.get('tools')).toBe('create_record,link_records');
+  });
+
+  it('refuses a name that is not a tool name (logged, not sent), so the URL cannot carry anything else', async () => {
+    const { adapter, recorded, lines } = make('ok');
+    await adapter.execute(wake({ mcpTools: ['get_record&profile=full', 'ok_tool', '../x'] }), new AbortController().signal);
+    expect(cfgUrl(recorded()).searchParams.get('tools')).toBe('ok_tool');
+    expect(lines.join('\n')).toContain('not tool names');
+  });
+
+  it('moves the per-machine system prompt sections out of the cached prefix', async () => {
+    const { adapter, recorded } = make('ok');
+    await adapter.execute(wake(), new AbortController().signal);
+    expect(recorded().argv).toContain('--exclude-dynamic-system-prompt-sections');
+  });
+
+  it('withRunProfile replaces a profile or tools value already on the URL instead of stacking it', () => {
+    const { url } = withRunProfile(new URL('https://m.test/mcp?profile=full&tools=delete_database'), []);
+    expect(url.searchParams.getAll('profile')).toEqual(['agent-run']);
+    expect(url.searchParams.has('tools')).toBe(false);
   });
 });
 

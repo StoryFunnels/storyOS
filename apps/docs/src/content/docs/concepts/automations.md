@@ -54,8 +54,11 @@ schedule** and the agent works while nobody is signed in. Two things to know:
 - **It runs once for each matching record.** A scheduled rule acts on every record its filter selects (up to 500 each
   time), so add a filter, or a sort and limit, to narrow it. The editor warns you when a scheduled rule has none.
 - **What runs overnight depends on the agent's AI mode.** A **Non-AI** agent runs by itself. An agent set to
-  **Your own AI** only does its work while your AI client is connected to StoryOS. **StoryOS AI** runs on credits. The
-  editor says which one applies when you choose the agent.
+  **Your own AI** does its work when a **Runner** (a program on its owner's computer that drives the owner's own AI
+  tool) picks up its job. When the rule fires for a record, StoryOS queues a job for that agent and record. Until a
+  Runner is assigned and turned on, the job waits and its Run stays **Queued**; a job nobody picks up within 7 days is
+  canceled. See [Agents on your own AI](/concepts/agent-runs/#agents-on-your-own-ai). **StoryOS AI** runs on credits.
+  The editor says which one applies when you choose the agent.
 
 A step the agent proposes that needs a person's approval still stops and waits for them. Every run appears in
 **Automation runs** and in the Runs database, with the trigger **Automation**.
@@ -207,9 +210,11 @@ All of them interpolate `{Field Name}` and `{payload.…}` tokens.
 **Approval is on by default, and the default is decided at run time.** When you have not set the
 approval flag either way, StoryOS renders the recipients and checks them: if every resolved
 address belongs to a member of this workspace, the email sends immediately; if even one address
-is external, the send waits for a human approval. Setting the flag explicitly always wins — but
+is external, the send waits for a human approval. Setting the flag explicitly wins — but
 only a workspace admin can save an email action with approval turned *off*. Any member can turn
-it on.
+it on. One exception: when the change that fired the rule was made by an agent running on a Runner,
+the email is held even with approval off, unless every recipient is a member
+([below](#when-an-agents-write-fires-a-rule)).
 
 What goes wrong, and what you will see:
 
@@ -241,6 +246,29 @@ What goes wrong, and what you will see:
 - The response body is capped at 1 MB, and the logged result or error at 8 KB.
 - If capture cannot parse the response as JSON, the *request still counts as successful* and the
   run records a separate `capture_error` — the call happened, the fields did not update.
+
+## When an agent's write fires a rule
+
+When an [agent running on a Runner](/concepts/agent-runs/#agents-on-your-own-ai) changes a record
+and that change fires a rule, the rule's actions that reach **outside StoryOS** are held for a
+person's approval, **whatever the action's "require approval" setting says**. The held actions are
+**send email**, **send a Slack message**, **send a webhook**, **call an API** and **post to social**.
+Nothing leaves until someone approves.
+
+- **Email to members only is the exception**, and it is not held by default: if every rendered
+  recipient (to and cc) is a member of the workspace, it sends as configured. A recipient taken from a
+  field counts as what the field holds now, which the agent may have just written.
+- **The agent's own [approval policy](/concepts/approval-gates/#when-an-agents-write-fires-an-outward-action)**
+  can hold more: a policy that lists `email` also holds an email to members.
+- **The Inbox card names its cause**: *Caused by agent "Sales assistant" (run 42, on Ievgen's MacBook): …*.
+  The approver is the approver set on the rule, otherwise the rule's creator.
+- **Approving sends it.** Approving a held webhook or Slack message sends what was frozen when it
+  was held, and approving a held email or API call queues it from that same frozen snapshot.
+- **Not covered:** a change made through an ordinary personal access token, or by an agent that
+  StoryOS itself runs, behaves as before: the rule's own setting decides.
+
+Destinations an admin fixed in advance are not held. They run as configured and are **logged with
+the agent**; see [what the logs show](/concepts/approval-gates/#destinations-an-admin-fixed-in-advance).
 
 ## What a webhook-triggered rule cannot do
 

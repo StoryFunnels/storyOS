@@ -164,6 +164,29 @@ or mcp), and by date range (default: the last 30 days).
 - **A removed member still appears by name** on their historical rows, the same no-FK design this
   whole page is built on.
 
+### When the agent ran on a Runner
+
+An [agent that runs on a Runner](/concepts/agent-runs/#agents-on-your-own-ai) writes with a
+credential minted for that one run. Its rows read like any agent's: **who** is the agent's owner,
+**what made it** is `agent`. They carry three more facts, returned by `GET /workspaces/{ws}/audit-log`
+and by `list_audit_log` on both event rows and field-change rows:
+
+- `agent_id` and `agent_name`, as for any agent.
+- `run_id` and `run_number`, the Run's public number, so a row can read "Sales assistant, run 42".
+  The number is looked up when you read the log, and is `null` if that Run has since been deleted.
+- `runner_id` and `runner_name`, the machine's name as it was when the row was written, so renaming a
+  Runner later does not rewrite history.
+
+A row written by a person has these fields `null`.
+
+**In the app**, the Settings → Audit log detail names the agent. At the time of writing it does not
+show the run number or the Runner's name; those two come from the API and MCP.
+
+**Events with no record.** When an agent's write sends something to a destination an admin fixed in
+advance, the log also holds an `outward.slack_mention_mirror`, `outward.mention_email` or
+`outward.watcher_email` event naming the agent and the run. See
+[approval gates](/concepts/approval-gates/#destinations-an-admin-fixed-in-advance).
+
 ### Spaces, databases and views
 
 The log records **deleting, restoring, restricting and unrestricting** a space, a database or a view,
