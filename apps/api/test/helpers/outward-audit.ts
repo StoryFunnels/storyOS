@@ -227,6 +227,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'PATCH /workspaces/:ws/runners/:id': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },
   'DELETE /workspaces/:ws/runners/:id': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },
   'GET /workspaces/:ws/runner-assignments/:agent': { verdict: 'internal', why: 'read: returns data to the caller only' },
+  'POST /workspaces/:ws/agents/:agent/catch-up': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, it queues wakes that run on the agent owner\'s own computer, so an agent cannot start itself on a backlog' },
   'PUT /workspaces/:ws/runner-assignments/:agent': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },
   'POST /runner/v1/pair': { verdict: 'public', why: 'POST /runner/v1/pair is authenticated by the one-time pairing code, not by any token' },
   'GET /workspaces/:ws/agent-wakes': { verdict: 'internal', why: 'read: returns data to the caller only' },

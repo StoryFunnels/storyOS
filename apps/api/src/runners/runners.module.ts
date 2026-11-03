@@ -3,6 +3,7 @@ import { RecordsModule } from '../records/records.module';
 import { AgentWakesController } from './agent-wakes.controller';
 import { AgentWakesService } from './agent-wakes.service';
 import { AgentCatchUpService } from './agent-catch-up.service';
+import { SkillsModule } from '../skills/skills.module';
 import { RunnerApiController } from './runner-api.controller';
 import { RunnerAuthGuard } from './runner-auth.guard';
 import { RunnerSweeperService } from './runner-sweeper.service';
@@ -15,7 +16,7 @@ import { RunnersService } from './runners.service';
  */
 @Global()
 @Module({
-  imports: [RecordsModule],
+  imports: [RecordsModule, SkillsModule],
   controllers: [RunnersController, RunnerApiController, AgentWakesController],
   providers: [RunnersService, AgentWakesService, AgentCatchUpService, RunnerAuthGuard, RunnerSweeperService],
   exports: [RunnersService, AgentWakesService],

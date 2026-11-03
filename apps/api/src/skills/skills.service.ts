@@ -267,6 +267,33 @@ export class SkillsService implements OnModuleInit {
     return { loaded, missing };
   }
 
+  /**
+   * ticket #1184 — the skills a RUNNER run is handed (their instructions travel to a person's own computer), resolved by name as
+   * the agent's OWNER, with one rule `resolveByNames` does not have: a `personal` skill is delivered only to its own author's
+   * agent AND only when the Runner belongs to that same author. `resolveByNames` lets an admin read everyone's personal skills
+   * (#841), which is right for an admin reading and wrong for copying a colleague's private text onto another machine. A skill
+   * refused here is reported as missing, so the run fails naming it instead of quietly running without it.
+   */
+  async resolveForRunner(
+    membership: Membership,
+    ownerUserId: string,
+    runnerUserId: string,
+    names: string[],
+  ): Promise<{ loaded: SkillView[]; missing: string[] }> {
+    const key = (n: string) => n.trim().toLowerCase();
+    const { data } = await this.list(membership, ownerUserId);
+    const deliverable = data.filter((s) => s.visibility !== 'personal' || (s.owner_id === ownerUserId && runnerUserId === ownerUserId));
+    const loaded: SkillView[] = [];
+    const missing: string[] = [];
+    for (const name of names) {
+      const matches = deliverable.filter((s) => key(s.name) === key(name));
+      const pick = matches.find((s) => s.owner_id === ownerUserId) ?? matches[0];
+      if (pick) loaded.push(pick);
+      else missing.push(name);
+    }
+    return { loaded, missing };
+  }
+
   private publicGate: PublicPublishGate | null = null;
 
   registerPublicGate(gate: PublicPublishGate | null): void {

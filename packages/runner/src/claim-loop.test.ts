@@ -120,6 +120,22 @@ describe('the claim loop', () => {
     expect(seen[2]).toEqual({ mcpTools: undefined, model: undefined });
   });
 
+  it('#1184: the skills\' instructions reach the adapter in the context\'s shape; an older server sends none and the context has none', async () => {
+    const seen: Array<unknown> = [];
+    const capture: RunnerAdapter['execute'] = async (ctx) => {
+      seen.push(ctx.agent.skillInstructions);
+      return ok();
+    };
+    const withSkills = wake();
+    withSkills.agent = { ...withSkills.agent, skills: 'Triage', skill_instructions: [{ name: 'Triage', when_to_use: 'a lead arrives', instructions: 'BODY', truncated: { chars: 9, kept: 4 } }] };
+    const old = wake();
+    const client = scripted([{ wakes: [withSkills] }, { wakes: [old] }]);
+    const { loop } = loopOf(client, adapterOf(capture));
+    await runFor(loop, () => seen.length === 2);
+    expect(seen[0]).toEqual([{ name: 'Triage', whenToUse: 'a lead arrives', instructions: 'BODY', truncated: { chars: 9, kept: 4 } }]);
+    expect(seen[1]).toBeUndefined();
+  });
+
   it('asks for as many wakes as it has free slots, and never claims while full', async () => {
     const w1 = wake();
     const release: Array<() => void> = [];
