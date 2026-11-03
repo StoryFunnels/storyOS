@@ -31,12 +31,14 @@ See [Option categories](/guides/pack-manifest/#option-categories).
   Tasks link column, because the count says the same thing more briefly. It is not the view Projects
   opens on; Projects keeps its own **All records** list as its default.
 
-## Open tasks counts what is not Done
+## Open tasks counts by category
 
-**Open tasks** is a rollup on Projects that counts a project's tasks whose Status is not the **Done**
-option. It names that option, not the "completed" category. So if someone adds a second finished-looking
-state to Status (for example **Shipped**), tasks in it are counted as open until the rollup's filter is
-edited to exclude that state too.
+**Open tasks** is a rollup on Projects that counts a project's tasks whose Status is not in the
+**completed** or **canceled** category. It names categories, not the **Done** option. So if someone adds
+a second finished-looking state to Status (for example **Shipped**) and gives it the completed category,
+tasks in it are not counted as open, with no edit to the rollup. A state added with another category,
+such as started, is counted as open. See [Option categories](/guides/pack-manifest/#option-categories)
+and [Querying records](/api/querying/).
 
 ## Telling the assignee
 

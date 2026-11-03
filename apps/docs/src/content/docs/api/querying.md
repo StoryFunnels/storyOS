@@ -35,6 +35,30 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
   these at once: `last_N_days` is **inclusive** of today (today back through today−(N−1)), while
   `next_N_days` is **exclusive** of today (tomorrow through today+N) — `today` itself is its own
   filter and only ever matches that.
+- **`before` / `after` also accept a relative day**, written `$date:-90d` (90 days ago) or
+  `$date:+3d` (3 days from now): a sign, one to four digits, then `d`. The server turns it into a
+  calendar date when the filter runs, counting days in UTC, so a filter such as "not reviewed in 90
+  days" stays true as the days pass instead of freezing on the date you wrote it. A view, a
+  scheduled automation's selection, an automation condition and a record query all read it the
+  same way. It works with `before` and `after` only (not `eq`, `gt` or `within`), and a
+  `$date:` value that is not in this form is refused with a `422`. The web filter builder shows and
+  authors it as, for example, "more than 90 days ago".
+- **`category_is` / `category_is_not`** filter a **workflow** or **select** field by the *state
+  category* of its option instead of naming options. The value is one category, or a non-empty
+  array of them: `backlog`, `unstarted`, `started`, `completed`, `canceled`. For example, the open
+  tasks of a project are `{ "field": "status", "op": "category_is_not", "value": ["completed", "canceled"] }`.
+  - **It follows the options.** The categories are matched against the field's options when the
+    query runs, so an option someone adds later in a finished category is counted as finished
+    without editing the filter. Moving an existing option to another category recomputes rollups
+    that filter by category.
+  - **`category_is_not` is the exact complement.** A record with no value, or whose option has no
+    category (only a select option can lack one), is "not in" every category.
+  - **A category no option has is not an error**: `category_is` matches nothing and
+    `category_is_not` matches everything. A name that is not one of the five is a `422`, and so is
+    either op on a `multi_select`, whose options have no category.
+  - Over MCP, `query_records` and `count_records` pass these values through as written; category
+    names are not option labels, so nothing is translated. The web filter builder does not author
+    these ops yet.
 - **User fields** accept the literal `"me"`.
 - **Cursors** — responses page with keyset cursors; pass `next_cursor` back as `cursor`.
 - **Relations** — relation fields return `[{id, title}]` chips; filter them with `has` / `is_empty`.
