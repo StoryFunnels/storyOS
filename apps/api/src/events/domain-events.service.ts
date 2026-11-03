@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { currentEventOrigin } from '../common/credential-context';
+import type { EventOrigin } from '../common/credential-context';
 
 export interface DomainEvent {
   type: 'record_created' | 'record_updated' | 'record_linked' | 'record_deleted';
@@ -61,6 +63,12 @@ export interface DomainEvent {
   /** null for anonymous public-form submissions (MN-101). */
   actorId: string | null;
   depth: number;
+  /**
+   * #1174 — the agent and Runner run that CAUSED this event, when it was a run credential's write (or a write an action made while
+   * running for such an event). Stamped by `emit()` from the ambient context, so no emit site has to remember it. Null/absent for
+   * everything else. Consumers that can reach outside StoryOS read it to hold or to log the effect.
+   */
+  origin?: EventOrigin | null;
 }
 
 type Listener = (event: DomainEvent) => void;
@@ -74,7 +82,8 @@ export class DomainEventsService {
     this.listeners.push(listener);
   }
 
-  emit(event: DomainEvent): void {
+  emit(input: DomainEvent): void {
+    const event: DomainEvent = input.origin === undefined ? { ...input, origin: currentEventOrigin() } : input;
     for (const listener of this.listeners) {
       try {
         listener(event);

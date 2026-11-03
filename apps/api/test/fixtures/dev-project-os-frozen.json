@@ -1,0 +1,519 @@
+{
+  "_source": "the dev-project-os registry entry as it stood on the #1147 stack head 022bbf7e (origin/main 2f587feb + #1145 why/can), before ticket #1148. ticket #1148 must not change it: an installed copy is never touched.",
+  "entry": {
+    "slug": "dev-project-os",
+    "name": "Dev Project OS",
+    "summary": "Issues with a Triage inbox, sprints, and releases with changelogs.",
+    "highlights": [
+      "Issues, Sprints, Releases and Product Docs, fully related",
+      "Full task-DNA workflow: Triage → Backlog → To Do → In Progress → In Review → Done/Canceled",
+      "A \"Triage Bot\" agent proposes type/priority/labels for new issues — gated, your call to run it",
+      "Notifies you when a release ships"
+    ],
+    "manifest": {
+      "format_version": 1,
+      "license": "All rights reserved",
+      "attribution": "StoryOS",
+      "slug": "dev-project-os",
+      "name": "Dev Project OS",
+      "version": "1.0.0",
+      "why": "You want the original dev setup: issues, sprints and releases in one space.",
+      "can": [
+        "Sort new issues in a Triage inbox",
+        "Run lightweight sprints",
+        "Write release notes as you ship"
+      ],
+      "scenario": "pack",
+      "summary": "Issues, sprints and releases for a dev team, with a gated triage agent and a release-status automation.",
+      "requires": {
+        "connections": [],
+        "ai": "byo"
+      },
+      "databases": [
+        {
+          "action": "create",
+          "name": "Issues",
+          "space": "Product",
+          "fields": [
+            {
+              "name": "Priority",
+              "type": "select",
+              "options": [
+                {
+                  "label": "Urgent",
+                  "color": "red"
+                },
+                {
+                  "label": "High",
+                  "color": "orange"
+                },
+                {
+                  "label": "Medium",
+                  "color": "blue"
+                },
+                {
+                  "label": "Low",
+                  "color": "gray"
+                }
+              ]
+            },
+            {
+              "name": "Labels",
+              "type": "multi_select",
+              "options": [
+                {
+                  "label": "bug"
+                },
+                {
+                  "label": "feature"
+                },
+                {
+                  "label": "chore"
+                },
+                {
+                  "label": "docs"
+                },
+                {
+                  "label": "tech-debt"
+                }
+              ]
+            },
+            {
+              "name": "Assignee",
+              "type": "user"
+            },
+            {
+              "name": "Due Date",
+              "type": "date"
+            },
+            {
+              "name": "Type",
+              "type": "select",
+              "options": [
+                {
+                  "label": "Bug",
+                  "color": "red"
+                },
+                {
+                  "label": "Feature",
+                  "color": "blue"
+                },
+                {
+                  "label": "Improvement",
+                  "color": "teal"
+                },
+                {
+                  "label": "Chore",
+                  "color": "gray"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "action": "create",
+          "name": "Sprints",
+          "space": "Product",
+          "fields": [
+            {
+              "name": "Status",
+              "type": "workflow",
+              "options": [
+                {
+                  "label": "Planned",
+                  "color": "gray",
+                  "category": "unstarted"
+                },
+                {
+                  "label": "Active",
+                  "color": "green",
+                  "category": "started"
+                },
+                {
+                  "label": "Done",
+                  "color": "brown",
+                  "category": "completed"
+                }
+              ]
+            },
+            {
+              "name": "Start Date",
+              "type": "date"
+            },
+            {
+              "name": "End Date",
+              "type": "date"
+            },
+            {
+              "name": "Goal",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "action": "create",
+          "name": "Releases",
+          "space": "Product",
+          "fields": [
+            {
+              "name": "Status",
+              "type": "workflow",
+              "options": [
+                {
+                  "label": "Planned",
+                  "color": "gray",
+                  "category": "unstarted"
+                },
+                {
+                  "label": "In Progress",
+                  "color": "gold",
+                  "category": "started"
+                },
+                {
+                  "label": "Released",
+                  "color": "green",
+                  "category": "completed"
+                }
+              ]
+            },
+            {
+              "name": "Date",
+              "type": "date"
+            },
+            {
+              "name": "Link",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "action": "create",
+          "name": "Product Docs",
+          "space": "Product",
+          "fields": [
+            {
+              "name": "Type",
+              "type": "select",
+              "options": [
+                {
+                  "label": "Spec"
+                },
+                {
+                  "label": "Decision (ADR)"
+                },
+                {
+                  "label": "Runbook"
+                },
+                {
+                  "label": "Idea"
+                }
+              ]
+            },
+            {
+              "name": "Status",
+              "type": "workflow",
+              "options": [
+                {
+                  "label": "Draft",
+                  "color": "gray",
+                  "category": "unstarted"
+                },
+                {
+                  "label": "Agreed",
+                  "color": "green",
+                  "category": "completed"
+                },
+                {
+                  "label": "Superseded",
+                  "color": "brown",
+                  "category": "canceled"
+                }
+              ]
+            },
+            {
+              "name": "Owner",
+              "type": "user"
+            }
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "from": "Issues",
+          "to": "Sprints",
+          "cardinality": "one_to_many",
+          "from_field": "Sprint",
+          "to_field": "Issues"
+        },
+        {
+          "from": "Issues",
+          "to": "Releases",
+          "cardinality": "one_to_many",
+          "from_field": "Release",
+          "to_field": "Issues"
+        },
+        {
+          "from": "Product Docs",
+          "to": "Issues",
+          "cardinality": "many_to_many",
+          "from_field": "Issues",
+          "to_field": "Docs"
+        },
+        {
+          "from": "Issues",
+          "to": "Issues",
+          "cardinality": "one_to_many",
+          "from_field": "Parent task",
+          "to_field": "Sub-tasks"
+        },
+        {
+          "from": "Issues",
+          "to": "Issues",
+          "cardinality": "many_to_many",
+          "from_field": "Blocked by",
+          "to_field": "Blocks"
+        }
+      ],
+      "states": [
+        {
+          "database": "Issues",
+          "field": "State",
+          "options": [
+            {
+              "label": "Triage",
+              "color": "gray",
+              "category": "backlog"
+            },
+            {
+              "label": "Backlog",
+              "color": "gray",
+              "category": "backlog"
+            },
+            {
+              "label": "To Do",
+              "color": "blue",
+              "category": "unstarted"
+            },
+            {
+              "label": "In Progress",
+              "color": "gold",
+              "category": "started"
+            },
+            {
+              "label": "In Review",
+              "color": "purple",
+              "category": "started"
+            },
+            {
+              "label": "Done",
+              "color": "green",
+              "category": "completed"
+            },
+            {
+              "label": "Canceled",
+              "color": "brown",
+              "category": "canceled"
+            }
+          ]
+        }
+      ],
+      "agents": [
+        {
+          "name": "Triage Bot",
+          "goal": "Read new issues in Triage and propose a type, priority and labels, with a one-line summary.",
+          "instructions": "Never change an issue’s state or assignee — only propose type/priority/labels as a comment. A human moves it out of Triage.",
+          "scopes": [
+            "read",
+            "write"
+          ],
+          "approval_policy": [
+            "outward"
+          ],
+          "target_databases": [
+            "Issues"
+          ],
+          "skills": [],
+          "ai_mode": "your_own_ai"
+        }
+      ],
+      "triggers": [
+        {
+          "agent": "Triage Bot",
+          "database": "Issues",
+          "state_field": "State",
+          "state_option": "Triage",
+          "human_gate": true
+        }
+      ],
+      "derived_fields": [],
+      "views": [
+        {
+          "database": "Issues",
+          "name": "Issue Board",
+          "type": "board",
+          "config": {
+            "group_by_field_id": "$field:issues.state",
+            "card_field_ids": [
+              "$field:issues.type",
+              "$field:issues.priority",
+              "$field:issues.assignee"
+            ]
+          }
+        },
+        {
+          "database": "Issues",
+          "name": "Bugs",
+          "type": "table",
+          "config": {
+            "filters": {
+              "field": "type",
+              "op": "has",
+              "value": [
+                "$option:issues.type.bug"
+              ]
+            }
+          }
+        },
+        {
+          "database": "Releases",
+          "name": "Release Board",
+          "type": "board",
+          "config": {
+            "group_by_field_id": "$field:releases.status",
+            "card_field_ids": [
+              "$field:releases.date"
+            ]
+          }
+        }
+      ],
+      "automations": [
+        {
+          "database": "Releases",
+          "name": "Notify when a release ships",
+          "trigger": {
+            "type": "record_updated",
+            "field_id": "$field:releases.status"
+          },
+          "actions": [
+            {
+              "type": "notify_user",
+              "user": "@me",
+              "message": "A release’s status changed."
+            }
+          ],
+          "enabled": true
+        }
+      ],
+      "sample_records": [
+        {
+          "database": "Sprints",
+          "values": {
+            "name": "Sprint 12 (sample)",
+            "status": "$option:sprints.status.active",
+            "goal": "Ship the sharing flow"
+          }
+        },
+        {
+          "database": "Releases",
+          "values": {
+            "name": "v1.4.0 (sample)",
+            "status": "$option:releases.status.in-progress",
+            "date": "$date:+9d"
+          }
+        },
+        {
+          "database": "Releases",
+          "values": {
+            "name": "v1.3.2 (sample)",
+            "status": "$option:releases.status.released",
+            "date": "$date:-12d"
+          }
+        },
+        {
+          "database": "Releases",
+          "values": {
+            "name": "v1.5.0 (sample)",
+            "status": "$option:releases.status.planned",
+            "date": "$date:+30d"
+          }
+        },
+        {
+          "database": "Issues",
+          "values": {
+            "name": "Share dialog loses focus (sample)",
+            "state": "$option:issues.state.in-progress",
+            "type": "$option:issues.type.bug",
+            "priority": "$option:issues.priority.high",
+            "assignee": "$me",
+            "release": [
+              "$sample:Releases/v1.4.0 (sample)"
+            ],
+            "sprint": [
+              "$sample:Sprints/Sprint 12 (sample)"
+            ]
+          }
+        },
+        {
+          "database": "Issues",
+          "values": {
+            "name": "Add keyboard shortcuts (sample)",
+            "state": "$option:issues.state.triage",
+            "type": "$option:issues.type.feature",
+            "priority": "$option:issues.priority.medium",
+            "assignee": "$me"
+          }
+        },
+        {
+          "database": "Issues",
+          "values": {
+            "name": "Slow board scroll on 5k cards (sample)",
+            "state": "$option:issues.state.in-review",
+            "type": "$option:issues.type.improvement",
+            "priority": "$option:issues.priority.high",
+            "assignee": "$me"
+          }
+        },
+        {
+          "database": "Issues",
+          "values": {
+            "name": "Update dependency versions (sample)",
+            "state": "$option:issues.state.to-do",
+            "type": "$option:issues.type.chore",
+            "priority": "$option:issues.priority.low",
+            "assignee": "$me"
+          }
+        },
+        {
+          "database": "Issues",
+          "values": {
+            "name": "Fix duplicate welcome emails (sample)",
+            "state": "$option:issues.state.done",
+            "type": "$option:issues.type.bug",
+            "priority": "$option:issues.priority.urgent",
+            "assignee": "$me"
+          }
+        },
+        {
+          "database": "Issues",
+          "values": {
+            "name": "Dark mode contrast pass (sample)",
+            "state": "$option:issues.state.backlog",
+            "type": "$option:issues.type.improvement",
+            "priority": "$option:issues.priority.medium",
+            "assignee": "$me"
+          }
+        },
+        {
+          "database": "Product Docs",
+          "values": {
+            "name": "Sharing model spec (sample)",
+            "type": "$option:product-docs.type.spec",
+            "status": "$option:product-docs.status.agreed"
+          }
+        }
+      ],
+      "skills": [],
+      "suggested_sources": []
+    }
+  }
+}

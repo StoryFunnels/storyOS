@@ -17,6 +17,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
+import { NoRunCredential } from '../auth/token-scope.guard';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { RecordsService } from '../records/records.service';
@@ -115,6 +116,8 @@ export class AttachmentsController {
    * our network and the response handed back as a downloadable attachment. It now goes through the address-pinned guard, with every
    * redirect re-checked, a timeout, and the body capped while streaming at ATTACHMENT_MAX_BYTES.
    */
+  /** #1135: the server GETs a URL the CALLER chose, so the URL itself is a channel out for whatever the caller can read. */
+  @NoRunCredential()
   @Post('from-url')
   @ApiOperation({
     summary: 'Attach a file the server fetches from a public URL (guarded: no private/metadata addresses, redirects re-checked, size-capped). `?field=<id>` as for upload',

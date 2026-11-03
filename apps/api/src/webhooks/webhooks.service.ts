@@ -433,6 +433,12 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
           actorId: activityEvents.actorId,
           payload: activityEvents.payload,
           createdAt: activityEvents.createdAt,
+          source: activityEvents.source,
+          agentId: activityEvents.agentId,
+          agentName: activityEvents.agentName,
+          runId: activityEvents.runId,
+          runnerId: activityEvents.runnerId,
+          runnerName: activityEvents.runnerName,
           databaseId: records.databaseId,
           databaseName: databases.name,
           spaceId: databases.spaceId,
@@ -485,6 +491,11 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
             delivered_for: sub.id,
             occurred_at: e.createdAt.toISOString(),
             actor_id: e.actorId,
+            // #1174 / ADR-0021 §7 — a subscription is a destination an admin fixed, so an agent's write is delivered as configured,
+            // but the delivery (this row IS the log) says an agent's run credential caused it. Only for agent events: additive.
+            ...(e.source === 'agent' && e.runnerId
+              ? { caused_by: { source: 'agent', agent_id: e.agentId, agent_name: e.agentName, run_id: e.runId, runner_id: e.runnerId, runner_name: e.runnerName } }
+              : {}),
             workspace: { id: sub.workspaceId },
             space: e.spaceId ? { id: e.spaceId } : null,
             database: e.databaseId ? { id: e.databaseId, name: e.databaseName } : null,

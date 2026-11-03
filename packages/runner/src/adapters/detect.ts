@@ -8,8 +8,9 @@ import type { ToolReport } from '../protocol/types.js';
  * Which vendor tools are on this machine. Pairing shows the person what the Runner found, and the server stores it so the app can
  * ask "which should agents use?". This only LOOKS: it never logs in, never starts a session, never reads a tool's config.
  *
- * `logged_in` is left out on purpose: no tool's login state is verified here, and an unknown must not read as a yes. The real
- * adapters (#1135, #1136) report it from `detect()` once they have checked how.
+ * `logged_in` is reported ONLY where the tool says so itself: `claude auth status` prints `loggedIn`. It is a statement about a stored
+ * login, not a working token (a login whose token has expired still says true: seen on the machine ticket #1135 was built on), and an
+ * unknown stays absent, never a yes.
  */
 const CANDIDATES: Array<{ id: string; name: string; bins: string[] }> = [
   { id: 'claude-code', name: 'Claude Code', bins: ['claude'] },
@@ -41,6 +42,20 @@ function versionOf(file: string): Promise<string | undefined> {
   });
 }
 
+function loggedInOf(file: string): Promise<boolean | undefined> {
+  return new Promise((resolve) => {
+    execFile(file, ['auth', 'status'], { timeout: 5_000, windowsHide: true }, (error, stdout) => {
+      if (error) return resolve(undefined);
+      try {
+        const v = (JSON.parse(String(stdout)) as { loggedIn?: unknown }).loggedIn;
+        resolve(typeof v === 'boolean' ? v : undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+  });
+}
+
 export async function detectTools(pathVar: string | undefined = process.env.PATH): Promise<ToolReport[]> {
   const out: ToolReport[] = [];
   for (const tool of CANDIDATES) {
@@ -54,7 +69,8 @@ export async function detectTools(pathVar: string | undefined = process.env.PATH
       continue;
     }
     const version = await versionOf(file);
-    out.push({ id: tool.id, name: tool.name, installed: true, ...(version ? { version } : {}) });
+    const loggedIn = tool.id === 'claude-code' ? await loggedInOf(file) : undefined;
+    out.push({ id: tool.id, name: tool.name, installed: true, ...(version ? { version } : {}), ...(loggedIn !== undefined ? { logged_in: loggedIn } : {}) });
   }
   return out;
 }

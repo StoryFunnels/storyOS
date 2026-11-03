@@ -1,7 +1,9 @@
 import 'reflect-metadata';
-import { ModulesContainer } from '@nestjs/core';
+import { ModulesContainer, Reflector } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { call } from './members';
+import { requiredTokenScope } from '../../src/auth/auth.guard';
+import { NO_RUN_CREDENTIAL_KEY, RUN_BUTTON_KEY, SESSION_ONLY_KEY } from '../../src/auth/token-scope.guard';
 
 /**
  * Shared by the restricted-resource sweeps (ticket #1098, ticket #1101): the LIVE route table, and the one comparison they make.
@@ -28,6 +30,48 @@ export function liveWorkspaceRoutes(app: NestFastifyApplication): SweepRoute[] {
         const sub: string = Reflect.getMetadata('path', fn) ?? '/';
         const path = `/${base}/${sub}`.replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
         if (path.startsWith('/workspaces/:ws/')) routes.push({ method: METHODS[method]!, path, handler: `${cls.name}.${name}` });
+      }
+    }
+  }
+  return routes;
+}
+
+/** #1135 — every route of the running app (not only `/workspaces/:ws/…`) with the metadata the outward audit classifies by. */
+export interface AuditRoute extends SweepRoute {
+  guards: string[];
+  sessionOnly: boolean;
+  noRunCredential: boolean;
+  runButton: boolean;
+  requiredScope: 'read' | 'write' | 'admin';
+}
+
+export function liveRoutes(app: NestFastifyApplication): AuditRoute[] {
+  const reflector = new Reflector();
+  const routes: AuditRoute[] = [];
+  for (const m of app.get(ModulesContainer).values()) {
+    for (const c of m.controllers.values()) {
+      const cls = c.metatype as (new (...a: never[]) => unknown) | null;
+      if (!cls) continue;
+      const base: string = Reflect.getMetadata('path', cls) ?? '/';
+      for (const name of Object.getOwnPropertyNames(cls.prototype)) {
+        const fn = cls.prototype[name as keyof typeof cls.prototype] as unknown;
+        if (typeof fn !== 'function' || name === 'constructor') continue;
+        const method = Reflect.getMetadata('method', fn);
+        if (method === undefined) continue;
+        const sub: string = Reflect.getMetadata('path', fn) ?? '/';
+        const path = `/${base}/${sub}`.replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
+        const targets = [fn, cls] as Parameters<Reflector['getAllAndOverride']>[1];
+        const guards = [...(Reflect.getMetadata('__guards__', cls) ?? []), ...(Reflect.getMetadata('__guards__', fn) ?? [])].map((g: { name: string }) => g.name);
+        routes.push({
+          method: METHODS[method]!,
+          path,
+          handler: `${cls.name}.${name}`,
+          guards,
+          sessionOnly: !!reflector.getAllAndOverride(SESSION_ONLY_KEY, targets),
+          noRunCredential: !!reflector.getAllAndOverride(NO_RUN_CREDENTIAL_KEY, targets),
+          runButton: !!reflector.getAllAndOverride(RUN_BUTTON_KEY, targets),
+          requiredScope: requiredTokenScope(reflector, targets, METHODS[method]!) as 'read' | 'write' | 'admin',
+        });
       }
     }
   }

@@ -425,6 +425,18 @@ Never treat unresolvable as "no movement". And a send-back is two writes to two
 systems — posting the review is not the same fact as the ticket moving; confirm
 both.
 
+## A new route or MCP tool and the Runner run credential (#1135)
+
+A per-run credential (#1132: `mn_pat_…`, `origin = 'agent'`, capped at `write`) must not do anything OUTWARD without a StoryOS
+approval. The audit and its method: [docs/architecture/runner-outward-tool-audit.md](docs/architecture/runner-outward-tool-audit.md).
+It is enforced by `apps/api/test/run-credential-outward-sweep.test.ts`, which **fails on any route or MCP tool nobody classified**.
+
+- A route that sends mail, calls a third party, fetches a URL the caller chose, pushes to an external system or mints a credential
+  must either stage through the `approvals` flow or carry `@NoRunCredential()` (`auth/token-scope.guard.ts`). Do not write `internal`
+  for it in `test/helpers/outward-audit.ts`.
+- One class is still open (ticket #1174): record writes fire admin-configured outward actions with no approval. Do not build the
+  Claude Code adapter for customers on the assumption that "everything outward is gated".
+
 ## Verification honesty
 
 Tested backend claims need tests; interactive UI claims need a live browser

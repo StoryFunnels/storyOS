@@ -27,6 +27,8 @@ import { systemFieldDefsFor } from '@storyos/schemas';
 import type { FieldDef } from '@storyos/schemas';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
+import { runWithEventOrigin } from '../common/credential-context';
+import type { EventOrigin } from '../common/credential-context';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { AutomationActionsService } from './actions.service';
 import { ApprovalsService } from './approvals.service';
@@ -771,6 +773,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         event.depth,
         this.linkedInfoFromEvent(event),
         event.changedValues, // #273 — feeds the {changesSummary} token
+        undefined,
+        undefined,
+        event.origin ?? null, // #1174 — the agent run that caused this event, if any
       );
     }
   }
@@ -822,6 +827,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     selectionRank?: number,
     /** #1009 — a run id the CALLER chose, so it can say which run this was (a whole-run "Run again"). Otherwise minted here. */
     presetRunId?: string,
+    /** #1174 / ADR-0021 §7 — the agent run whose write caused this event: its OUTWARD actions are held for a person. */
+    origin?: EventOrigin | null,
   ) {
     const started = Date.now();
     // MN-253: pre-minted, like startHookRun's runId — actions.execute() needs
@@ -927,20 +934,25 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         ? await this.recordsService.renderChangeSummary(databaseId, changedValues!).catch(() => '')
         : undefined;
 
-      const effects = await this.actions.execute(rule.actions as AutomationAction[], {
-        workspaceId,
-        databaseId,
-        record,
-        actorId: rule.createdBy ?? 'automation',
-        depth: depth + 1,
-        ruleId,
-        runId,
-        linkedRecords,
-        linkedDatabaseId: linkInfo?.otherDatabaseId ?? null,
-        changedRelationFieldId: linkInfo?.changedRelationFieldId ?? null,
-        changedRelationDirection: linkInfo?.direction ?? null,
-        changesSummary,
-      });
+      // #1174 — runs with the origin ambient, so a record write an action makes (a cascade: set_values, create_record...) emits an
+      // event that carries it too, and a rule further down the chain holds ITS outward actions as well.
+      const effects = await runWithEventOrigin(origin ?? null, () =>
+        this.actions.execute(rule.actions as AutomationAction[], {
+          workspaceId,
+          databaseId,
+          record,
+          actorId: rule.createdBy ?? 'automation',
+          depth: depth + 1,
+          ruleId,
+          runId,
+          linkedRecords,
+          linkedDatabaseId: linkInfo?.otherDatabaseId ?? null,
+          changedRelationFieldId: linkInfo?.changedRelationFieldId ?? null,
+          changedRelationDirection: linkInfo?.direction ?? null,
+          changesSummary,
+          origin: origin ?? null,
+        }),
+      );
       await this.db
         .update(automationRuns)
         .set({ status: 'ok', error: null, effects, durationMs: Date.now() - started })

@@ -23,6 +23,8 @@ export interface FieldDef {
    * order nobody chose.
    */
   option_order?: string[];
+  /** #1154 — option id → its state category (`null`: a select option with none), so a `category_is` filter resolves against the LIVE options. */
+  option_categories?: Record<string, string | null>;
 }
 
 export interface ValidationIssue {

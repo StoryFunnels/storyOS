@@ -32,7 +32,8 @@ export const REPAIR_HINT = 'Run npx @storyos/runner again to get a new code.';
 export function describeTools(tools: ToolReport[]): string[] {
   return tools.map((t) => {
     const name = t.name ?? t.id;
-    return t.installed ? `  found    ${name}${t.version ? ` ${t.version}` : ''}` : `  missing  ${name}`;
+    const login = t.logged_in === true ? ', signed in' : t.logged_in === false ? ', NOT signed in: open it once and sign in' : '';
+    return t.installed ? `  found    ${name}${t.version ? ` ${t.version}` : ''}${login}` : `  missing  ${name}`;
   });
 }
 

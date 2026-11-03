@@ -4,6 +4,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { env } from '../config/env';
+import { logAgentOriginOutward } from '../activity/agent-origin-log';
 import { EmailService } from '../mail/email.service';
 import { PreferencesService } from '../users/preferences.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -63,6 +64,7 @@ export class WatcherEmailService {
       this.preferences.notificationPrefsFor(capped),
     ]);
 
+    let sent = 0;
     for (const recipient of recipients) {
       if (prefs.get(recipient.id)?.record_changed === false) continue;
       await this.emailService.send(
@@ -76,6 +78,12 @@ export class WatcherEmailService {
         },
         workspaceId,
       );
+      sent += 1;
+    }
+    // #1174 — watchers are members, a fixed destination: it runs as configured, and is LOGGED when an agent's run credential
+    // made the change.
+    if (sent > 0) {
+      await logAgentOriginOutward(this.db, { workspaceId, recordId, recordTitle, channel: 'watcher_email', summary: `${sent} watcher email(s) to workspace members` }).catch(() => undefined);
     }
   }
 }

@@ -2,6 +2,7 @@ import { fieldRef, optionRef } from '@storyos/schemas';
 import type { PackManifest, PackPublicPreview, PackRegistryEntry } from '@storyos/schemas';
 import { SOCIAL_COMMAND_CENTER_PACK } from './social-command-center';
 import { STARTER_PACKS } from './starter-packs';
+import { DEV_TRACKER_PACK } from './dev-tracker';
 import { TEAM_BOARD_PACK } from './team-board';
 import { TEAM_WIKI_PACK } from './team-wiki';
 
@@ -22,6 +23,7 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
   ...STARTER_PACKS,
   SOCIAL_COMMAND_CENTER_PACK,
   TEAM_BOARD_PACK,
+  DEV_TRACKER_PACK,
   TEAM_WIKI_PACK,
   {
     slug: 'support-inbox',

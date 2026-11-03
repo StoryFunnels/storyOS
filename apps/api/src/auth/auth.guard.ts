@@ -22,7 +22,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { user } from '../db/schema';
 import { TokensService } from '../tokens/tokens.service';
-import { RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
+import { NO_RUN_CREDENTIAL_KEY, RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
 import { MIN_ROLE_KEY } from '../workspaces/workspace-access.guard';
 import { resolveAgentIdentity } from '../agents/agent-identity';
 import { RUNNER_TOKEN_PREFIX } from '../runners/runner.constants';
@@ -213,6 +213,13 @@ export class AuthGuard implements CanActivate {
       if (!account) throw new UnauthorizedException('Token owner no longer exists');
       this.enforceTokenScope(context, resolved);
       this.enforceResourceBinding(context, resolved.resourceScope);
+      // #1135 — a per-run credential is refused the routes marked @NoRunCredential() (outward effects with no staging path, and
+      // anything that would mint a wider credential than the caller's). Only a run credential carries `run`.
+      if (resolved.run && this.reflector.getAllAndOverride<boolean>(NO_RUN_CREDENTIAL_KEY, [context.getHandler(), context.getClass()])) {
+        throw new ForbiddenException(
+          'A Runner run credential cannot do this: it has an effect outside StoryOS (or would widen the credential) and needs a person. Ask the member who owns this agent to do it in StoryOS.',
+        );
+      }
 
       /**
        * MN-122: a PAT is minted FOR a workspace, so it must only work there.

@@ -1,7 +1,7 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { SQL, sql } from 'drizzle-orm';
 import type { FieldDef, FilterNode, FilterOp, RelativeDateRange } from '@storyos/schemas';
-import { resolveSampleDate, SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
+import { resolveSampleDate, STATE_CATEGORIES, SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELD_TYPES } from '@storyos/schemas';
 import { isPickOneOp } from './rollup-pick-one';
 import { recordLinks, records, user } from '../db/schema';
 
@@ -258,8 +258,12 @@ function compileCondition(fieldName: string, op: FilterOp, value: unknown, ctx: 
     // #172: a workflow value is a single option id — filtered exactly like select.
     case 'select':
     case 'workflow':
+      if (op === 'category_is' || op === 'category_is_not') return compileCategory(def, op, value);
       return compileIdSet(def, op, value, ctx, 'scalar');
     case 'multi_select':
+      if (op === 'category_is' || op === 'category_is_not') {
+        throw err(`op "${op}" is not valid for multi_select field "${def.api_name}": a multi-select option has no state category (use has/has_none)`);
+      }
       return compileIdSet(def, op, value, ctx, 'array');
     case 'created_by':
     case 'updated_by':
@@ -522,6 +526,32 @@ function compileIdSet(
     match = sql`(${records.values}->${def.id} ?| ARRAY[${list}]::text[])`;
   }
   return op === 'has' ? match : sql`(NOT COALESCE(${match}, FALSE))`;
+}
+
+/**
+ * #1154 — `category_is` / `category_is_not` on a select or workflow field: "the record's option is in a completed state", whatever
+ * the option is called. The categories are resolved to option ids HERE, at query time, from the field's live options, and the result is
+ * the same `field IN (ids)` an option filter compiles to, so a completed state added after the filter was written is counted with no
+ * edit to the filter, and a rollup / view / query / automation all read it the same way (they all compile through this function).
+ *
+ * `category_is_not` is the complement exactly as `has_none` is: a record with no value, or an option with no category, is NOT in the
+ * category. A category that no option currently has is not an error (unconfigured is not invalid): `is` then matches nothing and
+ * `is_not` matches everything. An unknown category NAME is an error, because it can never match anything.
+ */
+function compileCategory(def: FieldDef, op: FilterOp, value: unknown): SQL {
+  const wanted = typeof value === 'string' ? [value] : value;
+  if (!Array.isArray(wanted) || wanted.length === 0 || wanted.some((v) => typeof v !== 'string')) {
+    throw err(`op "${op}" on "${def.api_name}" expects a state category or a non-empty array of them (${STATE_CATEGORIES.join(', ')})`);
+  }
+  const unknown = (wanted as string[]).find((c) => !(STATE_CATEGORIES as readonly string[]).includes(c));
+  if (unknown !== undefined) {
+    throw err(`unknown state category "${unknown}" for "${def.api_name}" (valid: ${STATE_CATEGORIES.join(', ')})`);
+  }
+  const ids = Object.entries(def.option_categories ?? {})
+    .filter(([, category]) => category !== null && (wanted as string[]).includes(category))
+    .map(([id]) => id);
+  const match = ids.length === 0 ? sql`FALSE` : sql`(${fieldExpr(def)} IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)}))`;
+  return op === 'category_is' ? match : sql`(NOT COALESCE(${match}, FALSE))`;
 }
 
 /** Relation filters compile to EXISTS over record_links (ADR-0002). */
