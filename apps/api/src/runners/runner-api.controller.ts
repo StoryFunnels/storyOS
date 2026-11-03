@@ -73,7 +73,7 @@ export class RunnerApiController {
       reply.status(204);
       // ticket #1137: WHY nothing was handed out, when the Runner itself may not claim (a 204 has no body, so headers): the reason
       // and, when known, the instant it can claim again. A Runner that sleeps until then neither polls in vain nor claims early.
-      const hold = this.wakes.claimHold(req.runner);
+      const hold = await this.wakes.currentHold(req.runner.id);
       if (hold) {
         reply.header('x-runner-hold-reason', hold.reason);
         if (hold.resumes_at) reply.header('x-runner-resumes-at', hold.resumes_at.toISOString());

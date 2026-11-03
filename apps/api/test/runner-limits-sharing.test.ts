@@ -264,3 +264,56 @@ describe('"leave me X%": stored always, kept only where the tool reports it', ()
     await pool.query("update agent_wakes set status = 'canceled', finished_at = now() where id = $1", [w.id]);
   });
 });
+
+describe('an OPEN long poll honours a rule that changes while it waits (a wake arriving mid-poll was claimed after hours closed)', () => {
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const poll = (token: string) => asRunner(token, 'POST', '/runner/v1/claim', { wait_seconds: 6 });
+  const count = async (agent: string, status: string) => (await pool.query('select count(*)::int as n from agent_wakes where agent_id = $1 and status = $2', [agent, status])).rows[0].n as number;
+  const settle = (agent: string) => pool.query("update agent_wakes set status = 'canceled', finished_at = now() where agent_id = $1", [agent]);
+
+  it('hours that close while the poll is open: the wake that arrives afterwards is NOT claimed (204, working_hours hold) and stays queued; once they reopen it is claimed', async () => {
+    const agent = await mkAgent(owner, 'Mid-poll hours bot');
+    const r = await pairRunner(owner, [agent]);
+    await patch(owner, r.id, { working_hours: utcWindow(true) });
+    const open = poll(r.token); // nothing is queued, so it waits
+    await pause(300);
+    await patch(owner, r.id, { working_hours: utcWindow(false) });
+    expect((await as(admin.token, 'POST', `/workspaces/${ws}/agents/${agent}/run`)).statusCode).toBe(201);
+    const res = await open;
+    expect(res.statusCode, res.body).toBe(204);
+    expect(res.headers['x-runner-hold-reason']).toBe('working_hours');
+    expect(await count(agent, 'queued')).toBe(1);
+    expect(await count(agent, 'claimed')).toBe(0);
+    await patch(owner, r.id, { working_hours: utcWindow(true) });
+    expect((await claim(r.token)).statusCode).toBe(200);
+    await settle(agent);
+  });
+
+  it('a reserve that is passed while the poll is open (the tool reports more usage on its heartbeat): the wake is NOT claimed', async () => {
+    const meter = (used: number) => [{ id: 'claude-code', installed: true, capabilities: { plan_usage_percent: used } }];
+    const agent = await mkAgent(owner, 'Mid-poll reserve bot');
+    const r = await pairRunner(owner, [agent], meter(40));
+    await patch(owner, r.id, { reserve_percent: 30 });
+    const open = poll(r.token);
+    await pause(300);
+    expect((await asRunner(r.token, 'POST', '/runner/v1/heartbeat', report(meter(85)))).statusCode).toBe(200);
+    expect((await as(admin.token, 'POST', `/workspaces/${ws}/agents/${agent}/run`)).statusCode).toBe(201);
+    const res = await open;
+    expect(res.statusCode, res.body).toBe(204);
+    expect(res.headers['x-runner-hold-reason']).toBe('reserve');
+    expect(await count(agent, 'queued')).toBe(1);
+    await settle(agent);
+  });
+
+  it('control: with no rule change the same poll DOES claim a wake that arrives mid-poll', async () => {
+    const agent = await mkAgent(owner, 'Mid-poll control bot');
+    const r = await pairRunner(owner, [agent]);
+    await patch(owner, r.id, { working_hours: utcWindow(true) });
+    const open = poll(r.token);
+    await pause(300);
+    expect((await as(admin.token, 'POST', `/workspaces/${ws}/agents/${agent}/run`)).statusCode).toBe(201);
+    const res = await open;
+    expect(res.statusCode, res.body).toBe(200);
+    await settle(agent);
+  });
+});
