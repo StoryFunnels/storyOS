@@ -7234,6 +7234,7 @@ export interface components {
             /** Format: uuid */
             target_space_id?: string;
             enable_automations?: string[];
+            enable_agent_triggers?: string[];
         };
         SubmitDto: {
             /** @enum {string} */

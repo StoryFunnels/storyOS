@@ -18,6 +18,7 @@ import {
   packManifestSchema,
   resolveSampleDate,
   installedEnabledState,
+  installedTriggerState,
   SAMPLE_ME,
   type PlanOption,
 } from '@storyos/schemas';
@@ -1275,13 +1276,15 @@ export class PacksService {
     enableAutomations: string[] = [],
     /** #1156 — the same `resolutions` install takes: a `reuse` the person chose for a database in another space is shown as adopted. */
     resolutions: PackInstallResolutions = {},
+    /** #1192 - see `install`. A preview that ignored it would show the triggers off that the install then turns on. */
+    enableAgentTriggers: string[] = [],
   ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
     const plan = await this.planAdoptions(membership, manifest, targetSpaceId, resolutions, await this.findExistingInstall(membership.workspaceId, manifest.slug), false);
-    const { databases, views, automations, agents } = await this.computeCollisions(membership, manifest, targetSpaceId, plan.adopt);
+    const { databases, views, automations, agents, triggers } = await this.computeCollisions(membership, manifest, targetSpaceId, plan.adopt);
     for (const item of databases) {
       const hint = plan.hints.get(norm(item.name));
       if (hint) item.existing_elsewhere = hint;
@@ -1297,7 +1300,19 @@ export class PacksService {
       item.enabled_on_install = state.enabled;
       if (state.switched_off_because) item.switched_off_because = state.switched_off_because;
     }
-    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents };
+    // #1192 - the same for each agent trigger the install would CREATE: on or off, and why off. A human-gated one never fires by itself.
+    const triggersOn = this.labelSet(enableAgentTriggers);
+    const triggerByLabel = new Map(manifest.triggers.map((t) => [this.triggerLabel(t), t] as const));
+    for (const item of triggers) {
+      const planned = triggerByLabel.get(item.name);
+      if (!planned) continue;
+      if (planned.human_gate) item.human_gate = true;
+      if (item.action === 'reuse') continue;
+      const state = installedTriggerState(planned.human_gate, triggersOn.has(norm(item.name)));
+      item.enabled_on_install = state.enabled;
+      if (state.switched_off_because) item.switched_off_because = state.switched_off_because;
+    }
+    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents, triggers };
   }
 
   /**
@@ -1344,6 +1359,7 @@ export class PacksService {
     views: PackPreviewItem[];
     automations: PackPreviewItem[];
     agents: PackPreviewItem[];
+    triggers: PackPreviewItem[];
     agentPlans: Map<string, AgentUpdatePlan>;
   }> {
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
@@ -1440,11 +1456,13 @@ export class PacksService {
       });
     }
 
-    const { agentsDb } = await this.agents.findPackDbs(membership.workspaceId);
+    const { agentsDb, triggersDb } = await this.agents.findPackDbs(membership.workspaceId);
     let agentTitles: Set<string> | undefined;
+    const agentIdByTitle = new Map<string, string>();
     if (agentsDb) {
       const { data } = await this.records.list(agentsDb.id, { limit: MAX_SCAN });
       agentTitles = new Set(data.map((r) => norm(r.title)));
+      for (const r of data) agentIdByTitle.set(norm(r.title), r.id);
     }
     const agentPlans = existingInstall && agentsDb ? await this.planAgentUpdates(membership, manifest, existingInstall.id, agentsDb.id) : new Map<string, AgentUpdatePlan>();
     const agents: PackPreviewItem[] = manifest.agents.map((a) => {
@@ -1453,7 +1471,40 @@ export class PacksService {
       return plan ? { name: a.name, action, agent_update: plan.update } : { name: a.name, action };
     });
 
-    return { databases, views, automations, agents, agentPlans };
+    // #1192 - each agent trigger, `reuse` when the very binding already exists (the install leaves it exactly as it is), else `create`.
+    const triggers: PackPreviewItem[] = [];
+    if (manifest.triggers.length > 0) {
+      const bindings = triggersDb ? (await this.records.list(triggersDb.id, { limit: MAX_SCAN })).data : [];
+      for (const planned of manifest.triggers) {
+        const label = this.triggerLabel(planned);
+        const live = liveByName.get(norm(planned.database));
+        const agentId = agentIdByTitle.get(norm(planned.agent));
+        let exists = false;
+        if (live && agentId && bindings.length > 0) {
+          const fields = ((await this.databases.get(membership, live.id)) as unknown as { fields: LiveField[] }).fields ?? [];
+          const field = fields.find((f) => norm(f.displayName) === norm(planned.state_field));
+          const option = field?.options?.find((o) => norm(o.label) === norm(planned.state_option));
+          exists =
+            !!field &&
+            !!option &&
+            bindings.some(
+              (b) =>
+                b.values['database'] === live.id &&
+                b.values['state_field'] === field.id &&
+                b.values['state_option'] === option.id &&
+                ((b.values['agent'] as Array<{ id: string }> | undefined) ?? []).some((l) => l.id === agentId),
+            );
+        }
+        triggers.push({ name: label, action: exists ? 'reuse' : 'create' });
+      }
+    }
+
+    return { databases, views, automations, agents, triggers, agentPlans };
+  }
+
+  /** #1192 - a trigger's label, "Agent <- Database.Field = State": the one ArchitectService reports and a review names it by. */
+  private triggerLabel(t: { agent: string; database: string; state_field: string; state_option: string }): string {
+    return `${t.agent} \u2190 ${t.database}.${t.state_field} = ${t.state_option}`;
   }
 
   /**
@@ -1796,6 +1847,12 @@ export class PacksService {
      * switch ON in the review. The only way such a rule installs on: the manifest's own `enabled: true` is ignored for them.
      */
     enableAutomations: string[] = [],
+    /**
+     * #1192 - "Agent <- Database.Field = State" labels of state-bound agent triggers the person chose to switch ON in the review. The only
+     * way such a trigger installs on: a manifest cannot (the trigger has no `enabled`, so one a file carries is stripped). A trigger an
+     * earlier install already created is never touched, in either direction.
+     */
+    enableAgentTriggers: string[] = [],
   ): Promise<PackInstallResult> {
     const manifest = this.parseManifest(rawManifest);
     const targetSpace = targetSpaceId ? await this.resolveTargetSpace(membership, manifest, targetSpaceId) : undefined;
@@ -1821,13 +1878,14 @@ export class PacksService {
     const agentOsBefore = needsAgentOs ? await this.snapshotAgentOs(membership.workspaceId) : undefined;
     const ledger: InstallLedger = { built: {} as ArchitectBuildProgress };
     let step = 'building the databases, fields, relations, agents and triggers';
+    const triggersOn = this.labelSet(enableAgentTriggers);
 
     try {
       // ── The reuse: a PackManifest IS an ArchitectPlan ──────────────────────
       // Databases, fields, relations, states, agents and bindings — all of it,
       // through the walk #214 already ships. Nothing about that walk is
       // reimplemented, adapted or wrapped here.
-      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, adopt, trackedIds: existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : undefined, progress: ledger.built });
+      const built = await this.architect.build(membership, working, { targetSpace, scopeToHomeSpace: true, adopt, trackedIds: existingInstall ? await this.trackedDatabaseIds(existingInstall.id) : undefined, progress: ledger.built, triggerState: (planned, label) => installedTriggerState(planned.human_gate, triggersOn.has(norm(label))) });
 
       const result: PackInstallResult = {
         slug: manifest.slug,

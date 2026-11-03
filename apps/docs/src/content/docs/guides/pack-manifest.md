@@ -1,6 +1,6 @@
 ---
 title: Writing a pack manifest
-description: The parts of a pack manifest that decide how an install behaves, and what a pack says about itself — why and can lines, option categories, agent AI mode and skills, and which automations install switched off.
+description: The parts of a pack manifest that decide how an install behaves, and what a pack says about itself — why and can lines, option categories, agent AI mode and skills, which automations install switched off, and that agent triggers do too.
 sidebar:
   order: 10
 ---
@@ -234,6 +234,27 @@ The preview and the install result both report the outcome for each rule the ins
 
 A rule that already exists is left as it is, so the preview says nothing about it.
 The web install screen does not list these switches yet; use the API or MCP.
+
+## Agent triggers install switched off
+
+A pack's **state-bound agent triggers** ("wake this agent when Status becomes New") also install
+**switched off**. A trigger that is on creates a wake for its agent every time a record reaches the state,
+so an install would otherwise start an agent nobody chose. A manifest cannot switch one on: a trigger has
+no `enabled` field, and one a file carries is dropped.
+
+- A trigger with `human_gate: true` is not held off. It never starts a run by itself: a person starts
+  every run. It reports `enabled: true` and `human_gate: true`.
+- To switch one on at install, pass `enable_agent_triggers` with its label, written
+  `Agent ← Database.Field = State` as the preview lists it. Over MCP this is the `enable_agent_triggers`
+  input of `install_pack`; over REST it is `enable_agent_triggers` on `packs/install` and `packs/preview`.
+  A label that matches no trigger is ignored.
+- **Preview:** a `triggers` list. Each trigger the install would create carries `enabled_on_install`,
+  and `switched_off_because: "wakes_agent"` when it is off.
+- **Install result:** each created trigger carries `enabled`, and the same `switched_off_because`.
+- A trigger that already exists is never changed by a re-install or an update, in either direction: one
+  a person switched on stays on, one they left off stays off. An update that adds a trigger adds it off.
+- Existing installs are not changed. A plan the Architect builds, and a trigger a person creates by
+  hand, are not pack installs and stay on.
 
 ## A pack without agents adds no Agentic OS space
 

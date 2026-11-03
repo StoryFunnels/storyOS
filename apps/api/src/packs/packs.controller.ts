@@ -59,6 +59,12 @@ const installSchema = z.object({
    * `enabled: true` on such a rule is ignored. A label that names no such rule is ignored.
    */
   enable_automations: z.array(z.string().min(1).max(400)).max(200).optional(),
+  /**
+   * #1192 - "Agent <- Database.Field = State" labels (as preview's `triggers` lists them) of state-bound agent triggers the person chose to
+   * switch ON in the review. A pack installs every such trigger switched OFF; only this list turns one on. A label that names no such
+   * trigger is ignored. Human-gated triggers need no entry: they never fire by themselves.
+   */
+  enable_agent_triggers: z.array(z.string().min(1).max(400)).max(200).optional(),
 });
 class InstallDto extends createZodDto(installSchema) {}
 
@@ -161,7 +167,7 @@ export class PacksController {
   @Post('install')
   @ApiOperation({ summary: 'Install a pack manifest; idempotent' })
   install(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.install(req.membership, body.manifest, body.resolutions, body.target_space_id, body.enable_automations);
+    return this.packs.install(req.membership, body.manifest, body.resolutions, body.target_space_id, body.enable_automations, body.enable_agent_triggers);
   }
 
   /**
@@ -174,7 +180,7 @@ export class PacksController {
   @Post('preview')
   @ApiOperation({ summary: 'Preview what installing a manifest would do; creates nothing' })
   preview(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.preview(req.membership, body.manifest, body.target_space_id, body.enable_automations, body.resolutions);
+    return this.packs.preview(req.membership, body.manifest, body.target_space_id, body.enable_automations, body.resolutions, body.enable_agent_triggers);
   }
 
   /** Every pack tracked as installed in this workspace (MN-219 / #161). */

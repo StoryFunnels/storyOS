@@ -75,3 +75,26 @@ export function installedEnabledState(
   if (reach !== 'internal') return { enabled: false, switched_off_because: reach };
   return { enabled: manifestEnabled };
 }
+
+/**
+ * Ticket #1192 - what state a pack AGENT TRIGGER (an agent bound to a state change: "wake it when Status becomes Onboarding")
+ * installs in. The same rule as #1107's automations, for the same reason: installing a pack must never start something by itself.
+ * A bound trigger that is ON creates a wake for its agent on every matching state change, so once the agent has a Runner it would
+ * start working on a record nobody sent to it.
+ *
+ *  - A state-bound trigger installs OFF unless `personEnabled` (a PERSON asked for it in the install review). The manifest has no
+ *    say: a pack carrying `enabled: true` on a trigger is ignored (the trigger schema has no such field and strips it).
+ *  - A `human_gate` trigger is unchanged: it never fires by itself (the subscriber skips it), so there is nothing automatic to
+ *    turn on and no reason to hold it off. It reports `enabled: true` and the review offers it no switch.
+ */
+export interface InstalledTriggerState {
+  enabled: boolean;
+  /** Set when the trigger installs OFF because it would wake its agent on a state change by itself. */
+  switched_off_because?: 'wakes_agent';
+}
+
+export function installedTriggerState(humanGate: boolean, personEnabled = false): InstalledTriggerState {
+  if (humanGate) return { enabled: true };
+  if (personEnabled) return { enabled: true };
+  return { enabled: false, switched_off_because: 'wakes_agent' };
+}

@@ -20560,6 +20560,15 @@
               "minLength": 1,
               "maxLength": 400
             }
+          },
+          "enable_agent_triggers": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            }
           }
         }
       },
