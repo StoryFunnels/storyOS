@@ -169,6 +169,12 @@ export interface DispatchRunInput {
   wakeReason?: WakeReason;
   /** ticket #1130: idempotency for a replay of the same event. */
   sourceKey?: string;
+  /**
+   * ticket #1175 / ADR-0021 §1: this dispatch is one firing of a scheduled rule. A `Your own AI` agent is then woken ONCE per
+   * firing with NO record (the rule's selection is the agent's to read), keyed by this string so a second tick, a second replica
+   * or a retried job re-delivers the same wake instead of making another. Other AI modes ignore it: they run per record, as before.
+   */
+  scheduleKey?: string;
   /** ticket #1130: a wake that already exists for this dispatch (a mention or a decided approval): only its Run is made here. */
   wake?: WakeRow;
 }
@@ -270,6 +276,7 @@ export class AgentsService implements OnModuleInit {
           recordId: string | null;
           actorId: string;
           depth?: number;
+          schedule?: { ruleId: string; firedFor: string; actionIndex: number };
         };
         const run = await this.runFromAutomation({
           workspaceId: ctx.workspaceId,
@@ -291,6 +298,8 @@ export class AgentsService implements OnModuleInit {
           dryRun: action.dry_run,
           // ticket #1130: the person behind the rule's firing, for a Your-own-AI agent's wake access check.
           requestedBy: ctx.actorId ?? null,
+          // ticket #1175: one firing of one action of one rule = one wake, however many records the rule selected or times this job runs.
+          scheduleKey: ctx.schedule ? `schedule:${ctx.schedule.ruleId}:${ctx.schedule.actionIndex}:${ctx.schedule.firedFor}` : undefined,
         });
         return { runId: run.id, status: run.values['status'] };
       },
@@ -1071,6 +1080,8 @@ export class AgentsService implements OnModuleInit {
     maxSteps?: number;
     maxCostCents?: number;
     dryRun?: boolean;
+    /** ticket #1175: set when a scheduled rule's firing ran this; see DispatchRunInput.scheduleKey. */
+    scheduleKey?: string;
   }): Promise<ProjectedRecord> {
     const { agentsDb, runsDb } = await this.findPackDbs(input.workspaceId);
     if (!agentsDb || !runsDb) {
@@ -1105,6 +1116,7 @@ export class AgentsService implements OnModuleInit {
       retries: 2,
       depth: input.depth ?? 0,
       requestedBy: input.requestedBy,
+      scheduleKey: input.scheduleKey,
       promptOverride: input.prompt,
       guardrails: {
         scopeCap: input.toolScope,
@@ -1127,7 +1139,8 @@ export class AgentsService implements OnModuleInit {
    * It deliberately does NOT check `Enabled` — the two callers want different
    * answers for a disabled agent (manual: 422; dispatch: silently skip).
    */
-  async dispatchRun(input: DispatchRunInput): Promise<ProjectedRecord> {
+  async dispatchRun(dispatchInput: DispatchRunInput): Promise<ProjectedRecord> {
+    let input = dispatchInput;
     const { workspaceId, agentsDb, runsDb, agentRecord, trigger, owner } = input;
 
     // Scopes are stored as multi_select option ids; the principal reasons in labels.
@@ -1255,6 +1268,8 @@ export class AgentsService implements OnModuleInit {
     // runs and still stamps the class before any step), so everything that read that log still does; only the status word
     // differs. Repeats for the same agent and record coalesce into ONE wake (and ONE Run): the existing Run is returned.
     let wake: WakeRow | undefined = input.wake;
+    // ticket #1175: a scheduled firing wakes a Your-own-AI agent once, with no record (ADR-0021 §1), however many records the rule selected.
+    if (runtime.runClass === 'your_own_ai' && input.scheduleKey) input = { ...input, inputRecordId: undefined, sourceKey: input.scheduleKey };
     if (runtime.runClass === 'your_own_ai' && !blockedBeforeExecution && !wake) {
       const queued = await this.enqueueOwnAiWake(input, runsDb.id);
       if ('run' in queued) return queued.run;
