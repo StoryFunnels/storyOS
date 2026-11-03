@@ -1,3 +1,4 @@
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
@@ -98,12 +99,13 @@ export class SourcesController {
     return this.sourcesService.update(dbId, id, body);
   }
 
+  @HoldsAgentDeletes('source')
   @Delete(':id')
   @RequiresScope('write')
   @ApiOperation({ summary: 'Stop syncing — leaves every record the source created intact' })
   async remove(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('id') id: string) {
     const dbId = await this.dbAsCreator(req, databaseId);
-    return this.sourcesService.remove(dbId, id);
+    return this.sourcesService.remove(dbId, id, req.user.id);
   }
 
   @NoRunCredential()

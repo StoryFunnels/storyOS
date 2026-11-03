@@ -1,5 +1,7 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { eq, inArray, sql } from 'drizzle-orm';
+import { currentActor } from '../common/credential-context';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases as databasesTable, records, templateInstalls, workspaces } from '../db/schema';
@@ -30,7 +32,7 @@ export interface ApplyOptions {
  * installer / me-token, and cross-pack relations to existing databases.
  */
 @Injectable()
-export class TemplatesService {
+export class TemplatesService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly spaces: SpacesService,
@@ -39,7 +41,16 @@ export class TemplatesService {
     private readonly relationsService: RelationsService,
     private readonly recordsService: RecordsService,
     private readonly views: ViewsService,
+    /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's "remove sample data". */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 — an approved removal runs as the acting member (a member may already remove sample data), through the same method.
+    this.agentDeletes.registerApplier('sample_data', async ({ workspaceId, actorId }) => {
+      await this.removeSampleData(workspaceId, actorId);
+    });
+  }
 
   async list() {
     // #585 — one aggregate query for every template's count, not 23 (grouped
@@ -303,10 +314,21 @@ export class TemplatesService {
   }
 
   /** "Remove sample data" — deletes exactly the tracked records (F1). */
-  async removeSampleData(workspaceId: string) {
+  async removeSampleData(workspaceId: string, actorId?: string) {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     const settings = (ws?.settings ?? {}) as Record<string, unknown>;
     const ids = (settings.sample_record_ids as string[]) ?? [];
+    // #1178 — the agent's own `delete` policy holds a run credential's removal (202). This is a HARD delete of records by id, which no
+    // #542 gate ever held. Nothing to remove is not a delete: it is not held.
+    if (ids.length > 0) {
+      await this.agentDeletes.holdIfAgentPolicy({
+        workspaceId,
+        kind: 'sample_data',
+        actorId: actorId ?? currentActor()?.userId ?? '',
+        label: `all ${ids.length} sample records the templates created`,
+        params: {},
+      });
+    }
     if (ids.length > 0) {
       await this.db.delete(records).where(inArray(records.id, ids));
     }
