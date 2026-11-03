@@ -350,6 +350,24 @@ different question from *"an epic with no issues"* — the ungrouped column is u
 pile, which makes it the most important one on the board. Sweeping it away along with the empty
 real groups would be the obvious implementation and the wrong one.
 
+### Hiding chosen columns
+
+A board grouped by a **select** or **workflow** field can also hide individual columns, by name, whether
+or not they have cards: for example the Triage, Backlog and Done columns of a board that only shows work in
+progress. This is separate from **Hide empty groups**, which hides by emptiness.
+
+- It is a setting of the *view*, `hidden_option_ids`, so it changes nothing about the field's options or
+  other views of the same data.
+- The view's filter still decides which records are in the view; the setting only says which columns are
+  not drawn.
+- A person, relation or date grouping has no options, so it cannot hide columns this way. An option that
+  is deleted drops out of the list, and so do options of a field the board is no longer grouped by.
+- A pack's board can ship with columns hidden (see [Writing a pack manifest](/guides/pack-manifest/#hiding-a-boards-columns-hidden_option_ids)),
+  and over MCP `create_view` / `update_view` take `hidden_columns`.
+- **In the web app:** there is no Hide/Display menu for this yet, and as of 3 November 2026 the web board
+  does not read the setting, so a column hidden through the API or MCP is still drawn there. This section
+  describes what the API stores; it will be updated when the web board applies it.
+
 ## Board columns from a date field
 
 Group a board by a **date** field instead of a select, and its columns become periods — week,

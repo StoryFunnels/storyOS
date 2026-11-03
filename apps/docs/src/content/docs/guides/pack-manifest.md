@@ -124,6 +124,89 @@ opens on instead of the plain **All records** list.
 
 The built-in [Team Board](/guides/team-board-pack/) pack uses it to make its Board the view Tasks opens on.
 
+### Hiding a board's columns: `hidden_option_ids`
+
+A `board` view's `config` may carry `hidden_option_ids`, a list of option references naming columns of
+the board that are not to be drawn. It is not the same as **Hide empty groups**, which hides columns by
+being empty; this names the columns, empty or not.
+
+```json
+{
+  "database": "Leads",
+  "name": "Active",
+  "type": "board",
+  "config": {
+    "group_by_field_id": "$field:leads.stage",
+    "hidden_option_ids": ["$option:leads.stage.won", "$option:leads.stage.lost"]
+  }
+}
+```
+
+- **References, like any option id in a manifest.** On install each `$option:` reference becomes the
+  installing workspace's own option id, and `export_pack` writes them back as references by label. A
+  reference to an option that does not exist is a 422, not a silent skip.
+- **Select or workflow grouping only.** A board grouped by a person, a relation or a date has no option to
+  hide. A non-empty list on such a board, on a view that is not a board, or naming an option of another
+  field is refused by the API with a 422.
+- **Cards are not removed from anything.** The setting only says which columns are not drawn; it does not
+  change what the view's filter selects.
+- **A deleted option drops out of the list** when the view is read, and changing the board's group-by
+  field drops options that belong to the old field.
+- **An empty list, or leaving it out, hides nothing.** Hiding every column is allowed.
+- **Outside a manifest:** over MCP, `create_view` and `update_view` take `hidden_columns`, a list of option
+  labels (or ids); `[]` shows every column again, and changing `group_by` without passing it clears the
+  list. Over REST it is `hidden_option_ids` in the view's `config`.
+
+As of 3 November 2026 the web board does not read this setting, so it does not yet hide the columns on
+screen; the API and MCP store and return it.
+
+### Filters in a manifest: relative days and state categories
+
+A view's `filters` and an automation's `condition` use the same filter shape as the
+[query API](/api/querying/). Two values are worth knowing when writing a manifest:
+
+- `before` / `after` on a date field take `$date:-90d` or `$date:+3d`. The value is stored as written and
+  resolved to a date every time the filter runs, so "not reviewed in 90 days" stays true as time passes.
+  Team Wiki's **Needs review** view is `{ "field": "last_reviewed", "op": "before", "value": "$date:-90d" }`.
+  This is different from the same token in a **sample record**, which is turned into a fixed date once, on
+  the day of install.
+- `category_is` / `category_is_not` on a workflow or select field take state categories (see
+  [Option categories](#option-categories)).
+
+### A rollup that counts by category
+
+A rollup is declared in `derived_fields`, after the relations it needs. The built-in
+[Team Board](/guides/team-board-pack/) pack counts a project's open tasks like this:
+
+```json
+{
+  "database": "Projects",
+  "name": "Open tasks",
+  "type": "rollup",
+  "config": {
+    "relation_field_id": "$field:projects.tasks",
+    "op": "count",
+    "filter": { "field": "status", "op": "category_is_not", "value": ["completed", "canceled"] }
+  }
+}
+```
+
+Because the filter names categories, a completed or canceled state added to Status later is not counted as
+open, and the rollup does not need editing. Naming the **Done** option instead (`has_none` with its
+`$option:` reference) would count such a state as open until the filter was changed.
+
+## Sample records and their description
+
+`sample_records` entries each name a `database` and the `values` of the record. An entry may also carry
+`description`: Markdown, up to 20,000 characters, written as the record's body (the text you see when you
+open it). It is optional, so manifests without it still validate.
+
+- **Written when the install creates the record.** A sample record that already exists is left as the
+  person has it, body included.
+- **Export includes it.** `export_pack` writes a sample record's body back as `description` when it has
+  one, converted to Markdown.
+- The built-in Team Wiki pack uses it for the text of its four starter pages.
+
 ## Automations that send things out install switched off
 
 An automation whose actions leave the workspace or start an agent installs **switched off**, whatever

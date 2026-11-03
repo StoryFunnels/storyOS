@@ -75,6 +75,11 @@ close any doors.
 name in another space is left alone and the pack makes its own. A same-named database in that space that
 the pack did not create is a collision you have to decide, not something the install merges for you; see
 [Databases with the same name in other spaces](/mcp/tools/#databases-with-the-same-name-in-other-spaces).
+
+A pack never reuses or changes a built-in StoryOS database such as Members, Agents, Agent Triggers or
+Agent Runs: a pack database with one of those names is created as its own separate database. See
+[Built-in databases are never reused or changed](/mcp/tools/#built-in-databases-are-never-reused-or-changed).
+
 When a database is reused, if the incoming pack's sample data assumes an option the reused database's field
 doesn't actually have (its own pack never created that option, only the one you already installed
 did), that one field's value is skipped and reported — the install still completes, rather than
