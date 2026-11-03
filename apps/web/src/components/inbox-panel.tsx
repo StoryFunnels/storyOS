@@ -1,6 +1,8 @@
 'use client';
 
 import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { announceDecision, notificationWho, type CausedBy } from '@/components/approvals/caused-by';
+import { WhoAvatar } from '@/components/approvals/who';
 import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -9,7 +11,6 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { toast } from 'sonner';
 import { Check, Inbox as InboxIcon, Maximize2, X } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
-import { Avatar } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
@@ -50,6 +51,8 @@ export interface NotificationRow {
   created_at: string;
   record: { id: string; title: string; database_id: string; database_name: string; deleted: boolean } | null;
   actor: { id: string; name: string; image: string | null } | null;
+  /** Ticket #1193 — the agent and run behind an approval an agent caused; null for a person-caused one. Names the row instead of `actor`. */
+  caused_by?: CausedBy | null;
 }
 interface NotificationsPage {
   data: NotificationRow[];
@@ -121,14 +124,16 @@ export function useResolveApproval(ws: string, onSettled: () => void) {
       verdict: 'approve' | 'reject';
       reason?: string;
     }) => {
-      const { error } = await api.POST(`/api/v1/workspaces/{ws}/approvals/{id}/${verdict}` as never, {
+      const { data, error } = await api.POST(`/api/v1/workspaces/{ws}/approvals/{id}/${verdict}` as never, {
         params: { path: { ws, id: approvalId } },
         body: verdict === 'reject' ? { reason } : undefined,
       } as never);
       if (error) throw error;
+      return data;
     },
-    onSuccess: (_data, vars) => {
-      toast.success(vars.verdict === 'approve' ? 'Approved' : 'Rejected');
+    onSuccess: (data, vars) => {
+      // A repeat decision is 200 + `already_decided` and changed nothing: say so, never a second "Approved".
+      announceDecision(vars.verdict, data, toast);
       onSettled();
     },
     // Win or lose, the approval's state may have changed (a 409 means someone else decided it), so the
@@ -410,15 +415,11 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     }
                   }}
                 >
-                  {n.actor ? (
-                    <Avatar userId={n.actor.id} name={n.actor.name} image={n.actor.image} size={24} />
-                  ) : (
-                    <span className="h-6 w-6 rounded-full bg-hover" />
-                  )}
+                  <WhoAvatar who={notificationWho(n)} size={24} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-body text-ink">
-                      {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. */}
-                      <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
+                      {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
+                      <span className="font-medium">{notificationWho(n).name}</span>{' '}
                       {VERBS[n.type]}
                       {n.count > 1 ? ` · ${n.count}×` : ''}
                       {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
