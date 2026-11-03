@@ -31,6 +31,9 @@ import {
   type ReuseSelection,
 } from '@/lib/pack-review';
 import { InstallList } from '@/components/pack-install-list';
+import { AutomationStateLine, InstalledAutomationLine } from '@/components/pack-automation-state';
+import type { AutomationPreviewItem } from '@/lib/pack-automation-state';
+import { automationItems, enableRequestBody, switchId, type SwitchableItem } from '@/lib/pack-switchable';
 import {
   buildInstallRows,
   notNew,
@@ -99,6 +102,9 @@ interface PreviewItem {
   gains?: PackDatabaseGains;
   /** #1156 — a same-named database in ANOTHER space: the review offers "create a new one here" (default) or "use your existing one". */
   existing_elsewhere?: ExistingElsewhere;
+  /** #1172 — automations only, when the install would create the rule: on or off, and why off (see lib/pack-automation-state.ts). */
+  enabled_on_install?: boolean;
+  switched_off_because?: 'outward' | 'agent';
 }
 interface UnmetRequirement {
   kind: 'connection' | 'ai';
@@ -120,6 +126,9 @@ interface InstalledEntity {
   /** `updated` (#977): a reused agent brought up to this version. */
   action: 'created' | 'reused' | 'updated' | 'skipped';
   id: string;
+  /** #1172 — automations only: the state the rule was created in, and why off (see lib/pack-automation-state.ts). */
+  enabled?: boolean;
+  switched_off_because?: 'outward' | 'agent';
 }
 interface InstallResult {
   slug: string;
@@ -261,12 +270,31 @@ function ActionBadge({ action }: { action: PreviewItem['action'] }) {
   );
 }
 
+/** #1172 — what the dialog hands each automation row: the person's choices, the server's confirming answer, and the setter. */
+interface AutomationControls {
+  chosen: Record<string, boolean>;
+  confirmed: Map<string, AutomationPreviewItem>;
+  onChoose: (label: string, on: boolean) => void;
+}
+
+function AutomationLine({ item, controls }: { item: AutomationPreviewItem; controls: AutomationControls }) {
+  return (
+    <AutomationStateLine
+      item={item}
+      chosen={controls.chosen[switchId('automation', item.name)] === true}
+      confirmed={controls.confirmed.get(item.name)}
+      onChoose={controls.onChoose}
+    />
+  );
+}
+
 function PreviewSection({
   title,
   kind,
   items,
   choices,
   onChoice,
+  automations,
 }: {
   title: string;
   kind: PackItemKind;
@@ -274,6 +302,8 @@ function PreviewSection({
   /** #978 AC3 — the agent choices (Keep mine / Take update), by agent name. */
   choices?: Record<string, AgentChoice>;
   onChoice?: (name: string, choice: AgentChoice) => void;
+  /** #1172 — automations only: on/off state under each rule, with the switch. The same control the install list uses. */
+  automations?: AutomationControls;
 }) {
   if (items.length === 0) return null;
   return (
@@ -305,6 +335,7 @@ function PreviewSection({
                     onChoice={(c) => onChoice?.(item.name, c)}
                   />
                 )}
+                {kind === 'automation' && automations && <AutomationLine item={item} controls={automations} />}
               </span>
               <ActionBadge action={item.action} />
             </div>
@@ -650,6 +681,44 @@ export function InstallDialog({
     return gains ? gains.fields.map((f) => f.name) : undefined;
   };
 
+  // #1172 — the automations a person switched ON in this review ("Database.Rule name" → true). Default: none, so every rule that
+  // installs off stays off. Sent as `enable_automations` on the confirming preview AND the install, so they cannot disagree.
+  const [turnedOn, setTurnedOn] = useState<Record<string, boolean>>({});
+  // Everything the review can switch, as one list of kinds (lib/pack-switchable.ts). Automations only today; ticket #1192's agent
+  // triggers join here, with their own kind, when the API returns them. The request is built from this list by kind.
+  const switchables: SwitchableItem[] = preview.data ? automationItems(preview.data.automations) : [];
+  const enableBody = enableRequestBody(switchables, turnedOn);
+  const enableKey = JSON.stringify(enableBody);
+  // The SAME preview, asked with the person's choice: the row only says "On once installed" if the server's own answer agrees.
+  const withChoice = useQuery({
+    queryKey: ['pack-preview-enable', ws, slug, target?.id ?? null, enableKey],
+    enabled: Boolean(entry.data) && Object.keys(enableBody).length > 0,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/packs/preview' as never,
+        {
+          params: { path: { ws } },
+          body: {
+            manifest: entry.data!.manifest,
+            ...(target ? { target_space_id: target.id } : {}),
+            ...enableBody,
+          } as never,
+        } as never,
+      );
+      if (error) throw error;
+      return data as unknown as PreviewResult;
+    },
+  });
+  const automationControls: AutomationControls = {
+    chosen: turnedOn,
+    // Only the answer for the CURRENT choice counts: while a newer one is in flight the row is not yet confirmed.
+    confirmed: new Map(
+      (withChoice.isFetching || !withChoice.data ? [] : withChoice.data.automations).map((a) => [a.name, a]),
+    ),
+    onChoose: (label, on) => setTurnedOn((prev) => ({ ...prev, [switchId('automation', label)]: on })),
+  };
+
   const install = useMutation({
     mutationFn: async () => {
       const entries = collisionEntries(preview.data!);
@@ -663,6 +732,7 @@ export function InstallDialog({
           body: {
             manifest: entry.data!.manifest,
             ...(target ? { target_space_id: target.id } : {}),
+            ...enableBody,
             resolutions: { ...payload, ...agentResolutions(preview.data!.agents, agentChoices), ...picked },
           } as never,
         } as never,
@@ -820,7 +890,14 @@ export function InstallDialog({
               {samples > 0 && ' Its sample records can be removed from Home whenever you like.'}
             </p>
             {doneRows(result).length > 0 ? (
-              <InstallList rows={doneRows(result).map((r) => ({ ...r, sub: '', note: null, action: 'create' }))} />
+              <InstallList
+                rows={doneRows(result).map((r) => ({ ...r, sub: '', note: null, action: 'create' }))}
+                renderExtra={(row) => {
+                  // #1172 — the result says what state each automation was ACTUALLY created in, not just that it exists.
+                  const made = row.kind === 'automation' ? result.automations.find((x) => x.name === row.key) : undefined;
+                  return made ? <InstalledAutomationLine entity={made} /> : null;
+                }}
+              />
             ) : (
               <p className="text-body text-muted">Everything already existed — nothing new was created.</p>
             )}
@@ -989,12 +1066,14 @@ export function InstallDialog({
                   rows={rows}
                   renderExtra={(row) => {
                     const entryFor = collisionEntries(preview.data!).find((c) => c.name === row.key);
+                    const automation = row.kind === 'automation' ? row.item : null;
                     const agent =
                       row.kind === 'agent' && row.item.agent_update
                         ? agentEffect(row.item.agent_update)
                         : null;
                     return (
                       <>
+                        {automation && <AutomationLine item={automation} controls={automationControls} />}
                         {agent && (
                           <>
                             <span className="mt-0.5 text-label text-ink-secondary">{agent.headline}</span>
@@ -1153,6 +1232,7 @@ export function InstallDialog({
                     title="Automations"
                     kind="automation"
                     items={preview.data.automations}
+                    automations={automationControls}
                   />
                   <PreviewSection
                     title="Agents"

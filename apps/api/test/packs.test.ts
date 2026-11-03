@@ -101,6 +101,22 @@ async function dbNamed(wsId: string, name: string): Promise<{ id: string; name: 
   return found;
 }
 
+/**
+ * #1192 - a pack installs its state-bound agent triggers OFF, so a test that wants the installed binding to FIRE does what a person does:
+ * asserts it arrived off, then switches it on (an ordinary edit of the binding record).
+ */
+async function personSwitchesBindingsOn(ws: string): Promise<number> {
+  const ensured = (await as(admin.token, 'POST', `/workspaces/${ws}/agents/ensure`)).json();
+  const triggersDbId = ensured.triggersDb.id as string;
+  const rows = (await as(admin.token, 'GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Array<{ id: string; values: Record<string, unknown> }>;
+  for (const row of rows) {
+    expect(row.values['enabled'], 'a pack trigger installs off').toBe(false);
+    const res = await as(admin.token, 'PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${row.id}`, { values: { enabled: true } });
+    expect(res.statusCode, res.body).toBe(200);
+  }
+  return rows.length;
+}
+
 async function newWorkspace(name: string): Promise<string> {
   const res = await as(admin.token, 'POST', '/workspaces', { name: `${name} ${Date.now()}` });
   expect(res.statusCode, res.body).toBe(201);
@@ -604,6 +620,16 @@ describe('an installed pack actually runs', () => {
     service.runtimeFor = () => sendingRuntime(lead.id);
 
     try {
+      // #1192: the installed binding is OFF until a person turns it on; before that, the same transition starts nothing.
+      const offMove = await as(admin.token, 'PATCH', `/workspaces/${targetWs}/databases/${leadsId}/records/${lead.id}`, { values: { [status.apiName]: optionId(status, 'New') } });
+      expect(offMove.statusCode, offMove.body).toBe(200);
+      await subscriber.settle(lead.id);
+      const runsOff = (await as(admin.token, 'GET', `/workspaces/${targetWs}/databases/${runsDbId}/records`)).json().data as Array<{ values: Record<string, unknown> }>;
+      expect(runsOff.filter((r) => ((r.values.agent as Array<{ id: string }> | undefined) ?? []).some((l) => l.id === agentRecordId)).length, 'an off binding dispatches nothing').toBe(0);
+      expect(await personSwitchesBindingsOn(targetWs)).toBeGreaterThan(0);
+      // Back out of the state so the move below is a real transition again.
+      await as(admin.token, 'PATCH', `/workspaces/${targetWs}/databases/${leadsId}/records/${lead.id}`, { values: { [status.apiName]: null } });
+      await subscriber.settle(lead.id);
       // The transition the pack's binding watches for.
       const moved = await as(
         admin.token,
@@ -1592,6 +1618,8 @@ describe('Support Inbox registry pack (#306): 7-state workflow', () => {
     });
 
     try {
+      // #1192: the pack's Triage trigger arrives OFF; a person switches it on (what this test is about is that it still fires then).
+      expect(await personSwitchesBindingsOn(targetWs)).toBe(1);
       const runsForTicket = async () => {
         const res = (
           await as(admin.token, 'GET', `/workspaces/${targetWs}/databases/${runsDbId}/records`)

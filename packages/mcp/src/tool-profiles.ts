@@ -20,9 +20,9 @@
 export const AGENT_RUN_PROFILE = 'agent-run';
 
 /**
- * Record work: read the record and its comments, find related records, check a count, change a field, comment. `describe_database` is
+ * Record work: read the record and its comments, find related records, check a count, change a field, comment, file a new record. `describe_database` is
  * here because `update_record` needs the field names and select-option ids; `count_records` because an agent must never state a count it
- * did not get from a tool (CLAUDE.md, Tyron rules). Everything else (create/delete/link/schema/skills/webhooks/...) is a role EXTRA.
+ * did not get from a tool (CLAUDE.md, Tyron rules). Everything else (delete/link/schema/skills/webhooks/...) is a role EXTRA.
  */
 export const AGENT_RUN_BASE_TOOLS = [
   'get_record',
@@ -32,6 +32,8 @@ export const AGENT_RUN_BASE_TOOLS = [
   'describe_database',
   'update_record',
   'add_comment',
+  // #1180: agents routinely file a task or a note. A role EXTRA used to be needed for this; it is the one write that is almost always wanted.
+  'create_record',
 ] as const;
 
 const PROFILES: Record<string, readonly string[]> = { [AGENT_RUN_PROFILE]: AGENT_RUN_BASE_TOOLS };

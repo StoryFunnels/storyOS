@@ -167,8 +167,8 @@ describe('the space page wiring (#1094)', () => {
   const dialog = read('../components/pack-install-dialog.tsx');
   const sidebar = read('../components/sidebar.tsx');
 
-  it('sends the target space on EVERY request: the preview, the what-if preview (#1149) and the install, so none can disagree', () => {
-    expect(dialog.match(/target_space_id: target\.id/g)?.length).toBe(3);
+  it('sends the target space on EVERY request: the preview, the what-if preview (#1149), the turned-on-automations preview (ticket #1172) and the install, so none can disagree', () => {
+    expect(dialog.match(/target_space_id: target\.id/g)?.length).toBe(4);
   });
   it('shows the server refusal text verbatim, not a generic error (the 409 names the database and the space)', () => {
     expect(dialog).toContain("apiErrorMessage(preview.error, 'This pack cannot be installed into this space.')");

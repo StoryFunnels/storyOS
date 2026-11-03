@@ -34,3 +34,22 @@ describe('groupingPatch (#964)', () => {
     expect('group_by_granularity' in groupingPatch({ viewType: 'board', config: { group_by_field_id: 'd1' }, fieldId: 'd2', isDateField: true })).toBe(false);
   });
 });
+
+describe('groupingPatch clears hidden columns (#1182)', () => {
+  it('regrouping to a different field drops hidden_option_ids: they were options of the old field and the API refuses them', () => {
+    const p = groupingPatch({ viewType: 'board', config: { group_by_field_id: 'state' }, fieldId: 'priority', isDateField: false });
+    expect('hidden_option_ids' in p).toBe(true);
+    expect(p.hidden_option_ids).toBeUndefined();
+  });
+
+  it('ungrouping also drops them', () => {
+    const p = groupingPatch({ viewType: 'list', config: { group_by_field_id: 'state' }, fieldId: '', isDateField: false });
+    expect('hidden_option_ids' in p).toBe(true);
+  });
+
+  it('re-picking the SAME field keeps them: nothing to refuse, and the list must survive', () => {
+    const p = groupingPatch({ viewType: 'board', config: { group_by_field_id: 'state' }, fieldId: 'state', isDateField: false });
+    expect('hidden_option_ids' in p).toBe(false);
+  });
+});
+

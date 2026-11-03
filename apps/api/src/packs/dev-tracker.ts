@@ -21,8 +21,10 @@ import type { PackRegistryEntry } from '@storyos/schemas';
  * What is deliberately NOT here: a Specs database (Long-form docs are Team Wiki's job), a Type field (the Triage agent suggests Labels and
  * Priority), and any view the prototype does not list. The gallery counts "4 views", and these are the four.
  *
- * Known limit: the Active board is filtered to To Do, In Progress and In Review, but a view config cannot hide a board COLUMN, so Triage,
- * Backlog, Done and Canceled still show as empty columns on it.
+ * The Active board shows only its active columns: it is filtered to To Do, In Progress and In Review, and it hides the other four State
+ * options (Triage, Backlog, Done, Canceled) with `hidden_option_ids` (API ticket #1158, drawn by the web board in ticket #1182). Those are
+ * `$option:` refs like any other option id in a manifest, and the installer resolves them. They stay options of State, so a new issue still
+ * lands in Triage; it just is not drawn on this board. Every other view is unchanged.
  */
 export const DEV_TRACKER_PACK: PackRegistryEntry = {
   slug: 'dev-tracker',
@@ -181,6 +183,13 @@ export const DEV_TRACKER_PACK: PackRegistryEntry = {
             value: [optionRef('Issues', 'State', 'To Do'), optionRef('Issues', 'State', 'In Progress'), optionRef('Issues', 'State', 'In Review')],
           },
           hide_empty_no_value_group: true,
+          // The four States this board never shows. Not `hide_empty_groups`: that would bring a column back the moment a card lands in it.
+          hidden_option_ids: [
+            optionRef('Issues', 'State', 'Triage'),
+            optionRef('Issues', 'State', 'Backlog'),
+            optionRef('Issues', 'State', 'Done'),
+            optionRef('Issues', 'State', 'Canceled'),
+          ],
         },
       },
       {

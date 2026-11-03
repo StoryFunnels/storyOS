@@ -58,17 +58,24 @@ export function buildToolPolicy(allowedNativeTools: string[]): ToolPolicy {
   };
 }
 
-/** The MCP server's tool profile for an agent run (packages/mcp tool-profiles.ts, #1177). The server owns the list; this is its name. */
+/** The MCP server's tool profile for an agent run: the ESSENTIALS (packages/mcp tool-profiles.ts, #1177). The server owns the list. */
 export const MCP_RUN_PROFILE = 'agent-run';
+/** The `tools` value that opts in to every tool the credential's role allows (@storyos/schemas AGENT_TOOLS_ALL; the Runner cannot import it). */
+export const TOOLS_ALL = 'all';
 const MCP_TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 /**
- * The MCP address for a run: the configured URL plus the profile, and the role's extra tools. The profile is what keeps ~120 tool
- * definitions out of every request (measured ~31k tokens each). An older MCP server ignores the query and offers its full set: more
- * tokens, never fewer tools than before. A name that is not a tool name is dropped here, loudly, not sent.
+ * The MCP address for a run (#1177, #1180). The DEFAULT is the essentials profile (8 tools, ~12k input tokens a run); the agent's saved
+ * Tools are EXTRAS added to it (`tools=a,b`); the explicit value `all` sends NO profile, so the server offers every tool the credential's
+ * role and scope allow (~97k a run). Every tool definition is billed on every request of the run, which is why the default is small.
+ * An older MCP server ignores the query and offers its full set: more tokens, never fewer tools than before. A name that is not a tool name
+ * is dropped here, loudly, not sent. Any profile or tools value already on the URL is replaced, never stacked.
  */
 export function withRunProfile(url: URL, extraTools: readonly string[] = []): { url: URL; dropped: string[] } {
   const out = new URL(url.toString());
+  out.searchParams.delete('profile');
+  out.searchParams.delete('tools');
+  if (extraTools.some((t) => t.trim() === TOOLS_ALL)) return { url: out, dropped: [] };
   out.searchParams.set('profile', MCP_RUN_PROFILE);
   const dropped: string[] = [];
   const keep: string[] = [];
@@ -78,6 +85,15 @@ export function withRunProfile(url: URL, extraTools: readonly string[] = []): { 
     else dropped.push(name);
   }
   if (keep.length) out.searchParams.set('tools', [...new Set(keep)].join(','));
-  else out.searchParams.delete('tools');
   return { url: out, dropped };
+}
+
+/**
+ * #1180: the model setting, as a value that is safe to pass to `--model`. The server already refuses anything else at write time; this
+ * is the Runner's own check, because the Runner does not trust what a server (or an old record) hands it. Same rule as the server's.
+ */
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,99}$/;
+export function safeModelName(raw: string): string | null {
+  const model = raw.trim();
+  return MODEL_NAME.test(model) ? model : null;
 }

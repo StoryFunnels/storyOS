@@ -226,6 +226,13 @@ export const architectBuildResultSchema = z.object({
   relations: z.array(builtEntitySchema),
   states: z.array(builtEntitySchema),
   agents: z.array(builtEntitySchema),
-  triggers: z.array(builtEntitySchema),
+  triggers: z.array(
+    builtEntitySchema.extend({
+      /** #1192 - a `created` trigger's state; absent on a `reused` one, which is left exactly as it is. */
+      enabled: z.boolean().optional(),
+      switched_off_because: z.literal('wakes_agent').optional(),
+      human_gate: z.boolean().optional(),
+    }),
+  ),
 });
 export type ArchitectBuildResult = z.infer<typeof architectBuildResultSchema>;

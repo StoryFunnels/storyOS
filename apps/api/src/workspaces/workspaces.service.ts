@@ -108,13 +108,15 @@ export class WorkspacesService {
       name?: string;
       private_attachments?: boolean;
       agents_may_publish_skills?: boolean;
+      /** #1180 — null clears it. */
+      default_agent_model?: string | null;
       description?: string | null;
       /** #539 — merged over the existing value; a key omitted here is left
        * alone, one explicitly `null` clears just that key. */
       branding?: WorkspaceBranding;
     },
   ) {
-    const { private_attachments, agents_may_publish_skills, description, branding, ...rest } = patch;
+    const { private_attachments, agents_may_publish_skills, default_agent_model, description, branding, ...rest } = patch;
     const set: { name?: string; settings?: Record<string, unknown>; description?: string | null } = {
       ...rest,
       // #400: normalized here, not in the zod schema — templates and the
@@ -125,11 +127,14 @@ export class WorkspacesService {
     // Same read-modify-write as the integration settings blobs (slack/github/linear
     // services): `settings` is a shared jsonb bag, so a flag write must merge over
     // the current value rather than clobber it.
-    if (private_attachments !== undefined || agents_may_publish_skills !== undefined || branding !== undefined) {
+    if (private_attachments !== undefined || agents_may_publish_skills !== undefined || default_agent_model !== undefined || branding !== undefined) {
       const current = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, id) });
       const currentSettings = (current?.settings as Record<string, unknown>) ?? {};
+      const kept = { ...currentSettings };
+      if (default_agent_model !== undefined) delete kept['default_agent_model']; // null clears it, a string replaces it (below)
       set.settings = {
-        ...currentSettings,
+        ...kept,
+        ...(default_agent_model ? { default_agent_model } : {}),
         ...(private_attachments !== undefined ? { private_attachments } : {}),
         ...(agents_may_publish_skills !== undefined ? { agents_may_publish_skills } : {}),
         // #539 — a SUB-merge, not a replace: patching just `accent_color`
@@ -146,6 +151,13 @@ export class WorkspacesService {
       .where(eq(workspaces.id, id))
       .returning();
     return serialize(ws!);
+  }
+
+  /** #1180 — the workspace's default model for agents on a Runner, or null (= pass nothing: the customer's own tool default). */
+  async defaultAgentModel(workspaceId: string): Promise<string | null> {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId), columns: { settings: true } });
+    const v = (ws?.settings as Record<string, unknown> | undefined)?.['default_agent_model'];
+    return typeof v === 'string' && v !== '' ? v : null;
   }
 
   /** #201: is private-attachments mode on for this workspace? Defaults to off

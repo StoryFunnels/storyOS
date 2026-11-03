@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
@@ -18,6 +19,7 @@ import {
   formulaRefs,
   SORTABLE_FIELD_TYPES as SHARED_SORTABLE_FIELD_TYPES,
   systemFieldDefsFor,
+  validateAgentSettings,
   validateRecordValues,
 } from '@storyos/schemas';
 import type { FormulaNode } from '@storyos/schemas';
@@ -3000,6 +3002,27 @@ export class RecordsService implements OnModuleInit {
     }
   }
 
+  /**
+   * ticket #1180 — the two settings a manager puts on an agent that runs on a Runner: `tools` (extra MCP tool names) and `model`.
+   *  - WHO: never an agent. A write with source `agent` (a run credential, or any agent-origin token) to either field of an agent
+   *    record is refused: an agent must not widen its own tool list or pick its own (more expensive) model. A person who may edit the
+   *    Agents database may set them, the same bar as the agent's instructions.
+   *  - WHAT: `tools` must be names in the live MCP registry, `model` a plain model name (no leading dash, no shell or flag characters).
+   * The key check is in-memory first, so a write that names neither key never costs a query. Identity is the is_system FLAG plus the
+   * fixed system key 'agents' (#1063), never the name: a person's own database with a `tools` field is not touched by this.
+   * `values` is absent for a restore, where the values come from an old version: for an agent source that is refused outright.
+   */
+  private async assertAgentSettingsWritable(databaseId: string, keys: string[], source: ChangeSource, values?: Record<string, unknown>): Promise<void> {
+    if (!keys.includes('tools') && !keys.includes('model')) return;
+    const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+    if (!db?.isSystem || db.systemKey !== 'agents') return;
+    if (source === 'agent') {
+      throw new ForbiddenException('An agent cannot change an agent\'s Tools or Model setting: they are set by the person who manages the agent.');
+    }
+    const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });
+    if (problems.length > 0) throw new UnprocessableEntityException(problems.map((p) => p.message).join(' '));
+  }
+
   /** Batch create (≤100, enforced by the DTO), one transaction, one activity event each. */
   async createBatch(
     workspaceId: string,
@@ -3025,7 +3048,10 @@ export class RecordsService implements OnModuleInit {
     const source: ChangeSource = options.source ?? 'human';
     const agentId = options.agentId;
     const agentName = options.agentName;
-    for (const input of inputs) await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
+    for (const input of inputs) {
+      await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
+      await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+    }
     const defs = await this.fieldDefs(databaseId);
     /*
      * #203 — field defaults are applied BEFORE validation, so a default goes
@@ -3370,6 +3396,7 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
     await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
+    await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
@@ -4092,6 +4119,8 @@ export class RecordsService implements OnModuleInit {
     agentName?: string,
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'update', source, agentId, 'Restoring a version');
+    // #1180: a restore writes old values by field id, so it cannot be key-checked; an agent restoring an agent record could re-set Tools/Model.
+    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools'], source);
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });

@@ -1,7 +1,7 @@
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { architectPlanSchema, markdownToBlocks, packAgentSchema } from '@storyos/schemas';
 import type { PlanAgent, PlanAgentWriteGate } from '@storyos/schemas';
-import type { ArchitectBuildResult, ArchitectPlan, PlanField, PlanState } from '@storyos/schemas';
+import type { ArchitectBuildResult, ArchitectPlan, InstalledTriggerState, PlanField, PlanState, PlanTrigger } from '@storyos/schemas';
 import { AgentWriteGatesService } from '../action-gates/agent-write-gates.service';
 import { assertSpaceCanHoldDatabases, spaceCanHoldDatabases } from '../access/access.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
@@ -194,6 +194,12 @@ export class ArchitectService {
        * build had already created.
        */
       progress?: ArchitectBuildProgress;
+      /**
+       * #1192 - the state each trigger this build CREATES gets. A PACK install sets it (a state-bound trigger installs OFF unless a person
+       * switched it on in the review). Left off, a trigger is created ON: that is the Architect's own plan, which a person approved in full
+       * before this ran (ADR-0010 section 6), not a file somebody else wrote.
+       */
+      triggerState?: (planned: PlanTrigger, label: string) => InstalledTriggerState;
     } = {},
   ): Promise<ArchitectBuildResult> {
     const parsed = architectPlanSchema.safeParse(rawPlan);
@@ -242,7 +248,7 @@ export class ArchitectService {
     await this.buildRelations(membership, plan, dbIds, result);
     await this.buildStates(membership, plan, dbIds, result);
     const agentIds = await this.buildAgents(membership, plan, agentOs?.agentsDb.id ?? '', dbIds, result);
-    await this.buildTriggers(membership, plan, dbIds, agentIds, agentOs?.triggersDb.id ?? '', result);
+    await this.buildTriggers(membership, plan, dbIds, agentIds, agentOs?.triggersDb.id ?? '', result, options.triggerState);
 
     return result;
   }
@@ -726,6 +732,7 @@ export class ArchitectService {
     agentIds: Map<string, string>,
     triggersDbId: string,
     result: ArchitectBuildResult,
+    triggerState?: (planned: PlanTrigger, label: string) => InstalledTriggerState,
   ): Promise<void> {
     if (plan.triggers.length === 0) return;
     const existingBindings = await this.records.list(triggersDbId, { limit: MAX_SCAN });
@@ -770,6 +777,8 @@ export class ArchitectService {
         continue;
       }
 
+      // #1192 - only a trigger this build CREATES gets a state; a `reused` one (above) is left exactly as its owner has it.
+      const state: InstalledTriggerState = triggerState ? triggerState(planned, label) : { enabled: true };
       const created = await this.agents.createBinding(
         membership,
         {
@@ -778,11 +787,16 @@ export class ArchitectService {
           state_field_id: field.id,
           state_option_id: option.id,
           human_gate: planned.human_gate,
-          enabled: true,
+          enabled: state.enabled,
         },
         'agent',
       );
-      result.triggers.push({ name: label, action: 'created', id: created.id });
+      result.triggers.push({
+        name: label,
+        action: 'created',
+        id: created.id,
+        ...(triggerState ? { enabled: state.enabled, ...(state.switched_off_because ? { switched_off_because: state.switched_off_because } : {}), ...(planned.human_gate ? { human_gate: true } : {}) } : {}),
+      });
     }
   }
 }
