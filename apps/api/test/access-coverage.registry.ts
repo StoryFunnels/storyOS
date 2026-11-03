@@ -398,5 +398,6 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/runner/v1/pair': publicRoute('no AuthGuard on purpose: the pairing code is the credential (single use, ~10 minutes, hashed, lockout on wrong guesses); it returns a PENDING Runner that does nothing until the person presses Done'),
   'POST /api/v1/workspaces/:ws/runners/:id/activate': workspaceLevel('the owner\'s own pending Runner only, admins included (userId = the caller); touches no workspace content'),
   'POST /api/v1/workspaces/:ws/runners/pairing-codes': workspaceLevel('issues the caller a pairing code (a session, never a guest); touches no workspace content'),
+  'POST /api/v1/workspaces/:ws/agents/:agent/catch-up': workspaceLevel('a signed-in session only; the agent\'s owner or an admin, anyone else the same 404 as an unknown agent, a guest 403; returns counts only (queued, already_waiting, remaining, skipped), no record or database content'),
   'PUT /api/v1/workspaces/:ws/runner-assignments/:agent': workspaceLevel('the agent\'s owner or an admin only (resolveAgentIdentity), anyone else the same 404 as an unknown agent; returns the Runner\'s id and name, no record or database content'),
 };

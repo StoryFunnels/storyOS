@@ -121,6 +121,11 @@ export const EXCLUDED: CoverageRule[] = [
       "#1131 / ADR-0021 §11 — pairing a Runner, turning it on (Done), switching its tool, removing it and sending an agent to it decide WHERE AN AGENT'S INSTRUCTIONS AND THE WORKSPACE'S DATA GO: onto one person's own computer and model account. A model, the agent itself included, must not be able to route its own prompts, pair a machine, or cut off its peers, so every one of these needs a signed-in person and the API refuses any token, connected AI or agent credential for them (the #441 and #859 shape). Polling a pairing code is part of the same ceremony (it is the dialog's own progress bar). The read half IS a tool (list_runners): an agent-first workspace can see what its agents are waiting on, it just cannot change it.",
   },
   {
+    match: 'POST /api/v1/workspaces/{ws}/agents/{agent}/catch-up',
+    reason:
+      "ticket #1152 / ADR-0021 §11 — the one-click catch-up queues a wake for every record already waiting in an agent's trigger state, and each wake becomes a run on the agent OWNER's own computer and model subscription. Like the rest of the Runner family it is a signed-in person's decision (the API refuses any token, connected AI and the agent's own run credential, so an agent cannot start itself on a backlog), and it is the button's own act with a per-click cap. The read half IS reachable: get_agent_wake_summary carries each agent's `catch_up` count, so an agent-first workspace can see how much is waiting; it just cannot press the button.",
+  },
+  {
     match: 'GET /api/v1/workspaces/{ws}/runner-assignments/{agent}',
     reason:
       "ticket #1130 / ADR-0021 §11 (f) — which Runner one agent runs on, for the agent's owner or an admin. Its read is INSIDE get_agent_wake_summary (each agent's `runner` and `can_run`, for everyone who can read the agent), and list_runners shows each of YOUR Runners' agents[]: the endpoint adds nothing a tool does not already return. Its write half (PUT) is excluded above for the reason given there.",

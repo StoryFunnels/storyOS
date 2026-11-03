@@ -16,6 +16,8 @@ export const WAKE_REASONS = [
   /** #1133, the must-comment backstop: a run that ended without commenting on its record is woken ONCE more with this reason. */
   'must_comment',
   'retry',
+  /** ticket #1152: the one-click catch-up for records that were already in a trigger state before any wake could be made for them. */
+  'catch_up',
 ] as const;
 export type WakeReason = (typeof WAKE_REASONS)[number];
 

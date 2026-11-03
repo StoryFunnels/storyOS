@@ -252,6 +252,23 @@ export class AgentWakesService {
     });
   }
 
+  /**
+   * ticket #1152: what the catch-up needs to know about an agent, read straight off its record. `owner` is the agent's active
+   * membership (the identity it reads as); null when the owner left, in which case nothing may be woken.
+   */
+  async catchUpFacts(workspaceId: string, agentId: string) {
+    const info = await this.agentsDbInfo(workspaceId);
+    if (!info) return null;
+    const agent = await this.db.query.records.findFirst({
+      where: and(eq(records.id, agentId), eq(records.databaseId, info.id), isNull(records.deletedAt)),
+      columns: { id: true, values: true, createdBy: true },
+    });
+    if (!agent) return null;
+    const facts = this.agentFacts(info, agent.values as Record<string, unknown>);
+    const owner = agent.createdBy ? await this.activeMembership(workspaceId, agent.createdBy) : null;
+    return { ...facts, owner: owner ?? null };
+  }
+
   // ---------------------------------------------------------------- enqueue (the ONE entry every wake source calls)
 
   /**
