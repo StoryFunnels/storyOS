@@ -17,6 +17,9 @@ export interface PreviewRowItem {
   action: 'create' | 'reuse' | 'collision';
   agent_update?: PackAgentUpdate;
   gains?: PackDatabaseGains;
+  /** Ticket #1172 — automations only, and only when the install would CREATE the rule: see lib/pack-automation-state.ts. */
+  enabled_on_install?: boolean;
+  switched_off_because?: 'outward' | 'agent';
 }
 
 /** The slice of the manifest the rows read; everything optional, because a manifest arrives as `unknown`. */
