@@ -40,7 +40,8 @@ describe('what the confirmation says (#1039)', () => {
 describe('the two erasures never share words (#1039)', () => {
   const src = (rel: string) => readFileSync(join(__dirname, '..', rel), 'utf8');
   it('the Members-page dialog says it is THIS workspace only and that the account is untouched; it no longer says it wipes an identity', () => {
-    const members = src('app/w/[ws]/settings/members/page.tsx');
+    // Ticket #1186: the page's own sentence about Erase moved from a tooltip to visible text in `lib/members-copy.ts`; both are read.
+    const members = src('app/w/[ws]/settings/members/page.tsx') + src('lib/members-copy.ts');
     expect(members).toMatch(/from this workspace only/i);
     expect(members).toMatch(/account.{0,40}(untouched|stays)/is);
     expect(members).not.toMatch(/wipes\s*\{?' '\}?\s*<span/);

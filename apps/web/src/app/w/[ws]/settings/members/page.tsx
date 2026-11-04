@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import posthog from 'posthog-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
@@ -12,9 +13,15 @@ import { GRANT_ROLES } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { MenuSelect } from '@/components/ui/menu-select';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsPill, SettingsRow } from '@/components/settings/settings-chrome';
+import { useSession } from '@/lib/auth-client';
+import { useDateFormat } from '@/lib/preferences';
+import { inviteRowModel, invitationsSummary, sortInvites } from '@/lib/invite-state';
+import { MEMBERS_COPY, ROLE_DESCRIPTIONS } from '@/lib/members-copy';
 import { confirmRemoveMember, confirmRevokeInvite, confirmRoleChange, type WorkspaceRole } from '@/lib/settings-confirmations';
 import { Label } from '@/components/ui/label';
 import { FreeGuestTip } from '@/components/free-guest-tip';
@@ -30,6 +37,7 @@ interface Invite {
   email: string;
   role: string;
   expires_at: string;
+  created_at?: string;
 }
 
 export default function MembersPage() {
@@ -135,116 +143,218 @@ function MembersPageContent() {
   });
 
   const isAdmin = workspace.data?.role === 'admin';
+  const { data: session } = useSession();
+  const myUserId = session?.user?.id;
+  const fmt = useDateFormat();
+  const now = Date.now();
+  const [eraseTarget, setEraseTarget] = useState<Member | null>(null);
+
+  const people = members.data ?? [];
+  const invitations = sortInvites(invites.data ?? [], now);
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-ink">Members</h1>
-        {isAdmin && (
-          <InviteDialog
-            ws={ws}
-            spaces={spaces.data ?? []}
-            initialOpen={searchParams.get('invite') === 'guest'}
-            initialRole={searchParams.get('invite') === 'guest' ? 'guest' : undefined}
-            initialSpaceIds={searchParams.get('space') ? [searchParams.get('space')!] : undefined}
-            initialGrantRole={searchParams.get('grant') ?? undefined}
-          />
-        )}
-      </div>
+      <SettingsPageHeader
+        title="Members"
+        lead={workspace.data ? `${people.length} ${people.length === 1 ? 'person' : 'people'} in ${workspace.data.name}` : undefined}
+        action={
+          isAdmin && (
+            <InviteDialog
+              ws={ws}
+              spaces={spaces.data ?? []}
+              initialOpen={searchParams.get('invite') === 'guest'}
+              initialRole={searchParams.get('invite') === 'guest' ? 'guest' : undefined}
+              initialSpaceIds={searchParams.get('space') ? [searchParams.get('space')!] : undefined}
+              initialGrantRole={searchParams.get('grant') ?? undefined}
+            />
+          )
+        }
+      />
 
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        {(members.data ?? []).map((member) => (
-          <div
-            key={member.id}
-            className="flex flex-col gap-3 border-b border-border-default px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={32} />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-ink">{member.user.name}</p>
-                <p className="truncate text-body text-muted">{member.user.email}</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {isAdmin ? (
+      <SettingsPageBody>
+        <SettingsBox>
+          {people.map((member) => (
+            <SettingsRow
+              key={member.id}
+              leading={<Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={24} />}
+              title={
                 <>
-                  {/* #717 — was a bespoke h-7 (not one of ui/select.tsx's own
-                      sizes); migrating to `sm` (h-8) rather than adding a new
-                      variant for one site. +4px tall, called out per #717's
-                      own AC rather than silently folded in. */}
-                  <Select
-                    size="sm"
-                    value={member.role}
-                    onChange={async (e) => {
-                      const to = e.target.value as WorkspaceRole;
-                      if (to === member.role) return;
-                      if (await confirm(confirmRoleChange(member.user.name, member.role as WorkspaceRole, to))) updateMember.mutate({ id: member.id, role: to });
-                    }}
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="member">Member</option>
-                    <option value="guest">Guest</option>
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => exportMember.mutate(member)}
-                    disabled={exportMember.isPending}
-                    title="Export everything held about this member (GDPR)"
-                  >
-                    Export
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={async () => {
-                      if (await confirm(confirmRemoveMember(member.user.name))) removeMember.mutate(member.id);
-                    }}
-                    title="Remove: revoke their access to this workspace. Their comments and history stay, still attributed to them — you can re-invite them later."
-                  >
-                    Remove
-                  </Button>
-                  <EraseMemberDialog ws={ws} member={member} onDone={() => void qc.invalidateQueries({ queryKey: ['members', ws] })} />
+                  {member.user.name}
+                  {member.user.id === myUserId && <span className="font-normal text-muted"> · you</span>}
                 </>
+              }
+              description={member.user.email}
+            >
+              {isAdmin ? (
+                <RoleMenu
+                  role={member.role}
+                  name={member.user.name}
+                  onChange={async (to) => {
+                    if (to === member.role) return;
+                    if (await confirm(confirmRoleChange(member.user.name, member.role as WorkspaceRole, to))) updateMember.mutate({ id: member.id, role: to });
+                  }}
+                  onRemove={async () => {
+                    if (await confirm(confirmRemoveMember(member.user.name))) removeMember.mutate(member.id);
+                  }}
+                />
               ) : (
                 <span className="text-body capitalize text-muted">{member.role}</span>
               )}
-            </div>
-          </div>
-        ))}
-      </div>
+            </SettingsRow>
+          ))}
+        </SettingsBox>
 
-      {isAdmin && (invites.data?.length ?? 0) > 0 && (
-        <>
-          <h2 className="mb-3 mt-8 text-sm font-semibold text-ink">Pending invites</h2>
-          <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-            {(invites.data ?? []).map((invite) => (
-              <PendingInviteRow
+        {isAdmin && invitations.length > 0 && (
+          <SettingsBox title="Invitations" aside={invitationsSummary(invitations, now)}>
+            {invitations.map((invite) => (
+              <InviteRow
                 key={invite.id}
                 ws={ws}
                 invite={invite}
+                now={now}
+                date={(iso) => fmt.date(iso)}
                 onRevoke={async () => {
                   if (await confirm(confirmRevokeInvite(invite.email))) revokeInvite.mutate(invite.id);
                 }}
               />
             ))}
-          </div>
-        </>
-      )}
+          </SettingsBox>
+        )}
+
+        {isAdmin && (
+          <AdvancedSection title={MEMBERS_COPY.dataRequestsTitle} summary={MEMBERS_COPY.dataRequestsSummary}>
+            <SettingsRow title={MEMBERS_COPY.exportTitle} description={MEMBERS_COPY.exportDescription}>
+              <PersonPicker people={people} label="Export" disabled={exportMember.isPending} onPick={(m) => exportMember.mutate(m)} />
+            </SettingsRow>
+            <SettingsRow title={MEMBERS_COPY.eraseTitle} description={MEMBERS_COPY.eraseDescription}>
+              <PersonPicker people={people} label="Erase" danger onPick={(m) => setEraseTarget(m)} />
+            </SettingsRow>
+          </AdvancedSection>
+        )}
+      </SettingsPageBody>
+
+      <EraseMemberDialog
+        ws={ws}
+        member={eraseTarget}
+        onClose={() => setEraseTarget(null)}
+        onDone={() => void qc.invalidateQueries({ queryKey: ['members', ws] })}
+      />
     </div>
   );
 }
 
-function PendingInviteRow({
+const ROLE_ORDER: ReadonlyArray<{ value: WorkspaceRole; label: string }> = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'member', label: 'Member' },
+  { value: 'guest', label: 'Guest' },
+];
+
+/**
+ * A person's role, as the product's own menu (the prototype's role menu, #974): each role says what it means, and Remove sits below a
+ * rule, in the error colour, with its consequence in plain text. It replaces the old drop-down list (no native lists in Settings) and
+ * the Remove button whose only explanation was a tooltip.
+ */
+function RoleMenu({
+  role,
+  name,
+  onChange,
+  onRemove,
+}: {
+  role: string;
+  name: string;
+  onChange: (to: WorkspaceRole) => void;
+  onRemove: () => void;
+}) {
+  const current = ROLE_ORDER.find((r) => r.value === role)?.label ?? role;
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Role of ${name}: ${current}`}
+          className="inline-flex h-7 items-center gap-1 rounded-[var(--radius-control)] border border-transparent pl-[9px] pr-1.5 text-label font-medium text-ink hover:bg-hover data-[state=open]:bg-hover"
+        >
+          {current}
+          <ChevronDown className="h-[11px] w-[11px] text-muted" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[272px]">
+        {ROLE_ORDER.map((r) => (
+          <DropdownMenuItem key={r.value} onSelect={() => onChange(r.value)} className="items-start">
+            <span className="mt-px w-[13px] shrink-0 text-primary-text">{r.value === role && <Check className="h-[13px] w-[13px]" aria-hidden />}</span>
+            <span className="min-w-0">
+              <b className="block text-body font-medium text-ink">{r.label}</b>
+              <span className="block text-meta leading-[1.4] text-muted">{ROLE_DESCRIPTIONS[r.value]}</span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onRemove} className="items-start">
+          <span className="w-[13px] shrink-0" />
+          <span className="min-w-0">
+            <b className="block text-body font-medium text-error">{MEMBERS_COPY.removeTitle}</b>
+            <span className="block text-meta leading-[1.4] text-muted">{MEMBERS_COPY.removeDescription}</span>
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** "Choose person…": the one picker both data requests use, so Export and Erase name their subject before anything runs. */
+function PersonPicker({
+  people,
+  label,
+  danger,
+  disabled,
+  onPick,
+}: {
+  people: Member[];
+  label: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onPick: (member: Member) => void;
+}) {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="secondary" size="sm" disabled={disabled} aria-label={`${label}: choose a person`} className={danger ? 'text-error' : undefined}>
+          {MEMBERS_COPY.choosePerson}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-72 w-64 overflow-y-auto">
+        {people.length === 0 && <p className="px-2 py-1.5 text-label text-muted">{MEMBERS_COPY.noOneToChoose}</p>}
+        {people.map((m) => (
+          <DropdownMenuItem key={m.id} onSelect={() => onPick(m)} className="flex-col items-start gap-0">
+            <span className="max-w-full truncate text-body text-ink">{m.user.name}</span>
+            {m.user.email && <span className="max-w-full truncate text-meta text-muted">{m.user.email}</span>}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * One invitation. An expired one SAYS so ("Expired 25 Aug") and offers Send again first: the link it holds is dead. Sending again
+ * issues a fresh link and a fresh week (`POST /invites/:id/resend`), which turns the row back to Pending on the refetch.
+ */
+function InviteRow({
   ws,
   invite,
+  now,
+  date,
   onRevoke,
 }: {
   ws: string;
   invite: Invite;
+  now: number;
+  date: (iso: string) => string;
   onRevoke: () => void;
 }) {
+  const qc = useQueryClient();
   const [link, setLink] = useState<string | null>(null);
+  const model = inviteRowModel(invite, now, date);
 
   const resend = useMutation({
     mutationFn: async () => {
@@ -258,6 +368,7 @@ function PendingInviteRow({
     onSuccess: (data) => {
       setLink(data.accept_url);
       toast.success('Invitation sent');
+      void qc.invalidateQueries({ queryKey: ['invites', ws] });
     },
     // 429 = resend cooldown; surface the server's "wait a minute" message.
     onError: (err: unknown) => {
@@ -270,61 +381,57 @@ function PendingInviteRow({
   });
 
   return (
-    <div className="flex flex-col gap-2 border-b border-border-default px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-sm text-ink">{invite.email}</p>
-          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-meta font-medium text-warning-text">
-            Pending
-          </span>
-        </div>
-        <p className="text-body capitalize text-muted">{invite.role}</p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {link && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={async () => {
-              await navigator.clipboard.writeText(link);
-              toast.success('Copied');
-            }}
-            title="Copy the invite link to share directly"
-          >
-            Copy link
-          </Button>
-        )}
+    <SettingsRow
+      title={invite.email}
+      description={link ? `${model.detail} · ${MEMBERS_COPY.copyLinkDescription}` : model.detail}
+    >
+      <SettingsPill tone={model.state === 'expired' ? 'warn' : 'neutral'}>{model.pill}</SettingsPill>
+      {link && (
         <Button
-          variant="ghost"
+          variant="secondary"
           size="sm"
-          onClick={() => resend.mutate()}
-          disabled={resend.isPending}
+          onClick={async () => {
+            await navigator.clipboard.writeText(link);
+            toast.success('Copied');
+          }}
         >
-          Resend invitation
+          Copy link
         </Button>
-        <Button variant="ghost" size="sm" onClick={onRevoke}>
-          Revoke
-        </Button>
-      </div>
-    </div>
+      )}
+      <Button
+        variant={model.resendIsPrimary ? 'primary' : 'secondary'}
+        size="sm"
+        aria-label={model.resendAriaLabel}
+        onClick={() => resend.mutate()}
+        disabled={resend.isPending}
+      >
+        {model.resendLabel}
+      </Button>
+      <Button variant="secondary" size="sm" onClick={onRevoke}>
+        Revoke
+      </Button>
+    </SettingsRow>
   );
 }
 
+/** Erase one person from this workspace. Controlled: the Data requests picker chooses who, this asks for the typed confirmation. */
 function EraseMemberDialog({
   ws,
   member,
+  onClose,
   onDone,
 }: {
   ws: string;
-  member: Member;
+  member: Member | null;
+  onClose: () => void;
   onDone: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState('');
-  const target = member.user.email ?? member.user.name;
+  const target = member ? (member.user.email ?? member.user.name) : '';
 
   const erase = useMutation({
     mutationFn: async () => {
+      if (!member) return;
       const { error } = await api.POST(
         '/api/v1/workspaces/{ws}/members/{member}/gdpr/anonymize',
         { params: { path: { ws, member: member.id } } },
@@ -332,9 +439,9 @@ function EraseMemberDialog({
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success(`${member.user.name} was erased from this workspace`);
-      setOpen(false);
+      toast.success(`${member?.user.name ?? 'The person'} was erased from this workspace`);
       setConfirm('');
+      onClose();
       onDone();
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Could not erase this person. Nothing changed.')),
@@ -342,66 +449,61 @@ function EraseMemberDialog({
 
   return (
     <Dialog
-      open={open}
+      open={member !== null}
       onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setConfirm('');
+        if (!next) {
+          setConfirm('');
+          onClose();
+        }
       }}
     >
-      <DialogTrigger asChild>
-        <Button
-          variant="destructive"
-          size="sm"
-          title="Erase from this workspace (GDPR): removes this person and their data from THIS workspace only; their account is untouched. Irreversible here — requires typed confirmation."
-        >
-          Erase
-        </Button>
-      </DialogTrigger>
-      <DialogContent title="Erase this person from this workspace (GDPR)">
-        <div className="flex flex-col gap-4">
-          <p className="text-body text-ink-secondary">
-            This removes <span className="font-medium text-ink">{member.user.name}</span> and their data from{' '}
-            <span className="font-medium text-ink">this workspace only</span>: their membership and access here, their
-            per-person settings, and the API tokens minted for this workspace.
-          </p>
-          <p className="text-body text-ink-secondary">
-            Their <span className="font-medium text-ink">account stays untouched</span>: their sign-in and every other
-            workspace keep working. Their comments and history here stay in place under their name. Deleting a whole
-            account is the person&rsquo;s own choice, under <span className="font-medium text-ink">Settings → Account</span>.{' '}
-            <span className="font-medium">This cannot be undone here</span>: to give them access again, invite them again.
-          </p>
-          <div className="flex flex-col gap-1.5">
-            <TypedConfirmName name={target} />
-            <Input
-              id="erase-confirm"
-              aria-label={`Type ${target} to confirm`}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              autoComplete="off"
-            />
-            {/* #801 — same class of bug as confirm-dialog.tsx: strict,
-                untrimmed match with no feedback on a mismatch. */}
-            {confirm.trim().length > 0 && confirm.trim() !== target.trim() && (
-              <p className="text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
-            )}
-          </div>
-          <div className="flex justify-end gap-2">
-            <DialogClose asChild>
-              <Button type="button" variant="secondary">
-                Cancel
+      {member && (
+        <DialogContent title="Erase this person from this workspace (GDPR)">
+          <div className="flex flex-col gap-4">
+            <p className="text-body text-ink-secondary">
+              This removes <span className="font-medium text-ink">{member.user.name}</span> and their data from{' '}
+              <span className="font-medium text-ink">this workspace only</span>: their membership and access here, their
+              per-person settings, and the API tokens minted for this workspace.
+            </p>
+            <p className="text-body text-ink-secondary">
+              Their <span className="font-medium text-ink">account stays untouched</span>: their sign-in and every other
+              workspace keep working. Their comments and history here stay in place under their name. Deleting a whole
+              account is the person&rsquo;s own choice, under <span className="font-medium text-ink">Settings → Account</span>.{' '}
+              <span className="font-medium">This cannot be undone here</span>: to give them access again, invite them again.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <TypedConfirmName name={target} />
+              <Input
+                id="erase-confirm"
+                aria-label={`Type ${target} to confirm`}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="off"
+              />
+              {/* #801 — same class of bug as confirm-dialog.tsx: strict,
+                  untrimmed match with no feedback on a mismatch. */}
+              {confirm.trim().length > 0 && confirm.trim() !== target.trim() && (
+                <p className="text-label text-error">Doesn&rsquo;t match — check spelling and capitalization.</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <Button type="button" variant="secondary">
+                  Cancel
+                </Button>
+              </DialogClose>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={confirm.trim() !== target.trim() || erase.isPending}
+                onClick={() => erase.mutate()}
+              >
+                Erase from this workspace
               </Button>
-            </DialogClose>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={confirm.trim() !== target.trim() || erase.isPending}
-              onClick={() => erase.mutate()}
-            >
-              Erase from this workspace
-            </Button>
+            </div>
           </div>
-        </div>
-      </DialogContent>
+        </DialogContent>
+      )}
     </Dialog>
   );
 }
@@ -538,32 +640,31 @@ function InviteDialog({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="invite-role">Role</Label>
-              <select
-                id="invite-role"
-                className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+              <Label>Role</Label>
+              <MenuSelect
+                label="Role"
                 value={role}
-                onChange={(e) => setRole(e.target.value as typeof role)}
-              >
-                <option value="member">Member — full access</option>
-                <option value="admin">Admin — settings & members</option>
-                <option value="guest">Guest — access to chosen spaces only</option>
-              </select>
+                onChange={(next) => setRole(next as typeof role)}
+                className="h-9 w-full max-w-none"
+                menuClassName="w-[22rem] max-w-[calc(100vw-3rem)]"
+                options={[
+                  { value: 'member', label: 'Member — full access' },
+                  { value: 'admin', label: 'Admin — settings & members' },
+                  { value: 'guest', label: 'Guest — access to chosen spaces only' },
+                ]}
+              />
             </div>
             {role === 'guest' && (
               <div className="flex flex-col gap-1.5">
                 <Label>Access level</Label>
-                <select
-                  className="h-9 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-sm text-ink"
+                <MenuSelect
+                  label="Access level"
                   value={grantRole}
-                  onChange={(e) => setGrantRole(e.target.value)}
-                >
-                  {GRANT_ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setGrantRole}
+                  className="h-9 w-full max-w-none"
+                  menuClassName="w-[22rem] max-w-[calc(100vw-3rem)]"
+                  options={GRANT_ROLES.map((r) => ({ value: r.value, label: r.label }))}
+                />
                 <Label>Spaces they can access</Label>
                 <div className="flex flex-col gap-1 rounded-[var(--radius-control)] border border-border-default bg-card p-2">
                   {spaces.map((space) => (

@@ -4,7 +4,6 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Package,
@@ -13,9 +12,10 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { api } from '@/lib/api';
 import { useWorkspace } from '@/lib/queries';
+import { useUninstallPack } from '@/lib/use-uninstall-pack';
+import { confirmUninstallPack } from '@/lib/settings-confirmations';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-visual';
@@ -58,27 +58,9 @@ function InstalledRow({
   onUpdate: (slug: string, source: PackSource) => void;
 }) {
   const fmt = useDateFormat();
-  const qc = useQueryClient();
-  const uninstall = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST(
-        '/api/v1/workspaces/{ws}/packs/{installId}/uninstall' as never,
-        { params: { path: { ws, installId: pack.id } } } as never,
-      );
-      if (error) throw error;
-      return data as unknown as { removed: unknown[]; kept: { name: string; reason?: string }[] };
-    },
-    onSuccess: (data) => {
-      void qc.invalidateQueries({ queryKey: ['packs-installed', ws] });
-      void qc.invalidateQueries({ queryKey: ['onboarding', ws] });
-      toast.success(
-        data.kept.length > 0
-          ? `Uninstalled — kept ${data.kept.length} item(s) you'd changed since install`
-          : 'Uninstalled cleanly',
-      );
-    },
-    onError: () => toast.error('Uninstall failed'),
-  });
+  // #1186 — the same request and the same confirmation as Settings › Packs (it used the browser's own confirm box before).
+  const uninstall = useUninstallPack(ws);
+  const confirm = useConfirm();
 
   return (
     <div className="flex items-center justify-between rounded-[var(--radius-card)] border border-border-default bg-card p-3">
@@ -103,14 +85,9 @@ function InstalledRow({
           type="button"
           variant="secondary"
           disabled={uninstall.isPending}
-          onClick={() => {
-            if (
-              window.confirm(
-                `Uninstall ${pack.name}? Anything you've changed since install is kept.`,
-              )
-            ) {
-              uninstall.mutate();
-            }
+          aria-label={`Uninstall ${pack.name}`}
+          onClick={async () => {
+            if (await confirm(confirmUninstallPack(pack.name))) uninstall.mutate(pack.id);
           }}
         >
           <Trash2 className="h-3.5 w-3.5" />

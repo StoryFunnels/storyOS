@@ -25,6 +25,7 @@ export function MenuSelect({
   onChange,
   options,
   className,
+  menuClassName,
 }: {
   label: string;
   value: string;
@@ -32,6 +33,8 @@ export function MenuSelect({
   options: MenuOption[];
   /** #1118 — size only (a row that must share its width with siblings); the look stays this component's. */
   className?: string;
+  /** Ticket #1186 — the list's own width, for options whose labels explain themselves (the invite dialog's roles); default `w-48`. */
+  menuClassName?: string;
 }) {
   const current = options.find((o) => o.value === value) ?? options[0];
   return (
@@ -42,7 +45,7 @@ export function MenuSelect({
           <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-72 w-48 overflow-y-auto">
+      <DropdownMenuContent align="end" className={cn('max-h-72 w-48 overflow-y-auto', menuClassName)}>
         {options.map((o) => (
           <DropdownMenuItem
             key={o.value}

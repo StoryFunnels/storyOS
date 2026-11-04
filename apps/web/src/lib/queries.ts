@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { EffectiveRole } from './access';
+import { workspaceNameCacheKeys } from './workspace-name';
 
 export interface Space {
   id: string;
@@ -188,8 +189,8 @@ export function useSidebarMutations(ws: string) {
           await api.PATCH('/api/v1/workspaces/{ws}', { params: { path: { ws } }, body }),
         ),
       onSuccess: () => {
-        void qc.invalidateQueries({ queryKey: ['workspace', ws] });
-        void qc.invalidateQueries({ queryKey: ['workspaces'] });
+        // #1186 — one list of the caches that hold the workspace's name, so a rename reaches every place it shows.
+        for (const queryKey of workspaceNameCacheKeys(ws)) void qc.invalidateQueries({ queryKey: [...queryKey] });
       },
     }),
     createSpace: useMutation({
