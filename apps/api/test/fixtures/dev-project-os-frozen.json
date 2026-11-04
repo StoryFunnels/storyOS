@@ -7,7 +7,7 @@
     "highlights": [
       "Issues, Sprints, Releases and Product Docs, fully related",
       "Full task-DNA workflow: Triage → Backlog → To Do → In Progress → In Review → Done/Canceled",
-      "A \"Triage Bot\" agent proposes type/priority/labels for new issues — gated, your call to run it",
+      "A \"Triage Bot\" agent proposes type/priority/labels for new issues — it wakes by itself once you switch it on in the install review",
       "Notifies you when a release ships"
     ],
     "manifest": {
@@ -24,7 +24,7 @@
         "Write release notes as you ship"
       ],
       "scenario": "pack",
-      "summary": "Issues, sprints and releases for a dev team, with a gated triage agent and a release-status automation.",
+      "summary": "Issues, sprints and releases for a dev team, with a triage agent and a release-status automation.",
       "requires": {
         "connections": [],
         "ai": "byo"
@@ -342,7 +342,7 @@
           "database": "Issues",
           "state_field": "State",
           "state_option": "Triage",
-          "human_gate": true
+          "human_gate": false
         }
       ],
       "derived_fields": [],

@@ -215,7 +215,7 @@ export function CommentComposer({
             theme={theme}
             onChange={() => setHasContent(!isDocEmpty(editor.document as unknown[]))}
           >
-            <MentionSuggestionMenus editor={editor as never} ws={ws} />
+            <MentionSuggestionMenus editor={editor as never} ws={ws} agents />
           </BlockNoteView>
         </MentionScope>
       </div>

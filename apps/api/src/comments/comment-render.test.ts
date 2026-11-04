@@ -92,6 +92,23 @@ describe('truncateForPreview (#235)', () => {
   });
 });
 
+describe('an agent mention renders as the agent, never as "@someone" (ticket #1213)', () => {
+  const body = (props: Record<string, unknown>): BlocknoteCommentBody => ({
+    format: 'blocknote',
+    doc: [{ type: 'paragraph', content: [{ type: 'mention', props }, { type: 'text', text: ' hi', styles: {} }] }],
+  });
+  it('uses the label the mention was picked under', () => {
+    expect(renderCommentText(body({ kind: 'agent', id: 'a1', label: 'Onboarding Assistant' }))).toBe('@Onboarding Assistant hi');
+  });
+  it('with no label says "an agent", not a person', () => {
+    expect(renderCommentText(body({ kind: 'agent', id: 'a1' }))).toBe('@an agent hi');
+  });
+  it('leaves a person mention exactly as it was', () => {
+    expect(renderCommentText(body({ kind: 'user', id: 'u1', label: 'Ada' }), { userNames: new Map([['u1', 'Ada L']]) })).toBe('@Ada L hi');
+    expect(renderCommentText(body({ kind: 'user', id: 'u2' }))).toBe('@someone hi');
+  });
+});
+
 describe('commentDeepLink (#235)', () => {
   it('targets the exact comment on the record', () => {
     expect(commentDeepLink('https://app.example.com', 'r1', 'c9')).toBe(
