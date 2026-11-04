@@ -41,7 +41,7 @@ Usage
   npx @storyos/runner            Pairs this computer if it is not paired yet, then starts.
 
 For scripts and the server guide
-  storyos-runner pair [code]     Pair with the 6-character code from "Add a Runner" in StoryOS
+  storyos-runner pair [code]     Pair with the 6-character code from "Add a Runner" in StoryOS (spaces and dashes are ignored)
   storyos-runner start           Run the claim loop in the foreground
   storyos-runner status          Show what this computer knows, and check the server
   storyos-runner stop            Ask the running Runner to stop
@@ -104,7 +104,8 @@ export async function main(argv: string[], ctx: MainContext): Promise<number> {
       return start(startOptions());
     }
     case 'pair': {
-      const code = args.positional[0];
+      // `pair 7PV UVC` arrives as two arguments: a code shown or pasted with a space is still one code.
+      const code = args.positional.join('');
       return pair({ ...common, server, ...(code ? { code } : {}), ...(mcpUrl ? { mcpUrl } : {}), signal });
     }
     case 'start':
