@@ -543,6 +543,10 @@ export class AgentWakesService {
       // back to the queue instead of being handed over without the only thing a session can act with.
       // ticket #1184: the agent's skills, by name, as its owner sees them. One it cannot deliver fails the wake BEFORE a credential is
       // minted: a run that was supposed to use a skill must not quietly run without it (the dispatch does the same for a server run).
+      // ticket #1214: a wake reaches a claim with no Run only if something wrote it that way (a trigger whose Run create failed in an
+      // older build, a wake from before ensure-on-dispatch). It is given its Run NOW, so the credential (bound to the run) and the
+      // completion have somewhere to write; when the Run cannot be made the wake FAILS in words. Never handed over without one.
+      if (!wake.runId && !(await this.ensureRunForClaim(wake, runner))) continue;
       const skills = await this.skillsForClaim(wake, runner, info);
       if (skills.missing.length > 0) {
         await this.failForMissingSkills(wake, runner, skills.missing);
@@ -568,6 +572,38 @@ export class AgentWakesService {
       out.push(await this.present(wake, info, skills.loaded, { token: credential.token, scope: credential.scope, expires_at: credential.expires_at }));
     }
     return out;
+  }
+
+  /**
+   * ticket #1214 — a claimed wake with no Run record gets one now (the same Run a mention's wake gets at enqueue). When that fails
+   * the wake is `failed`, its owner is told once and the log says why: a Runner must never do the work and finish `done` with
+   * `run_id` null and nothing on the agent page. Returns whether the wake now has a Run (and may be handed over).
+   */
+  private async ensureRunForClaim(wake: WakeRow, runner: RunnerRow): Promise<boolean> {
+    let why = 'no Run record can be written in this workspace right now';
+    try {
+      if (this.hooks) {
+        const runId = await this.hooks.createRun(wake);
+        await this.attachRun(wake.id, runId);
+        wake.runId = runId;
+        this.logger.warn(`wake ${wake.id} was claimed with no Run record; Run ${runId} was created for it`);
+        return true;
+      }
+    } catch (error) {
+      why = error instanceof Error ? error.message : String(error);
+    }
+    const now = new Date();
+    const [row] = await this.db
+      .update(agentWakes)
+      .set({ status: 'failed', finishedAt: now, leaseExpiresAt: null, updatedAt: now })
+      .where(and(eq(agentWakes.id, wake.id), eq(agentWakes.runnerId, runner.id), eq(agentWakes.status, 'claimed')))
+      .returning();
+    this.logger.error(`wake ${wake.id} (agent ${wake.agentId}) failed at claim: it has no Run record and one could not be created: ${why}`);
+    if (row) {
+      await this.notifyFailed(row, 'run_record');
+      await this.afterTerminal(row);
+    }
+    return false;
   }
 
   /**
@@ -899,7 +935,7 @@ export class AgentWakesService {
   }
 
   /** The agent's owner (its manager) is told once why a job failed. `lease`: the Runner stopped answering. `must_comment`: it twice ended without a comment. */
-  private async notifyFailed(wake: WakeRow, why: 'lease' | 'must_comment' | 'skills'): Promise<void> {
+  private async notifyFailed(wake: WakeRow, why: 'lease' | 'must_comment' | 'skills' | 'run_record'): Promise<void> {
     try {
       const owner = (await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { createdBy: true, title: true } })) ?? null;
       if (!owner?.createdBy) return;
@@ -916,7 +952,9 @@ export class AgentWakesService {
             ? `${owner.title} could not finish a job: its Runner stopped answering ${WAKE_MAX_ATTEMPTS} times.`
             : why === 'skills'
               ? `${owner.title} could not start a job: a skill attached to it cannot be sent to its Runner. The Run names it.`
-              : `${owner.title} could not finish a job: it ended twice without commenting on its record, so nobody can see what it did.`,
+              : why === 'run_record'
+                ? `${owner.title} could not start a job: StoryOS could not create its Run record, so nothing was handed to the Runner.`
+                : `${owner.title} could not finish a job: it ended twice without commenting on its record, so nobody can see what it did.`,
       });
     } catch (error) {
       this.logger.warn(`failure notification for wake ${wake.id} failed: ${String(error)}`);
