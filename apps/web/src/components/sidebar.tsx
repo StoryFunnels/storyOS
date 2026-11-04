@@ -64,6 +64,9 @@ import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row'
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
+import { SettingsSidebarMenu } from '@/components/settings/settings-sidebar-menu';
+import { sidebarBody } from '@/lib/settings-menu';
+import { isSettingsPath } from '@/lib/settings-nav';
 import { useSidebarSortableSensors } from '@/components/ui/drag-presentation';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
@@ -128,6 +131,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const params = useParams<{ ws: string }>();
   const ws = params.ws;
   const router = useRouter();
+  // #1216 — in Settings the body below the search is the settings menu; the tree stays mounted (hidden) so its state survives the visit.
+  const onSettingsBody = sidebarBody(usePathname()) === 'settings';
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
   const databases = useDatabases(ws);
@@ -372,7 +377,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
-      <nav className="scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5">
+      {onSettingsBody && <SettingsSidebarMenu ws={ws} />}
+      <nav className={cn('scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5', onSettingsBody && 'hidden')}>
         <FavoritesSection ws={ws} />
         {/* #967 — "Collections" is gone: the AI layer has its own gold section (Skills, Agent runs,
             Business Packs; "Connect your AI" shows until the workspace has a connected AI). */}
@@ -658,7 +664,7 @@ function SidebarRail({
   const pathname = usePathname();
   const isHome = pathname === `/w/${ws}`;
   const isMyWork = pathname === `/w/${ws}/me`;
-  const onSettings = pathname === `/w/${ws}/settings` || pathname.startsWith(`/w/${ws}/settings/`);
+  const onSettings = isSettingsPath(pathname);
 
   return (
     <div className="rail-shade flex w-[52px] shrink-0 flex-col items-center gap-1 bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-frame))] py-2">
