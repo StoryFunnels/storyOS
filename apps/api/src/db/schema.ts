@@ -3041,7 +3041,9 @@ export const runners = pgTable(
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     /** De-duplication of the "Runner offline" notification, once per offline episode. NEVER shown; `offline_since` is derived from `last_seen_at`. */
     offlineNotifiedAt: timestamp('offline_notified_at', { withTimezone: true }),
-    /** #1137 owns these two; they exist now so the Runner object has its final shape. */
+    /** ticket #1137: how this person shares their subscription: `working_hours` and `reserve_percent` (runners/runner-sharing.ts). Empty = no rule. */
+    sharing: jsonb('sharing').$type<{ working_hours?: { days: string[]; start: string; end: string; timezone: string } | null; reserve_percent?: number | null }>().notNull().default({}),
+    /** The tool hit its subscription limit (#1133 writes it; claims wait until it passes) and why. */
     pausedUntil: timestamp('paused_until', { withTimezone: true }),
     pauseReason: text('pause_reason'),
     /** While `pending`: the end of the pairing window. A pending Runner nobody activated by then is revoked. */

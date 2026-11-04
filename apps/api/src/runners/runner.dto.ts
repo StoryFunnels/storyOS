@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reservePercentSchema, workingHoursSchema } from './runner-sharing';
 
 /** One tool the Runner found on its machine (ADR-0021 §5). Free-form `capabilities` are kept as reported, size-capped below. */
 export const runnerToolSchema = z.object({
@@ -32,6 +33,17 @@ export const runnerPairSchema = z
   .refine((v) => JSON.stringify(v.tools).length <= 8_000, { message: 'tools is too large', path: ['tools'] });
 
 export const runnerToolChoiceSchema = z.object({ tool: z.string().trim().min(1).max(40) });
+/**
+ * `PATCH /runners/:id` (ticket #1137 widened it): the tool, and how the person shares their subscription. Any subset, at least one.
+ * `working_hours` / `reserve_percent` set to null turn that rule off; absent leaves it as it was.
+ */
+export const runnerUpdateSchema = z
+  .object({
+    tool: z.string().trim().min(1).max(40).optional(),
+    working_hours: workingHoursSchema.nullable().optional(),
+    reserve_percent: reservePercentSchema.nullable().optional(),
+  })
+  .refine((v) => v.tool !== undefined || v.working_hours !== undefined || v.reserve_percent !== undefined, { message: 'Send tool, working_hours or reserve_percent.' });
 export const runnerAssignmentSchema = z.object({ runner_id: z.uuid().nullable() });
 
 /** `POST /runner/v1/claim` (ADR-0021 §2): how many wakes the Runner can take, and how long it will wait for one. */

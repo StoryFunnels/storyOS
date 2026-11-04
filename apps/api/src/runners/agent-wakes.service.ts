@@ -9,8 +9,12 @@ import { agentWakes, comments, databases, fields, memberships, records, runnerAg
 import { codedException } from '../common/coded-exception';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SkillsService } from '../skills/skills.service';
+import { SKILL_TEXT_CAP } from '../agents/agent-runtime';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { runnerConnection, offlineSince } from './runner-present';
+import { holdFor } from './runner-sharing';
+import type { Hold } from './runner-sharing';
 import type { RunnerRow } from './runner-present';
 import {
   WAKE_CLAIM_MAX,
@@ -103,6 +107,21 @@ function skip(code: SkipCode): EnqueueResult {
   return { outcome: 'skipped', code, message: SKIP_MESSAGES[code] };
 }
 
+/**
+ * ticket #1184 — one attached skill as a Runner run receives it: the manager's own text (like the agent's goal and instructions),
+ * resolved by name when the wake is claimed. `truncated` is set whenever the text was cut, with the original and kept sizes, so a
+ * run never works from a silently shortened skill (CLAUDE.md: capped results say so).
+ */
+export interface ClaimedSkill {
+  name: string;
+  when_to_use: string;
+  instructions: string;
+  truncated: { chars: number; kept: number } | null;
+}
+
+/** The most skill text ONE claim carries across all the agent's skills (each skill is also capped at SKILL_TEXT_CAP). */
+export const SKILL_TOTAL_CAP = 24_000;
+
 /** What the claim hands the Runner for one wake: ids, a reason and counts. NEVER record text (ADR-0021 §7). */
 export interface ClaimedWake {
   id: string;
@@ -114,7 +133,7 @@ export interface ClaimedWake {
   reasons: WakeReasonEntry[];
   depth: number;
   run_id: string | null;
-  agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; target_databases: string | null; model: string | null; tools: string[] };
+  agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; skill_instructions: ClaimedSkill[]; target_databases: string | null; model: string | null; tools: string[] };
   record: { id: string; database_id: string; number: number | null } | null;
   context: unknown;
   /**
@@ -171,6 +190,8 @@ export class AgentWakesService {
     private readonly access: AccessService,
     private readonly notifications: NotificationsService,
     private readonly runCredentials: RunCredentialsService,
+    /** ticket #1184: resolves the skills an agent names, as its owner, for the claim. */
+    private readonly skillsService: SkillsService,
   ) {}
 
   registerRunHooks(hooks: WakeRunHooks): void {
@@ -231,6 +252,23 @@ export class AgentWakesService {
     return this.db.query.memberships.findFirst({
       where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, userId), eq(memberships.status, 'active')),
     });
+  }
+
+  /**
+   * ticket #1152: what the catch-up needs to know about an agent, read straight off its record. `owner` is the agent's active
+   * membership (the identity it reads as); null when the owner left, in which case nothing may be woken.
+   */
+  async catchUpFacts(workspaceId: string, agentId: string) {
+    const info = await this.agentsDbInfo(workspaceId);
+    if (!info) return null;
+    const agent = await this.db.query.records.findFirst({
+      where: and(eq(records.id, agentId), eq(records.databaseId, info.id), isNull(records.deletedAt)),
+      columns: { id: true, values: true, createdBy: true },
+    });
+    if (!agent) return null;
+    const facts = this.agentFacts(info, agent.values as Record<string, unknown>);
+    const owner = agent.createdBy ? await this.activeMembership(workspaceId, agent.createdBy) : null;
+    return { ...facts, owner: owner ?? null };
   }
 
   // ---------------------------------------------------------------- enqueue (the ONE entry every wake source calls)
@@ -426,15 +464,27 @@ export class AgentWakesService {
    * `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED) RETURNING`, the shape automations/job-runner.service.ts uses, over
    * this table. A claim only ever returns wakes for agents assigned to THIS Runner; for anyone else's it answers the same empty.
    */
-  async claim(runner: RunnerRow, opts: { max?: number; waitSeconds?: number; wakeId?: string }): Promise<ClaimedWake[]> {
+  async claim(first: RunnerRow, opts: { max?: number; waitSeconds?: number; wakeId?: string; now?: Date }): Promise<ClaimedWake[]> {
     const max = Math.max(1, Math.min(opts.max ?? 1, WAKE_CLAIM_MAX));
     const wait = Math.max(0, Math.min(opts.waitSeconds ?? WAKE_LONG_POLL_MAX_SECONDS, WAKE_LONG_POLL_MAX_SECONDS));
-    if (runner.status !== 'active') {
+    if (first.status !== 'active') {
       throw codedException(409, 'runner_not_active', 'This Runner is not turned on yet. Press Done in StoryOS to let it run your agents.');
     }
+    // ticket #1137: a Runner that may not claim (limit pause, outside working hours, reserve) is told at once and sleeps until the time
+    // the answer carries (the controller adds it to the 204), instead of being held on the line for 25 s for nothing.
+    let runner = first;
     const deadline = Date.now() + wait * 1000;
-    for (;;) {
-      const claimed = await this.claimOnce(runner, max, opts.wakeId, new Date());
+    for (let round = 0; ; round++) {
+      // The Runner's rules can change while a poll is open (the person edits working hours or the reserve, a window closes, a tool
+      // reports more usage on its heartbeat). Re-read the row EVERY round and decide again, so a wake that arrives mid-poll is never
+      // claimed on the strength of a hold that was checked 20 seconds ago. A hold ends the poll: the 204 carries the fresh reason.
+      if (round > 0) {
+        const [fresh] = await this.db.select().from(runners).where(eq(runners.id, first.id)).limit(1);
+        if (!fresh || fresh.status !== 'active') return [];
+        runner = fresh;
+      }
+      if (holdFor(runner, opts.now ?? new Date())) return [];
+      const claimed = await this.claimOnce(runner, max, opts.wakeId, opts.now ?? new Date());
       if (claimed.length > 0) return claimed;
       if (opts.wakeId) {
         // A specific wake asked for and not given: say WHY, but only for a wake of this Runner's own agents.
@@ -461,8 +511,8 @@ export class AgentWakesService {
   }
 
   private async claimOnce(runner: RunnerRow, max: number, wakeId: string | undefined, now: Date): Promise<ClaimedWake[]> {
-    // A paused Runner (its tool hit a subscription limit) and one whose chosen tool is gone claim nothing: the wakes wait.
-    if (runner.pausedUntil && runner.pausedUntil.getTime() > now.getTime()) return [];
+    // A held Runner (limit pause, outside its working hours, reserve) and one whose chosen tool is gone claim nothing: the wakes wait.
+    if (holdFor(runner, now)) return [];
     if (runner.chosenTool && !runner.tools.some((t) => t.id === runner.chosenTool && t.installed)) return [];
     const info = await this.agentsDbInfo(runner.workspaceId);
     const enabledId = info?.fieldIds.get('enabled');
@@ -491,6 +541,13 @@ export class AgentWakesService {
       // ticket #1132: the server mints this run's credential at the moment of the claim, bound to (agent, run, Runner, depth) and to
       // the lease. When none may exist (the agent or its owner went away between the eligibility check and here) the wake goes
       // back to the queue instead of being handed over without the only thing a session can act with.
+      // ticket #1184: the agent's skills, by name, as its owner sees them. One it cannot deliver fails the wake BEFORE a credential is
+      // minted: a run that was supposed to use a skill must not quietly run without it (the dispatch does the same for a server run).
+      const skills = await this.skillsForClaim(wake, runner, info);
+      if (skills.missing.length > 0) {
+        await this.failForMissingSkills(wake, runner, skills.missing);
+        continue;
+      }
       const credential = await this.runCredentials.mint({
         workspaceId: wake.workspaceId,
         agentId: wake.agentId,
@@ -508,14 +565,63 @@ export class AgentWakesService {
         continue;
       }
       await this.hooks?.setRunStatus(wake, 'Running', undefined, { runner: runner.name, tool: runner.chosenTool ?? undefined, startedAt: now }).catch((e) => this.logger.warn(`could not mark Run running for wake ${wake.id}: ${String(e)}`));
-      out.push(await this.present(wake, info, { token: credential.token, scope: credential.scope, expires_at: credential.expires_at }));
+      out.push(await this.present(wake, info, skills.loaded, { token: credential.token, scope: credential.scope, expires_at: credential.expires_at }));
     }
     return out;
+  }
+
+  /**
+   * ticket #1184 — the instructions of the skills the agent's `Skills` field names (one name per line), resolved NOW, by name, as the
+   * agent's owner (never as the run credential and never as the Runner), then capped. `missing` names every skill that is gone or that
+   * the owner may not read, or a `personal` one that may not leave its author's own agent and machine (`resolveForRunner`).
+   */
+  private async skillsForClaim(
+    wake: WakeRow,
+    runner: RunnerRow,
+    info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>,
+  ): Promise<{ loaded: ClaimedSkill[]; missing: string[] }> {
+    const agent = await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { values: true, createdBy: true } });
+    const raw = ((agent?.values ?? {}) as Record<string, unknown>)[info.fieldIds.get('skills') ?? ''];
+    const names = (typeof raw === 'string' ? raw : '')
+      .split('\n')
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (names.length === 0) return { loaded: [], missing: [] };
+    const ownerId = agent?.createdBy ?? null;
+    const membership = ownerId ? await this.activeMembership(wake.workspaceId, ownerId) : undefined;
+    if (!ownerId || !membership) return { loaded: [], missing: names };
+    const { loaded, missing } = await this.skillsService.resolveForRunner(membership, ownerId, runner.userId, names);
+    let budget = SKILL_TOTAL_CAP;
+    const out = loaded.map((k): ClaimedSkill => {
+      const allowed = Math.max(0, Math.min(SKILL_TEXT_CAP, budget));
+      const kept = k.instructions.length > allowed ? k.instructions.slice(0, allowed) : k.instructions;
+      budget -= kept.length;
+      return { name: k.name, when_to_use: k.when_to_use, instructions: kept, truncated: kept.length < k.instructions.length ? { chars: k.instructions.length, kept: kept.length } : null };
+    });
+    return { loaded: out, missing };
+  }
+
+  /** The wake claimed a moment ago cannot be served: its Run says which skill and why, its owner is told, and nothing is handed over. */
+  private async failForMissingSkills(wake: WakeRow, runner: RunnerRow, missing: string[]): Promise<void> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(agentWakes)
+      .set({ status: 'failed', finishedAt: now, leaseExpiresAt: null, updatedAt: now })
+      .where(and(eq(agentWakes.id, wake.id), eq(agentWakes.runnerId, runner.id), eq(agentWakes.status, 'claimed')))
+      .returning();
+    if (!row) return;
+    const named = missing.map((n) => `Skill "${n}"`).join(', ');
+    await this.hooks
+      ?.setRunStatus(row, 'Failed', `- **skills.missing** — ${named} ${missing.length === 1 ? 'is' : 'are'} attached to this agent but cannot be sent to a Runner (removed, renamed, not readable by the agent's owner, or a personal skill that only its author's own agent on its author's own Runner may receive). The run did not start.`)
+      .catch((e) => this.logger.warn(`Run update failed for wake ${wake.id}: ${String(e)}`));
+    await this.notifyFailed(row, 'skills');
+    await this.afterTerminal(row);
   }
 
   private async present(
     wake: WakeRow,
     info: NonNullable<Awaited<ReturnType<AgentWakesService['agentsDbInfo']>>>,
+    skills: ClaimedSkill[],
     credential: ClaimedWake['credential'],
   ): Promise<ClaimedWake> {
     const agent = await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { title: true, values: true } });
@@ -541,6 +647,7 @@ export class AgentWakesService {
         goal: plainText(text('goal')),
         instructions: plainText(text('instructions')),
         skills: typeof text('skills') === 'string' ? (text('skills') as string) : null,
+        skill_instructions: skills,
         target_databases: typeof text('target_databases') === 'string' ? (text('target_databases') as string) : null,
         // ticket #1180: the manager's settings. MODEL: the agent's own, else the workspace default, else null (= send nothing: the
         // customer's own tool default); a stored value that no longer passes the write-time rule is skipped, never sent.
@@ -597,6 +704,17 @@ export class AgentWakesService {
       .update(runners)
       .set({ lastSeenAt: now, offlineNotifiedAt: null })
       .where(and(eq(runners.id, runnerId), eq(runners.status, 'active'), sql`(${runners.lastSeenAt} IS NULL OR ${runners.lastSeenAt} < ${new Date(now.getTime() - 30_000).toISOString()}::timestamptz OR ${runners.offlineNotifiedAt} IS NOT NULL)`));
+  }
+
+  /** The hold from the Runner's CURRENT row (not the one a long poll started with): what the 204 reports. */
+  async currentHold(runnerId: string, now = new Date()): Promise<Hold | null> {
+    const [row] = await this.db.select().from(runners).where(eq(runners.id, runnerId)).limit(1);
+    return row ? holdFor(row, now) : null;
+  }
+
+  /** Why this Runner may not claim at `now` (and until when), or null. The controller puts it on the 204 so the Runner sleeps until then. */
+  claimHold(runner: RunnerRow, now = new Date()): Hold | null {
+    return holdFor(runner, now);
   }
 
   /** Liveness for a claim poll (called by the controller for every claim, including one that returns nothing). */
@@ -781,7 +899,7 @@ export class AgentWakesService {
   }
 
   /** The agent's owner (its manager) is told once why a job failed. `lease`: the Runner stopped answering. `must_comment`: it twice ended without a comment. */
-  private async notifyFailed(wake: WakeRow, why: 'lease' | 'must_comment'): Promise<void> {
+  private async notifyFailed(wake: WakeRow, why: 'lease' | 'must_comment' | 'skills'): Promise<void> {
     try {
       const owner = (await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { createdBy: true, title: true } })) ?? null;
       if (!owner?.createdBy) return;
@@ -796,7 +914,9 @@ export class AgentWakesService {
         snippet:
           why === 'lease'
             ? `${owner.title} could not finish a job: its Runner stopped answering ${WAKE_MAX_ATTEMPTS} times.`
-            : `${owner.title} could not finish a job: it ended twice without commenting on its record, so nobody can see what it did.`,
+            : why === 'skills'
+              ? `${owner.title} could not start a job: a skill attached to it cannot be sent to its Runner. The Run names it.`
+              : `${owner.title} could not finish a job: it ended twice without commenting on its record, so nobody can see what it did.`,
       });
     } catch (error) {
       this.logger.warn(`failure notification for wake ${wake.id} failed: ${String(error)}`);

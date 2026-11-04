@@ -120,6 +120,22 @@ describe('the claim loop', () => {
     expect(seen[2]).toEqual({ mcpTools: undefined, model: undefined });
   });
 
+  it('#1184: the skills\' instructions reach the adapter in the context\'s shape; an older server sends none and the context has none', async () => {
+    const seen: Array<unknown> = [];
+    const capture: RunnerAdapter['execute'] = async (ctx) => {
+      seen.push(ctx.agent.skillInstructions);
+      return ok();
+    };
+    const withSkills = wake();
+    withSkills.agent = { ...withSkills.agent, skills: 'Triage', skill_instructions: [{ name: 'Triage', when_to_use: 'a lead arrives', instructions: 'BODY', truncated: { chars: 9, kept: 4 } }] };
+    const old = wake();
+    const client = scripted([{ wakes: [withSkills] }, { wakes: [old] }]);
+    const { loop } = loopOf(client, adapterOf(capture));
+    await runFor(loop, () => seen.length === 2);
+    expect(seen[0]).toEqual([{ name: 'Triage', whenToUse: 'a lead arrives', instructions: 'BODY', truncated: { chars: 9, kept: 4 } }]);
+    expect(seen[1]).toBeUndefined();
+  });
+
   it('asks for as many wakes as it has free slots, and never claims while full', async () => {
     const w1 = wake();
     const release: Array<() => void> = [];
@@ -158,6 +174,28 @@ describe('the claim loop', () => {
     const { loop, waits } = loopOf(client, adapterOf(async () => ok()), { minPollIntervalMs: 500, now: () => 0 });
     await runFor(loop, () => waits.length >= 2);
     expect(waits.filter((w) => w === 500).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('#1137: told it may not claim (working hours, a limit, a reserve) it SLEEPS until the time given, capped at a minute, and runs nothing', async () => {
+    const t0 = Date.parse('2027-01-13T12:00:00Z');
+    const hold = (reason: string, resumes_at?: string): ClaimResponse => ({ wakes: [], hold: { reason, ...(resumes_at ? { resumes_at } : {}) } });
+    const client = scripted([hold('working_hours', new Date(t0 + 20_000).toISOString()), hold('limit_reached', new Date(t0 + 3 * 3_600_000).toISOString()), hold('reserve')]);
+    const ran = vi.fn(async () => ok());
+    const { loop, waits } = loopOf(client, adapterOf(ran), { now: () => t0 });
+    await runFor(loop, () => waits.length >= 3);
+    expect(waits.slice(0, 3)).toEqual([20_000, 60_000, 60_000]); // exact wait; hours away -> re-ask each minute; unknown -> each minute
+    expect(ran).not.toHaveBeenCalled();
+  });
+
+  it('#1137: a hold lifts and the next claim is handled once: exactly one run, reported once, no duplicate', async () => {
+    const w = wake();
+    const client = scripted([{ wakes: [], hold: { reason: 'working_hours', resumes_at: new Date(Date.now() + 5).toISOString() } }, { wakes: [w] }]);
+    const ran = vi.fn(async () => ok());
+    const { loop } = loopOf(client, adapterOf(ran));
+    const { timedOut } = await runFor(loop, () => client.complete.mock.calls.length >= 1);
+    expect(timedOut).toBe(false);
+    expect(ran).toHaveBeenCalledTimes(1);
+    expect(client.complete).toHaveBeenCalledTimes(1);
   });
 
   it('backs off after a failed claim, doubling to a ceiling, and recovers', async () => {

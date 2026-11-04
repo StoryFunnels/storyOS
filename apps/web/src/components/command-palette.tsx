@@ -252,7 +252,7 @@ export function CommandPalette() {
         : []),
       ['Browse templates', <LayoutTemplate key="b" className="h-3.5 w-3.5" />, () => go(`/w/${ws}`)],
       ['Invite people', <UserPlus key="c" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/settings/members`)],
-      ['Settings & members', <Settings key="d" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/settings/members`)],
+      ['Settings', <Settings key="d" className="h-3.5 w-3.5" />, () => go(`/w/${ws}/settings`)],
       /*
        * #396 — the second independent route to the cheat-sheet.
        *

@@ -29,8 +29,9 @@ export interface AiConnection {
 
 export const aiConnectionsKey = (ws: string) => ['ai-connections', ws] as const;
 
-export function useAiConnections(ws: string) {
+export function useAiConnections(ws: string, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: aiConnectionsKey(ws),
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/me/ai-connections', { params: { query: { workspace_id: ws } } });

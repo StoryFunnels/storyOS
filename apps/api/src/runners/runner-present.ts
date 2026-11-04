@@ -3,6 +3,7 @@ import { activityEvents } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import type { runners } from '../db/schema';
 import { RUNNER_OFFLINE_AFTER_MS, RUNNER_PROTOCOL_MIN } from './runner.constants';
+import { RESERVE_UNMEASURABLE_MESSAGE, holdFor, hoursState, reserveMeasurable } from './runner-sharing';
 
 export type RunnerRow = typeof runners.$inferSelect;
 export type RunnerConnection = 'online' | 'offline' | 'paused' | 'outdated' | 'tool_missing' | 'revoked';
@@ -32,12 +33,17 @@ export function runnerConnection(r: RunnerRow, now: Date): RunnerConnection {
 }
 
 export function presentRunner(r: RunnerRow, agents: Array<{ id: string; name: string }>, now: Date) {
+  const sharing = r.sharing ?? {};
+  const chosen = r.tools.find((t) => t.id === r.chosenTool);
+  const hold = r.status === 'active' ? holdFor(r, now) : null;
+  const hours = sharing.working_hours ? hoursState(sharing.working_hours as never, now) : null;
   return {
     id: r.id,
     name: r.name,
     status: r.status,
     connection: runnerConnection(r, now),
-    tools: r.tools,
+    // `reserve_measurable` per tool: true only where the tool reports plan-level usage (never faked). The Runners page says so when false.
+    tools: r.tools.map((t) => ({ ...t, reserve_measurable: reserveMeasurable(t) })),
     chosen_tool: r.chosenTool,
     runner_version: r.runnerVersion,
     protocol_version: r.protocolVersion,
@@ -46,6 +52,18 @@ export function presentRunner(r: RunnerRow, agents: Array<{ id: string; name: st
     offline_since: offlineSince(r, now),
     paused_until: r.pausedUntil,
     pause_reason: r.pauseReason,
+    // ticket #1137: sharing the subscription. `working_hours` null = every hour. `reserve_percent` null = no reserve.
+    working_hours: sharing.working_hours ?? null,
+    reserve_percent: sharing.reserve_percent ?? null,
+    // Is "leave me X%" something StoryOS can actually keep for the CHOSEN tool? false means: say "cannot be measured for this tool".
+    reserve_measurable: reserveMeasurable(chosen),
+    reserve_unmeasurable_message: reserveMeasurable(chosen) ? null : RESERVE_UNMEASURABLE_MESSAGE,
+    // Inside the working window right now (null when no window is set), and when it closes / next opens.
+    within_working_hours: hours ? hours.open : null,
+    working_hours_closes_at: hours && hours.open ? hours.closes_at : null,
+    working_hours_resumes_at: hours && !hours.open ? hours.resumes_at : null,
+    // The ONE answer to "why is it not claiming right now": limit_reached | working_hours | reserve, and when it resumes (null = unknown).
+    hold: hold ? { reason: hold.reason, resumes_at: hold.resumes_at } : null,
     // While pending: when the pairing window closes. The app shows the countdown; null once activated.
     pending_expires_at: r.status === 'pending' ? r.pendingExpiresAt : null,
     agents,

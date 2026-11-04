@@ -4,10 +4,12 @@ import { createZodDto } from 'nestjs-zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
-import { runnerAssignmentSchema, runnerToolChoiceSchema } from './runner.dto';
+import { runnerAssignmentSchema, runnerToolChoiceSchema, runnerUpdateSchema } from './runner.dto';
 import { GUEST_RUNNER_MESSAGE, RunnersService } from './runners.service';
+import { AgentCatchUpService } from './agent-catch-up.service';
 
 class RunnerToolChoiceDto extends createZodDto(runnerToolChoiceSchema) {}
+class RunnerUpdateDto extends createZodDto(runnerUpdateSchema) {}
 class RunnerAssignmentDto extends createZodDto(runnerAssignmentSchema) {}
 
 /**
@@ -37,7 +39,10 @@ function assertNotGuest(req: WorkspaceRequest): void {
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws')
 export class RunnersController {
-  constructor(private readonly runners: RunnersService) {}
+  constructor(
+    private readonly runners: RunnersService,
+    private readonly catchUp: AgentCatchUpService,
+  ) {}
 
   @Post('runners/pairing-codes')
   @ApiOperation({ summary: 'Start "Add a Runner": a 6-character, single-use pairing code valid about 10 minutes. A new code burns your previous unused one. Not for guests.' })
@@ -81,11 +86,14 @@ export class RunnersController {
   }
 
   @Patch('runners/:id')
-  @ApiOperation({ summary: 'Change which detected tool your agents use on this Runner' })
-  setTool(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: RunnerToolChoiceDto) {
+  @ApiOperation({
+    summary:
+      'Change a Runner you own: which detected tool your agents use (tool), the hours it may claim in (working_hours: days, start, end, IANA timezone; null = any hour) and "leave me X%" (reserve_percent 1-95; null = none). Any subset. The reserve is only kept for a tool that reports plan usage: reserve_measurable says whether.',
+  })
+  update(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: RunnerUpdateDto) {
     assertPerson(req, 'change a Runner');
     assertNotGuest(req);
-    return this.runners.setTool(req.membership.workspaceId, req.user.id, id, body.tool);
+    return this.runners.update(req.membership.workspaceId, req.user.id, id, body);
   }
 
   @Delete('runners/:id')
@@ -113,5 +121,16 @@ export class RunnersController {
     assertPerson(req, 'choose where an agent runs');
     assertNotGuest(req);
     return this.runners.assign(req.membership, req.user.id, agent, body.runner_id, { source: req.auth.source });
+  }
+
+  @Post('agents/:agent/catch-up')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Start the agent on the records already waiting in its trigger state(s) that no wake was ever made for (ticket #1152): one wake per record through the normal queue, at most 25 per click. Returns {queued, already_waiting, remaining, skipped}; remaining is how many more a further click will queue. The agent's owner or an admin, signed in (a token, a connected AI or the agent's own run credential gets 403; anyone else, and an unknown agent, 404). The count that decides whether to offer this is `catch_up` in GET /agent-wakes/summary.",
+  })
+  startOnWaiting(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
+    assertPerson(req, 'start an agent on the records already waiting');
+    return this.catchUp.run(req.membership, agent);
   }
 }

@@ -4380,8 +4380,8 @@ export interface paths {
         delete: operations["RunnersController_remove"];
         options?: never;
         head?: never;
-        /** Change which detected tool your agents use on this Runner */
-        patch: operations["RunnersController_setTool"];
+        /** Change a Runner you own: which detected tool your agents use (tool), the hours it may claim in (working_hours: days, start, end, IANA timezone; null = any hour) and "leave me X%" (reserve_percent 1-95; null = none). Any subset. The reserve is only kept for a tool that reports plan usage: reserve_measurable says whether. */
+        patch: operations["RunnersController_update"];
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/runner-assignments/{agent}": {
@@ -4396,6 +4396,23 @@ export interface paths {
         /** Send an agent to one of its owner's own active Runners, or pass runner_id null to unassign. 422 unless the agent's AI mode is "Your own AI" and the Runner is the owner's own and active */
         put: operations["RunnersController_assign"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/agents/{agent}/catch-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start the agent on the records already waiting in its trigger state(s) that no wake was ever made for (ticket #1152): one wake per record through the normal queue, at most 25 per click. Returns {queued, already_waiting, remaining, skipped}; remaining is how many more a further click will queue. The agent's owner or an admin, signed in (a token, a connected AI or the agent's own run credential gets 403; anyone else, and an unknown agent, 404). The count that decides whether to offer this is `catch_up` in GET /agent-wakes/summary. */
+        post: operations["RunnersController_startOnWaiting"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4511,7 +4528,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. */
+        /** Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent's owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up. */
         get: operations["AgentWakesController_summary"];
         put?: never;
         post?: never;
@@ -5721,9 +5738,16 @@ export interface components {
                 /** @enum {string} */
                 type: "schedule";
                 /** @enum {string} */
-                every: "hour" | "day" | "week";
+                every: "minutes" | "hour" | "day" | "week";
+                minutes?: number;
                 at?: string;
                 weekday?: number;
+                weekdays?: number[];
+                between?: {
+                    from: string;
+                    to: string;
+                };
+                timezone?: string;
             } | {
                 /** @enum {string} */
                 type: "webhook_received";
@@ -5915,9 +5939,16 @@ export interface components {
                 /** @enum {string} */
                 type: "schedule";
                 /** @enum {string} */
-                every: "hour" | "day" | "week";
+                every: "minutes" | "hour" | "day" | "week";
+                minutes?: number;
                 at?: string;
                 weekday?: number;
+                weekdays?: number[];
+                between?: {
+                    from: string;
+                    to: string;
+                };
+                timezone?: string;
             } | {
                 /** @enum {string} */
                 type: "webhook_received";
@@ -7130,6 +7161,16 @@ export interface components {
         RunnerToolChoiceDto: {
             tool: string;
         };
+        RunnerUpdateDto: {
+            tool?: string;
+            working_hours?: {
+                days: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
+                start: string;
+                end: string;
+                timezone: string;
+            } | null;
+            reserve_percent?: number | null;
+        };
         RunnerAssignmentDto: {
             /** Format: uuid */
             runner_id: string | null;
@@ -7229,6 +7270,8 @@ export interface components {
                     /** @enum {string} */
                     action: "reuse" | "rename" | "skip" | "update";
                     rename_to?: string;
+                    /** Format: uuid */
+                    database_id?: string;
                 };
             };
             /** Format: uuid */
@@ -14116,7 +14159,7 @@ export interface operations {
             };
         };
     };
-    RunnersController_setTool: {
+    RunnersController_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -14127,7 +14170,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RunnerToolChoiceDto"];
+                "application/json": components["schemas"]["RunnerUpdateDto"];
             };
         };
         responses: {
@@ -14172,6 +14215,25 @@ export interface operations {
                 "application/json": components["schemas"]["RunnerAssignmentDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_startOnWaiting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

@@ -5,6 +5,8 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { API_URL } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
+import { Keyboard } from 'lucide-react';
+import { openShortcuts } from '@/lib/shortcuts';
 import { useSignOut } from '@/lib/sign-out';
 import { Avatar } from '@/components/ui/avatar';
 import {
@@ -105,7 +107,7 @@ export function AccountMenu({ variant = 'bar' }: { variant?: 'bar' | 'rail' } = 
           </div>
         </div>
         <DropdownMenuItem onSelect={() => router.push(`/w/${ws}/settings/account`)}>
-          Account
+          Profile
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => router.push(`/w/${ws}/settings/preferences`)}>
           Preferences
@@ -126,6 +128,11 @@ export function AccountMenu({ variant = 'bar' }: { variant?: 'bar' | 'rail' } = 
             Remove photo
           </DropdownMenuItem>
         )}
+        {/* Ticket #1185 — it lived in the Settings gear's menu, which is now a plain link; the `?` hotkey is unchanged. */}
+        <DropdownMenuItem onSelect={openShortcuts}>
+          <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts
+          <span className="ml-auto text-micro text-muted">?</span>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => void signOut()}>Sign out</DropdownMenuItem>
       </DropdownMenuContent>
       <input

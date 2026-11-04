@@ -3095,7 +3095,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3121,6 +3121,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Labels ("Database.Rule name", as preview lists them) of automations that send something outside the workspace (email, Slack, webhook, HTTP, social post) or run an agent, which a pack installs SWITCHED OFF, that you want switched ON. Only name one when the person asked for it; a pack\'s own enabled:true on such a rule is ignored. Preview and the install result list every automation with enabled / enabled_on_install and, when off for what it does, switched_off_because.',
           ),
+        reuse_databases: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            'Reuse an EXISTING database instead of creating the pack\'s own, and say WHICH one when you have several of that name: {"Issues": "<database id>"}. The id must be one of the `existing_elsewhere.candidates` the preview lists for that database (editable by you, reusable: true); a database synced from Linear, a built-in one, a personal-space one, one you cannot edit or one the pack does not fit is refused with the reason. Without it, a database name that exists once elsewhere is not reused (preview says why), and with several the install stops at the ambiguity.',
+          ),
         enable_agent_triggers: z
           .array(z.string())
           .optional()
@@ -3129,7 +3135,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; enable_automations?: string[]; enable_agent_triggers?: string[] }>(async ({ workspace, slug, preview, space, update_agents, enable_automations, enable_agent_triggers }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[] }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3143,8 +3149,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         body: {
           manifest: pack.manifest,
           ...(space ? { target_space_id: await resolveSpaceId(ws.id, space) } : {}),
-          ...(update_agents?.length
-            ? { resolutions: Object.fromEntries(update_agents.map((name) => [name, { action: 'update' }])) }
+          ...(update_agents?.length || (reuse_databases && Object.keys(reuse_databases).length)
+            ? {
+                resolutions: {
+                  ...Object.fromEntries(update_agents?.map((name) => [name, { action: 'update' }]) ?? []),
+                  ...Object.fromEntries(Object.entries(reuse_databases ?? {}).map(([name, database_id]) => [name, { action: 'reuse', database_id }])),
+                },
+              }
             : {}),
           ...(enable_automations?.length ? { enable_automations } : {}),
           ...(enable_agent_triggers?.length ? { enable_agent_triggers } : {}),
@@ -6359,7 +6370,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create agent trigger',
       description:
-        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. Set human_gate:true to make the agent STAGE its action for a person to approve rather than apply it; that is the ADR-0010 gate, and it is the right default for anything that writes to something a customer sees. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
+        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. With human_gate:true the trigger NEVER fires by itself: a person has to start each run, so it is the right choice for anything that writes to something a customer sees (ADR-0010). A gated trigger is stored enabled but starts nothing on its own; leave human_gate off only when the agent should start by itself the moment a record reaches the state. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number."),
@@ -6370,7 +6381,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         human_gate: z
           .boolean()
           .optional()
-          .describe('true = the agent stages its action for a person to approve instead of applying it (ADR-0010).'),
+          .describe('true = this trigger never starts a run by itself; a person starts each run (ADR-0010). Not the same as holding the agent\'s writes for approval.'),
         enabled: z.boolean().optional().describe('Default true.'),
       },
     },
@@ -7574,7 +7585,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List my Runners',
       description:
-        '#1131: the StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code or Cursor, on your own subscription). Only your own, never a colleague\'s, even for an admin. Each has status (pending = paired but not turned on yet; active; a removed Runner is not listed), connection (online, offline, paused, outdated = needs an update, tool_missing = the chosen tool is no longer found, revoked), tools (what it found on that computer), chosen_tool, runner_version, protocol_version, last_seen_at, offline_since (derived: set only while the Runner is active and has not been heard from for 2 minutes), paused_until and agents (the agents assigned to it). ' +
+        '#1131: the StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code or Cursor, on your own subscription). Only your own, never a colleague\'s, even for an admin. Each has status (pending = paired but not turned on yet; active; a removed Runner is not listed), connection (online, offline, paused, outdated = needs an update, tool_missing = the chosen tool is no longer found, revoked), tools (what it found on that computer), chosen_tool, runner_version, protocol_version, last_seen_at, offline_since (derived: set only while the Runner is active and has not been heard from for 2 minutes), paused_until and agents (the agents assigned to it). #1137: how the person shares their subscription: working_hours (days, start, end, timezone; null = any hour), reserve_percent ("leave me X%"), reserve_measurable (false = the tool does not report plan usage, so the reserve cannot be kept: say so, never claim it is) and hold (why it is not claiming right now: limit_reached, working_hours or reserve, and when it resumes). ' +
         'Read this to see why an agent is not running: an agent set to "Your own AI" with no active, online Runner waits. Adding, turning on, changing and removing a Runner are done by a person in StoryOS (Settings, Runners); there is deliberately no tool for them, because a Runner decides where your agents\' instructions and the workspace\'s data go.',
       inputSchema: {
         workspace: z.string(),
@@ -7592,7 +7603,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List the agent wake queue',
       description:
-        "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_turn (one job at a time). " +
+        "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_hours (until the Runner's working hours open), waiting_for_reserve (the person's reserve, where the tool reports it), waiting_for_turn (one job at a time). " +
         "Newest first. Filter with agent (the Agents-database record's uuid) and record (a record uuid, or its number together with `database`). Only wakes whose record and agent YOU can read are listed; a hidden one is neither shown nor counted. Use it to answer \"is the agent working on this?\" after setting an agent in a record's agent field or @-mentioning it. Waking, claiming and finishing a wake are not tools: they happen when something changes in the workspace, or are done by a Runner.",
       inputSchema: {
         workspace: z.string(),
@@ -7626,7 +7637,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Agent wake counts',
       description:
-        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), and waiting (queued wakes). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not counted. These are real counts from the queue: quote them, never estimate.",
+        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), and waiting (queued wakes). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -8744,7 +8755,10 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         '{type:"record_created"} · {type:"record_updated", field?:"<name>"} · ' +
         // #297: `direction` shipped in #270 but was undocumented AND silently dropped.
         '{type:"record_linked", relation_field:"<name>", direction?:"link"|"unlink"} (omit direction to fire on both) · ' +
-        '{type:"schedule", every:"hour"|"day"|"week", at?:"HH:MM", weekday?:0-6} · {type:"webhook_received"}. ' +
+        '{type:"schedule", every:"minutes"|"hour"|"day"|"week", minutes?:10-1440 (every:"minutes" only; BELOW 10 is refused), at?:"HH:MM", weekday?:0-6 (weekly), weekdays?:[0-6,...] (0=Sunday; Mon-Fri = [1,2,3,4,5]; not with weekly), between?:{from:"HH:MM",to:"HH:MM"} (an active window, minutes/hourly only; to is exclusive; from after to spans midnight and belongs to the day it starts), timezone?:"<IANA zone, e.g. Europe/Madrid>"} ' +
+        '(every weekday at 9:00 = {every:"day", at:"09:00", weekdays:[1,2,3,4,5]}; every 15 minutes between 9 and 18 = {every:"minutes", minutes:15, between:{from:"09:00",to:"18:00"}}; ' +
+        'times, window and weekdays are read in `timezone`, DST included; a rule with no timezone uses the server\'s zone and the response says so in `schedule`; the response also carries `schedule.runs_per_day`. ' +
+        'Slots missed while nothing was ticking collapse into ONE firing, and a window rule that recovers outside its window does not fire) · {type:"webhook_received"}. ' +
         'ACTIONS (array): set_values{values} · create_record{database, values, link_via_relation_field?} · ' +
         // #246 + #297: create_records was reachable but undocumented, and its target db needed a raw uuid.
         'create_records{database, count, values, link_via_relation_field?} — batch-create `count` records, where count is a number ' +

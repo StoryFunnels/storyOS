@@ -88,7 +88,10 @@ describe('#599 — duplicate() carries comments and attachments onto the copy', 
     // #734 — copied comments carry the ORIGINAL comment's provenance, not
     // "posted by whoever duplicated the record" (same reasoning authorId
     // preservation already documents above this code).
-    expect(comments.json().data.every((c: { source: string | null }) => c.source === 'human')).toBe(true);
+    // The "copied from" note is StoryOS's own text, not a person's: #1181 marks it 'automation' so no external mirror publishes it.
+    const rows = comments.json().data as Array<{ source: string | null; body: Array<{ text: string }> }>;
+    expect(rows.filter((c) => !c.body[0]?.text.includes('copied from')).every((c) => c.source === 'human')).toBe(true);
+    expect(rows.filter((c) => c.body[0]?.text.includes('copied from')).map((c) => c.source)).toEqual(['automation']);
   });
 
   it('a soft-deleted comment is NOT copied onto the duplicate', async () => {

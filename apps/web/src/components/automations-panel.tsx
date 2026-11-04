@@ -27,6 +27,7 @@ import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
+import { CATEGORY_CHOICES } from '@/components/views/category-filter';
 
 /* #738 — stable identity across renders. */
 const ACTIONS_VIEW_OPTIONS = [
@@ -561,6 +562,7 @@ function RuleEditor({
     let value: unknown;
     switch (currentOp.input) {
       case 'options':
+      case 'categories': // #1159 — one state category in the same one-element array
         value = conditionValue ? [conditionValue] : [];
         break;
       case 'number':
@@ -572,7 +574,7 @@ function RuleEditor({
       default: // text | date | relative
         value = conditionValue;
     }
-    if (currentOp.input === 'options' && (value as unknown[]).length === 0) return undefined;
+    if ((currentOp.input === 'options' || currentOp.input === 'categories') && (value as unknown[]).length === 0) return undefined;
     if (currentOp.input !== 'boolean' && (value === '' || value === undefined)) return undefined;
     return { field: conditionField, op: conditionOp, value };
   }
@@ -957,16 +959,18 @@ function RuleEditor({
             {selectedConditionField &&
               currentOp &&
               currentOp.input !== 'none' &&
-              (currentOp.input === 'options' ? (
+              (currentOp.input === 'options' || currentOp.input === 'categories' ? (
                 <Select
                   size="sm"
                   value={conditionValue}
                   onChange={(e) => setConditionValue(e.target.value)}
                 >
                   <option value="">
-                    {selectedConditionField.type === 'user' ? 'person…' : 'option…'}
+                    {currentOp.input === 'categories' ? 'category…' : selectedConditionField.type === 'user' ? 'person…' : 'option…'}
                   </option>
-                  {(selectedConditionField.type === 'user'
+                  {(currentOp.input === 'categories'
+                    ? CATEGORY_CHOICES
+                    : selectedConditionField.type === 'user'
                     ? members.map((m) => ({ id: m.id, label: m.name }))
                     : (selectedConditionField.options ?? []).map((o) => ({
                         id: o.id,

@@ -2944,7 +2944,8 @@ export class RecordsService implements OnModuleInit {
           },
         ] as CommentSegment[],
         mentions: [],
-        source,
+        // #1181: StoryOS's own note, not a person's comment: 'automation' keeps it out of every external mirror
+        source: 'automation',
       });
     }
 
@@ -4841,6 +4842,45 @@ export class RecordsService implements OnModuleInit {
    * (position) order.
    */
   /**
+   * The WHERE every count/aggregate over a database shares: not deleted, the optional title search, the compiled filter (the SAME
+   * `compileFilter` the query path uses) and the caller's record-level narrowing (#474). ONE place, so a count that is built on top
+   * of it (ticket #1152's catch-up count and its id selection) can never mean something other than what `aggregate` means.
+   */
+  async aggregateWhere(
+    databaseId: string,
+    input: { filter?: unknown; q?: string },
+    currentUserId: string,
+    membership?: Membership,
+    defsIn?: FieldDef[],
+    surfaceIn?: Awaited<ReturnType<RecordsService['narrowedQuerySurface']>>,
+  ): Promise<SQL> {
+    const defs = defsIn ?? (await this.fieldDefs(databaseId));
+    let surface = surfaceIn;
+    if (!surface) {
+      const byApiName = new Map(defs.map((d) => [d.api_name, d]));
+      for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
+      surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
+    }
+    const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
+
+    const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+    if (input.q) conditions.push(sql`${titleExpr ?? records.title} ILIKE ${'%' + input.q + '%'}`);
+    if (input.filter) {
+      conditions.push(
+        compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope, titleExpr }),
+      );
+    }
+    // #474 — the same narrowing list/query apply. Without this, a count/sum
+    // over a database a guest only holds record-scoped grants in would
+    // aggregate every record, not just theirs — a count leak on top of a
+    // row-visibility leak, and #474's own routing explicitly named the
+    // aggregate paths as required, not optional.
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
+    return and(...(conditions as SQL[])) as SQL;
+  }
+
+  /**
    * Count or aggregate WITHOUT pulling rows (#404).
    *
    * "How many contacts do we have?" was answered by fetching every row and
@@ -4903,23 +4943,7 @@ export class RecordsService implements OnModuleInit {
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
     const surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
-    const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
-
-    const conditions: unknown[] = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
-    if (input.q) conditions.push(sql`${titleExpr ?? records.title} ILIKE ${'%' + input.q + '%'}`);
-    if (input.filter) {
-      conditions.push(
-        compileFilter(input.filter as FilterNode, { defs: surface.filterDefs, currentUserId, linkScope: surface.linkScope, titleExpr }),
-      );
-    }
-    // #474 — the same narrowing list/query apply. Without this, a count/sum
-    // over a database a guest only holds record-scoped grants in would
-    // aggregate every record, not just theirs — a count leak on top of a
-    // row-visibility leak, and #474's own routing explicitly named the
-    // aggregate paths as required, not optional.
-    const visibility = await this.recordVisibilityCondition(membership, databaseId);
-    if (visibility) conditions.push(visibility);
-    const where = and(...(conditions as SQL[]));
+    const where = await this.aggregateWhere(databaseId, { filter: input.filter, q: input.q }, currentUserId, membership, defs, surface);
 
     if (input.op === 'count') {
       const [row] = await this.db

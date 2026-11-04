@@ -110,7 +110,7 @@ export default function GovernancePage() {
   if (!isAdmin) {
     return (
       <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Governance</h1>
+        <h1 className="mb-1 text-lg font-semibold text-ink">Agent rules</h1>
         <p className="text-body text-muted">Only workspace admins can see this page.</p>
       </div>
     );
@@ -129,7 +129,7 @@ export default function GovernancePage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Governance</h1>
+      <h1 className="mb-1 text-lg font-semibold text-ink">Agent rules</h1>
       <p className="mb-6 text-body text-muted">
         Which agents exist here, what each one can reach, what is held for a person to approve, and what people
         recently decided. Apart from the default model, this page only shows. Nothing on it changes a scope or decides an approval.

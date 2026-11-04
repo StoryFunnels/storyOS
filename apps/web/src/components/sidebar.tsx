@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
 import { EXPAND_SPACE_EVENT, spaceCollapseKey } from '@/lib/pack-landing';
-import { Cable, Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, Keyboard, KeyRound, LayoutTemplate, MoreHorizontal, Plug, Plus, Search, Settings, Star, UserRound, Webhook, X} from 'lucide-react';
+import { Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, LayoutTemplate, MoreHorizontal, Plus, Search, Settings, Star, UserRound, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -21,7 +21,7 @@ import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
 import { SourcesDialog } from '@/components/sources-dialog';
 import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
-import { openPalette, openShortcuts, useShortcutKeys } from '@/lib/shortcuts';
+import { openPalette, useShortcutKeys } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaceGroups, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
 import { useViewsOnlyMode } from '@/lib/views-only-mode';
@@ -45,7 +45,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { useSignOut } from '@/lib/sign-out';
 import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
@@ -129,7 +128,6 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const params = useParams<{ ws: string }>();
   const ws = params.ws;
   const router = useRouter();
-  const signOut = useSignOut();
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
   const databases = useDatabases(ws);
@@ -317,9 +315,6 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     <SidebarRail
       ws={ws}
       workspaceName={workspace.data?.name}
-      isAdmin={isAdmin}
-      canEdit={canEdit}
-      onSignOut={signOut}
       unreadCount={unread.data ?? 0}
       onOpenInbox={() => setInboxOpen(true)}
       panelHidden={panelHidden}
@@ -638,86 +633,6 @@ function SidebarResizeHandle({
 }
 
 /**
- * #570 — the account/admin block (Settings & members, Integrations,
- * Connections, Webhooks, API tokens, Keyboard shortcuts, Sign out) behind one
- * icon in the header row, next to the workspace switcher. Previously a
- * permanent 7-row block between the Spaces tree and the bottom of the
- * sidebar; every item here is unchanged in reachability (still one click,
- * just via a menu instead of a fixed row) — #396's "always visible" reasoning
- * for Keyboard shortcuts was about discovery-to-effort ratio for a NEW user,
- * which a `?`-hinted menu item preserves well enough, and #570 explicitly
- * prioritizes the Spaces tree's room over that for every returning user.
- */
-function AccountMenu({
-  ws,
-  isAdmin,
-  canEdit,
-  onSignOut,
-}: {
-  ws: string;
-  isAdmin: boolean;
-  canEdit: boolean;
-  onSignOut: () => void | Promise<void>;
-}) {
-  return (
-    <DropdownMenu>
-      <Tooltip label="Settings" side="right">
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="Settings & account"
-            className={RAIL_BUTTON}
-          >
-            <Settings className="h-[17px] w-[17px]" />
-            <RailName>Settings</RailName>
-          </button>
-        </DropdownMenuTrigger>
-      </Tooltip>
-      <DropdownMenuContent align="start" side="right" className="w-52">
-        {isAdmin && (
-          <>
-            <DropdownMenuItem asChild>
-              <Link href={`/w/${ws}/settings/members`}>
-                <Settings className="h-3.5 w-3.5" /> Settings & members
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href={`/w/${ws}/settings/integrations`}>
-                <Plug className="h-3.5 w-3.5" /> Integrations
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href={`/w/${ws}/settings/connections`}>
-                <Cable className="h-3.5 w-3.5" /> Connections
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href={`/w/${ws}/settings/webhooks`}>
-                <Webhook className="h-3.5 w-3.5" /> Webhooks
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        )}
-        {canEdit && (
-          <DropdownMenuItem asChild>
-            <Link href={`/w/${ws}/settings/api`}>
-              <KeyRound className="h-3.5 w-3.5" /> API tokens
-            </Link>
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onSelect={openShortcuts}>
-          <Keyboard className="h-3.5 w-3.5" /> Keyboard shortcuts
-          <span className="ml-auto text-micro text-muted">?</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void onSignOut()}>Sign out</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/**
  * #742 phase 6 — the rail: StoryOS's own surfaces, fixed at 52px and five
  * items regardless of how many spaces a workspace has ("neither axis can
  * crowd the other out" — the artifact's own load-bearing rule, ticket #742
@@ -728,9 +643,6 @@ function AccountMenu({
 function SidebarRail({
   ws,
   workspaceName,
-  isAdmin,
-  canEdit,
-  onSignOut,
   unreadCount,
   onOpenInbox,
   panelHidden,
@@ -738,9 +650,6 @@ function SidebarRail({
 }: {
   ws: string;
   workspaceName?: string;
-  isAdmin: boolean;
-  canEdit: boolean;
-  onSignOut: () => void | Promise<void>;
   unreadCount: number;
   onOpenInbox: () => void;
   panelHidden: boolean;
@@ -749,6 +658,7 @@ function SidebarRail({
   const pathname = usePathname();
   const isHome = pathname === `/w/${ws}`;
   const isMyWork = pathname === `/w/${ws}/me`;
+  const onSettings = pathname === `/w/${ws}/settings` || pathname.startsWith(`/w/${ws}/settings/`);
 
   return (
     <div className="rail-shade flex w-[52px] shrink-0 flex-col items-center gap-1 bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-frame))] py-2">
@@ -779,7 +689,11 @@ function SidebarRail({
         <UserRound className="h-[17px] w-[17px]" />
       </RailLink>
       <div className="flex-1" />
-      <AccountMenu ws={ws} isAdmin={isAdmin} canEdit={canEdit} onSignOut={onSignOut} />
+      {/* Ticket #1185 — the gear is a link, one click to /settings. It opened a menu (#570) and Settings was the second click; every
+          entry that menu held is now in the Settings nav, and Keyboard shortcuts and Sign out are in the account menu below. */}
+      <RailLink href={`/w/${ws}/settings`} title="Settings" active={onSettings}>
+        <Settings className="h-[17px] w-[17px]" />
+      </RailLink>
       {/* #994 — the account menu, moved from the top bar: the avatar under Settings. */}
       <AvatarMenu variant="rail" />
     </div>

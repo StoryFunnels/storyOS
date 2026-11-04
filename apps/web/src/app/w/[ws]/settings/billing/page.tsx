@@ -111,7 +111,7 @@ export default function BillingPage() {
   if (!b.enabled) {
     return (
       <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
+        <h1 className="mb-1 text-lg font-semibold text-ink">Plan &amp; billing</h1>
         <p className="text-body text-muted">
           Billing is a cloud feature and isn’t available on this self-hosted instance.
         </p>
@@ -127,7 +127,7 @@ export default function BillingPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Billing</h1>
+      <h1 className="mb-1 text-lg font-semibold text-ink">Plan &amp; billing</h1>
       <p className="mb-6 text-body text-muted">Plan, usage, and payment for this workspace.</p>
 
       <div className="flex flex-col gap-8">

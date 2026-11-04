@@ -10798,7 +10798,7 @@
     },
     "/api/v1/workspaces/{ws}/runners/{id}": {
       "patch": {
-        "operationId": "RunnersController_setTool",
+        "operationId": "RunnersController_update",
         "parameters": [
           {
             "name": "id",
@@ -10814,7 +10814,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RunnerToolChoiceDto"
+                "$ref": "#/components/schemas/RunnerUpdateDto"
               }
             }
           }
@@ -10829,7 +10829,7 @@
             "bearer": []
           }
         ],
-        "summary": "Change which detected tool your agents use on this Runner",
+        "summary": "Change a Runner you own: which detected tool your agents use (tool), the hours it may claim in (working_hours: days, start, end, IANA timezone; null = any hour) and \"leave me X%\" (reserve_percent 1-95; null = none). Any subset. The reserve is only kept for a tool that reports plan usage: reserve_measurable says whether.",
         "tags": [
           "runners"
         ]
@@ -10923,6 +10923,35 @@
           }
         ],
         "summary": "Send an agent to one of its owner's own active Runners, or pass runner_id null to unassign. 422 unless the agent's AI mode is \"Your own AI\" and the Runner is the owner's own and active",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/{agent}/catch-up": {
+      "post": {
+        "operationId": "RunnersController_startOnWaiting",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start the agent on the records already waiting in its trigger state(s) that no wake was ever made for (ticket #1152): one wake per record through the normal queue, at most 25 per click. Returns {queued, already_waiting, remaining, skipped}; remaining is how many more a further click will queue. The agent's owner or an admin, signed in (a token, a connected AI or the agent's own run credential gets 403; anyone else, and an unknown agent, 404). The count that decides whether to offer this is `catch_up` in GET /agent-wakes/summary.",
         "tags": [
           "runners"
         ]
@@ -11143,7 +11172,7 @@
             "bearer": []
           }
         ],
-        "summary": "Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted.",
+        "summary": "Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent's owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up.",
         "tags": [
           "agent-wakes"
         ]
@@ -14739,10 +14768,14 @@
                   "every": {
                     "type": "string",
                     "enum": [
+                      "minutes",
                       "hour",
                       "day",
                       "week"
                     ]
+                  },
+                  "minutes": {
+                    "type": "number"
                   },
                   "at": {
                     "type": "string",
@@ -14752,6 +14785,36 @@
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 6
+                  },
+                  "weekdays": {
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    }
+                  },
+                  "between": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "to": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "to"
+                    ]
+                  },
+                  "timezone": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -15461,10 +15524,14 @@
                   "every": {
                     "type": "string",
                     "enum": [
+                      "minutes",
                       "hour",
                       "day",
                       "week"
                     ]
+                  },
+                  "minutes": {
+                    "type": "number"
                   },
                   "at": {
                     "type": "string",
@@ -15474,6 +15541,36 @@
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 6
+                  },
+                  "weekdays": {
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    }
+                  },
+                  "between": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "to": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "to"
+                    ]
+                  },
+                  "timezone": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -20140,6 +20237,64 @@
           "tool"
         ]
       },
+      "RunnerUpdateDto": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "working_hours": {
+            "type": "object",
+            "properties": {
+              "days": {
+                "minItems": 1,
+                "maxItems": 7,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ]
+                }
+              },
+              "start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "days",
+              "start",
+              "end",
+              "timezone"
+            ],
+            "nullable": true
+          },
+          "reserve_percent": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 95,
+            "nullable": true
+          }
+        }
+      },
       "RunnerAssignmentDto": {
         "type": "object",
         "properties": {
@@ -20540,6 +20695,11 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 200
+                },
+                "database_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 }
               },
               "required": [

@@ -5,9 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, Inbox as InboxIcon, X } from 'lucide-react';
 import { api } from '@/lib/api';
-import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { notificationWho } from '@/components/approvals/caused-by';
+import { WhoAvatar } from '@/components/approvals/who';
 import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -81,6 +82,7 @@ export default function InboxPage() {
   // tap, so "has the user tapped a row" and "what does desktop preview" are two
   // different questions answered from the same piece of state.
   const selected = rows.find((n) => n.id === selectedId) ?? rows[0] ?? null;
+  const selectedWho = selected ? notificationWho(selected) : null;
   const mobileShowDetail = selectedId !== null;
 
   const invalidate = () => {
@@ -185,15 +187,11 @@ export default function InboxPage() {
                 !n.read_at && !archived && 'bg-hover-soft',
               )}
             >
-              {n.actor ? (
-                <Avatar userId={n.actor.id} name={n.actor.name} image={n.actor.image} size={24} />
-              ) : (
-                <span className="h-6 w-6 rounded-full bg-hover" />
-              )}
+              <WhoAvatar who={notificationWho(n)} size={24} />
               <span className="min-w-0 flex-1">
                 <span className="block text-body text-ink">
-                  {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. */}
-                  <span className="font-medium">{n.actor?.name ?? (n.record ? 'Someone' : 'StoryOS')}</span>{' '}
+                  {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
+                  <span className="font-medium">{notificationWho(n).name}</span>{' '}
                   {NOTIFICATION_VERBS[n.type]}
                   {n.count > 1 ? ` · ${n.count}×` : ''}
                   {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
@@ -243,14 +241,10 @@ export default function InboxPage() {
               </button>
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-center gap-2">
-                  {selected.actor && (
-                    <Avatar userId={selected.actor.id} name={selected.actor.name} image={selected.actor.image} size={32} />
-                  )}
+                  {selectedWho!.kind !== 'other' && <WhoAvatar who={selectedWho!} size={32} />}
                   <div>
                     <p className="text-prose text-ink">
-                      <span className="font-medium">
-                        {selected.actor?.name ?? (selected.record ? 'Someone' : 'StoryOS')}
-                      </span>{' '}
+                      <span className="font-medium">{selectedWho!.name}</span>{' '}
                       {NOTIFICATION_VERBS[selected.type]}
                     </p>
                     <p className="text-label text-faint">{relativeTime(selected.created_at)} ago</p>

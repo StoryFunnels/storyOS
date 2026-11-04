@@ -9,6 +9,7 @@ import { MAX_ATTEMPTS, nextAttemptDelayMs } from '../common/backoff-schedule';
 import { CommentsService, commentBodyMentions } from '../comments/comments.service';
 import type { CommentBody } from '../comments/comments.service';
 import { renderCommentText } from '../comments/comment-render';
+import { EXTERNALLY_PUSHABLE_SOURCES, isPushableCommentSource } from '../comments/comment-origin';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalsService } from '../automations/approvals.service';
 import type { LinearCommentPushAction } from '../automations/approvals.service';
@@ -109,7 +110,7 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
        WHERE c.deleted_at IS NULL
          AND r.deleted_at IS NULL
          AND c.created_at > ${since.toISOString()}::timestamptz
-         AND (c.source IS NULL OR c.source <> 'automation')
+         AND c.source IN (${sql.join(EXTERNALLY_PUSHABLE_SOURCES.map((v) => sql`${v}`), sql`, `)})
          AND coalesce(r.values->>(f.id::text), '') <> ''
          AND c.body::text NOT LIKE '%linear.app/%#comment-%'
       ON CONFLICT (comment_id) DO NOTHING
@@ -142,6 +143,15 @@ export class LinearWriteBackService implements OnModuleInit, OnModuleDestroy {
       if (!comment || comment.deletedAt) {
         // Deleted before it was sent: nothing to deliver, and nothing to mark.
         await this.db.update(linearCommentPushes).set({ status: 'failed', lastError: 'comment was deleted before it was sent' }).where(eq(linearCommentPushes.commentId, commentId));
+        return;
+      }
+      // #1181 — the choke point: a system-written comment never leaves, even if a row for it was queued by an older build
+      // (or its source was corrected after it was queued). Checked here, at send time, as well as at enqueue.
+      if (!isPushableCommentSource(comment.source)) {
+        await this.db
+          .update(linearCommentPushes)
+          .set({ status: 'failed', lastError: "Not sent to Linear: this is an internal StoryOS comment (approval, run or system note), not a person's or agent's own." })
+          .where(eq(linearCommentPushes.commentId, commentId));
         return;
       }
       // #1179 — an agent's comment waits for a person first, when the admin asked for that (a person's comment is never held)

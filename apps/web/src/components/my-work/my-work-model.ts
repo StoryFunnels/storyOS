@@ -153,7 +153,7 @@ export function buildRows(groups: MyWorkGroup[], configs: Record<string, MyWorkD
   for (const group of groups) {
     const config = configs[group.database.id] ?? {};
     for (const record of group.records) {
-      if (!matchesFilters(record.values, config)) continue;
+      if (!matchesFilters(record.values, config, group.fields)) continue;
       rows.push({
         dbId: group.database.id,
         database: group.database,
