@@ -255,7 +255,7 @@ export class AgentsService implements OnModuleInit {
     if (!membership) return { loaded: [], missing: names };
     const { loaded, missing } = await this.skillsService.resolveByNames(membership, ownerUserId, names);
     return {
-      loaded: loaded.map((k) => ({ name: k.name, whenToUse: k.when_to_use, instructions: k.instructions })),
+      loaded: loaded.map((k) => ({ id: k.id, name: k.name, whenToUse: k.when_to_use, instructions: k.instructions })),
       missing,
     };
   }
