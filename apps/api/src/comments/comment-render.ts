@@ -58,7 +58,16 @@ export function renderCommentText(body: CommentBody, ctx: CommentRenderContext =
       if (!n || typeof n !== 'object') continue;
       const o = n as { type?: unknown; text?: unknown; props?: { kind?: unknown; id?: unknown } };
       if (o.type === 'mention' && o.props && typeof o.props.id === 'string') {
-        parts.push(o.props.kind === 'record' ? renderRecord(o.props.id, ctx) : renderUser(o.props.id, ctx));
+        // ticket #1213: an @-mention of an AGENT is not a member, so it must not read "@someone". The node's label snapshot is
+        // the name it was picked under; with none, say what it is rather than inventing a person.
+        const label = (o.props as { label?: unknown }).label;
+        parts.push(
+          o.props.kind === 'record'
+            ? renderRecord(o.props.id, ctx)
+            : o.props.kind === 'agent'
+              ? `@${typeof label === 'string' && label.trim() ? label.trim() : 'an agent'}`
+              : renderUser(o.props.id, ctx),
+        );
       } else if (typeof o.text === 'string') {
         parts.push(o.text);
       }
