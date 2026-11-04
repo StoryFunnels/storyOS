@@ -11,13 +11,15 @@ import { useMembers } from '@/components/table-view/use-table-data';
 import { apiErrorMessage } from '@/lib/api';
 import { asksBeforeLine, summaryFor, waitingLine } from '@/lib/runners/agents';
 import type { AgentView } from '@/lib/runners/agents';
-import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useWakeSummary } from '@/lib/runners/queries';
+import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
 import { canSeeRunnerDetails, canHireAgents } from '@/lib/runners/access';
 import { useWorkspace } from '@/lib/queries';
 import { canChangeRunsOn, ownerRunners } from '@/lib/runners/runs-on';
-import { shortDate } from '@/lib/runners/words';
+import { canEditAgentSettings } from '@/lib/runners/agent-settings';
+import { limitBrand, shortDate } from '@/lib/runners/words';
 import { HireDialog } from './hire-dialog';
 import { FirstRunCard } from './first-run-card';
+import { AgentAdvanced } from './agent-advanced';
 import { RunList } from './run-list';
 import { RunsOnLine } from './runs-on-line';
 
@@ -32,7 +34,7 @@ import { RunsOnLine } from './runs-on-line';
 export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const router = useRouter();
   const me = useMyUserId();
-  const { agents, dbId, loading, error } = useAgents(ws);
+  const { agents, dbId, myAccess, settingsFieldsReady, loading, error } = useAgents(ws);
   const agent = agents.find((a) => a.id === agentId);
   const usesRunner = Boolean(agent?.usesRunner);
   const runners = useRunners(ws);
@@ -40,8 +42,10 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const wakes = useAgentWakes(ws, agent?.id);
   const members = useMembers(ws, true);
   const m = useRunnerMutations(ws);
+  const saveSettings = useSaveAgentSettings(ws, dbId);
   const [hireOpen, setHireOpen] = useState(false);
-  const role = useWorkspace(ws).data?.role;
+  const workspaceInfo = useWorkspace(ws).data;
+  const role = workspaceInfo?.role;
   const masked = !canSeeRunnerDetails(role);
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
@@ -64,6 +68,8 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const row = summaryFor(summary.data, agent.id);
   const assigned = row?.runner ?? null;
   const mine = ownerRunners(runners.data ?? [], agent.ownerId, me);
+  const assignedRunner = mine.find((r) => r.id === assigned?.id);
+  const workspaceModel = workspaceInfo?.settings?.default_agent_model ?? null;
   const goAdd = () => router.push(`/w/${ws}/settings/runners?add=1`);
 
   function pick(runnerId: string) {
@@ -119,6 +125,20 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
       )}
 
       <Facts agent={agent} />
+      {/* Ticket #1180 — only an agent a Runner serves has tools and a model to choose; a guest is never shown it (same gate as the machine name). */}
+      {usesRunner && !masked && (
+        <AgentAdvanced
+          savedTools={agent.tools}
+          savedModel={agent.model}
+          workspaceDefaultModel={workspaceModel}
+          canEdit={canEditAgentSettings(myAccess)}
+          ownerName={isOwner || ownerName === 'its owner' ? null : ownerName}
+          brand={assignedRunner?.chosen_tool ? limitBrand(assignedRunner.chosen_tool, assignedRunner.tools) : 'AI'}
+          chosenTool={assignedRunner?.chosen_tool}
+          saving={saveSettings.isPending}
+          onSave={(values) => saveSettings.mutateAsync({ agentId: agent.id, values, ensureFields: !settingsFieldsReady })}
+        />
+      )}
       <RunList masked={masked} ws={ws} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
       {dbId && canHireAgents(role) && <HireDialog ws={ws} agentsDbId={dbId} open={hireOpen} onOpenChange={setHireOpen} />}
     </div>
