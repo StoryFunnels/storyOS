@@ -10957,6 +10957,35 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/agents/{agent}/budget": {
+      "get": {
+        "operationId": "RunnersController_budget",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "An agent's monthly budget and what it has used this month (ticket #1138), for the agent's page. `limits` are the two number fields on the agent's record (monthly_token_budget, monthly_run_cap; null = no limit); `tokens` and `runs` each carry limit, used, percent (whole, rounded down), and a state (unlimited, ok, warning at 80%, paused at 100%, not_measured). `tokens.used` is null, never 0, when the finished runs' tool did not report usage; `tokens.measurement` (full, partial, not_reported, no_finished_runs) and `unmeasured_runs` say how much of the total is measured. `state` is the worst of the two; when paused, `paused_reason` names which and `resumes_at` is the UTC month reset (raising the budget resumes it sooner). The month is the UTC calendar month. To set or raise a budget, update those fields on the agent's record (a person; an agent cannot change its own). 404 unless you can read both the agent and the Runs database the numbers are counted from.",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
     "/api/v1/runner/v1/pair": {
       "post": {
         "operationId": "RunnerApiController_pair",
@@ -11152,7 +11181,7 @@
             "bearer": []
           }
         ],
-        "summary": "The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted.",
+        "summary": "The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_hours, waiting_for_reserve, waiting_for_budget (the agent used its monthly budget; `until` is the UTC month reset, `budget_metric` says tokens or runs), waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted.",
         "tags": [
           "agent-wakes"
         ]
@@ -11172,7 +11201,7 @@
             "bearer": []
           }
         ],
-        "summary": "Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent's owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up.",
+        "summary": "Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent that has a monthly budget also carries `budget` (the month so far, tokens and runs, against its limits; null when none is set or you cannot read the Runs it is counted from; see GET /agents/{agent}/budget). Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent's owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up.",
         "tags": [
           "agent-wakes"
         ]

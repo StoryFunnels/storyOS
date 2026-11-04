@@ -80,6 +80,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'find_workflow_candidates',
   'fix_select_drift',
   'get_activity_event',
+  'get_agent_budget',
   'get_agent_wake_summary',
   'get_agents',
   'get_automation',

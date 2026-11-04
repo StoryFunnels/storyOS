@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { currentCredentialId, currentRunStamp } from '../common/credential-context';
 import {
+  bigint,
   boolean,
   check,
   index,
@@ -3073,6 +3074,35 @@ export const runnerAgents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('runner_agents_runner_idx').on(t.runnerId)],
+);
+
+/**
+ * ticket #1138 / ADR-0021 — which budget notices have been sent. The budget itself (two number fields on the agent's record) and the
+ * pause (derived from the Runs records) store nothing here; this table exists for ONE reason: "80% notifies once" must hold across
+ * two API processes and a restart, and a unique key plus `ON CONFLICT DO NOTHING` is the atomic way to say it.
+ *
+ * One row per (agent, month, metric, level, LIMIT VALUE). The limit value is in the key on purpose: a manager who raises the budget
+ * after a pause has a new budget, and reaching 80% or 100% of THAT one is news again; the same limit in the same month never repeats.
+ * No FK on `agent_id` (agents are soft-deletable records, as `runner_agents`); the workspace cascade removes them with the workspace.
+ */
+export const agentBudgetNotices = pgTable(
+  'agent_budget_notices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id').notNull(),
+    /** "2026-11": the UTC calendar month the budget runs on. */
+    period: text('period').notNull(),
+    /** 'tokens' | 'runs' */
+    metric: text('metric').notNull(),
+    /** 'warning' (80%) | 'paused' (100%) */
+    level: text('level').notNull(),
+    limitValue: bigint('limit_value', { mode: 'number' }).notNull(),
+    notifiedAt: timestamp('notified_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('agent_budget_notices_uq').on(t.agentId, t.period, t.metric, t.level, t.limitValue)],
 );
 
 /**

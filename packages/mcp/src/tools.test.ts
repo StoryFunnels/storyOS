@@ -5577,6 +5577,7 @@ describe('agent wake queue tools (#1130)', () => {
         if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') return { data: { id: 'rec-uuid-7' } };
         if (path === '/api/v1/workspaces/{ws}/agent-wakes') return { data: { data: [{ id: 'w1', run_state: { state: 'waiting_for_runner' } }], next_cursor: null } };
         if (path === '/api/v1/workspaces/{ws}/agent-wakes/summary') return { data: { agents: [], waiting_total: 3, agents_that_cannot_run: 1 } };
+        if (path === '/api/v1/workspaces/{ws}/agents/{agent}/budget') return { data: { state: 'paused', paused_reason: 'tokens', tokens: { limit: 1000, used: null, state: 'not_measured' } } };
         throw new Error(`unmocked GET ${path}`);
       },
       POST: async (path: string, o: { body?: unknown }) => {
@@ -5601,6 +5602,14 @@ describe('agent wake queue tools (#1130)', () => {
     const { handlers } = harness();
     const res = await call(handlers.get('get_agent_wake_summary')!, { workspace: 'JCM Agency' });
     expect(JSON.parse(res.content[0]!.text)).toMatchObject({ waiting_total: 3, agents_that_cannot_run: 1 });
+  });
+
+  it('get_agent_budget asks for the agent by id and returns the server numbers untouched (a null stays null, never 0)', async () => {
+    const { handlers, gets } = harness();
+    const res = await call(handlers.get('get_agent_budget')!, { workspace: 'JCM Agency', agent: 'agent-uuid' });
+    expect(res.isError).toBeUndefined();
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ state: 'paused', tokens: { used: null, state: 'not_measured' } });
+    expect(gets.some((g) => g.path === '/api/v1/workspaces/{ws}/agents/{agent}/budget')).toBe(true);
   });
 
   it('create_agent_trigger takes a relation field instead of a state, and refuses mixing the two', async () => {
