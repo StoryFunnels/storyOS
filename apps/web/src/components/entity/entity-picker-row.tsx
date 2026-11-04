@@ -24,6 +24,7 @@ export function EntityPickerRow({
   idChip,
   trailing,
   active = false,
+  disabled = false,
   onClick,
   onMouseEnter,
 }: {
@@ -36,17 +37,20 @@ export function EntityPickerRow({
    * pickers, so their rows render exactly as before. */
   trailing?: React.ReactNode;
   active?: boolean;
+  /** A row that is listed but cannot be picked (ticket #1213: an agent a mention cannot wake). The reason goes in `breadcrumb`. */
+  disabled?: boolean;
   onClick?: () => void;
   onMouseEnter?: () => void;
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       onMouseEnter={onMouseEnter}
+      aria-disabled={disabled || undefined}
       className={cn(
         'flex w-full items-center gap-2 rounded-[var(--radius-control)] px-2 py-1.5 text-left text-body text-ink transition-colors',
-        active ? 'bg-active' : 'hover:bg-hover',
+        disabled ? 'cursor-default opacity-60' : active ? 'bg-active' : 'hover:bg-hover',
       )}
     >
       {icon != null && (

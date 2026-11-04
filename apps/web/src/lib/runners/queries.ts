@@ -89,8 +89,8 @@ interface RecordList {
 }
 
 /** Every agent the viewer can read, from the Agents system database (an agent IS a record there). `loading` until both the list and its fields are known. */
-export function useAgents(ws: string): { agents: AgentView[]; dbId: string | null; myAccess: EffectiveRole | undefined; settingsFieldsReady: boolean; loading: boolean; error: boolean } {
-  const dbs = useDatabases(ws);
+export function useAgents(ws: string, enabled = true): { agents: AgentView[]; dbId: string | null; myAccess: EffectiveRole | undefined; settingsFieldsReady: boolean; loading: boolean; error: boolean } {
+  const dbs = useDatabases(ws, enabled);
   const agentsDb = agentSystemDatabases(dbs.data ?? []).agents;
   const detail = useDatabase(ws, agentsDb?.id ?? '');
   const rows = useQuery({
