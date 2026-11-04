@@ -3,7 +3,7 @@ import type { AdapterResult, RunnerAdapter, WakeContext } from './adapters/types
 import { NetworkError, RunnerApiError, isRetryable } from './protocol/client.js';
 import type { RunnerClient } from './protocol/client.js';
 import { PROTOCOL_VERSION } from './protocol/types.js';
-import type { ClaimedWake, CompleteRequest } from './protocol/types.js';
+import type { ClaimHold, ClaimedWake, CompleteRequest } from './protocol/types.js';
 import { clearScratch, prepareAgentFolder } from './folders.js';
 import type { Logger } from './log.js';
 import { forgetSecret, redact, registerSecret } from './redact.js';
@@ -40,6 +40,14 @@ export interface ClaimLoopOptions {
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   now?: () => number;
 }
+
+/** While held back, ask again at least this often even if the server named a later time: the person may change their hours meanwhile. */
+const HOLD_WORDS: Record<string, string> = {
+  working_hours: 'outside this Runner\'s working hours',
+  limit_reached: 'the tool reached its subscription limit',
+  reserve: 'the share you asked to keep for yourself would be used up',
+};
+const HOLD_RECHECK_MS = 60_000;
 
 const DEFAULTS = { concurrency: 1, claimWaitSeconds: 25, minPollIntervalMs: 1000, backoff: { minMs: 1000, maxMs: 30_000 } };
 
@@ -157,6 +165,12 @@ export class ClaimLoop {
         const res = await this.o.client.claim({ max: free, wait_seconds: this.o.claimWaitSeconds }, { signal: runSignal });
         failures = 0;
         for (const wake of res?.wakes ?? []) this.start(wake, runSignal);
+        if (res?.hold && res.wakes.length === 0) {
+          // ticket #1137: the server says this Runner may not claim now (its person's working hours, a subscription limit, a reserve).
+          // Do not poll: sleep until it says it may, re-asking at least every minute. NOTHING is claimed meanwhile, so nothing runs twice.
+          await this.sleepHeld(res.hold, runSignal);
+          continue;
+        }
         const took = this.o.now() - started;
         if (!res && took < this.o.minPollIntervalMs) await this.o.sleep(this.o.minPollIntervalMs - took, runSignal);
       } catch (e) {
@@ -175,6 +189,19 @@ export class ClaimLoop {
     // Whatever is still running has been told to stop (the same signal); wait until it has.
     await Promise.allSettled([...this.active.values()]);
     return this.fatal;
+  }
+
+  private lastHold = '';
+
+  private async sleepHeld(hold: ClaimHold, signal: AbortSignal): Promise<void> {
+    const until = hold.resumes_at ? Date.parse(hold.resumes_at) : Number.NaN;
+    const wait = Number.isFinite(until) ? Math.min(HOLD_RECHECK_MS, Math.max(this.o.minPollIntervalMs, until - this.o.now())) : HOLD_RECHECK_MS;
+    const said = `${hold.reason}|${hold.resumes_at ?? ''}`;
+    if (said !== this.lastHold) {
+      this.lastHold = said;
+      this.o.log.info(`not claiming: ${HOLD_WORDS[hold.reason] ?? hold.reason}${Number.isFinite(until) ? `; may claim again at ${new Date(until).toISOString()}` : ''}`);
+    }
+    await this.o.sleep(wait, signal);
   }
 
   /** The persisted claims of a previous process. Called once, before the first poll. */

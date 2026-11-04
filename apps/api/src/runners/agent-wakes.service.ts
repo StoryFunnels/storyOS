@@ -13,6 +13,8 @@ import { SkillsService } from '../skills/skills.service';
 import { SKILL_TEXT_CAP } from '../agents/agent-runtime';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { runnerConnection, offlineSince } from './runner-present';
+import { holdFor } from './runner-sharing';
+import type { Hold } from './runner-sharing';
 import type { RunnerRow } from './runner-present';
 import {
   WAKE_CLAIM_MAX,
@@ -462,15 +464,27 @@ export class AgentWakesService {
    * `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED) RETURNING`, the shape automations/job-runner.service.ts uses, over
    * this table. A claim only ever returns wakes for agents assigned to THIS Runner; for anyone else's it answers the same empty.
    */
-  async claim(runner: RunnerRow, opts: { max?: number; waitSeconds?: number; wakeId?: string }): Promise<ClaimedWake[]> {
+  async claim(first: RunnerRow, opts: { max?: number; waitSeconds?: number; wakeId?: string; now?: Date }): Promise<ClaimedWake[]> {
     const max = Math.max(1, Math.min(opts.max ?? 1, WAKE_CLAIM_MAX));
     const wait = Math.max(0, Math.min(opts.waitSeconds ?? WAKE_LONG_POLL_MAX_SECONDS, WAKE_LONG_POLL_MAX_SECONDS));
-    if (runner.status !== 'active') {
+    if (first.status !== 'active') {
       throw codedException(409, 'runner_not_active', 'This Runner is not turned on yet. Press Done in StoryOS to let it run your agents.');
     }
+    // ticket #1137: a Runner that may not claim (limit pause, outside working hours, reserve) is told at once and sleeps until the time
+    // the answer carries (the controller adds it to the 204), instead of being held on the line for 25 s for nothing.
+    let runner = first;
     const deadline = Date.now() + wait * 1000;
-    for (;;) {
-      const claimed = await this.claimOnce(runner, max, opts.wakeId, new Date());
+    for (let round = 0; ; round++) {
+      // The Runner's rules can change while a poll is open (the person edits working hours or the reserve, a window closes, a tool
+      // reports more usage on its heartbeat). Re-read the row EVERY round and decide again, so a wake that arrives mid-poll is never
+      // claimed on the strength of a hold that was checked 20 seconds ago. A hold ends the poll: the 204 carries the fresh reason.
+      if (round > 0) {
+        const [fresh] = await this.db.select().from(runners).where(eq(runners.id, first.id)).limit(1);
+        if (!fresh || fresh.status !== 'active') return [];
+        runner = fresh;
+      }
+      if (holdFor(runner, opts.now ?? new Date())) return [];
+      const claimed = await this.claimOnce(runner, max, opts.wakeId, opts.now ?? new Date());
       if (claimed.length > 0) return claimed;
       if (opts.wakeId) {
         // A specific wake asked for and not given: say WHY, but only for a wake of this Runner's own agents.
@@ -497,8 +511,8 @@ export class AgentWakesService {
   }
 
   private async claimOnce(runner: RunnerRow, max: number, wakeId: string | undefined, now: Date): Promise<ClaimedWake[]> {
-    // A paused Runner (its tool hit a subscription limit) and one whose chosen tool is gone claim nothing: the wakes wait.
-    if (runner.pausedUntil && runner.pausedUntil.getTime() > now.getTime()) return [];
+    // A held Runner (limit pause, outside its working hours, reserve) and one whose chosen tool is gone claim nothing: the wakes wait.
+    if (holdFor(runner, now)) return [];
     if (runner.chosenTool && !runner.tools.some((t) => t.id === runner.chosenTool && t.installed)) return [];
     const info = await this.agentsDbInfo(runner.workspaceId);
     const enabledId = info?.fieldIds.get('enabled');
@@ -690,6 +704,17 @@ export class AgentWakesService {
       .update(runners)
       .set({ lastSeenAt: now, offlineNotifiedAt: null })
       .where(and(eq(runners.id, runnerId), eq(runners.status, 'active'), sql`(${runners.lastSeenAt} IS NULL OR ${runners.lastSeenAt} < ${new Date(now.getTime() - 30_000).toISOString()}::timestamptz OR ${runners.offlineNotifiedAt} IS NOT NULL)`));
+  }
+
+  /** The hold from the Runner's CURRENT row (not the one a long poll started with): what the 204 reports. */
+  async currentHold(runnerId: string, now = new Date()): Promise<Hold | null> {
+    const [row] = await this.db.select().from(runners).where(eq(runners.id, runnerId)).limit(1);
+    return row ? holdFor(row, now) : null;
+  }
+
+  /** Why this Runner may not claim at `now` (and until when), or null. The controller puts it on the 204 so the Runner sleeps until then. */
+  claimHold(runner: RunnerRow, now = new Date()): Hold | null {
+    return holdFor(runner, now);
   }
 
   /** Liveness for a claim poll (called by the controller for every claim, including one that returns nothing). */
