@@ -184,6 +184,7 @@ export default function GeneralSettingsPage() {
               </>
             }
             className="[&_b]:overflow-visible [&_b]:whitespace-normal"
+            inlineControls
           >
             <Switch
               checked={agentsMayPublish}
