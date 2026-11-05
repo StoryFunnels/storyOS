@@ -95,8 +95,8 @@ export const SETTINGS_PAGES: ReadonlyArray<SettingsPage> = [
   { id: 'general', group: 'workspace', label: 'General', access: 'admins', path: '/general' },
   { id: 'members', group: 'workspace', label: 'Members', access: 'admins', path: '/members' },
   { id: 'billing', group: 'workspace', label: 'Plan & billing', access: 'admins', path: '/billing', cloud: 'billing' },
-  // Ticket #1186 builds the real Packs page under settings; until it lands this is the existing Business packs page.
-  { id: 'packs', group: 'workspace', label: 'Packs', access: 'admins', outside: '/packs' },
+  // Ticket #1186: the installed packs live here; the marketplace (choosing and installing) stays at /w/{ws}/packs, reached by "Browse packs".
+  { id: 'packs', group: 'workspace', label: 'Packs', access: 'admins', path: '/packs' },
 
   { id: 'connect-ai', group: 'ai', label: 'Connect your AI', access: 'editors', path: '/connect-ai' },
   { id: 'runners', group: 'ai', label: 'Runners', access: 'editors', path: '/runners' },

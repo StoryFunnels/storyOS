@@ -61,6 +61,6 @@ describe('row actions at natural width', () => {
   it("the buttons sit in their own wrapper, so the row's phone rule that stretches its DIRECT buttons never reaches them", () => {
     expect(html([broken])).toMatch(/<div class="flex items-center gap-2"><button[^>]*aria-label="Reconnect Cursor"/);
     // the shared chrome is untouched (it is byte-identical to PR #1410's): the fix is in how the list uses it
-    expect(read('../components/settings/settings-chrome.tsx')).toContain('max-sm:[&>button]:flex-1');
+    expect(read('../components/settings/settings-chrome.tsx')).toContain('max-sm:[&>button:not([role=switch])]:flex-1');
   });
 });
