@@ -25,10 +25,12 @@ import {
   aiPromptRefs,
   CONVERTIBLE,
   FormulaError,
+  formulaConfigSchema,
   formulaRefs,
   formulaTypeOfFieldType,
   inferStateCategory,
   DEFAULT_WORKFLOW_OPTIONS,
+  isNumericRollupTarget,
   isTextToChoice,
   OPTION_COLORS,
   parseFormula,
@@ -47,7 +49,7 @@ import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { slugify } from '../databases/databases.service';
 import { presentFieldConfig, restoreFieldConfig } from '../common/webhook-headers';
-import { RecordsService } from '../records/records.service';
+import { RecordsService, formulaDependsOnlyOnOwnRecord } from '../records/records.service';
 import { compileFilter, filterReferencedFields } from '../records/query-compiler';
 import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { isPickOneOp, pickOneValueType } from '../records/rollup-pick-one';
@@ -449,7 +451,13 @@ export class FieldsService {
     // guarded against referencing its own (about-to-exist) field.
     const apiName = await this.uniqueApiName(databaseId, input.display_name);
     if (input.type === 'formula') {
-      input.config = await this.compileFormulaConfig(databaseId, input.config ?? {}, apiName);
+      // ticket #1200: layer the compiled trio OVER the caller's config, as update() has always done. Returning only the
+      // trio here silently dropped `format` (a percent formula created with format: 'percent' came back unformatted),
+      // and would have dropped currency the same way.
+      input.config = this.assertFormulaFormat({
+        ...(input.config ?? {}),
+        ...(await this.compileFormulaConfig(databaseId, input.config ?? {}, apiName)),
+      });
     }
     // #571 — no selfFieldId on create: nothing can already depend on a field
     // that doesn't exist yet, so a cycle can't form through it here.
@@ -1151,6 +1159,84 @@ export class FieldsService {
    * as the validator (its `err()` throws are already the right shape for a
    * config 422), rather than re-implementing field/op/option-id checks here.
    */
+  /**
+   * ticket #1200 — the format rules a formula's config must satisfy, beyond the zod shape: `currency` is a money
+   * amount, so it needs a NUMBER result and an explicit 3-letter ISO code. A number field defaults a blank code to USD at
+   * display time; a formula must not, because that is a silently wrong currency on a quote.
+   */
+  private assertFormulaFormat(config: Record<string, unknown>): Record<string, unknown> {
+    const parsed = formulaConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      throw new UnprocessableEntityException(parsed.error.issues[0]?.message ?? 'invalid formula field config');
+    }
+    if (config['format'] !== 'currency') return config;
+    if (config['result_type'] !== 'number') {
+      throw new UnprocessableEntityException(
+        `A currency formula must return a number — this one returns ${String(config['result_type'] ?? 'text')}`,
+      );
+    }
+    const code = config['currency_code'];
+    if (typeof code !== 'string' || !/^[A-Za-z]{3}$/.test(code)) {
+      throw new UnprocessableEntityException('A currency formula needs a 3-letter currency_code (for example USD)');
+    }
+    return { ...config, currency_code: code.toUpperCase() };
+  }
+
+  /**
+   * ticket #1200 — rollups (on any database) whose target is this formula. Found by the target's api_name and confirmed
+   * through the rollup's relation, because the same api_name can exist on unrelated databases.
+   */
+  private async rollupsReadingField(
+    databaseId: string,
+    apiName: string,
+  ): Promise<Array<{ id: string; databaseId: string; displayName: string; op: string | undefined }>> {
+    const candidates = await this.db.query.fields.findMany({
+      where: and(
+        eq(fields.type, 'rollup'),
+        isNull(fields.deletedAt),
+        sql`${fields.config}->>'target_field_api_name' = ${apiName}`,
+      ),
+    });
+    const found: Array<{ id: string; databaseId: string; displayName: string; op: string | undefined }> = [];
+    for (const c of candidates) {
+      try {
+        const cfg = c.config as { relation_field_id?: string; op?: string };
+        const target = await this.resolveRelationTargetDb(c.databaseId, cfg.relation_field_id);
+        if (target === databaseId) found.push({ id: c.id, databaseId: c.databaseId, displayName: c.displayName, op: cfg.op });
+      } catch {
+        // dangling relation — it reads nothing, so it is not a dependent
+      }
+    }
+    return found;
+  }
+
+  /**
+   * ticket #1200 — re-saving a formula must not quietly break a rollup that sums it. If the new expression returns
+   * something other than a number, or reaches a lookup (so it stops being materialized), the rollup would compute nothing
+   * with a 200; refuse and name the rollup instead. A `count` rollup never reads the target's value, so it is exempt.
+   */
+  private async assertFormulaStillRollupable(
+    databaseId: string,
+    field: { id: string; apiName: string },
+    next: Record<string, unknown>,
+  ): Promise<void> {
+    const aggregating = (await this.rollupsReadingField(databaseId, field.apiName)).filter(
+      (r) => r.op !== 'count' && r.op !== 'first' && r.op !== 'last' && r.op !== 'collect',
+    );
+    if (aggregating.length === 0) return;
+    const defs = await this.recordsService.fieldDefs(databaseId);
+    const swapped = defs.map((d) => (d.id === field.id ? { ...d, config: next } : d));
+    const self = swapped.find((d) => d.id === field.id)!;
+    const numeric = isNumericRollupTarget({ type: 'formula', config: next });
+    if (numeric && formulaDependsOnlyOnOwnRecord(self, new Map(swapped.map((d) => [d.api_name, d])))) return;
+    const names = aggregating.map((r) => `"${r.displayName}"`).join(', ');
+    throw new UnprocessableEntityException(
+      numeric
+        ? `Cannot save this formula: it now reads a lookup, so its value is no longer stored per record, and ${names} sums it. Change or delete ${names} first`
+        : `Cannot save this formula: it no longer returns a number, and ${names} sums it. Change or delete ${names} first`,
+    );
+  }
+
   private async assertRollupConfig(databaseId: string, config: Record<string, unknown>, membership?: Membership) {
     const op = config['op'] as string | undefined;
     if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
@@ -1243,10 +1329,23 @@ export class FieldsService {
             `rollup "collect" aggregates attachment fields, not ${targetField.type}`,
           );
         }
-      } else if (op !== 'count' && targetField.type !== 'number') {
+      } else if (op !== 'count' && !isNumericRollupTarget(targetField)) {
         throw new UnprocessableEntityException(
-          `rollup "${op}" aggregates number fields, not ${targetField.type}`,
+          targetField.type === 'formula'
+            ? `rollup "${op}" aggregates number fields, or formulas that return a number — "${targetField.displayName}" returns ${String((targetField.config as { result_type?: string }).result_type ?? 'text')}`
+            : `rollup "${op}" aggregates number fields, not ${targetField.type}`,
         );
+      } else if (op !== 'count' && targetField.type === 'formula') {
+        // ticket #1200: a formula's value reaches a rollup only through `computed_values`, which is written for a formula
+        // only if it never reads a lookup (formulaDependsOnlyOnOwnRecord — the same rule that gates sorting by one).
+        // Past that line the sum would skip every record with no stored value and say nothing, so name the reason here.
+        const targetDefs = await this.recordsService.fieldDefs(targetDbId);
+        const def = targetDefs.find((d) => d.id === targetField.id);
+        if (def && !formulaDependsOnlyOnOwnRecord(def, new Map(targetDefs.map((d) => [d.api_name, d])))) {
+          throw new UnprocessableEntityException(
+            `rollup "${op}" cannot aggregate formula "${targetField.displayName}" — it reads a lookup, whose value is not stored per record, so the sum would silently skip it. Aggregate the underlying number field instead`,
+          );
+        }
       }
     }
 
@@ -1430,10 +1529,9 @@ export class FieldsService {
       // compileFormulaConfig returns ONLY { expression, ast, result_type }, so the
       // compiled trio is layered OVER `merged` rather than replacing it — otherwise
       // a percent toggle (#190's `format`) would be dropped on every save.
-      nextConfig = {
-        ...merged,
-        ...(await this.compileFormulaConfig(databaseId, merged, field.apiName)),
-      };
+      const compiled = await this.compileFormulaConfig(databaseId, merged, field.apiName);
+      nextConfig = this.assertFormulaFormat({ ...merged, ...compiled });
+      await this.assertFormulaStillRollupable(databaseId, field, nextConfig as Record<string, unknown>);
       recompiledFormula = String(merged.expression) !== String(stored['expression'] ?? '');
     } else if (field.type === 'rollup' && patch.config !== undefined) {
       /*
@@ -1567,6 +1665,13 @@ export class FieldsService {
       await this.recordsService
         .materializeFormulaFieldForAllRecords(databaseId, fieldId)
         .catch(() => undefined);
+      // ticket #1200: a rollup that sums this formula, on ANOTHER database, holds a materialized total built from the old
+      // expression — recompute it now that every record carries the new value, or it stays wrong until a link next moves.
+      for (const rollup of await this.rollupsReadingField(databaseId, field.apiName)) {
+        await this.recordsService
+          .recomputeRollupFieldForAllRecords(rollup.databaseId, rollup.id)
+          .catch(() => undefined);
+      }
     }
     // #300: same reasoning for a rollup whose config actually changed.
     if (rollupConfigChanged) {

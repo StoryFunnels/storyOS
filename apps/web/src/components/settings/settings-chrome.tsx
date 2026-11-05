@@ -43,7 +43,8 @@ export function SettingsBox({
       {title && (
         <h2 className="flex items-center gap-2 border-b border-border-default px-3.5 py-[11px] text-body leading-[normal]! font-[650] text-ink">
           {title}
-          {aside && <span className="ml-auto text-label font-medium text-muted">{aside}</span>}
+          {/* Not `aside &&`: a count of 0 is a number, and `0 && …` prints a bare "0" with no span (the Trash "Databases0" defect). */}
+          {aside != null && aside !== false && <span className="ml-auto text-label font-medium text-muted">{aside}</span>}
         </h2>
       )}
       {children}
