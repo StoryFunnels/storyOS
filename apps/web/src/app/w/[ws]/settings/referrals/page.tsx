@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
 
 interface ReferralSummary {
   enabled: boolean;
@@ -23,6 +24,9 @@ interface ReferralSummary {
  * `enabled: false` and a null code/link, and this page renders the same
  * "not available" state SettingsLayout's nav-hiding is meant to make
  * unreachable in the normal click-path.
+ *
+ * Ticket #1189: drawn in the Settings chrome. The link is the whole point of this page, so it is NOT put under Advanced (the
+ * parity table lists it as a power control, but a page whose only job is to hand you a link cannot hide it).
  */
 export default function ReferralsPage() {
   const referrals = useQuery({
@@ -41,66 +45,57 @@ export default function ReferralsPage() {
   if (!r.enabled) {
     return (
       <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Referrals</h1>
-        <p className="text-body text-muted">
-          Referrals is a cloud feature and isn’t available on this self-hosted instance.
-        </p>
+        <SettingsPageHeader title="Referrals" lead="Referrals is a cloud feature and isn’t available on this self-hosted instance." />
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Referrals</h1>
-      <p className="mb-6 text-body text-muted">
-        Invite people to StoryOS. When someone signs up through your link and their workspace
-        goes paid, you earn a reward.
-      </p>
+      <SettingsPageHeader
+        title="Referrals"
+        lead="Invite people to StoryOS. When someone signs up through your link and their workspace goes paid, you earn a reward."
+      />
 
-      <Section title="Your referral link" description="Anyone who signs up through this link is attributed to you.">
-        <div className="flex gap-2">
-          <Input readOnly value={r.link ?? ''} onFocus={(e) => e.target.select()} />
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={async () => {
-              await navigator.clipboard.writeText(r.link ?? '');
-              toast.success('Copied');
-            }}
-          >
-            Copy
-          </Button>
-        </div>
-      </Section>
+      <SettingsPageBody>
+        <SettingsBox>
+          <SettingsRow title="Your referral link" description="Anyone who signs up through this link is attributed to you.">
+            <div className="flex w-full min-w-0 gap-2 sm:w-[22rem]">
+              <Input size="sm" readOnly aria-label="Your referral link" value={r.link ?? ''} onFocus={(e) => e.target.select()} />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(r.link ?? '');
+                  toast.success('Copied');
+                }}
+              >
+                Copy
+              </Button>
+            </div>
+          </SettingsRow>
+        </SettingsBox>
 
-      <Section title="Your rewards">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Stat label="Sign-ups" value={r.signups} />
-          <Stat label="Paying conversions" value={r.paidConversions} />
-          <Stat label="Earned rewards" value={`$${(r.rewardCents / 100).toFixed(2)}`} />
-        </div>
-      </Section>
+        <SettingsBox title="Your rewards">
+          <div className="grid grid-cols-1 gap-3 p-3.5 sm:grid-cols-3">
+            <Stat label="Sign-ups" value={r.signups} />
+            <Stat label="Paying conversions" value={r.paidConversions} />
+            <Stat label="Earned rewards" value={`$${(r.rewardCents / 100).toFixed(2)}`} />
+          </div>
+        </SettingsBox>
 
-      <Section title="Terms">
-        <p className="text-body text-muted">{r.terms}</p>
-      </Section>
+        <SettingsBox title="Terms">
+          <p className="px-3.5 py-3 text-body text-muted">{r.terms}</p>
+        </SettingsBox>
+      </SettingsPageBody>
     </div>
-  );
-}
-
-function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="mb-8 border-b border-border-default pb-8 last:border-b-0 last:pb-0">
-      <h2 className="mb-1 text-sm font-medium text-ink">{title}</h2>
-      {description && <p className="mb-3 text-body text-muted">{description}</p>}
-      {children}
-    </section>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4">
+    <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-3">
       <p className="text-lg font-semibold text-ink">{value}</p>
       <p className="text-label text-muted">{label}</p>
     </div>
