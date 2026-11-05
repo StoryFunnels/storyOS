@@ -97,11 +97,3 @@ export function cannotRunCount(summary: Pick<WakeSummary, 'agents_that_cannot_ru
 export function summaryFor(summary: WakeSummary | undefined, agentId: string): WakeSummaryAgent | undefined {
   return summary?.agents.find((a) => a.agent_id === agentId);
 }
-
-/**
- * "1 record is waiting for it" / "3 records are waiting for it". The number comes from the API's own `waiting` count for this
- * agent (`GET .../agent-wakes/summary`): a real quantity, never one counted here from a page of rows (ticket #404's lesson).
- */
-export function waitingLine(n: number): string {
-  return n === 1 ? '1 record is waiting for it' : `${n} records are waiting for it`;
-}

@@ -139,6 +139,12 @@ export interface WakeSummaryAgent {
   runner: { id: string; name: string } | null;
   can_run: boolean;
   waiting: number;
+  /**
+   * Ticket #1152 — records already in the agent's trigger state(s) that no wake was ever made for. A number (0 included) only for the
+   * agent's owner or an admin while the agent is enabled and on Your own AI; null for everyone else. Absent from a server that
+   * predates the field, which reads as "not told", never as zero.
+   */
+  catch_up?: number | null;
 }
 
 export interface WakeSummary {
