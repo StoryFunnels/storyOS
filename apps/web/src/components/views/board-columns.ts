@@ -96,6 +96,32 @@ export function showBoardColumn(
 }
 
 /**
+ * #1162 — what "Hide column" writes: the live hidden ids plus this column. Stale ids (matching no live column) are
+ * dropped on the way, for the same reason `showBoardColumn` drops them: the API refuses an id that is not an option of
+ * the group-by field. The no-value bucket has no option id and cannot be hidden, so asking for it changes nothing.
+ * Hiding the last visible column is allowed (the all-hidden state exists; Display lists every hidden column).
+ */
+export function hideBoardColumn(
+  columns: readonly { id: string }[],
+  hiddenOptionIds: readonly string[] | undefined,
+  columnId: string,
+): string[] | undefined {
+  const live = hiddenBoardColumns(columns, hiddenOptionIds).map((c) => c.id);
+  if (columnId === NO_VALUE || !columns.some((c) => c.id === columnId)) return live.length > 0 ? live : undefined;
+  return live.includes(columnId) ? live : [...live, columnId];
+}
+
+/**
+ * #1162 — may this column offer "Hide column"? Mirrors the server, which accepts `hidden_option_ids` only on a board
+ * grouped by a select or workflow field (a user/relation/date column is not an option) and never for the no-value
+ * bucket; and only for someone who may edit the view (the page's `readOnly`, the same gate the Display menu uses).
+ */
+export function canHideBoardColumn(opts: { columnId: string; groupType: string | undefined; readOnly: boolean }): boolean {
+  if (opts.readOnly || opts.columnId === NO_VALUE) return false;
+  return opts.groupType === 'select' || opts.groupType === 'workflow';
+}
+
+/**
  * A board grouped by DATE is exempt from ordering: its columns are chronological
  * periods, and any other order is meaningless. It is also already immune to the
  * empty-column problem — bucketColumnsFor derives columns from the data, so
