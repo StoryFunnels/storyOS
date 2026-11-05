@@ -102,6 +102,7 @@ export function DisplayMenu({
   onPatch,
   databaseId,
   onReorderFields,
+  readOnly = false,
 }: {
   viewType: string;
   /** The database's own fields. */
@@ -116,6 +117,8 @@ export function DisplayMenu({
   onPatch: (updates: Partial<ViewConfig>) => void;
   databaseId?: string;
   onReorderFields?: (activeId: string, overId: string) => void;
+  /** #1162 — a viewer: the hidden-columns list shows what is hidden but offers no Show. */
+  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
@@ -370,6 +373,7 @@ export function DisplayMenu({
                 hiddenOptionIds={config.hidden_option_ids}
                 onChange={(next) => onPatch({ hidden_option_ids: next })}
                 sectionClass={SECTION}
+                readOnly={readOnly}
               />
             </>
           )}

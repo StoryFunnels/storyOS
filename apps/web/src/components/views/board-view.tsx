@@ -322,7 +322,10 @@ export function BoardView({
       id === ALL_HIDDEN_LINK_TARGET
         ? document.querySelector<HTMLElement>('[data-all-hidden-link]')
         : document.querySelector<HTMLElement>(`[data-column-menu="${CSS.escape(id)}"]`);
-    el?.focus();
+    // preventScroll + scrolling the whole SENTENCE into view: focusing the link alone scrolls only the link, and with
+    // the board scrolled right at 390 that left the start of the sentence clipped off the left edge.
+    el?.focus({ preventScroll: true });
+    (id === ALL_HIDDEN_LINK_TARGET ? el?.closest('p') : el)?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }, [shownColumns]);
 
   const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
@@ -667,16 +670,18 @@ export function BoardView({
           </ErrorBoundary>
         ))}
         {allHiddenCount > 0 && groupField && (
-          <p className="order-first mt-0.5 w-[85vw] shrink-0 self-start text-label text-muted md:order-none md:w-[258px]">
-            {allHiddenNotice(allHiddenCount, groupField.displayName).text}{' '}
-            <button
-              type="button"
-              data-all-hidden-link
-              onClick={requestOpenDisplayMenu}
-              className="rounded text-ink underline underline-offset-2 hover:text-ink"
-            >
-              {allHiddenNotice(allHiddenCount, groupField.displayName).link}
-            </button>
+          <p className="order-first scroll-ml-4 mt-0.5 w-[85vw] shrink-0 self-start text-label text-muted md:order-none md:w-[258px]">
+            {allHiddenNotice(allHiddenCount, groupField.displayName, readOnly).text}{' '}
+            {!readOnly && (
+              <button
+                type="button"
+                data-all-hidden-link
+                onClick={requestOpenDisplayMenu}
+                className="rounded text-ink underline underline-offset-2 hover:text-ink"
+              >
+                {allHiddenNotice(allHiddenCount, groupField.displayName).link}
+              </button>
+            )}
           </p>
         )}
       </div>

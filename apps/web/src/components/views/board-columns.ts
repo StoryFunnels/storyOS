@@ -138,8 +138,25 @@ export function allOptionColumnsHidden(
   return hiddenBoardColumns(options, hiddenOptionIds).length === options.length ? options.length : 0;
 }
 
-/** The notice's sentence and the words of its Display link, from the data (N and the group-by field's name). */
-export function allHiddenNotice(count: number, fieldName: string): { text: string; link: string } {
+/**
+ * The notice's sentence and the words of its Display link, from the data (N and the group-by field's name).
+ * A read-only viewer cannot show a column again (the PATCH is refused), so for them there is NO link: the sentence says
+ * who hid them instead (`link` is null). An editor gets the link.
+ */
+export function allHiddenNotice(
+  count: number,
+  fieldName: string,
+  readOnly = false,
+): { text: string; link: string | null } {
+  if (readOnly) {
+    return {
+      text:
+        count === 1
+          ? `The 1 ${fieldName} column is hidden by this view's editors.`
+          : `All ${count} ${fieldName} columns are hidden by this view's editors.`,
+      link: null,
+    };
+  }
   return count === 1
     ? { text: `The 1 ${fieldName} column is hidden.`, link: 'Show it in Display' }
     : { text: `All ${count} ${fieldName} columns are hidden.`, link: 'Show them in Display' };

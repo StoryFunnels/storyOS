@@ -92,6 +92,28 @@ describe('#1162 review — the all-hidden notice', () => {
   });
 });
 
+describe('#1162 Vera — the all-hidden notice for a read-only viewer', () => {
+  it('an editor gets the Display link', () => {
+    expect(allHiddenNotice(5, 'Status', false).link).toBe('Show them in Display');
+    expect(allHiddenNotice(5, 'Status').link).toBe('Show them in Display');
+  });
+  it('a viewer gets NO link (the PATCH would be refused) and a sentence naming who hid them', () => {
+    expect(allHiddenNotice(5, 'Status', true)).toEqual({
+      text: "All 5 Status columns are hidden by this view's editors.",
+      link: null,
+    });
+  });
+  it('the singular variant for a viewer', () => {
+    expect(allHiddenNotice(1, 'Status', true)).toEqual({
+      text: "The 1 Status column is hidden by this view's editors.",
+      link: null,
+    });
+  });
+  it('a viewer sentence never tells them to use Display', () => {
+    expect(allHiddenNotice(3, 'Stage', true).text).not.toMatch(/Display/);
+  });
+});
+
 describe('#1162 review — where focus goes after Hide', () => {
   const ids = ['a', 'b', 'c'];
   it('middle: the next visible column', () => expect(focusTargetAfterHide(ids, 'b')).toBe('c'));
