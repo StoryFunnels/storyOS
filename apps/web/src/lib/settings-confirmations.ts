@@ -55,6 +55,20 @@ export function confirmRevokeInvite(email: string): SettingsConfirm {
   };
 }
 
+/**
+ * Uninstalling a pack (ticket #1186; the marketplace page asked with `window.confirm`). States what `PacksService.uninstall` does TODAY:
+ * it removes the views, automations, agents and skills the install made unless they changed since, and never touches databases, fields,
+ * relations or records. The prototype's first draft said "Your databases, records and views stay", which is wrong for the views.
+ */
+export function confirmUninstallPack(pack: string): SettingsConfirm {
+  return {
+    title: `Uninstall ${pack}?`,
+    message: `This removes the views, automations, agents and skills ${pack} added, except any you changed since: those stay. Your databases, fields and records are never removed. Updates to ${pack} stop.`,
+    confirmLabel: 'Uninstall',
+    danger: true,
+  };
+}
+
 export function confirmRemovePhoto(): SettingsConfirm {
   return {
     title: 'Remove your photo?',
@@ -98,6 +112,20 @@ export function confirmToggleWebhook(url: string, enabling: boolean): SettingsCo
         confirmLabel: 'Disable webhook',
         danger: true,
       };
+}
+
+/**
+ * Ticket #1188 — Disconnect on a provider's page. `name` is what the person sees for the connection ("Linear", or "Meta comments"
+ * for a saved Custom API connection) and `effect` is the provider's own sentence about what stops (`ProviderPageDef.disconnectEffect`),
+ * so the blast radius is named per provider and never a generic "this cannot be undone". Cancel resolves false and nothing is called.
+ */
+export function confirmDisconnectProvider(name: string, effect: string): SettingsConfirm {
+  return {
+    title: `Disconnect ${name}?`,
+    message: `${effect} To use it again you connect it again.`,
+    confirmLabel: 'Disconnect',
+    danger: true,
+  };
 }
 
 export function confirmRemoveCalendarMapping(database: string, calendar: string): SettingsConfirm {

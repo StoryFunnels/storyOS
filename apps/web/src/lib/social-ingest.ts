@@ -35,7 +35,7 @@ export const SOCIAL_INGEST: Record<SocialIngestId, SocialIngestConfig> = {
     blurb: 'Pull Facebook Page and Instagram comments into a StoryOS database as records.',
     tokenSteps: [
       'In Meta\'s developer tools, mint a long-lived Page Access Token (or a System User token scoped to the Page) with the pages_read_engagement permission.',
-      'Add it below as a "bearer" HTTP connection — the name is pre-filled so it stays identifiable.',
+      'Choose Connect above: the preset fills in the name and address, and you paste the token as a bearer token.',
       'In the source config, leave Page ID blank to use the token\'s own Page. Add the paired Instagram Business Account ID (Meta Business Suite) to also pull Instagram comments.',
     ],
   },
@@ -48,7 +48,7 @@ export const SOCIAL_INGEST: Record<SocialIngestId, SocialIngestConfig> = {
     blurb: 'Pull mentions of your X account into a StoryOS database as records.',
     tokenSteps: [
       'In X\'s developer portal, create an OAuth 2.0 user token with the tweet.read and users.read scopes.',
-      'Add it below as a "bearer" HTTP connection.',
+      'Choose Connect above and paste the token as a bearer token.',
       'In the source config, leave User ID blank to track the connected account\'s own mentions. Lookback and volume follow the account\'s X API plan.',
     ],
   },
@@ -61,7 +61,7 @@ export const SOCIAL_INGEST: Record<SocialIngestId, SocialIngestConfig> = {
     blurb: 'Pull comments on your LinkedIn organization posts into a StoryOS database.',
     tokenSteps: [
       'Obtain a LinkedIn organization access token with the r_organization_social scope (granted through LinkedIn\'s Partner Program review).',
-      'Add it below as a "bearer" HTTP connection.',
+      'Choose Connect above and paste the token as a bearer token.',
       'In the source config, paste one share/UGC URN per line, e.g. urn:li:share:123. Post URNs are not auto-discovered. Syncing stays off until an operator enables LinkedIn actions on the server.',
     ],
   },

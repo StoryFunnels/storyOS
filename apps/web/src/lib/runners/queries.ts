@@ -1,13 +1,14 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useDatabases, useWorkspace } from '@/lib/queries';
 import { canUseRunners } from './access';
 import { agentSystemDatabases } from '@/lib/system-databases';
 import type { EffectiveRole } from '@/lib/access';
-import { useDatabase } from '@/components/table-view/use-table-data';
+import { databaseQuery, useDatabase } from '@/components/table-view/use-table-data';
+import type { Field } from '@/components/table-view/use-table-data';
 import { toAgentView } from './agents';
 import type { AgentRecordLike, AgentView } from './agents';
 import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, RunnerSharingPatch, WakeDto, WakeSummary } from './types';
@@ -73,6 +74,102 @@ export function useAgentWakes(ws: string, agentId: string | undefined) {
     enabled: Boolean(agentId),
     refetchInterval: 10_000,
   });
+}
+
+/** Newest rows read for the list's Last run column: the API's own page ceiling (at most 200). */
+export const LAST_RUN_PAGE = 200;
+
+/**
+ * Ticket #1196 — what the Agents list's "Last run" column is built from: THREE reads, the same three however many agents there are
+ * (never one per agent), refetched together every 30 s:
+ *  1. the newest wakes of the workspace: only for the state of a run in flight (needs approval, running, at its limit, failed);
+ *  2. the Runs database's exact count per agent (grouped count): the only thing that can say "never" and mean it;
+ *  3. the Runs database's newest Run records by start time (one page): the real last-run time (wakes are pruned after 30 days).
+ * Reads 2 and 3 go through the records endpoints, so they obey the viewer's own access to the Runs database: a viewer who cannot
+ * read it gets `runs: undefined` and the column says "—", never "Never" (`lastRunsByAgent`).
+ */
+export function useLastRuns(ws: string, enabled = true) {
+  const dbs = useDatabases(ws, enabled);
+  const runsDb = agentSystemDatabases(dbs.data ?? []).runs;
+  const wakes = useQuery({
+    queryKey: ['agent-last-runs', ws, 'wakes'] as const,
+    queryFn: async () => unwrap<{ data: WakeDto[] }>(await api.GET('/api/v1/workspaces/{ws}/agent-wakes', { params: { path: { ws }, query: { limit: LAST_RUN_PAGE } } } as never)).data,
+    enabled,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+  const counts = useQuery({
+    queryKey: ['agent-last-runs', ws, 'counts', runsDb?.id] as const,
+    queryFn: async () => {
+      const body = unwrap<{ groups: Array<{ key: string | null; value: number | null }> }>(
+        await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate/grouped', { params: { path: { ws, db: runsDb!.id } }, body: { op: 'count', group_by: 'agent' } } as never),
+      );
+      const out: Record<string, number> = {};
+      for (const g of body.groups) if (g.key) out[g.key] = g.value ?? 0;
+      return out;
+    },
+    enabled: enabled && Boolean(runsDb),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const latest = useQuery({
+    queryKey: ['agent-last-runs', ws, 'latest', runsDb?.id] as const,
+    queryFn: async () => {
+      const body = unwrap<{ data: Array<{ values: Record<string, unknown> }> }>(
+        await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/query', {
+          params: { path: { ws, db: runsDb!.id } },
+          body: { sorts: [{ field: 'started_at', direction: 'desc' }], nulls: 'last', limit: LAST_RUN_PAGE },
+        } as never),
+      );
+      return body.data.flatMap((r) => {
+        const agent = (r.values['agent'] as Array<{ id: string }> | undefined)?.[0]?.id;
+        const started = r.values['started_at'];
+        return agent && typeof started === 'string' ? [{ agentId: agent, started }] : [];
+      });
+    },
+    enabled: enabled && Boolean(runsDb),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  return {
+    wakes: wakes.data,
+    // Known only when BOTH Runs reads answered: half an answer is not enough to say "never".
+    runs: counts.data && latest.data ? { counts: counts.data, latest: latest.data } : undefined,
+  };
+}
+
+/**
+ * Ticket #1196 — who a departed owner was. A removed member is TOMBSTONED in the Members database (`active` = false, row kept,
+ * ADR-0017 section 7), so the people list no longer has them but their row does. One request for the Members database's rows, made
+ * only when some owner is missing from the people list, so it costs nothing in the normal case.
+ */
+export function useMembersDirectory(ws: string, enabled: boolean) {
+  const dbs = useDatabases(ws, enabled);
+  const membersDb = (dbs.data ?? []).find((d) => d.isSystem && d.name === 'Members');
+  return useQuery({
+    queryKey: ['members-directory', ws, membersDb?.id] as const,
+    queryFn: async () => {
+      const body = unwrap<{ data: Array<{ title: string; values: Record<string, unknown> }> }>(
+        await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', { params: { path: { ws, db: membersDb!.id }, query: { limit: 200 } } } as never),
+      );
+      return body.data;
+    },
+    enabled: enabled && Boolean(membersDb),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** Ticket #1196 — the fields of each database the hire card needs to look inside (same cache entries as `useDatabase`). */
+export function useDatabaseFields(ws: string, ids: readonly string[]): Record<string, Field[] | undefined> {
+  const results = useQueries({ queries: ids.map((id) => ({ ...databaseQuery(ws, id), enabled: Boolean(ws && id) })) });
+  const out: Record<string, Field[] | undefined> = {};
+  ids.forEach((id, i) => {
+    out[id] = results[i]?.data?.fields as Field[] | undefined;
+  });
+  return out;
 }
 
 export function useAssignment(ws: string, agentId: string | undefined, enabled: boolean) {

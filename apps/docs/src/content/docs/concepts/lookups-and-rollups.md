@@ -31,6 +31,24 @@ A **rollup** aggregates the related records on the other side of a relation:
 A `count` rollup needs no target field; the rest aggregate a chosen number (or date) field on the
 related records.
 
+### Summing a formula (quote line totals)
+
+`sum`, `avg`, `min` and `max` can also aggregate a **formula that returns a number** on the related
+records. The classic case: a **Quote Line** has a formula **Line Total** = `{Qty} * {Price}`, shown
+as currency, and the **Quote** has a rollup **Quote Total** = *sum* of `Line Total`. Edit a line's
+quantity and the quote's total follows.
+
+Two limits, each refused when you save rather than discovered later:
+
+- The formula must **return a number**. A formula that returns text, a date or a checkbox can't be
+  summed.
+- The formula must **not read a lookup**. A lookup is worked out when you look at a record, not
+  stored on it, so a rollup has nothing to add up; sum the underlying number field instead.
+
+Once a rollup sums a formula, you can't edit that formula into one of those two shapes without first
+changing or deleting the rollup. The rollup shows a plain number: it takes no currency format of its
+own yet.
+
 ### Collecting files from related records
 
 A `collect` rollup gathers an **attachment** field's files from every related record onto the

@@ -534,9 +534,32 @@ export const formulaConfigSchema = z.object({
   result_type: z.enum(['text', 'number', 'checkbox', 'date']).optional(),
   // #190: a number-result formula can be marked percent so it renders as a
   // value + progress bar (Fibery parity), mirroring numberConfigSchema.format.
-  // Only 'plain'/'percent' — currency needs a currency_code that formulas don't carry.
-  format: z.enum(['plain', 'percent']).optional(),
+  // ticket #1200: and 'currency', which carries its own currency_code (and an
+  // optional precision) exactly as a number field does, so a Quote Line's
+  // `qty * price` can show as money. The cross-field rules (currency needs a
+  // 3-letter code and a NUMBER result) live in FieldsService.assertFormulaFormat,
+  // because this object is compiled around at save time rather than parsed whole.
+  format: z.enum(['plain', 'percent', 'currency']).optional(),
+  currency_code: z.string().length(3).optional(),
+  precision: z.number().int().min(0).max(10).optional(),
 });
+
+/**
+ * ticket #1200 — can a rollup's sum/avg/min/max aggregate this field? The ONE
+ * predicate the server's gate (FieldsService.assertRollupConfig) and the web's
+ * target-field picker both ask, so the picker cannot offer less (or more) than
+ * the server accepts. A stored number, or a formula that RETURNS a number.
+ *
+ * Necessary, not sufficient: the server additionally refuses a formula that
+ * reaches a lookup, because that value is never materialized (it names the
+ * reason in its 422). The picker may offer such a formula and let the server
+ * explain, but must not offer a text/date/checkbox formula.
+ */
+export function isNumericRollupTarget(field: { type: string; config?: unknown }): boolean {
+  if (field.type === 'number') return true;
+  const config = field.config as Record<string, unknown> | null | undefined;
+  return field.type === 'formula' && config?.['result_type'] === 'number';
+}
 
 /**
  * Rollup (MN-064): aggregate related records; count works with no target field.

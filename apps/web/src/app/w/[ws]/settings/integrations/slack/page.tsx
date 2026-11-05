@@ -1,13 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, MessageSquare, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Segmented } from '@/components/ui/segmented';
-import { cn } from '@/lib/utils';
 
 /* #738 — stable identity across renders. */
 const SLACK_METHOD_OPTIONS = [
@@ -19,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 
 const DOCS_URL = 'https://docs.storyos.dev/integrations/slack';
 const BOT_TOKEN_PATTERN = /^xoxb-/;
@@ -31,22 +29,7 @@ type SlackConfigResponse = {
   has_webhook: boolean;
   default_channel: string | null;
 };
-type TestResult = { ok: true; via: 'bot' | 'webhook'; channel?: string };
 type ApiError = { error?: { message?: string } };
-
-/** Friendlier copy for the Slack errors people actually hit when testing the connection. */
-function friendlyTestError(message: string): string {
-  if (message.includes('channel_not_found')) {
-    return "Slack couldn't find that channel. Invite the bot to it first: /invite @YourAppName";
-  }
-  if (message.includes('not_in_channel')) {
-    return 'The bot isn’t in that channel yet. Run /invite @YourAppName in Slack, then test again.';
-  }
-  if (message.includes('invalid_auth') || message.includes('token_revoked')) {
-    return 'That token is invalid or was revoked. Copy a fresh Bot User OAuth Token from your Slack app.';
-  }
-  return message;
-}
 
 /**
  * Slack setup (MN-021, phase 1) — rewritten for #256: pick a connection method,
@@ -61,7 +44,6 @@ export default function SlackIntegrationPage() {
   const [botToken, setBotToken] = useState('');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [defaultChannel, setDefaultChannel] = useState('');
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const config = useQuery({
     queryKey: ['slack-config', ws],
@@ -106,55 +88,21 @@ export default function SlackIntegrationPage() {
       toast.success('Slack settings saved');
       setBotToken('');
       setWebhookUrl('');
-      setTestResult(null);
       void qc.invalidateQueries({ queryKey: ['slack-config', ws] });
+      void qc.invalidateQueries({ queryKey: ['integration-facts', ws] });
     },
     onError: (error) =>
       toast.error((error as ApiError)?.error?.message ?? 'Could not save Slack settings'),
   });
 
-  const test = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/integrations/slack/test', {
-        params: { path: { ws } },
-      } as never);
-      if (error) throw error;
-      return data as unknown as TestResult;
-    },
-    onSuccess: (result) => {
-      const where = result.channel ? ` to ${result.channel}` : '';
-      setTestResult({
-        ok: true,
-        message: `Test message sent${where} via ${result.via === 'bot' ? 'bot token' : 'webhook'}.`,
-      });
-    },
-    onError: (error) => {
-      const message = (error as ApiError)?.error?.message ?? 'Test message failed';
-      setTestResult({ ok: false, message: friendlyTestError(message) });
-    },
-  });
-
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link
-        href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Integrations
-      </Link>
-      <div className="mb-3 flex items-center gap-2">
-        <MessageSquare className="h-6 w-6 text-ink" />
-        <h1 className="text-lg font-semibold text-ink">Slack</h1>
-        {connected && (
-          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
-            connected
-          </span>
-        )}
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <div className="mb-5 flex flex-col gap-[18px]">
+        <ProviderPageHeader ws={ws} id="slack">
+          Post messages to Slack from automations — add a &quot;Send Slack message&quot; action to any button or automation once this is connected.
+        </ProviderPageHeader>
+        <ProviderConnectionCard ws={ws} id="slack" />
       </div>
-      <p className="mb-5 text-body text-muted">
-        Post messages to Slack from automations — add a &quot;Send Slack message&quot; action to any
-        button or automation once this is connected.
-      </p>
 
       <IntegrationSetupGuide
         className="mb-5"
@@ -166,8 +114,8 @@ export default function SlackIntegrationPage() {
           },
           {
             label: 'Send a test',
-            description: 'Verify the token, channel membership, and delivery before using it.',
-            complete: testResult?.ok === true,
+            description: 'Press Test on the card above to verify the token, channel membership, and delivery before using it.',
+            complete: false,
           },
           {
             label: 'Add it to a workflow',
@@ -308,37 +256,7 @@ export default function SlackIntegrationPage() {
           <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || !canSave}>
             {save.isPending ? 'Saving…' : 'Save'}
           </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              setTestResult(null);
-              test.mutate();
-            }}
-            disabled={test.isPending || !connected}
-            title={connected ? undefined : 'Save a bot token or webhook URL first'}
-          >
-            {test.isPending ? 'Sending…' : 'Send test message'}
-          </Button>
         </div>
-
-        {testResult && (
-          <div
-            className={cn(
-              'flex items-start gap-2 rounded-[var(--radius-control)] border p-3 text-body',
-              testResult.ok
-                ? 'border-border-default bg-hover text-ink'
-                : 'border-error/40 bg-error/5 text-error',
-            )}
-          >
-            {testResult.ok ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-            ) : (
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            )}
-            <span>{testResult.message}</span>
-          </div>
-        )}
       </div>
     </div>
   );

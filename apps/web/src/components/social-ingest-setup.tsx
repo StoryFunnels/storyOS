@@ -2,80 +2,42 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import { AtSign, MessagesSquare, Users } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
+import { useConnections } from '@/components/connections/use-connections';
+import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 import { SOCIAL_INGEST, type SocialIngestId } from '@/lib/social-ingest';
 
-interface Connection {
-  id: string;
-  provider: string;
-  name: string;
-  status: 'active' | 'expired' | 'revoked' | 'error';
-}
-
-const ICONS: Record<SocialIngestId, LucideIcon> = {
-  meta: MessagesSquare,
-  x: AtSign,
-  linkedin: Users,
-};
-
 /**
- * #112 — the top-level setup page for a social engagement ingest platform. A
- * discoverable home for "pull in our Meta/X/LinkedIn comments" that follows the
- * #215 Connect → Configure → Verify pattern, and seeds a per-platform-named
- * HTTP connection so tokens can't be mis-paired. Full dedicated OAuth providers
- * are a follow-up; labeling + discoverability is this slice.
+ * #112 — the top-level setup page for a social engagement ingest platform (Meta, X, LinkedIn), following the #215 Connect → Configure →
+ * Verify pattern.
+ *
+ * Ticket #1188: these three are PRESETS of a Custom API connection (`lib/custom-api-presets.ts`). They only ever made a generic HTTP
+ * connection, named for the platform so the server can tell which token is which. The page's own connect button, its list of this
+ * platform's connections and its "Manage connections" link are now the shared connection card: connect (pre-filled), test and
+ * disconnect in one place. What stays here is what only this page knows: how to get the token, and where the records land.
  */
 export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
   const { ws } = useParams<{ ws: string }>();
   const cfg = SOCIAL_INGEST[platform];
-  const Icon = ICONS[platform];
-
-  const connections = useQuery({
-    queryKey: ['connections', ws],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/connections', {
-        params: { path: { ws } },
-      } as never);
-      if (error) throw error;
-      return (data as unknown as { data: Connection[] }).data;
-    },
-  });
-
-  const matching = (connections.data ?? []).filter(
-    (c) => c.provider === 'http' && cfg.connectionMatch.test(c.name),
+  const connections = useConnections(ws);
+  const connected = (connections.data ?? []).some(
+    (c) => (c.provider === 'http' || c.provider === platform) && cfg.connectionMatch.test(c.name) && c.status === 'active',
   );
-  const connected = matching.some((c) => c.status === 'active');
-
-  const addConnectionHref = `/w/${ws}/settings/connections?add=http&name=${encodeURIComponent(
-    cfg.defaultConnectionName,
-  )}`;
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link className="text-label text-muted hover:text-ink" href={`/w/${ws}/settings/integrations`}>
-        ← Integrations
-      </Link>
-      <div className="mt-6 flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] bg-hover">
-          <Icon className="h-6 w-6 text-ink" />
-        </span>
-        <div>
-          <h1 className="text-lg font-semibold text-ink">{cfg.label}</h1>
-          <p className="text-body text-muted">{cfg.blurb}</p>
-        </div>
-      </div>
+    <div className="mx-auto flex max-w-3xl flex-col gap-[18px] p-4 sm:p-8">
+      <ProviderPageHeader ws={ws} id={platform}>
+        {cfg.blurb}
+      </ProviderPageHeader>
+
+      <ProviderConnectionCard ws={ws} id={platform} />
 
       <IntegrationSetupGuide
-        className="mt-6"
         steps={[
           {
             label: `Add the ${cfg.label} connection`,
-            description: 'Save the access token as a named HTTP connection so it stays identifiable.',
+            description: 'Save the access token as a named Custom API connection so it stays identifiable.',
             complete: connected,
           },
           {
@@ -91,56 +53,20 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
         ]}
       />
 
-      <section className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
-        <h2 className="text-sm font-semibold text-ink">
-          {connected ? `${cfg.label} is connected` : `Connect ${cfg.label}`}
-        </h2>
+      <section className="rounded-[var(--radius-card)] border border-border-default bg-card p-5">
+        <h2 className="text-sm font-semibold text-ink">Get your token</h2>
         <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-body text-muted">
           {cfg.tokenSteps.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link href={addConnectionHref}>
-            <Button>{connected ? 'Add another connection' : `Add ${cfg.label} connection`}</Button>
-          </Link>
-          <Link href={`/w/${ws}/settings/connections`}>
-            <Button variant="secondary">Manage connections</Button>
-          </Link>
-        </div>
       </section>
 
-      {matching.length > 0 && (
-        <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
-          <h2 className="text-sm font-semibold text-ink">This platform&apos;s connections</h2>
-          <div className="mt-3 flex flex-col gap-2">
-            {matching.map((c) => (
-              <div
-                key={c.id}
-                className="flex items-center justify-between gap-3 rounded-[var(--radius-control)] border border-border-default px-3 py-2"
-              >
-                <span className="truncate text-body text-ink">{c.name}</span>
-                <span
-                  className={
-                    c.status === 'active'
-                      ? 'rounded border border-border-default bg-hover px-1.5 py-0.5 text-meta text-ink'
-                      : 'rounded bg-hover px-1.5 py-0.5 text-meta text-error'
-                  }
-                >
-                  {c.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-hover p-5">
+      <section className="rounded-[var(--radius-card)] border border-border-default bg-hover p-5">
         <h2 className="text-sm font-semibold text-ink">Where do items land?</h2>
         <p className="mt-1 text-body text-muted">
-          Comments and mentions become ordinary records. Open any database, choose{' '}
-          <strong>Sources</strong> in its menu, add the <strong>{cfg.label}</strong> source, pick the
-          connection you named above, and map its fields — then run <strong>Sync now</strong>.
+          Comments and mentions become ordinary records. Open any database, choose <strong>Sources</strong> in its menu, add the{' '}
+          <strong>{cfg.label}</strong> source, pick the connection you named above, and map its fields — then run <strong>Sync now</strong>.
         </p>
         <div className="mt-4">
           <Link href={`/w/${ws}`}>

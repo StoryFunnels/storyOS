@@ -139,6 +139,7 @@ export default function AgentRulesPage() {
         <SettingsRow
           title="Let AI share skills with the whole workspace"
           description="A skill an AI writes is shared straight away and always marked as AI-written. Off: AI-written skills stay private to the person whose AI wrote them. Only a person can change this. Skills already shared stay shared."
+          inlineControls
         >
           <Switch
             checked={skills.on}
