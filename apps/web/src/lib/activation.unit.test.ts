@@ -63,7 +63,7 @@ describe('buildActivationSteps', () => {
     expect(byKey.board_view_built).toBe('/w/w1/d/db9');
     expect(byKey.relation_created).toBe('/w/w1/d/db9');
     expect(byKey.teammate_invited).toBe('/w/w1/settings/members');
-    expect(byKey.ai_connected).toBe('/w/w1/settings/api');
+    expect(byKey.ai_connected).toBe('/w/w1/settings/connect-ai');
     expect(byKey.business_pack_installed).toBe('/w/w1/packs');
   });
 

@@ -28,6 +28,7 @@ const HUBS = [HOME_HUB, INTEGRATIONS_HUB];
 const EXEMPT: Record<string, string> = {
   '/integrations/mcp': 'a redirect kept so an old link still resolves (to /connect-ai); it must not be linked',
   '/connections': 'a redirect since ticket #1188 (every credential is on its provider page); kept for the OAuth callback, the editors and old links, and it must not be linked from a hub',
+  '/governance': 'a redirect kept so an old link still resolves (to /agent-rules, ticket #1187); it must not be linked',
 };
 
 function settingsRoutes(dir = SETTINGS_DIR, prefix = ''): string[] {

@@ -100,7 +100,7 @@ export const SETTINGS_PAGES: ReadonlyArray<SettingsPage> = [
 
   { id: 'connect-ai', group: 'ai', label: 'Connect your AI', access: 'editors', path: '/connect-ai' },
   { id: 'runners', group: 'ai', label: 'Runners', access: 'editors', path: '/runners' },
-  { id: 'agent-rules', group: 'ai', label: 'Agent rules', access: 'admins', path: '/governance' },
+  { id: 'agent-rules', group: 'ai', label: 'Agent rules', access: 'admins', path: '/agent-rules' },
 
   { id: 'integrations', group: 'connections', label: 'Integrations', access: 'admins', path: '/integrations' },
   { id: 'api-tokens', group: 'connections', label: 'API tokens', access: 'editors', path: '/api' },

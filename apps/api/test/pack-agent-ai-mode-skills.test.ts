@@ -178,29 +178,47 @@ describe('skills attached to a pack agent are loaded at run time (ticket #1106)'
     expect(String((await agentRecord(ws)).values.skills ?? '')).toContain('Lead triage');
   }, 60_000);
 
-  it('the run record shows the skill that was loaded, with its instructions', async () => {
+  it('the run record shows which skill was loaded, by name and id, and NEVER its instructions (ticket #1203)', async () => {
     const ws = await workspace('Skills in run');
     await install(ws, withSkill('skills-in-run'));
+    const skill = (await skillsIn(ws)).find((s) => s.name === SKILL.name)!;
     const run = await runAgent(ws, (await agentRecord(ws)).id);
     expect(run.status).toBe('Succeeded');
     expect(run.steps).toContain('skills.load');
     expect(run.steps).toContain('Lead triage');
-    expect(run.steps).toContain('ALWAYS-ASK-BUDGET-FIRST');
+    expect(run.steps).toContain(skill.id);
+    expect(run.steps).not.toContain('ALWAYS-ASK-BUDGET-FIRST');
   }, 60_000);
 
   it('an edited skill is what the NEXT run uses (resolved at run time, not copied at install)', async () => {
-    const ws = await workspace('Skills edited');
-    await install(ws, withSkill('skills-edited'));
-    const agent = await agentRecord(ws);
-    expect((await runAgent(ws, agent.id)).steps).toContain('ALWAYS-ASK-BUDGET-FIRST');
+    // The Run record no longer carries the text (ticket #1203), so the evidence is what the model is given: the managed prompt.
+    const prompts: string[] = [];
+    const complete = vi.fn<ManagedAiClient['complete']>().mockImplementation(async (prompt) => {
+      prompts.push(prompt);
+      return { text: JSON.stringify({ steps: [{ tool: 'note', summary: 'ok' }] }), tokensIn: 1, tokensOut: 1 };
+    });
+    const service = app.get(AgentsService);
+    const original = service.runtimeFor;
+    service.runtimeFor = () => new ManagedAiRuntime({ complete });
+    const credits = vi.spyOn(app.get(AiCreditsService), 'canUseManagedAi').mockResolvedValue(true);
+    try {
+      const ws = await workspace('Skills edited');
+      await install(ws, withSkill('skills-edited', { ai_mode: 'storyos_ai' }));
+      const agent = await agentRecord(ws);
+      await runAgent(ws, agent.id);
+      expect(prompts[0]).toContain('ALWAYS-ASK-BUDGET-FIRST');
 
-    const skill = (await skillsIn(ws)).find((s) => s.name === SKILL.name)!;
-    const patched = await as('PATCH', `/workspaces/${ws}/skills/${skill.id}`, { instructions: 'NOW-ASK-TIMELINE-FIRST.' });
-    expect(patched.statusCode, patched.body).toBe(200);
+      const skill = (await skillsIn(ws)).find((s) => s.name === SKILL.name)!;
+      const patched = await as('PATCH', `/workspaces/${ws}/skills/${skill.id}`, { instructions: 'NOW-ASK-TIMELINE-FIRST.' });
+      expect(patched.statusCode, patched.body).toBe(200);
 
-    const after = (await runAgent(ws, agent.id)).steps;
-    expect(after).toContain('NOW-ASK-TIMELINE-FIRST');
-    expect(after).not.toContain('ALWAYS-ASK-BUDGET-FIRST');
+      await runAgent(ws, agent.id);
+      expect(prompts[1]).toContain('NOW-ASK-TIMELINE-FIRST');
+      expect(prompts[1]).not.toContain('ALWAYS-ASK-BUDGET-FIRST');
+    } finally {
+      service.runtimeFor = original;
+      credits.mockRestore();
+    }
   }, 60_000);
 
   it('a skill that no longer exists FAILS the run and names the skill, instead of running without it', async () => {

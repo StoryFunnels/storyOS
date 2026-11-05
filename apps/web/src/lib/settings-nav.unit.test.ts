@@ -189,10 +189,15 @@ describe('every settings URL that existed before ticket #1185 still resolves (AC
       expect(existsSync(file), `${p.id} -> ${p.path ?? p.outside}`).toBe(true);
     }
   });
-  it('the old pages that were renamed keep their route: Profile is /account, Agent rules is /governance, API tokens is /api', () => {
+  it('the old pages that were renamed keep their route: Profile is /account, API tokens is /api (Agent rules moved to /agent-rules in ticket #1187)', () => {
     expect(settingsPageHref(WS, 'profile')).toBe('/w/ws/settings/account');
-    expect(settingsPageHref(WS, 'agent-rules')).toBe('/w/ws/settings/governance');
+    expect(settingsPageHref(WS, 'agent-rules')).toBe('/w/ws/settings/agent-rules');
     expect(settingsPageHref(WS, 'api-tokens')).toBe('/w/ws/settings/api');
+  });
+  it('/governance still resolves: a page that redirects to Agent rules, and the same redirect in next.config so it runs before any layout (ticket #1187)', async () => {
+    expect(readFileSync(pageFile('/governance'), 'utf8')).toMatch(/redirect\(`\/w\/\$\{ws\}\/settings\/agent-rules`\)/);
+    const { default: config } = (await import('../../next.config.mjs')) as { default: { redirects: () => Promise<Array<{ source: string; destination: string }>> } };
+    expect(await config.redirects()).toContainEqual(expect.objectContaining({ source: '/w/:ws/settings/governance', destination: '/w/:ws/settings/agent-rules' }));
   });
   it('/settings itself is now a page (it was a 404)', () => {
     expect(existsSync(fileURLToPath(new URL('../app/w/[ws]/settings/page.tsx', import.meta.url)))).toBe(true);
