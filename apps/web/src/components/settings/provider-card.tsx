@@ -17,7 +17,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { PROVIDER_ICONS } from '@/components/settings/provider-icons';
 import { confirmDisconnectProvider } from '@/lib/settings-confirmations';
 import { friendlySlackTestError } from '@/lib/integration-facts';
-import type { PillTone } from '@/lib/connection-card';
+import { subLineClass, type PillTone } from '@/lib/connection-card';
 import {
   providerPage,
   providerPageSnapshot,
@@ -318,7 +318,7 @@ function ConnectionRowView({
             {row.name}
             {row.preset && <span className="ml-1.5 font-normal text-muted">· {row.preset.label} preset</span>}
           </b>
-          <span className={cn('text-label', model.state === 'needs_attention' ? 'text-warning-text' : 'text-muted')} data-testid="connection-summary">
+          <span className={subLineClass(model.state)} data-testid="connection-summary">
             {model.state === 'needs_attention' ? model.summary : (row.subtitle ?? model.summary)}
           </span>
         </span>

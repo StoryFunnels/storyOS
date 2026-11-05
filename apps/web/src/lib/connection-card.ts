@@ -108,3 +108,12 @@ export function connectionCardModel(input: CardInput): CardModel {
     actions,
   };
 }
+
+/**
+ * The class of the sub-line under a connection's name, for EVERY state. State colour lives in the pill only (Dara's review of PR #1412:
+ * four loud sentences in a row is the opposite of "calm by default"), so the sentence is always muted: the same words, never a warning
+ * or error colour. One function, used by the hub row and the card row, so neither can bring a tone back on its own.
+ */
+export function subLineClass(_state: ConnectionCardState): string {
+  return 'text-label text-muted';
+}

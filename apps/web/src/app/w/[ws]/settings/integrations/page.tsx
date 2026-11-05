@@ -14,6 +14,7 @@ import { useConnections, useIntegrationFacts, useProviders } from '@/components/
 import { PROVIDER_ICONS } from '@/components/settings/provider-icons';
 import { SettingsPill } from '@/components/settings/provider-card';
 import { cn } from '@/lib/utils';
+import { subLineClass, type ConnectionCardState } from '@/lib/connection-card';
 
 const ROW = 'flex min-h-[46px] flex-wrap items-center gap-3 border-t border-border-default px-3.5 py-2 text-body first:border-t-0';
 
@@ -27,11 +28,11 @@ function Logo({ snapshot }: { snapshot: PageSnapshot }) {
 }
 
 /** What a connected row says under its name: the problem if there is one, else how many connections, else what it last did. */
-function connectedSummary(s: PageSnapshot): { text: string; warn: boolean } {
+function connectedSummary(s: PageSnapshot): { text: string; state: ConnectionCardState } {
   const attention = s.rows.find((r) => r.model.state === 'needs_attention');
-  if (attention) return { text: attention.model.summary, warn: true };
-  if (s.rows.length > 1) return { text: `${s.rows.length} connections`, warn: false };
-  return { text: s.rows[0]?.subtitle ?? s.def.blurb, warn: false };
+  if (attention) return { text: attention.model.summary, state: attention.model.state };
+  if (s.rows.length > 1) return { text: `${s.rows.length} connections`, state: s.overall.state };
+  return { text: s.rows[0]?.subtitle ?? s.def.blurb, state: s.overall.state };
 }
 
 /**
@@ -114,7 +115,7 @@ export default function IntegrationsPage() {
                   <Logo snapshot={s} />
                   <span className="flex min-w-0 flex-1 flex-col leading-[1.35] max-md:basis-48">
                     <b className="truncate font-medium text-ink">{s.def.label}</b>
-                    <span className={cn('text-label', summary.warn ? 'text-warning-text' : 'text-muted')}>{summary.text}</span>
+                    <span className={subLineClass(summary.state)}>{summary.text}</span>
                   </span>
                   <SettingsPill tone={s.overall.pill.tone}>{s.overall.pill.label}</SettingsPill>
                   <ChevronRight className="h-3 w-3 text-faint" aria-hidden />

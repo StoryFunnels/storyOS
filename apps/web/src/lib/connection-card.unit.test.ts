@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { connectionCardModel, needsAttention, type CardConnection } from './connection-card';
+import { connectionCardModel, needsAttention, subLineClass, type CardConnection, type ConnectionCardState } from './connection-card';
 
 /** Ticket #1188 — the shared connection card, one case per state it can be in. */
 const active: CardConnection = { status: 'active' };
@@ -105,5 +107,35 @@ describe('needsAttention', () => {
   it('failed jobs are counted in words, singular and plural', () => {
     expect(connectionCardModel({ availability: 'connectable', connection: { status: 'active', errorCount24h: 1 } }).summary).toBe('1 job failed in the last 24 hours.');
     expect(connectionCardModel({ availability: 'connectable', connection: { status: 'active', errorCount24h: 3 } }).summary).toBe('3 jobs failed in the last 24 hours.');
+  });
+});
+
+describe('state colour lives in the pill only: the sub-line is muted in every state (Dara, PR #1412)', () => {
+  const STATES: ConnectionCardState[] = ['connected', 'needs_attention', 'not_connected', 'operator_config', 'cloud_only'];
+  const TONE = /text-(warning|error|danger|success|orange|red|amber|accent)/;
+
+  it('no state gives its sub-line a warning, error or other tone colour; every state is muted', () => {
+    for (const state of STATES) {
+      const cls = subLineClass(state);
+      expect(cls, state).not.toMatch(TONE);
+      expect(cls, state).toContain('text-muted');
+    }
+  });
+
+  it('the pill still carries the tone (needs a look is warn, expired is bad), so the state is not lost', () => {
+    expect(connectionCardModel({ availability: 'connectable', connection: { status: 'active', problem: 'x' } }).pill.tone).toBe('warn');
+    expect(connectionCardModel({ availability: 'connectable', connection: { status: 'expired' } }).pill.tone).toBe('bad');
+    expect(connectionCardModel({ availability: 'connectable', connection: { status: 'revoked' } }).pill.tone).toBe('bad');
+  });
+
+  const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  it('the card row and the hub row take their sub-line class from subLineClass, with no tone class beside it', () => {
+    const card = read('../components/settings/provider-card.tsx');
+    const hub = read('../app/w/[ws]/settings/integrations/page.tsx');
+    expect(card).toMatch(/className=\{subLineClass\(model\.state\)\} data-testid="connection-summary"/);
+    expect(hub).toMatch(/<span className=\{subLineClass\(summary\.state\)\}>\{summary\.text\}<\/span>/);
+    // Neither file picks a tone for the sentence under the name any more.
+    expect(card).not.toMatch(/needs_attention' \? 'text-warning-text'/);
+    expect(hub).not.toMatch(/warn \? 'text-warning-text'/);
   });
 });
