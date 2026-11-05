@@ -41,3 +41,15 @@ export function canLetAgentThink(o: { role: string | undefined; isOwner: boolean
 export function canRunAgentNow(role: string | undefined): boolean {
   return role === 'admin';
 }
+
+/**
+ * Ticket #1196 — the two hire-card choices the API reserves for a workspace ADMIN, so a member is never offered them:
+ *  - holding an agent's record writes for approval ("Changing a record"): `POST /agent-write-gates` is admin AND a person
+ *    (agent-write-gates.controller.ts, ticket #1104);
+ *  - waking an agent when a record is assigned to it: `POST /agents/triggers` is `@MinRole('admin')` (agents.controller.ts).
+ * `undefined` (the role has not loaded) is "not yet", never "allowed".
+ */
+export function canDeclareWriteGates(role: string | undefined): boolean {
+  return role === 'admin';
+}
+export const canBindAgentToAssignment = canDeclareWriteGates;
