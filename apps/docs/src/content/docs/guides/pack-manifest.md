@@ -242,8 +242,12 @@ A pack's **state-bound agent triggers** ("wake this agent when Status becomes Ne
 so an install would otherwise start an agent nobody chose. A manifest cannot switch one on: a trigger has
 no `enabled` field, and one a file carries is dropped.
 
-- A trigger with `human_gate: true` is not held off. It never starts a run by itself: a person starts
-  every run. It reports `enabled: true` and `human_gate: true`.
+- The built-in packs do not set `human_gate`, so every one of their triggers installs off and wakes its
+  agent by itself once a person switches it on. Anything an agent writes outward still waits in the
+  approvals queue.
+- A trigger with `human_gate: true` ("ask me before each run") is not held off. It never starts a run by
+  itself: a person starts every run. It reports `enabled: true` and `human_gate: true`. A manifest can
+  still set it; no built-in pack does.
 - To switch one on at install, pass `enable_agent_triggers` with its label, written
   `Agent ← Database.Field = State` as the preview lists it. Over MCP this is the `enable_agent_triggers`
   input of `install_pack`; over REST it is `enable_agent_triggers` on `packs/install` and `packs/preview`.

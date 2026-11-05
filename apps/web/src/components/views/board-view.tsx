@@ -16,7 +16,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Lock, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -38,6 +38,7 @@ import {
 } from './date-buckets';
 import type { DateGranularity } from './date-buckets';
 import { RelationChip } from '../table-view/relation-cell';
+import { useRelationGroupTargets } from './relation-group-targets';
 import type { LinkChip } from '../table-view/relation-cell';
 import {
   recordCountKey,
@@ -154,17 +155,7 @@ export function BoardView({
   // one-to-many relation. Each supplies the same two things — the columns to show,
   // and which column a card sits in.
   const targetDb = groupField?.type === 'relation' ? groupField.relation?.target_database_id : undefined;
-  const targets = useQuery({
-    queryKey: ['board-groups', ws, targetDb],
-    enabled: Boolean(targetDb),
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
-        params: { path: { ws, db: targetDb! }, query: { limit: 100 } },
-      });
-      if (error) throw error;
-      return (data as unknown as { data: Array<{ id: string; title: string }> }).data;
-    },
-  });
+  const targets = useRelationGroupTargets(ws, targetDb);
 
   const groupOf = useCallback(
     (row: RecordRow): string => {

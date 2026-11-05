@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { DndContext, closestCenter, pointerWithin, useDroppable } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -24,6 +24,7 @@ import { InboxPanel, useUnreadCount } from '@/components/inbox-panel';
 import { openPalette, useShortcutKeys } from '@/lib/shortcuts';
 import { useDatabases, useSidebarMutations, useSpaceGroups, useSpaces, useWorkspace } from '@/lib/queries';
 import { useHidden } from '@/lib/hidden-sidebar';
+import { hiddenSectionModel, hiddenSectionOpenKey, readHiddenSectionOpen, type HiddenSectionModel } from '@/lib/hidden-section';
 import { useViewsOnlyMode } from '@/lib/views-only-mode';
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { AccountMenu as AvatarMenu } from '@/components/account-menu';
@@ -32,6 +33,7 @@ import { agentSystemKey, isSystemOnlySpace } from '@/lib/system-databases';
 import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
 import { canManageAccess, showsLock } from '@/lib/access-model';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
+import { DatabaseGlyph } from '@/components/database-glyph';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
@@ -64,6 +66,9 @@ import { SidebarViewRow, type SidebarView } from '@/components/sidebar-view-row'
 import { SidebarRowMenu } from '@/components/sidebar-row-menu';
 import { PersonalSection } from '@/components/personal-section';
 import { SidebarAiSection } from '@/components/sidebar-ai-section';
+import { SettingsSidebarMenu } from '@/components/settings/settings-sidebar-menu';
+import { sidebarBody } from '@/lib/settings-menu';
+import { isSettingsPath } from '@/lib/settings-nav';
 import { useSidebarSortableSensors } from '@/components/ui/drag-presentation';
 import { OPTION_COLORS } from '@/components/table-view/cells';
 import { databaseColor, entityColor } from '@/lib/entity-color';
@@ -128,6 +133,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const params = useParams<{ ws: string }>();
   const ws = params.ws;
   const router = useRouter();
+  // #1216 — in Settings the body below the search is the settings menu; the tree stays mounted (hidden) so its state survives the visit.
+  const onSettingsBody = sidebarBody(usePathname()) === 'settings';
   const workspace = useWorkspace(ws);
   const spaces = useSpaces(ws);
   const databases = useDatabases(ws);
@@ -157,8 +164,19 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
   const allSpaces = spaces.data ?? [];
   const allDatabases = databases.data ?? [];
   const visibleSpaces = allSpaces.filter((s) => !isHidden('space', s.id) && !s.personal);
-  const hiddenSpaces = allSpaces.filter((s) => isHidden('space', s.id));
-  const hiddenDatabases = allDatabases.filter((d) => isHidden('database', d.id) && !isHidden('space', d.spaceId));
+  // Ticket #1211 — a space that holds only the Agentic OS system databases reports itself from its own row (it is the one
+  // that knows its documents, folders and views); Hidden lists those too, so no space is unreachable from the sidebar.
+  const [systemOnlyIds, setSystemOnlyIds] = useState<ReadonlySet<string>>(() => new Set());
+  const reportSystemOnly = useCallback((id: string, systemOnly: boolean) => {
+    setSystemOnlyIds((prev) => {
+      if (prev.has(id) === systemOnly) return prev;
+      const next = new Set(prev);
+      if (systemOnly) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  const hiddenModel = hiddenSectionModel({ spaces: allSpaces, databases: allDatabases, isHidden, systemOnlySpaceIds: systemOnlyIds });
 
   /**
    * #742 finding 04 — Groups render as a tier ABOVE ungrouped spaces, each
@@ -372,7 +390,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       </div>
       {inboxOpen && <InboxPanel ws={ws} onClose={() => setInboxOpen(false)} />}
 
-      <nav className="scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5">
+      {onSettingsBody && <SettingsSidebarMenu ws={ws} />}
+      <nav className={cn('scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5', onSettingsBody && 'hidden')}>
         <FavoritesSection ws={ws} />
         {/* #967 — "Collections" is gone: the AI layer has its own gold section (Skills, Agent runs,
             Business Packs; "Connect your AI" shows until the workspace has a connected AI). */}
@@ -454,6 +473,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                         onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
                         viewsOnly={viewsOnly}
                         stickyTop={GROUP_BAND_H}
+                        onSystemOnlyChange={reportSystemOnly}
                       />
                     ))}
                   </div>
@@ -475,6 +495,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
                   groups={sortedGroups}
                   onMoveToGroup={(groupId) => mutations.updateSpace.mutate({ id: space.id, groupId })}
                   viewsOnly={viewsOnly}
+                  onSystemOnlyChange={reportSystemOnly}
                 />
               ))}
             </UngroupedDropZone>
@@ -532,7 +553,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </>
         )}
 
-        <HiddenSection spaces={hiddenSpaces} databases={hiddenDatabases} onUnhide={unhide} />
+        <HiddenSection ws={ws} model={hiddenModel} onUnhide={unhide} onNavigate={onCloseMobile} />
       </nav>
     </aside>
       {!panelHidden && <SidebarResizeHandle width={sidebarWidth} onResize={setSidebarWidth} onCommit={persistSidebarWidth} />}
@@ -658,7 +679,7 @@ function SidebarRail({
   const pathname = usePathname();
   const isHome = pathname === `/w/${ws}`;
   const isMyWork = pathname === `/w/${ws}/me`;
-  const onSettings = pathname === `/w/${ws}/settings` || pathname.startsWith(`/w/${ws}/settings/`);
+  const onSettings = isSettingsPath(pathname);
 
   return (
     <div className="rail-shade flex w-[52px] shrink-0 flex-col items-center gap-1 bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-frame))] py-2">
@@ -870,25 +891,49 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
   );
 }
 
-/** The "Hidden" section at the bottom of the tree (#35): personally-hidden spaces and
- * databases, each with a one-click "show again". Renders nothing when empty. */
+/**
+ * The "Hidden" section at the bottom of the Spaces (#35, ticket #1211): every space that is not in the main list, each one a
+ * real link that opens it. Two kinds, one list: spaces that hold only the Agentic OS system databases, and spaces / databases
+ * this person hid (those keep their one-click "show again"). Collapsed unless this person opened it, and it remembers.
+ * Renders nothing when empty. The list is already narrowed to what the API let this person see (see `hiddenSectionModel`).
+ */
 function HiddenSection({
-  spaces,
-  databases,
+  ws,
+  model,
   onUnhide,
+  onNavigate,
 }: {
-  spaces: Space[];
-  databases: DatabaseSummary[];
+  ws: string;
+  model: HiddenSectionModel<Space, DatabaseSummary>;
   onUnhide: (kind: 'space' | 'database', id: string) => void;
+  onNavigate?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const count = spaces.length + databases.length;
+  const openKey = hiddenSectionOpenKey(ws);
+  useEffect(() => {
+    try {
+      setOpen(readHiddenSectionOpen(window.localStorage.getItem(openKey)));
+    } catch {
+      /* storage blocked: stays collapsed */
+    }
+  }, [openKey]);
+  const toggle = () =>
+    setOpen((o) => {
+      try {
+        window.localStorage.setItem(openKey, o ? '0' : '1');
+      } catch {
+        /* storage blocked: the toggle still works for this visit */
+      }
+      return !o;
+    });
+  const count = model.count;
   if (count === 0) return null;
   return (
-    <div className="mt-2 border-t border-border-default pt-2">
+    <div className="mt-2 border-t border-border-default pt-2" data-testid="sidebar-hidden-section">
       <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1 px-2 py-1 text-meta font-semibold uppercase tracking-wider text-muted hover:text-ink-secondary"
+        onClick={toggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1 px-2 py-1 text-meta font-semibold uppercase tracking-wider text-muted hover:text-ink-secondary max-md:min-h-[34px]"
       >
         <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
         Hidden{' '}
@@ -903,11 +948,26 @@ function HiddenSection({
       </button>
       {open && (
         <div className="flex flex-col gap-0.5">
-          {spaces.map((s) => (
-            <HiddenRow key={`s-${s.id}`} icon={s.icon} color={s.color} name={s.name} onUnhide={() => onUnhide('space', s.id)} />
+          {model.spaces.map(({ space: s, reason }) => (
+            <HiddenRow
+              key={`s-${s.id}`}
+              href={`/w/${ws}/s/${s.id}`}
+              mark={<LetterMark name={s.name} color={s.color} icon={s.icon} />}
+              name={s.name}
+              // A system space has no "show in my sidebar": the product keeps it out of the list, you can only open it.
+              onUnhide={reason === 'mine' ? () => onUnhide('space', s.id) : undefined}
+              onNavigate={onNavigate}
+            />
           ))}
-          {databases.map((d) => (
-            <HiddenRow key={`d-${d.id}`} icon={d.icon} color={databaseColor(d.color, d.id)} name={d.name} onUnhide={() => onUnhide('database', d.id)} />
+          {model.databases.map((d) => (
+            <HiddenRow
+              key={`d-${d.id}`}
+              href={`/w/${ws}/d/${d.id}`}
+              mark={<EntityIcon icon={d.icon} color={databaseColor(d.color, d.id)} fallback={<Database className="h-3.5 w-3.5" />} />}
+              name={d.name}
+              onUnhide={() => onUnhide('database', d.id)}
+              onNavigate={onNavigate}
+            />
           ))}
         </div>
       )}
@@ -916,37 +976,44 @@ function HiddenSection({
 }
 
 function HiddenRow({
-  icon,
-  color,
+  href,
+  mark,
   name,
   onUnhide,
+  onNavigate,
 }: {
-  icon: string | null;
-  color: string | null;
+  href: string;
+  mark: React.ReactNode;
   name: string;
-  onUnhide: () => void;
+  onUnhide?: () => void;
+  onNavigate?: () => void;
 }) {
+  const pathname = usePathname();
+  const active = pathname === href || !!pathname?.startsWith(`${href}/`);
+  // Through the shared row (#779): the same gutter, height (34px in the phone drawer) and active fill as every other row.
   return (
-    <div className="group/h mx-1.5 flex h-6 items-center justify-between rounded px-2 text-body text-muted">
-      <span className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
-        {/* the chevron column every SidebarRow reserves, empty here — without it
-            these rows' icons sat 20px left of everything else */}
-        <span aria-hidden className="-mr-0 block w-3 shrink-0" />
-        <GlyphSlot>
-          <EntityIcon icon={icon} color={color} fallback={<Database className="h-3.5 w-3.5" />} />
-        </GlyphSlot>
+    <SidebarRow depth={0} active={active} className="group/h">
+      <Link
+        href={href}
+        onClick={onNavigate}
+        aria-current={active ? 'page' : undefined}
+        className="flex min-w-0 flex-1 items-center gap-2 text-body text-muted"
+      >
+        <GlyphSlot>{mark}</GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>
-      </span>
-      <Tooltip label="Unhide">
-        <button
-          onClick={onUnhide}
-          aria-label="Show in my sidebar"
-          className="rounded p-0.5 text-faint opacity-0 hover:bg-active hover:text-muted focus-visible:opacity-100 group-hover/h:opacity-100"
-        >
-          <Eye className="h-3.5 w-3.5" />
-        </button>
-      </Tooltip>
-    </div>
+      </Link>
+      {onUnhide && (
+        <Tooltip label="Unhide">
+          <button
+            onClick={onUnhide}
+            aria-label={`Show ${name} in my sidebar`}
+            className="rounded p-0.5 text-faint hover:bg-active hover:text-muted focus-visible:opacity-100 md:opacity-0 md:group-hover/h:opacity-100 max-md:p-2"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
+      )}
+    </SidebarRow>
   );
 }
 
@@ -1068,6 +1135,7 @@ function SpaceSection({
   onMoveToGroup,
   viewsOnly,
   stickyTop = 0,
+  onSystemOnlyChange,
 }: {
   ws: string;
   space: Space;
@@ -1083,6 +1151,8 @@ function SpaceSection({
    * ungrouped space (nothing sticks above it), `GROUP_BAND_H` for a space
    * inside a group (stacks right below that group's own sticky band). */
   stickyTop?: number;
+  /** Ticket #1211 — told whether this space holds ONLY the system databases, so the Hidden section can list it. */
+  onSystemOnlyChange?: (spaceId: string, systemOnly: boolean) => void;
 }) {
   // #1058 — the Agentic OS system databases (Agents, Agent runs, Triggers) are reached from the AI section, not listed here.
   // Nothing is deleted or moved: their URLs, views and MCP refs all still resolve.
@@ -1650,19 +1720,21 @@ function SpaceSection({
   // The views of the hidden system databases themselves are not "something else in the space".
   const hiddenDbIds = new Set(allSpaceDatabases.filter((d) => agentSystemKey(d) !== null).map((d) => d.id));
   const extrasLoaded = docs.isSuccess && foldersQuery.isSuccess && viewsQuery.isSuccess;
-  if (
-    isSystemOnlySpace(
-      allSpaceDatabases,
-      extrasLoaded
-        ? {
-            documents: docs.data.length,
-            folders: folders.length,
-            views: spaceViews.filter((v) => !(v.database_id && hiddenDbIds.has(v.database_id))).length,
-          }
-        : undefined,
-    )
-  )
-    return null;
+  const systemOnly = isSystemOnlySpace(
+    allSpaceDatabases,
+    extrasLoaded
+      ? {
+          documents: docs.data.length,
+          folders: folders.length,
+          views: spaceViews.filter((v) => !(v.database_id && hiddenDbIds.has(v.database_id))).length,
+        }
+      : undefined,
+  );
+  // Ticket #1211 — it leaves THIS list but is not lost: the Hidden section lists it (and opens it).
+  useEffect(() => {
+    onSystemOnlyChange?.(space.id, systemOnly);
+  }, [onSystemOnlyChange, space.id, systemOnly]);
+  if (systemOnly) return null;
 
   return (
     <div className="mb-1">
@@ -2817,15 +2889,8 @@ function DatabaseRow({
           onPointerDown={() => prefetchDatabase(db.id)}
           className="flex min-w-0 flex-1 items-center gap-2"
         >
-          <GlyphSlot>
-            {/* #1001 — no `text-muted` on the fallback glyph: it overrides the colour the icon's wrapper hands down, so every database drew
-                the same grey whatever colour it had. */}
-            <EntityIcon
-              icon={db.icon}
-              color={databaseColor(db.color, db.id)}
-              fallback={<Database className="h-3.5 w-3.5" />}
-            />
-          </GlyphSlot>
+          {/* Ticket #1207 — the glyph is the shared component (the home cards draw the same one). */}
+          <DatabaseGlyph icon={db.icon} color={db.color} id={db.id} />
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
           {showsLock(db) && <RestrictedLock />}
         </Link>

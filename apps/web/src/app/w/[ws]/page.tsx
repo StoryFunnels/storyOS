@@ -197,7 +197,7 @@ export default function WorkspaceHome() {
         </div>
       )}
 
-      {established && <WorkspaceHomeBlocks ws={ws} databases={databases.data ?? []} />}
+      {established && <WorkspaceHomeBlocks ws={ws} databases={databases.data ?? []} spaces={spaces.data ?? []} />}
 
       {(spaces.data?.length ?? 0) > 0 && (databases.data?.length ?? 0) === 0 && (
         <p className="mt-6 text-body text-muted">
