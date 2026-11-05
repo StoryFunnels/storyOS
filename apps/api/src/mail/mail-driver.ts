@@ -35,12 +35,17 @@ export const RESEND_ENDPOINT = 'https://api.resend.com/emails';
  * sender build the SAME transport shape from a bag of connection creds,
  * rather than three copies of this `createTransport(...)` call existing.
  */
-export function buildSmtpTransport(opts: { host: string; port: number; user?: string; pass?: string }): Transporter {
+/**
+ * `servername` (#1044): when `host` is an IP address the caller already resolved and checked, the name TLS must verify the
+ * certificate against (and send as SNI). Without it, a pinned address would fail certificate checks or skip the name.
+ */
+export function buildSmtpTransport(opts: { host: string; port: number; user?: string; pass?: string; servername?: string }): Transporter {
   return createTransport({
     host: opts.host,
     port: opts.port,
     secure: opts.port === 465,
     auth: opts.user ? { user: opts.user, pass: opts.pass } : undefined,
+    ...(opts.servername ? { tls: { servername: opts.servername } } : {}),
   });
 }
 

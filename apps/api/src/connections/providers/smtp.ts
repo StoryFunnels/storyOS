@@ -1,6 +1,48 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { buildSmtpTransport } from '../../mail/mail-driver';
+import { envCidrList, resolvePublicAddress, SsrfBlockedError } from '../../common/net-guard';
 import type { ProviderDescriptor } from './types';
+
+/** #1044: the ports mail is actually submitted on. Anything else is not an SMTP relay a workspace needs. */
+export const SMTP_ALLOWED_PORTS: readonly number[] = [25, 465, 587, 2525];
+
+export class SmtpTargetRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SmtpTargetRefused';
+  }
+}
+
+/**
+ * #1044 — where a workspace SMTP connection may connect: a standard SMTP port, on a host that resolves to a public address
+ * (or one inside SMTP_ALLOW_PRIVATE_CIDRS, a self-host's own relay). Returns the transport options PINNED to the address that
+ * was checked, with TLS still verified against the hostname. Used by the connection check AND by every send, so a connection
+ * saved before this rule, or a name re-pointed after saving, is held to it too.
+ */
+export async function smtpTarget(host: string, port: number): Promise<{ host: string; port: number; servername?: string }> {
+  if (!SMTP_ALLOWED_PORTS.includes(port)) {
+    throw new SmtpTargetRefused(`SMTP port must be one of ${SMTP_ALLOWED_PORTS.join(', ')}`);
+  }
+  const name = host.trim();
+  let address: string;
+  try {
+    address = await resolvePublicAddress(name, { allowPrivateCidrs: envCidrList('SMTP_ALLOW_PRIVATE_CIDRS') });
+  } catch (error) {
+    // One answer for "private", "blocked" and "does not resolve": which one it was is exactly what must not leak.
+    if (error instanceof SsrfBlockedError || (error as NodeJS.ErrnoException)?.code === 'ENOTFOUND') {
+      throw new SmtpTargetRefused('SMTP host must be a public mail server');
+    }
+    throw error;
+  }
+  return address === name.replace(/^\[|\]$/g, '') ? { host: address, port } : { host: address, port, servername: name };
+}
+
+/** #1044: what a failed check or send may say. A credential refusal is useful and reveals nothing about the network; the rest is one sentence. */
+export function smtpFailureMessage(error: unknown): string {
+  const code = (error as { code?: string; responseCode?: number })?.code;
+  if (code === 'EAUTH') return 'the mail server rejected the username or password';
+  return 'could not connect to the mail server with these settings';
+}
 
 /**
  * The auth JSON shape stored (sealed) for a direct SMTP connection (MN-256).
@@ -48,13 +90,18 @@ export const smtpProvider: ProviderDescriptor & { buildTransport: typeof buildSm
     if (!a.from_address || !a.from_address.trim()) {
       throw new UnprocessableEntityException('SMTP connection needs a from_address — send_email can never override it');
     }
-    const transporter = smtpProvider.buildTransport({ host: a.host, port: a.port, user: a.user, pass: a.pass });
+    let target: Awaited<ReturnType<typeof smtpTarget>>;
+    try {
+      target = await smtpTarget(a.host, Number(a.port));
+    } catch (error) {
+      if (error instanceof SmtpTargetRefused) throw new UnprocessableEntityException(error.message);
+      throw error;
+    }
+    const transporter = smtpProvider.buildTransport({ ...target, user: a.user, pass: a.pass });
     try {
       await transporter.verify();
     } catch (error) {
-      throw new UnprocessableEntityException(
-        `SMTP check failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new UnprocessableEntityException(`SMTP check failed: ${smtpFailureMessage(error)}`);
     } finally {
       transporter.close();
     }

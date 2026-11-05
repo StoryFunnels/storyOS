@@ -69,6 +69,14 @@ SMTP_PASS=re_your_resend_api_key_here
 MAIL_FROM=StoryOS <noreply@your-domain.com>
 ```
 
+That is the server's own mail. A workspace can also connect its own SMTP server (Settings → Integrations) for the
+send-email automation. Such a connection must use port 25, 465, 587 or 2525 and a host that resolves to a public address.
+If your mail relay runs on your own network, allow its range explicitly:
+
+```bash
+SMTP_ALLOW_PRIVATE_CIDRS=10.0.5.0/24
+```
+
 ### Google sign-in
 
 Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register the redirect URI

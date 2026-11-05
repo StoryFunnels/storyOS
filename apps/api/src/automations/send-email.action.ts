@@ -7,6 +7,7 @@ import { automationJobs, notifications } from '../db/schema';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { ConnectionsService } from '../connections/connections.service';
 import type { ResendAuth } from '../connections/providers/resend';
+import { smtpFailureMessage, smtpTarget, SmtpTargetRefused } from '../connections/providers/smtp';
 import type { SmtpConnectionAuth } from '../connections/providers/smtp';
 import { NotificationsService } from '../notifications/notifications.service';
 import { escapeHtml, renderBrandedEmail } from '../mail/templates';
@@ -273,12 +274,15 @@ export class SendEmailActionService implements OnModuleInit {
     if (!auth.from_address) {
       throw new ProviderError('SMTP connection has no configured from_address', { retryable: false });
     }
-    const transporter = this.buildTransport({
-      host: auth.host,
-      port: auth.port,
-      user: auth.user,
-      pass: auth.pass,
-    });
+    // #1044: the same host/port rule as the connection check, on every send (a name can be re-pointed after it was checked).
+    let target: Awaited<ReturnType<typeof smtpTarget>>;
+    try {
+      target = await smtpTarget(auth.host, Number(auth.port));
+    } catch (error) {
+      if (error instanceof SmtpTargetRefused) throw new ProviderError(`SMTP send refused: ${error.message}`, { retryable: false });
+      throw error;
+    }
+    const transporter = this.buildTransport({ ...target, user: auth.user, pass: auth.pass });
     try {
       const info = await transporter.sendMail({
         from: auth.from_address,
@@ -294,10 +298,7 @@ export class SendEmailActionService implements OnModuleInit {
       // SMTP failures are network/auth blips as often as not — retryable
       // unless nodemailer itself says otherwise (it doesn't distinguish
       // cleanly), so this errs toward retrying rather than dropping mail.
-      throw new ProviderError(
-        `SMTP send failed: ${error instanceof Error ? error.message : String(error)}`,
-        { retryable: true },
-      );
+      throw new ProviderError(`SMTP send failed: ${smtpFailureMessage(error)}`, { retryable: true });
     } finally {
       transporter.close();
     }

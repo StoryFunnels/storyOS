@@ -202,7 +202,7 @@ const METADATA_BLOCKLIST = [
 // parse on first call — these two are read per-call by design, both so a test can
 // toggle them freely and so an operator's edit takes effect without a full reboot
 // of the env() singleton).
-function envCidrList(name: 'BLOCKED_CIDRS' | 'HTTP_ACTION_ALLOW_PRIVATE_CIDRS'): string[] {
+export function envCidrList(name: 'BLOCKED_CIDRS' | 'HTTP_ACTION_ALLOW_PRIVATE_CIDRS' | 'SMTP_ALLOW_PRIVATE_CIDRS'): string[] {
   const raw = process.env[name] ?? '';
   return raw
     .split(',')
@@ -261,6 +261,23 @@ export async function assertPublicHost(
   }
   const results = await lookup(hostname, { all: true });
   for (const { address } of results) checkAddress(address, hostname, allow);
+}
+
+/**
+ * #1044 — `assertPublicHost`, returning the address it checked so the caller can connect to THAT address (a name re-resolved by
+ * the client library could answer differently the second time). For protocols with no guarded transport of their own (SMTP).
+ */
+export async function resolvePublicAddress(hostname: string, opts?: { allowPrivateCidrs?: string[] }): Promise<string> {
+  const allow = opts?.allowPrivateCidrs ?? [];
+  const bare = hostname.replace(/^\[|\]$/g, '');
+  if (isIP(bare)) {
+    checkAddress(bare, null, allow);
+    return bare;
+  }
+  const results = await lookup(hostname, { all: true });
+  if (results.length === 0) throw new SsrfBlockedError(`refusing to call ${hostname} — it resolves to nothing`);
+  for (const { address } of results) checkAddress(address, hostname, allow);
+  return results[0]!.address;
 }
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:']);
