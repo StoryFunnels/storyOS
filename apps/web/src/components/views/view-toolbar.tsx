@@ -525,6 +525,7 @@ export function ViewToolbar({
           onPatch={onPatch}
           databaseId={databaseId}
           onReorderFields={onReorderFields}
+          readOnly={readOnly}
         />
         {menuItems.length > 0 && (
           <DropdownMenu>
