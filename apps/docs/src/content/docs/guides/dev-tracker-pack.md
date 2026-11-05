@@ -75,10 +75,12 @@ like. It has read and write scope, and its target database is Issues.
 - **The gate covers updates, not creates.** The pack declares the gate for the `update` operation only. The
   agent's instructions also tell it never to change an issue's State or Assignee, but that is an instruction
   to the AI, not something the platform enforces: the gate is what stops an update from landing unseen.
-- **Entering Triage does not start it.** The agent is bound to Issues entering the Triage state, and the
-  binding is marked as a human gate. A human-gate binding never starts a run by itself, so a new issue in
-  Triage waits until a person starts a run, for example with the MCP `run_agent` tool (see
-  [MCP tools](/mcp/tools/)).
+- **Entering Triage can start it, once you switch it on.** The agent is bound to Issues entering the Triage
+  state. The binding installs switched off. In the install review, choose to wake the agent automatically, and
+  from then on a new issue in Triage starts a run by itself, with nobody starting it. Left off, nothing starts
+  by itself, and you can still start a run yourself, for example with the MCP `run_agent` tool (see
+  [MCP tools](/mcp/tools/)). The pack's binding is not a human gate; the human-gate option, "ask me before
+  each run", stays available on bindings you create yourself.
 
 Uninstalling removes the agent along with the pack's views and automations. See
 [Uninstalling a pack](/mcp/tools/#uninstalling-a-pack).

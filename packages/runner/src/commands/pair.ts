@@ -27,6 +27,9 @@ export interface PairOptions {
   signal?: AbortSignal;
 }
 
+/** The server issues 6-character codes (apps/api runner.constants.ts). Anything else cannot be a code, so it is refused here without a round trip. */
+export const PAIRING_CODE_LENGTH = 6;
+
 export const REPAIR_HINT = 'Run npx @storyos/runner again to get a new code.';
 
 export function describeTools(tools: ToolReport[]): string[] {
@@ -61,7 +64,10 @@ export function pairErrorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Normalise what was typed: letters and digits only, upper case. The server forgives the same, so a dash or a space never matters. */
+/**
+ * Normalise what was typed: letters and digits only, upper case. The server forgives the same, so a dash or a space never matters
+ * (ticket #1209: "7PV UVC", "7pv-uvc" and "7PVUVC" are one code).
+ */
 export function tidyCode(raw: string): string {
   return raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 }
@@ -88,6 +94,12 @@ export async function pair(opts: PairOptions): Promise<number> {
   code = tidyCode(code);
   if (!code) {
     io.err('No code was given. Open "Add a Runner" in StoryOS to get one.');
+    return 2;
+  }
+  if (code.length !== PAIRING_CODE_LENGTH) {
+    io.err(
+      `That code has ${code.length} character${code.length === 1 ? '' : 's'}; the code in StoryOS has ${PAIRING_CODE_LENGTH}. Check it, or start again from "Add a Runner" in StoryOS.`,
+    );
     return 2;
   }
   registerSecret(code);

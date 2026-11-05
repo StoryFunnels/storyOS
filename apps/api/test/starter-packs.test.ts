@@ -69,11 +69,11 @@ describe('starter packs (MN-221 / #163)', () => {
         wsId = await newWorkspace(entry.slug);
       });
 
-      it('has at least one state, one human-gated trigger, one automation and sample records in its manifest', () => {
+      it('has at least one state, one trigger (not human-gated: ticket #1212), one automation and sample records in its manifest', () => {
         const { manifest } = entry;
         expect(manifest.states.length).toBeGreaterThanOrEqual(1);
         expect(manifest.triggers.length).toBeGreaterThanOrEqual(1);
-        expect(manifest.triggers.some((t) => t.human_gate === true)).toBe(true);
+        expect(manifest.triggers.some((t) => t.human_gate === true)).toBe(false);
         expect(manifest.agents.length).toBeGreaterThanOrEqual(1);
         expect(manifest.automations.length).toBeGreaterThanOrEqual(1);
         expect(manifest.sample_records.length).toBeGreaterThanOrEqual(1);

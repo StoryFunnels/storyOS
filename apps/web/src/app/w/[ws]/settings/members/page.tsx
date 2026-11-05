@@ -646,7 +646,7 @@ function InviteDialog({
                 value={role}
                 onChange={(next) => setRole(next as typeof role)}
                 className="h-9 w-full max-w-none"
-                menuClassName="w-[22rem] max-w-[calc(100vw-3rem)]"
+                contentClassName="w-[22rem] max-w-[calc(100vw-3rem)]"
                 options={[
                   { value: 'member', label: 'Member — full access' },
                   { value: 'admin', label: 'Admin — settings & members' },
@@ -662,7 +662,7 @@ function InviteDialog({
                   value={grantRole}
                   onChange={setGrantRole}
                   className="h-9 w-full max-w-none"
-                  menuClassName="w-[22rem] max-w-[calc(100vw-3rem)]"
+                  contentClassName="w-[22rem] max-w-[calc(100vw-3rem)]"
                   options={GRANT_ROLES.map((r) => ({ value: r.value, label: r.label }))}
                 />
                 <Label>Spaces they can access</Label>

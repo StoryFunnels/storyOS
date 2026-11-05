@@ -250,9 +250,10 @@ describe('the pairing state machine (AC2)', () => {
   it('a failure to get a code is shown, not a blank card', () => {
     expect(reduce([{ type: 'issue_failed', message: 'Too many pairing codes' }])).toEqual({ phase: 'failed', message: 'Too many pairing codes' });
   });
-  it('the code is shown as two groups of three and read out one character at a time', () => {
-    expect(displayCode('K7P4QX')).toBe('K7P 4QX');
-    expect(displayCode('k7p-4qx')).toBe('K7P 4QX');
+  it('the code is shown as one unbroken run (ticket #1209: no space) and read out one character at a time', () => {
+    expect(displayCode('K7P4QX')).toBe('K7P4QX');
+    expect(displayCode('k7p-4qx')).toBe('K7P4QX');
+    expect(displayCode('K7P 4QX')).toBe('K7P4QX');
     expect(codeAriaLabel('K7P4QX')).toBe('Pairing code K 7 P 4 Q X');
   });
 });
