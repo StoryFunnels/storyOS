@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -20,12 +20,17 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
-import { PackMap, PackWhy, ReuseChoice } from '@/components/pack-review';
+import type { MarkManifest } from '@/lib/pack-marks';
+import { PackMap, PackWhy } from '@/components/pack-review';
+import { ReuseChoice } from '@/components/pack-reuse-choice';
 import {
+  droppedPicks,
   existingChoices,
-  reusedNames,
+  manyChoices,
+  reusedLabels,
   reuseNote,
   reuseResolutions,
+  singleReusable,
   type ExistingElsewhere,
   type PackRelation,
   type ReuseSelection,
@@ -652,7 +657,8 @@ export function InstallDialog({
   // default, so the install sends no reuse resolution and the pack creates its own, as before.
   const [reuse, setReuse] = useState<ReuseSelection>({});
   const choices = preview.data ? existingChoices(preview.data.databases) : [];
-  const usable = choices.filter((c) => c.hint.reusable);
+  // Only the one-candidate rows are asked "as if reused" (below): a row with several is asked WITH the person's pick instead.
+  const usable = singleReusable(choices);
   const picked = reuseResolutions(choices, reuse);
   // What "use existing" would add to each reusable database ("Adds Owner, Industry."): the SAME preview, asked as if every
   // reusable one were chosen, so the numbers come from the server's own decision functions, not a guess here.
@@ -668,7 +674,7 @@ export function InstallDialog({
           body: {
             manifest: entry.data!.manifest,
             ...(target ? { target_space_id: target.id } : {}),
-            resolutions: reuseResolutions(usable, Object.fromEntries(usable.map((c) => [c.name, true]))),
+            resolutions: reuseResolutions(usable, Object.fromEntries(usable.map((c) => [c.name, { use: true }]))),
           } as never,
         } as never,
       );
@@ -680,6 +686,39 @@ export function InstallDialog({
     const gains = ifReused.data?.databases.find((d) => d.name === name)?.gains;
     return gains ? gains.fields.map((f) => f.name) : undefined;
   };
+  // #1176 — a pick among SEVERAL same-named databases is confirmed by the server: the SAME preview, asked with
+  // `resolutions[name] = { action: 'reuse', database_id }`. It says adopted + reusable only for a database the person can still edit
+  // and the pack fits; anything else (the database was deleted, lost its access, the refusal is a 422) drops the pick back to
+  // "create new" with a sentence, never a crash and never an install that goes somewhere the review did not show.
+  const manyPicks = reuseResolutions(manyChoices(choices), reuse);
+  const [droppedPick, setDroppedPick] = useState<Record<string, boolean>>({});
+  const confirmPicks = useQuery({
+    queryKey: ['pack-preview-picks', ws, slug, target?.id ?? null, JSON.stringify(manyPicks)],
+    enabled: Boolean(entry.data) && Object.keys(manyPicks).length > 0,
+    retry: false,
+    staleTime: 0,
+    queryFn: async () => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/packs/preview' as never,
+        {
+          params: { path: { ws } },
+          body: { manifest: entry.data!.manifest, ...(target ? { target_space_id: target.id } : {}), resolutions: manyPicks } as never,
+        } as never,
+      );
+      if (error) throw error;
+      return data as unknown as PreviewResult;
+    },
+  });
+  useEffect(() => {
+    const dropped = confirmPicks.isError
+      ? Object.keys(manyPicks)
+      : confirmPicks.data
+        ? droppedPicks(manyPicks, confirmPicks.data.databases)
+        : [];
+    if (dropped.length === 0) return;
+    setReuse((prev) => Object.fromEntries(Object.entries(prev).filter(([n]) => !dropped.includes(n))));
+    setDroppedPick((prev) => ({ ...prev, ...Object.fromEntries(dropped.map((n) => [n, true])) }));
+  }, [confirmPicks.data, confirmPicks.isError]);
 
   // #1172 — the automations a person switched ON in this review ("Database.Rule name" → true). Default: none, so every rule that
   // installs off stays off. Sent as `enable_automations` on the confirming preview AND the install, so they cannot disagree.
@@ -1029,7 +1068,7 @@ export function InstallDialog({
                       soleDatabase={card.workflow?.database}
                       heading
                     />
-                    <PackVisual pack={card} />
+                    <PackVisual pack={card} manifest={entry.data && 'manifest' in entry.data ? (entry.data.manifest as MarkManifest) : undefined} />
                   </>
                 ) : entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] ? (
                   <img
@@ -1097,9 +1136,13 @@ export function InstallDialog({
                                 ws={ws}
                                 choice={c}
                                 newSpace={spaceName ?? 'this space'}
-                                selected={reuse[c.name] === true}
+                                pick={reuse[c.name]}
                                 adds={addsFor(c.name)}
-                                onSelect={(useExisting) => setReuse((prev) => ({ ...prev, [c.name]: useExisting }))}
+                                stale={droppedPick[c.name] === true}
+                                onPick={(next) => {
+                                  setDroppedPick((prev) => ({ ...prev, [c.name]: false }));
+                                  setReuse((prev) => ({ ...prev, [c.name]: next }));
+                                }}
                               />
                             ))}
                         {row.kind === 'database' && row.action === 'collision' && (
@@ -1170,7 +1213,7 @@ export function InstallDialog({
                 )}
                 <p className="-mb-1 flex items-center gap-1.5 text-label text-muted" data-testid="pack-install-note">
                   <Check className="h-3 w-3 shrink-0" />
-                  {reuseNote(reusedNames(choices, reuse)) ??
+                  {reuseNote(reusedLabels(choices, reuse)) ??
                     (notNew(rows).length === 0
                     ? 'All new — nothing already in your workspace changes.'
                     : `${notNew(rows).length === 1 ? 'One thing' : `${notNew(rows).length} things`} already exist in your workspace — see the notes above. Nothing you have is removed.`)}

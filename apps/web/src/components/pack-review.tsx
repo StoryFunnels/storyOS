@@ -1,18 +1,13 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
-import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { databaseNoun } from '@/lib/records';
 import { OPTION_COLORS } from '@/components/table-view/option-colors';
 import { packHueName } from './pack-workflow-display';
 import {
-  REUSE_COPY,
   mapRows,
   reviewLead,
-  type ExistingChoice,
   type MapRow,
   type PackRelation,
   type ReviewSource,
@@ -120,98 +115,3 @@ export function PackMap({
   );
 }
 
-/**
- * #1149 / #1156 — the choice for ONE database that already exists in ANOTHER space: two radio cards, "Create a new X here"
- * (the default) and "Use your existing X (in <space>)". When the server says it cannot be used, the second card is shown but
- * disabled with the server's own `reason`, verbatim — shown rather than hidden so the person learns why their data isn't offered.
- */
-export function ReuseChoice({
-  ws,
-  choice,
-  newSpace,
-  selected,
-  adds,
-  onSelect,
-}: {
-  ws: string;
-  choice: ExistingChoice;
-  /** The space the new database would land in — "Empty, in <this>". */
-  newSpace: string;
-  /** True when "use existing" is the current pick; the default is false (create new). */
-  selected: boolean;
-  /** Fields the install would add to the existing database (from the what-if preview); undefined while unknown. */
-  adds: string[] | undefined;
-  onSelect: (useExisting: boolean) => void;
-}) {
-  const { name, hint } = choice;
-  const usable = hint.reusable;
-  const its = hint.space_name ?? 'that space';
-  // A live number on this open of the review, never cached (Dara): zero staleness, and dropped when the row goes away.
-  const count = useQuery({
-    queryKey: ['pack-reuse-count', ws, hint.database_id],
-    enabled: usable && Boolean(hint.database_id),
-    staleTime: 0,
-    gcTime: 0,
-    retry: false,
-    queryFn: async () => {
-      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records/aggregate', {
-        params: { path: { ws, db: hint.database_id! } },
-        body: { op: 'count' } as never,
-      });
-      if (error) throw error;
-      return (data as unknown as { value: number | null }).value ?? 0;
-    },
-  });
-  const useSelected = usable && selected;
-  const group = `reuse-${name}`;
-  const card = (on: boolean, disabled: boolean) =>
-    cn(
-      'flex items-start gap-2 rounded-[var(--radius-control)] border px-2.5 py-2',
-      on ? 'border-primary shadow-[inset_0_0_0_1px_var(--primary)]' : 'border-border-default',
-      disabled ? 'cursor-default opacity-75' : 'cursor-pointer',
-    );
-  return (
-    <span className="mt-1 flex flex-col gap-1.5" data-testid="pack-reuse-choice" data-database={name}>
-      <em className="text-label not-italic text-ink-secondary">{REUSE_COPY.heading(name)}</em>
-      <span role="radiogroup" aria-label={`${name}: create a new one or use your existing one`} className="flex flex-col gap-1.5">
-        <label className={card(!useSelected, false)}>
-          <input
-            type="radio"
-            name={group}
-            className="mt-[3px] shrink-0"
-            checked={!useSelected}
-            onChange={() => onSelect(false)}
-          />
-          <span className="flex min-w-0 flex-col">
-            <b className="text-body font-semibold text-ink">{REUSE_COPY.createTitle(name)}</b>
-            <small className="text-label leading-[1.45] text-muted">{REUSE_COPY.createSub(newSpace)}</small>
-          </span>
-        </label>
-        <label className={card(useSelected, !usable)}>
-          <input
-            type="radio"
-            name={group}
-            className="mt-[3px] shrink-0"
-            checked={useSelected}
-            disabled={!usable}
-            onChange={() => onSelect(true)}
-          />
-          <span className="flex min-w-0 flex-col">
-            <b className="text-body font-semibold text-ink">{REUSE_COPY.useTitle(name, hint.space_name)}</b>
-            <small className={cn('text-label leading-[1.45]', usable ? 'text-muted' : 'text-ink-secondary')}>
-              {usable
-                ? REUSE_COPY.existingSub({
-                    noun: databaseNoun(name),
-                    count: count.data ?? null,
-                    space: newSpace,
-                    its,
-                    adds: adds ?? null,
-                  })
-                : (hint.reason ?? 'This one can’t be used.')}
-            </small>
-          </span>
-        </label>
-      </span>
-    </span>
-  );
-}
