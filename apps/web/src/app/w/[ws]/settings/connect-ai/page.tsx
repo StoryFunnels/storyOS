@@ -5,10 +5,14 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import posthog from 'posthog-js';
-import { CheckCircle2, CircleAlert, Clipboard, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { CheckCircle2, CircleAlert, ExternalLink, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AiConnectionsSection } from '@/components/settings/ai-connections-list';
+import { CopyBox, copyToClipboard as copy } from '@/components/settings/copy-box';
+import { SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { NEEDS_RECONNECT_REASON, clientFor } from '@/lib/ai-connections';
+import type { AiConnection } from '@/lib/ai-connections';
 import { ClientLogo } from '@/components/connect-ai-logos';
 import { cn } from '@/lib/utils';
 import { MCP_ENDPOINT, MCP_ORIGIN, api } from '@/lib/api';
@@ -28,27 +32,6 @@ const CLAUDE_OAUTH_CLIENT_ID = 'nLwKFQBfhAnwhztfvCnlrNXyJmwHdJdI';
 type CheckState = 'idle' | 'checking' | 'ready' | 'failed';
 
 const CLIENT_IDS = Object.keys(CONNECT_CLIENTS) as ConnectClient[];
-
-async function copy(value: string, event: string, properties?: Record<string, string>) {
-  await navigator.clipboard.writeText(value);
-  posthog.capture(event, properties);
-  toast.success('Copied');
-}
-
-/** The connector name or the server address, in a box with its own Copy button. */
-function CopyBox({ value, label, onCopy }: { value: string; label: string; onCopy: () => void }) {
-  return (
-    <div className="mt-1.5 flex items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card py-1.5 pl-2.5 pr-1.5">
-      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[11px] text-ink">
-        {value}
-      </code>
-      <Button size="sm" variant="secondary" aria-label={`Copy ${label}`} onClick={onCopy}>
-        <Clipboard className="mr-1 h-3 w-3" />
-        Copy
-      </Button>
-    </div>
-  );
-}
 
 function Step({ step, client }: { step: ConnectStep; client: ConnectClient }) {
   return (
@@ -106,7 +89,7 @@ function ConnectedCard({ onAnother }: { onAnother: () => void }) {
           know what you did and what it did.
         </p>
         <p className="mb-3 text-body leading-[1.55] text-ink-secondary">
-          To disconnect, use the list below, or remove <b className="font-semibold text-ink">{CONNECTOR_NAME}</b> in
+          To disconnect, use the list above, or remove <b className="font-semibold text-ink">{CONNECTOR_NAME}</b> in
           your AI’s connector settings.
         </p>
         <p className="mb-1 text-label font-semibold uppercase tracking-[0.06em] text-muted">Try asking it</p>
@@ -120,6 +103,54 @@ function ConnectedCard({ onAnother }: { onAnother: () => void }) {
         Connect another AI →
       </button>
     </>
+  );
+}
+
+/**
+ * Ticket #1187 - Reconnect. A hosted-MCP client signs itself in, so StoryOS cannot restart that for it: the client has to ask again, and
+ * the person approves StoryOS when asked (the server's own words). This panel says exactly that, gives the two values the client
+ * needs, and "check again" re-reads the list: the row stops saying it needs a reconnect only when the data says so.
+ */
+function ReconnectPanel({ c, onClose, recheck }: { c: AiConnection; onClose: () => void; recheck: () => Promise<boolean> }) {
+  const [checking, setChecking] = useState(false);
+  const [still, setStill] = useState(false);
+  const client = clientFor(c.client_name);
+  async function check() {
+    setChecking(true);
+    setStill(false);
+    posthog.capture('ai_reconnect_checked', { client });
+    const stillBroken = await recheck();
+    setChecking(false);
+    if (stillBroken) setStill(true);
+    else {
+      toast.success(`${c.client_name} is connected again`);
+      onClose();
+    }
+  }
+  return (
+    <div className="border-t border-border-default bg-hover/40 px-3.5 py-3 text-body text-ink" data-testid="reconnect-panel">
+      <p className="mb-2 text-label text-muted">{NEEDS_RECONNECT_REASON}</p>
+      <p className="mb-1">
+        Open <b className="font-semibold">{c.client_name}</b>, remove the {CONNECTOR_NAME} connector and add it again with these details. When it
+        asks, approve {CONNECTOR_NAME}.
+      </p>
+      <CopyBox value={CONNECTOR_NAME} label="connector name" onCopy={() => void copy(CONNECTOR_NAME, 'mcp_connector_name_copied', { client, auth_path: 'oauth' })} />
+      <CopyBox value={MCP_ENDPOINT} label="server address" onCopy={() => void copy(MCP_ENDPOINT, 'mcp_endpoint_copied', { client, auth_path: 'oauth' })} />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button size="sm" disabled={checking} onClick={() => void check()}>
+          {checking && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          I’ve done it — check again
+        </Button>
+        <Button size="sm" variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        {still && (
+          <span className="text-label text-muted" role="status">
+            Still not approved — finish in {c.client_name} and check again.
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -191,13 +222,24 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-[700px] p-4 sm:p-8">
-      <h1 className="text-[22px] font-bold tracking-[-0.02em] text-ink">Connect your AI</h1>
-      <p className="mb-4 mt-1 text-body leading-normal text-muted">
-        {showConnected
-          ? 'Your AI can work in StoryOS — and everything it does is marked as its own.'
-          : 'Use StoryOS from the AI you already talk to. Pick yours:'}
-      </p>
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <SettingsPageHeader
+        title="Connect your AI"
+        lead={
+          showConnected
+            ? 'Your AI can work in StoryOS — and everything it does is marked as its own.'
+            : 'Use StoryOS from the AI you already talk to. Pick yours:'
+        }
+        action={
+          showConnected ? (
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              Connect an AI
+            </Button>
+          ) : undefined
+        }
+      />
+      <AiConnectionsSection ws={ws} panel={(c, close, recheck) => <ReconnectPanel c={c} onClose={close} recheck={recheck} />} />
 
       {showConnected ? (
         <ConnectedCard onAnother={() => setAdding(true)} />
@@ -246,7 +288,12 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
         </>
       )}
 
-      <AiConnectionsSection ws={ws} />
+      <p className="mt-3.5 text-label text-muted">
+        Connecting a script, a self-hosted agent or another tool? Use an{' '}
+        <Link className="font-medium text-primary-text underline" href={`/w/${ws}/settings/api`}>
+          API token →
+        </Link>
+      </p>
 
       <details className="mt-3.5 text-label text-muted">
         <summary className="cursor-pointer font-semibold">Advanced — tokens and self-managed StoryOS</summary>

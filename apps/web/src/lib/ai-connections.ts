@@ -58,6 +58,53 @@ export function useDisconnectAiConnection(ws: string) {
   });
 }
 
+/**
+ * Ticket #1187 — the state of one connection, from what the API reports and nothing more.
+ *
+ * The API says `needs_reconnect` when the connection has no valid approval (the guard then refuses it: "This AI connection has not
+ * been approved. Reconnect the client and approve it when asked."). It does NOT say expired vs revoked: an OAuth connection whose
+ * tokens have all expired, or that was revoked, is not listed at all, so that cause cannot be shown and is never invented here. A
+ * `reaches` value this build does not know is `unknown`: no Reconnect is offered for a state we cannot name.
+ */
+export type ConnectionState =
+  | { kind: 'connected' }
+  | { kind: 'needs_reconnect'; reason: string }
+  | { kind: 'unknown' };
+
+/** What the data supports about WHY: the three causes the API documents for `needs_reconnect`, none of them guessed. */
+export const NEEDS_RECONNECT_REASON =
+  'It has no valid approval: it was connected before approval existed, was never approved, or was approved with the read-only level that has since been removed.';
+
+export function connectionState(c: Pick<AiConnection, 'reaches'>): ConnectionState {
+  switch (c.reaches) {
+    case 'all_workspaces':
+    case 'one_workspace':
+    case 'this_workspace':
+      return { kind: 'connected' };
+    case 'needs_reconnect':
+      return { kind: 'needs_reconnect', reason: NEEDS_RECONNECT_REASON };
+    default:
+      return { kind: 'unknown' };
+  }
+}
+
+/** Which written guide / logo a connection belongs to, by the name it registered with; anything else is the generic one. */
+export function clientFor(name: string): 'claude' | 'chatgpt' | 'other' {
+  const n = name.toLowerCase();
+  return n.includes('claude') ? 'claude' : n.includes('chatgpt') || n.includes('openai') ? 'chatgpt' : 'other';
+}
+
+/** The Reconnect action exists only for a connection the data says needs one. */
+export function canReconnect(c: Pick<AiConnection, 'reaches'>): boolean {
+  return connectionState(c).kind === 'needs_reconnect';
+}
+
+/** The summary in the box heading: "7 · 3 need reconnecting". */
+export function aiAppsSummary(items: Array<Pick<AiConnection, 'reaches'>>): string {
+  const n = items.filter(canReconnect).length;
+  return n > 0 ? `${items.length} · ${n} need reconnecting` : `${items.length}`;
+}
+
 export interface ConnectionWords {
   how: string;
   reaches: string;
