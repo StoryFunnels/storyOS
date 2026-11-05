@@ -4,7 +4,8 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { AiFieldConfig } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { fields, records, selectOptions } from '../db/schema';
+import { activityEvents, fields, records, selectOptions } from '../db/schema';
+import { AgentBudgetService } from '../runners/agent-budget.service';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
 import { JobRunnerService } from '../automations/job-runner.service';
@@ -60,6 +61,8 @@ export class AiFieldSubscriber implements OnModuleInit {
     @Inject(DB) private readonly db: Db,
     private readonly domainEvents: DomainEventsService,
     private readonly jobs: JobRunnerService,
+    /** ticket #1138: an agent-caused call's tokens count toward that agent's monthly budget (RunnersModule is global). */
+    private readonly budgets: AgentBudgetService,
   ) {}
 
   onModuleInit(): void {
@@ -128,6 +131,18 @@ export class AiFieldSubscriber implements OnModuleInit {
     }
   }
 
+  /** Puts the call's token usage (or an explicit null) on its agent-origin log row, then lets the agent's budget say whether that crossed 80% or 100%. Never throws. */
+  private async recordUsage(logId: string, workspaceId: string, completion: { tokensIn: number; tokensOut: number; usageReported?: boolean }): Promise<void> {
+    try {
+      const usage = completion.usageReported === true ? { tokens_in: completion.tokensIn, tokens_out: completion.tokensOut } : null;
+      await this.db.update(activityEvents).set({ payload: sql`${activityEvents.payload} || ${JSON.stringify({ usage })}::jsonb` }).where(eq(activityEvents.id, logId));
+      const agentId = currentEventOrigin()?.agentId;
+      if (agentId) await this.budgets.afterUsageChange(workspaceId, agentId);
+    } catch (error) {
+      this.logger.warn(`ai field: could not record the call's usage: ${String(error)}`);
+    }
+  }
+
   private async recompute(payload: AiFieldRecomputePayload, _helpers: JobHelpers): Promise<unknown> {
     const field = await this.db.query.fields.findFirst({
       where: and(eq(fields.id, payload.fieldId), isNull(fields.deletedAt)),
@@ -182,14 +197,18 @@ export class AiFieldSubscriber implements OnModuleInit {
     // record's prompt values go to the vendor, so it is logged BEFORE the call, whether or not the call succeeds) is LOGGED with the agent and the run. The result is written below WITHOUT a domain
     // event: an AI field's value never wakes an agent or fires a rule, so agent write -> AI field -> agent wake cannot loop. If that
     // write ever emits, the event carries this same ambient origin, and the run depth applies (ai-field-agent-origin test pins both).
+    let logId: string | null = null;
     if (currentEventOrigin()) {
-      await logAgentOriginOutward(this.db, {
+      logId = await logAgentOriginOutward(this.db, {
         workspaceId: payload.workspaceId,
         recordId: payload.recordId,
         recordTitle: record.title,
         channel: 'ai_field',
         summary: `Recomputed the AI field "${field.displayName}" (sent the record's prompt values to the workspace's AI)`,
-      }).catch((error: unknown) => this.logger.warn(`ai field: could not log the agent origin: ${String(error)}`));
+      }).catch((error: unknown) => {
+        this.logger.warn(`ai field: could not log the agent origin: ${String(error)}`);
+        return null;
+      });
     }
     let text: string;
     try {
@@ -198,6 +217,10 @@ export class AiFieldSubscriber implements OnModuleInit {
       const asked = config.output.kind === 'choice' ? prompt + choiceInstruction(config.output.options) : prompt;
       const completion = await this.client.complete(asked, { responseFormat: 'text' });
       text = completion.text.trim();
+      // ticket #1138: what this call cost, written onto the log row that already names the agent, so the agent's monthly budget can count
+      // it by SQL. `usage` is the vendor's own figure, or an explicit null when it sent none: NEVER a zero (CLAUDE.md, never guess numbers).
+      // A call that failed leaves no `usage` key at all, which the budget reads as "not a finished call".
+      if (logId) await this.recordUsage(logId, payload.workspaceId, completion);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.markFailed(payload, message);

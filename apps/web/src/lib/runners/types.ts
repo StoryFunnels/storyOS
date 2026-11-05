@@ -118,7 +118,7 @@ export interface RunState {
   tool?: string;
 }
 
-export type WakeReason = 'state_change' | 'assigned' | 'mention' | 'automation' | 'manual' | 'approval_decided' | 'must_comment' | 'retry';
+export type WakeReason = 'state_change' | 'assigned' | 'mention' | 'automation' | 'manual' | 'approval_decided' | 'must_comment' | 'retry' | 'catch_up';
 
 export interface WakeDto {
   id: string;
@@ -145,6 +145,14 @@ export interface WakeSummaryAgent {
    * predates the field, which reads as "not told", never as zero.
    */
   catch_up?: number | null;
+}
+
+/** `POST .../agents/{agent}/catch-up` (ticket #1152): at most 25 wakes per click; `remaining` is what another click will queue. */
+export interface CatchUpResult {
+  queued: number;
+  already_waiting: number;
+  remaining: number;
+  skipped: number;
 }
 
 export interface WakeSummary {

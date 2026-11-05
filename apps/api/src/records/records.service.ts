@@ -80,6 +80,7 @@ import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates
 import { AgentWriteGatesService, type AgentWriteOperation } from '../action-gates/agent-write-gates.service';
 import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { currentActor } from '../common/credential-context';
+import { BUDGET_FIELD_NAMES, budgetWriteProblem } from '../runners/agent-budget';
 import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
 import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context';
 // #434 — type only (erased at compile time): RecordsService does not take a
@@ -3033,14 +3034,20 @@ export class RecordsService implements OnModuleInit {
    * `values` is absent for a restore, where the values come from an old version: for an agent source that is refused outright.
    */
   private async assertAgentSettingsWritable(databaseId: string, keys: string[], source: ChangeSource, values?: Record<string, unknown>): Promise<void> {
-    if (!keys.includes('tools') && !keys.includes('model')) return;
+    // ticket #1138: the monthly budget is the same kind of setting. An agent that could raise its own budget would have no budget.
+    const budgetKeys = BUDGET_FIELD_NAMES.filter((k) => keys.includes(k));
+    if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
     if (source === 'agent') {
-      throw new ForbiddenException('An agent cannot change an agent\'s Tools or Model setting: they are set by the person who manages the agent.');
+      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model or budget setting: they are set by the person who manages the agent.');
     }
     const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });
     if (problems.length > 0) throw new UnprocessableEntityException(problems.map((p) => p.message).join(' '));
+    for (const k of budgetKeys) {
+      const problem = budgetWriteProblem(values?.[k]);
+      if (problem) throw new UnprocessableEntityException(problem);
+    }
   }
 
   /** Batch create (≤100, enforced by the DTO), one transaction, one activity event each. */
@@ -4140,7 +4147,7 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'update', source, agentId, 'Restoring a version');
     // #1180: a restore writes old values by field id, so it cannot be key-checked; an agent restoring an agent record could re-set Tools/Model.
-    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools'], source);
+    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools', ...BUDGET_FIELD_NAMES], source);
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });

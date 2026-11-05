@@ -93,9 +93,9 @@ describe('the existing_elsewhere choice (#1149 AC4)', () => {
 
   it('choosing "use existing" sends resolutions: reuse for that database only', () => {
     const choices = existingChoices(dbs);
-    expect(reuseResolutions(choices, { Clients: true })).toEqual({ Clients: { action: 'reuse' } });
+    expect(reuseResolutions(choices, { Clients: { use: true } })).toEqual({ Clients: { action: 'reuse' } });
     // an explicit "create new" is the same as the default
-    expect(reuseResolutions(choices, { Clients: false })).toEqual({});
+    expect(reuseResolutions(choices, { Clients: { use: false } })).toEqual({});
   });
 
   it('a disabled (non-reusable) choice can never be sent, whatever the state says', () => {
@@ -103,7 +103,7 @@ describe('the existing_elsewhere choice (#1149 AC4)', () => {
       { name: 'Contacts', existing_elsewhere: blocked },
       { name: 'Clients', existing_elsewhere: ambiguous },
     ]);
-    expect(reuseResolutions(choices, { Contacts: true, Clients: true })).toEqual({});
+    expect(reuseResolutions(choices, { Contacts: { use: true }, Clients: { use: true } })).toEqual({});
   });
 
   it('is per database', () => {
@@ -111,7 +111,7 @@ describe('the existing_elsewhere choice (#1149 AC4)', () => {
       { name: 'Clients', existing_elsewhere: reusable },
       { name: 'Contacts', existing_elsewhere: { ...reusable, database_id: 'db-9' } },
     ]);
-    expect(reuseResolutions(choices, { Contacts: true })).toEqual({ Contacts: { action: 'reuse' } });
+    expect(reuseResolutions(choices, { Contacts: { use: true } })).toEqual({ Contacts: { action: 'reuse' } });
   });
 
   it('the bottom note names what is reused', () => {
@@ -152,10 +152,15 @@ describe('source guards — the wiring the pure functions cannot see', () => {
   it('the review leads with why, then the map, then the hero; each is skipped for a pack that has none', () => {
     const why = dialog.indexOf('<PackWhy source={card} />');
     const map = dialog.indexOf('<PackMap');
-    const visual = dialog.indexOf('<PackVisual pack={card} />');
+    const visual = dialog.indexOf('<PackVisual pack={card}');
     expect(why).toBeGreaterThan(0);
     expect(map).toBeGreaterThan(why);
     expect(visual).toBeGreaterThan(map);
+  });
+  it('the confirming preview and the install both carry the pick: one resolutions builder feeds both', () => {
+    expect(dialog).toContain('const manyPicks = reuseResolutions(manyChoices(choices), reuse)');
+    expect(dialog).toMatch(/resolutions: manyPicks/);
+    expect(dialog).toMatch(/\.\.\.picked \}/);
   });
   it('the pack card on the space page draws the map from the listing', () => {
     const grid = here('../components/space-start.tsx');
@@ -163,7 +168,7 @@ describe('source guards — the wiring the pure functions cannot see', () => {
     expect(grid).toContain('<PackMap slug={pack.slug} relations={pack.relations}');
   });
   it('the choice shows a refused reuse with the server reason, verbatim', () => {
-    const c = here('../components/pack-review.tsx');
+    const c = here('../components/pack-reuse-choice.tsx');
     expect(c).toContain('hint.reason');
     expect(c).toContain('disabled={!usable}');
   });

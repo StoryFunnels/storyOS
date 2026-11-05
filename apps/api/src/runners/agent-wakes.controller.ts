@@ -35,7 +35,7 @@ export class AgentWakesController {
   @Get()
   @ApiOperation({
     summary:
-      'The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted.',
+      'The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_hours, waiting_for_reserve, waiting_for_budget (the agent used its monthly budget; `until` is the UTC month reset, `budget_metric` says tokens or runs), waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted.',
   })
   list(@Req() req: WorkspaceRequest, @Query() q: WakeListQueryDto) {
     return this.wakes.list(req.membership, q);
@@ -44,7 +44,7 @@ export class AgentWakesController {
   @Get('summary')
   @ApiOperation({
     summary:
-      'Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent\'s owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up.',
+      'Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent that has a monthly budget also carries `budget` (the month so far, tokens and runs, against its limits; null when none is set or you cannot read the Runs it is counted from; see GET /agents/{agent}/budget). Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent\'s owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up.',
   })
   async summary(@Req() req: WorkspaceRequest) {
     const out = await this.wakes.summary(req.membership);

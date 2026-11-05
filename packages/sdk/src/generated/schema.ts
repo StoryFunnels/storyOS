@@ -4419,6 +4419,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agents/{agent}/budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An agent's monthly budget and what it has used this month (ticket #1138), for the agent's page. `limits` are the two number fields on the agent's record (monthly_token_budget, monthly_run_cap; null = no limit); `tokens` and `runs` each carry limit, used, percent (whole, rounded down), and a state (unlimited, ok, warning at 80%, paused at 100%, not_measured). `tokens.used` is null, never 0, when the finished runs' tool did not report usage; `tokens.measurement` (full, partial, not_reported, no_finished_runs) and `unmeasured_runs` say how much of the total is measured. `state` is the worst of the two; when paused, `paused_reason` names which and `resumes_at` is the UTC month reset (raising the budget resumes it sooner). The month is the UTC calendar month. To set or raise a budget, update those fields on the agent's record (a person; an agent cannot change its own). 404 unless you can read both the agent and the Runs database the numbers are counted from. */
+        get: operations["RunnersController_budget"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runner/v1/pair": {
         parameters: {
             query?: never;
@@ -4511,7 +4528,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted. */
+        /** The wake queue, newest first: which agent was woken about which record, why, and ONE derived run_state per row (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_hours, waiting_for_reserve, waiting_for_budget (the agent used its monthly budget; `until` is the UTC month reset, `budget_metric` says tokens or runs), waiting_for_turn). Filter by ?agent= and ?record=. Wakes you cannot read are omitted. */
         get: operations["AgentWakesController_list"];
         put?: never;
         post?: never;
@@ -4528,7 +4545,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent's owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up. */
+        /** Waiting counts: per Your-own-AI agent, its Runner, whether it can run, and how many wakes wait for it; plus the total and how many agents cannot run. Wakes you cannot read are not counted. Each agent that has a monthly budget also carries `budget` (the month so far, tokens and runs, against its limits; null when none is set or you cannot read the Runs it is counted from; see GET /agents/{agent}/budget). Each agent also carries catch_up: how many records are already in its trigger state(s) with no wake ever made (the agent's owner or an admin; null for anyone else), the number behind POST /agents/{agent}/catch-up. */
         get: operations["AgentWakesController_summary"];
         put?: never;
         post?: never;
@@ -14225,6 +14242,25 @@ export interface operations {
         };
     };
     RunnersController_startOnWaiting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_budget: {
         parameters: {
             query?: never;
             header?: never;

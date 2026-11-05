@@ -228,8 +228,11 @@ describe('the page wires the gates it is tested against', () => {
     expect(src).toContain('offersRunNow(agent, assigned, canRunAgentNow(role))');
     expect(src).toContain('{mayRunNow && <RunNowButton');
   });
-  it('the catch-up hook for ticket #1152 is named where it will go, and nothing of it is built here', () => {
-    expect(src).toContain('HOOK, ticket #1152');
-    expect(src).not.toMatch(/catch-up`|catchUp|catch_up/);
+  it('the catch-up box (ticket #1152) replaced the hook comment, and is drawn only through the named predicates', () => {
+    expect(src).not.toContain('HOOK, ticket #1152');
+    expect(src).toContain('catchUpCount(catchUpRow)');
+    expect(src).toMatch(/offersCatchUp\(\{ usesRunner, hasRunner: Boolean\(assigned\), mayLearnMachine: !masked, count: catchUp \}\)/);
+    // Under "Runs on", before the first-time card and the Run now row's neighbours.
+    expect(src.indexOf('<RunsOnLine')).toBeLessThan(src.indexOf('<CatchUpBox'));
   });
 });

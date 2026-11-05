@@ -1,7 +1,11 @@
 'use client';
 
 import { Bell, Bot } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { Tooltip } from '@/components/ui/tooltip';
+import { markNames, markTip, type MarkManifest, type PackMarkKind } from '@/lib/pack-marks';
 import { OPTION_COLORS } from '@/components/table-view/option-colors';
 import { cn } from '@/lib/utils';
 import { heroChips, packHueName, workflowSentence } from './pack-workflow-display';
@@ -64,7 +68,7 @@ export function packCountsLine(p: PackPreviewCounts['preview']): string {
  * mixed over `bg-card`, which follows the theme; nothing here is a literal white
  * (that was #351's light-on-white-in-dark bug).
  */
-export function PackVisual({ pack }: { pack: PackPreviewCounts }) {
+export function PackVisual({ pack, manifest }: { pack: PackPreviewCounts; manifest?: MarkManifest }) {
   const hue = OPTION_COLORS[packHueName(pack.slug)]!;
   const chips = pack.workflow ? heroChips(pack.workflow.stages) : [];
   const spoken = pack.workflow ? `${pack.name} workflow: ${workflowSentence(pack.workflow.stages)}. ` : `${pack.name}. `;
@@ -113,22 +117,49 @@ export function PackVisual({ pack }: { pack: PackPreviewCounts }) {
           </span>
         ))}
       </div>
-      {(pack.marks?.agent || pack.marks?.notifies) && (
-        <div className="mt-auto flex items-center gap-1.5" aria-hidden>
-          {pack.marks.agent && (
-            <span className="inline-flex h-4 items-center gap-1 rounded-[var(--radius-chip)] bg-hover px-1.5 text-micro font-semibold text-muted">
-              <Bot className="h-2.5 w-2.5" />
-              Agent
-            </span>
-          )}
-          {pack.marks.notifies && (
-            <span className="inline-flex h-4 items-center gap-1 rounded-[var(--radius-chip)] bg-hover px-1.5 text-micro font-semibold text-muted">
-              <Bell className="h-2.5 w-2.5" />
-              Notifies
-            </span>
-          )}
-        </div>
-      )}
+      {(pack.marks?.agent || pack.marks?.notifies) && <PackMarks pack={pack} manifest={manifest} />}
+    </div>
+  );
+}
+
+/**
+ * #1176 — "Agent" and "Notifies" are LABELS, not buttons: no chip background, the help cursor, and a tooltip naming what comes with the
+ * pack ("Comes with an agent: Triage"). They looked like buttons and did nothing; a label that explains itself on hover is the honest
+ * shape. The names are read from the pack's own manifest: handed in when the caller has it (the install review), otherwise fetched
+ * ONCE, on first hover or focus, through the same query key the install review uses (so opening the review afterwards is free).
+ * Until it arrives the tooltip says the same sentence without a name; it never invents one.
+ */
+function PackMarks({ pack, manifest }: { pack: PackPreviewCounts; manifest?: MarkManifest }) {
+  const [wanted, setWanted] = useState(false);
+  const entry = useQuery({
+    queryKey: ['pack-entry', 'registry', pack.slug],
+    enabled: wanted && !manifest,
+    staleTime: 5 * 60_000,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/packs/registry/{slug}' as never, { params: { path: { slug: pack.slug } } } as never);
+      if (error) throw error;
+      return data as unknown as { manifest?: MarkManifest };
+    },
+  });
+  const source = manifest ?? entry.data?.manifest;
+  const mark = (kind: PackMarkKind, Icon: typeof Bot, label: string) => (
+    <Tooltip label={markTip(kind, markNames(source, kind))} side="top" align="start">
+      <span
+        className="inline-flex cursor-help items-center gap-1 text-micro font-medium text-muted"
+        data-testid={`pack-mark-${kind}`}
+        onPointerEnter={() => setWanted(true)}
+        onFocus={() => setWanted(true)}
+      >
+        <Icon className="h-2.5 w-2.5" aria-hidden />
+        {label}
+      </span>
+    </Tooltip>
+  );
+  return (
+    <div className="mt-auto flex items-center gap-2.5">
+      {pack.marks?.agent && mark('agent', Bot, 'Agent')}
+      {pack.marks?.notifies && mark('notifies', Bell, 'Notifies')}
     </div>
   );
 }
