@@ -8,9 +8,8 @@ import { workspaceNameDraft } from '@/lib/workspace-name';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader } from '@/components/settings/settings-chrome';
 import { useSidebarMutations, useWorkspace } from '@/lib/queries';
 import { apiErrorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -34,10 +33,6 @@ function isValidLogoUrl(url: string): boolean {
  * The description's rules (the trim, the over-limit test, the clear-to-null behaviour and the counter wording) come from
  * `describeDraft` (`lib/description-draft.ts`), the same one definition the dialog reads (#457's criterion 6). The name's rules come
  * from `workspaceNameDraft` (`lib/workspace-name.ts`), which the schema test pins to the server.
- *
- * "Let AI share skills with the whole workspace" is still here on purpose: Dara's design moves it to Agent rules (ticket #1187), but
- * that page has no such control on main yet, so removing it from General first would leave the setting with no home at all. Ticket
- * #1187 moves it in one commit.
  */
 export default function GeneralSettingsPage() {
   const { ws } = useParams<{ ws: string }>();
@@ -107,22 +102,6 @@ export default function GeneralSettingsPage() {
     );
   };
 
-  /**
-   * #848/#867 — the ONE place a person switches AI publishing. It is ON by default (the founder's
-   * ruling): only an explicit `false` turns it off, so an untouched workspace reads as on. It lives in
-   * the web app on purpose: the API refuses this setting from any token or connected AI, either
-   * way (a switch an agent can flip is decorative), so a person at a browser is the only path.
-   */
-  const agentsMayPublish = workspace.data?.settings?.agents_may_publish_skills !== false;
-  const toggleAgentsMayPublish = (next: boolean) =>
-    updateWorkspace.mutate(
-      { agents_may_publish_skills: next },
-      {
-        onSuccess: () => toast.success(next ? 'AI can share skills with the workspace' : 'AI-written skills now stay private'),
-        onError: (e) => toast.error(apiErrorMessage(e, 'Could not save — try again')),
-      },
-    );
-
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <SettingsPageHeader title="General" lead="Who this workspace is, for people and for agents" />
@@ -169,30 +148,6 @@ export default function GeneralSettingsPage() {
               {updateWorkspace.isPending ? 'Saving…' : 'Save'}
             </Button>
           </div>
-        </SettingsBox>
-
-        <SettingsBox>
-          <SettingsRow
-            title={<Label htmlFor="agents-may-publish">Let AI share skills with the whole workspace</Label>}
-            description={
-              <>
-                A skill is instructions that other people&apos;s AI will follow. Skills an AI writes are always marked as written by an AI.
-                On by default: a skill an AI creates is visible to everyone here straight away, and their AI can run it. It never makes a
-                skill public by itself: that needs a person to approve it. Turn it off to keep AI-written skills private to the person whose
-                AI wrote them. Skills already shared stay shared.
-                {!isAdmin && ' Only an admin can change this.'}
-              </>
-            }
-            className="[&_b]:overflow-visible [&_b]:whitespace-normal"
-            inlineControls
-          >
-            <Switch
-              checked={agentsMayPublish}
-              onCheckedChange={toggleAgentsMayPublish}
-              disabled={!isAdmin || workspace.isLoading || updateWorkspace.isPending}
-              aria-label="Let AI share skills with the whole workspace"
-            />
-          </SettingsRow>
         </SettingsBox>
 
         <AdvancedSection title="Client portal branding" summary="logo and accent colour on links you share">

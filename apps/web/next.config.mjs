@@ -23,6 +23,8 @@ const nextConfig = {
       // link. But every page under /settings/integrations sits behind the admins-only refusal (#1092), so a MEMBER following an
       // old link got "Integrations is for workspace admins" instead of Connect your AI. A config redirect runs before any layout.
       { source: '/w/:ws/settings/integrations/mcp', destination: '/w/:ws/settings/connect-ai', permanent: false },
+      // Ticket #1187 — Governance became Agent rules (new route). Same reason as above: the config redirect runs before the layout.
+      { source: '/w/:ws/settings/governance', destination: '/w/:ws/settings/agent-rules', permanent: false },
     ];
   },
   skipTrailingSlashRedirect: true,

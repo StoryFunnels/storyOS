@@ -218,6 +218,37 @@ describe('a personal skill is private: only its own author\'s agent, on its own 
   });
 });
 
+describe('ticket #1203: a skill\'s body never reaches the Run record, refused or not', () => {
+  const runValues = async (wake: string) =>
+    (await pool.query('select r.values::text as v from agent_wakes w join records r on r.id = w.run_id where w.id = $1', [wake])).rows[0].v as string;
+
+  it('ADMIN-owned agent naming BOB\'s personal skill: the Run record holds none of Bob\'s text, before or after the refused claim', async () => {
+    await mkSkill(bob, 'Bob 1203 private', 'BOB-1203-SECRET-BODY', { visibility: 'personal' });
+    const agent = await mkAgent(admin, 'Admin 1203 bot', 'Bob 1203 private');
+    await assign(admin, adminRunner.id, agent);
+    const { wake } = await delegate(agent);
+    expect(await runValues(wake)).not.toContain('BOB-1203-SECRET-BODY');
+    expectNoWakes(await claim(adminRunner.token));
+    expect(await runValues(wake)).not.toContain('BOB-1203-SECRET-BODY');
+  });
+
+  it('an allowed skill is recorded in the Run by name and id, never by body, and the Runner still receives the body', async () => {
+    const id = await mkSkill(admin, 'Shared 1203', 'SHARED-1203-BODY-TEXT');
+    const agent = await mkAgent(alice, 'Alice 1203 bot', 'Shared 1203');
+    await assign(alice, aliceRunner.id, agent);
+    const { wake } = await delegate(agent);
+    const before = await runValues(wake);
+    expect(before).toContain('skills.load');
+    expect(before).toContain('Shared 1203');
+    expect(before).toContain(id);
+    expect(before).not.toContain('SHARED-1203-BODY-TEXT');
+    const res = await claim(aliceRunner.token);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json().wakes as Claimed[])[0]!.agent.skill_instructions![0]!.instructions).toBe('SHARED-1203-BODY-TEXT');
+    expect(await runValues(wake)).not.toContain('SHARED-1203-BODY-TEXT');
+  });
+});
+
 describe('a skill\'s text is capped, and the cut is said, never silent', () => {
   it('one long skill: cut at the per-skill cap with the original size stated', async () => {
     await mkSkill(admin, 'Long skill', `${'a'.repeat(6000)}${'b'.repeat(1000)}`);
