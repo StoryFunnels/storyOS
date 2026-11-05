@@ -11,7 +11,7 @@ import type { WakeSummary, WakeSummaryAgent } from './types';
 export type RunnerLineState =
   | { kind: 'loading' }
   | { kind: 'failed' }
-  | { kind: 'assigned'; runner: { id: string; name: string } }
+  | { kind: 'assigned'; runner: { id: string | null; name: string } }
   | { kind: 'none' };
 
 /** What this needs of the summary query: its data (kept across a failed background refetch) and whether it errored. */
