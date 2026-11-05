@@ -66,6 +66,14 @@ export interface BudgetUsage {
   finishedRuns: number;
   /** Of those, how many ended without the tool reporting usage. These are the runs the token total does not cover. */
   finishedWithoutTokens: number;
+  /**
+   * AI-field calls this agent caused (Otto, 2026-11-03, from ticket #1179), from the `outward.ai_field` log rows that carry the agent.
+   * `aiFieldTokens` is the sum over the calls whose vendor REPORTED usage, `aiFieldCallsWithTokens` how many that is, and
+   * `aiFieldCallsWithoutTokens` how many finished without the vendor saying (an explicit null on the row). A call that failed has neither.
+   */
+  aiFieldTokens: number;
+  aiFieldCallsWithTokens: number;
+  aiFieldCallsWithoutTokens: number;
 }
 
 export type MetricState = 'unlimited' | 'ok' | 'warning' | 'paused' | 'not_measured';
@@ -87,6 +95,8 @@ export interface TokensMetric {
   measurement: TokenMeasurement;
   /** Finished runs the total does not cover. The page must show this next to the number, not hide it. */
   unmeasured_runs: number;
+  /** The part of `used` that AI fields caused, and how many calls: `tokens` is null when calls finished and none reported usage, 0 when there were no calls. */
+  ai_field: { tokens: number | null; calls: number; unmeasured_calls: number };
 }
 
 export interface BudgetStatus {
@@ -113,15 +123,19 @@ const percentOf = (limit: number | null, used: number): number | null => (limit 
 export function evaluateBudget(limits: BudgetLimits, u: BudgetUsage, period: BudgetPeriod): BudgetStatus {
   let measurement: TokenMeasurement;
   let tokensUsed: number | null;
-  if (u.finishedRuns === 0 && u.runsWithTokens === 0) {
+  // Runs and AI-field calls are two sources of one token total. A source that did not report is never a zero inside it.
+  const reporters = u.runsWithTokens + u.aiFieldCallsWithTokens;
+  const finished = u.finishedRuns + u.aiFieldCallsWithTokens + u.aiFieldCallsWithoutTokens;
+  const unmeasured = u.finishedWithoutTokens + u.aiFieldCallsWithoutTokens;
+  if (finished === 0 && reporters === 0) {
     measurement = 'no_finished_runs';
     tokensUsed = 0;
-  } else if (u.runsWithTokens === 0) {
+  } else if (reporters === 0) {
     measurement = 'not_reported';
     tokensUsed = null;
   } else {
-    measurement = u.finishedWithoutTokens > 0 ? 'partial' : 'full';
-    tokensUsed = u.tokens;
+    measurement = unmeasured > 0 ? 'partial' : 'full';
+    tokensUsed = u.tokens + u.aiFieldTokens;
   }
   const tokens: TokensMetric = {
     limit: limits.tokens,
@@ -130,6 +144,11 @@ export function evaluateBudget(limits: BudgetLimits, u: BudgetUsage, period: Bud
     state: tokensUsed === null ? (limits.tokens === null ? 'unlimited' : 'not_measured') : metricState(limits.tokens, tokensUsed),
     measurement,
     unmeasured_runs: u.finishedWithoutTokens,
+    ai_field: {
+      tokens: u.aiFieldCallsWithTokens === 0 && u.aiFieldCallsWithoutTokens > 0 ? null : u.aiFieldTokens,
+      calls: u.aiFieldCallsWithTokens + u.aiFieldCallsWithoutTokens,
+      unmeasured_calls: u.aiFieldCallsWithoutTokens,
+    },
   };
   const runs: RunsMetric = { limit: limits.runs, used: u.runs, percent: percentOf(limits.runs, u.runs), state: metricState(limits.runs, u.runs) };
 

@@ -6,6 +6,8 @@ import { call, joinAs } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
 import { AgentBudgetService } from '../src/runners/agent-budget.service';
+import { AiFieldSubscriber } from '../src/records/ai-field.subscriber';
+import { JobRunnerService } from '../src/automations/job-runner.service';
 
 /**
  * ticket #1138 — budgets per agent, in tokens and in runs: warn at 80% (once), pause at 100%, raising the budget resumes it.
@@ -351,5 +353,165 @@ describe('the one-click catch-up honours the budget (the hook ticket #1152 left)
     const res = await as(owner.token, 'POST', `/workspaces/${ws}/agents/${agent}/catch-up`);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().queued).toBe(0);
+  });
+});
+
+// ---- AI-field usage caused by an agent counts toward that agent's budget (Otto, 2026-11-03, from ticket #1179) ----------------------
+describe('AI-field usage caused by an agent counts toward its budget', () => {
+  let aiDb = '';
+  let noteApi = '';
+  type Completion = { text: string; tokensIn: number; tokensOut: number; usageReported?: boolean };
+  let reply: () => Completion = () => ({ text: 'summary', tokensIn: 300, tokensOut: 200, usageReported: true });
+
+  const waitFor = async <T,>(fn: () => Promise<T | null | undefined | false>, label: string): Promise<T> => {
+    for (let i = 0; i < 80; i++) {
+      const v = await fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    throw new Error(`timed out waiting for ${label}`);
+  };
+
+  beforeAll(async () => {
+    app.get(AiFieldSubscriber).client = { complete: async () => reply() };
+    const spaceId = (await as(admin.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+    aiDb = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: spaceId, name: 'AI leads' })).json().id;
+    noteApi = (await as(admin.token, 'POST', `/workspaces/${ws}/databases/${aiDb}/fields`, { display_name: 'Note', type: 'text', config: {} })).json().apiName;
+    const ai = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${aiDb}/fields`, { display_name: 'Summary', type: 'ai', config: { prompt: 'Summarize {Note}', output: { kind: 'text' } } });
+    expect(ai.statusCode, ai.body).toBe(201);
+  });
+
+  /** Writes a record as `token` and runs the AI-field job it causes. */
+  async function recompute(token: string) {
+    const rec = (await as(token, 'POST', `/workspaces/${ws}/databases/${aiDb}/records`, { values: { name: 'Lead', [noteApi]: 'big deal' } })).json().id as string;
+    await waitFor(async () => (await pool.query("select 1 from automation_jobs where kind = 'ai_field_recompute' and status = 'queued' and payload->>'recordId' = $1", [rec])).rows[0], 'the recompute job');
+    await app.get(JobRunnerService).tick();
+    return rec;
+  }
+  /** A claimed wake for the agent: the run credential is the real thing a Runner is handed. */
+  async function startedRun(agent: string): Promise<Claimed> {
+    await wake(agent);
+    const got = claimed(await claim());
+    expect(got).toHaveLength(1);
+    return got[0]!;
+  }
+
+  it('tokens the AI field used for this agent are in tokens.used beside the run\'s own, counted from the recorded usage', async () => {
+    reply = () => ({ text: 'summary', tokensIn: 300, tokensOut: 200, usageReported: true });
+    const agent = await mkAgent('AI field counted', { tokens: 10_000 });
+    const w = await startedRun(agent);
+    await recompute(w.credential.token);
+    let b = await budget(agent);
+    expect(b.tokens).toMatchObject({ used: 500, ai_field: { tokens: 500, calls: 1, unmeasured_calls: 0 } });
+    expect((await complete(w, { usage: { tokens_in: 100, tokens_out: 50 } })).statusCode).toBe(200);
+    b = await budget(agent);
+    expect(b.tokens).toMatchObject({ used: 650, measurement: 'full', ai_field: { tokens: 500, calls: 1 } });
+  });
+
+  it('it is attributed by the agent on the log row: a person\'s write and ANOTHER agent\'s write are not this agent\'s usage', async () => {
+    reply = () => ({ text: 'summary', tokensIn: 400, tokensOut: 0, usageReported: true });
+    const mine = await mkAgent('AI mine', { tokens: 10_000 });
+    const other = await mkAgent('AI other', { tokens: 10_000 });
+    const w = await startedRun(mine);
+    await recompute(admin.token); // a person
+    expect((await budget(mine)).tokens.ai_field).toMatchObject({ tokens: 0, calls: 0 });
+    await recompute(w.credential.token);
+    expect((await budget(mine)).tokens.ai_field).toMatchObject({ tokens: 400, calls: 1 });
+    expect((await budget(other)).tokens.ai_field).toMatchObject({ tokens: 0, calls: 0 });
+  });
+
+  it('the pause holds for it: AI-field tokens alone take the agent to 80% (one notice), then 100% (one notice, claim refused)', async () => {
+    reply = () => ({ text: 'summary', tokensIn: 400, tokensOut: 400, usageReported: true });
+    const agent = await mkAgent('AI pause', { tokens: 1000 });
+    const w = await startedRun(agent);
+    await recompute(w.credential.token); // 800 of 1000
+    expect(await notes('agent_budget_warning', agent)).toBe(1);
+    expect((await budget(agent)).state).toBe('warning');
+    reply = () => ({ text: 'summary', tokensIn: 100, tokensOut: 100, usageReported: true });
+    await recompute(w.credential.token); // 1000
+    expect(await notes('agent_budget_paused', agent)).toBe(1);
+    expect(await notes('agent_budget_warning', agent)).toBe(1);
+    expect(await budget(agent)).toMatchObject({ state: 'paused', paused_reason: 'tokens', tokens: { used: 1000 } });
+    // the run in flight finishes (a pause stops NEW claims); the next wake is not given out
+    expect((await complete(w)).statusCode).toBe(200);
+    await wake(agent);
+    expect(claimed(await claim())).toHaveLength(0);
+    expect(await waitingState(agent)).toMatchObject({ state: 'waiting_for_budget', budget_metric: 'tokens' });
+  });
+
+  it('usage the model did not report is NOT counted as 0: null, labelled, never a pause on a number nobody measured', async () => {
+    reply = () => ({ text: 'summary', tokensIn: 999_999, tokensOut: 999_999 }); // no usageReported: like a vendor that sent no usage
+    const agent = await mkAgent('AI unreported', { tokens: 100 });
+    const w = await startedRun(agent);
+    await recompute(w.credential.token);
+    expect((await complete(w)).statusCode).toBe(200);
+    const b = await budget(agent);
+    expect(b.tokens).toMatchObject({ used: null, state: 'not_measured', measurement: 'not_reported', ai_field: { tokens: null, calls: 1, unmeasured_calls: 1 } });
+    expect(b.state).toBe('ok');
+  });
+
+  it('mixed: a run that reported plus an AI call that did not is a partial total, "at least"', async () => {
+    reply = () => ({ text: 'summary', tokensIn: 1, tokensOut: 1 });
+    const agent = await mkAgent('AI mixed', { tokens: 1000 });
+    const w = await startedRun(agent);
+    await recompute(w.credential.token);
+    expect((await complete(w, { usage: { tokens_in: 500, tokens_out: 300 } })).statusCode).toBe(200);
+    expect((await budget(agent)).tokens).toMatchObject({ used: 800, measurement: 'partial', unmeasured_runs: 0, ai_field: { tokens: null, calls: 1, unmeasured_calls: 1 }, state: 'warning' });
+  });
+
+  it('a call that FAILED is neither counted nor called unmeasured', async () => {
+    reply = () => {
+      throw new Error('vendor down');
+    };
+    const agent = await mkAgent('AI failed', { tokens: 1000 });
+    const w = await startedRun(agent);
+    await recompute(w.credential.token).catch(() => undefined);
+    expect((await complete(w)).statusCode).toBe(200);
+    expect((await budget(agent)).tokens).toMatchObject({ ai_field: { calls: 0, unmeasured_calls: 0 } });
+  });
+
+  it('last month\'s AI-field usage does not count', async () => {
+    reply = () => ({ text: 'summary', tokensIn: 300, tokensOut: 200, usageReported: true });
+    const agent = await mkAgent('AI month', { tokens: 1000 });
+    const w = await startedRun(agent);
+    await recompute(w.credential.token);
+    await pool.query("update activity_events set created_at = created_at - interval '40 days' where type = 'outward.ai_field' and agent_id = $1", [agent]);
+    expect((await budget(agent)).tokens.ai_field).toMatchObject({ tokens: 0, calls: 0 });
+  });
+});
+
+describe('a notice always reaches someone', () => {
+  const aiEvent = (agent: string) =>
+    pool.query("insert into activity_events (workspace_id, type, payload, source, agent_id) values ($1, 'outward.ai_field', $2::jsonb, 'agent', $3)", [
+      ws,
+      JSON.stringify({ object: { kind: 'record', id: agent, name: 'x' }, channel: 'ai_field', summary: 's', usage: { tokens_in: 450, tokens_out: 450 } }),
+      agent,
+    ]);
+
+  it('if the agent\'s creator is gone (null), the manager notice goes to a workspace admin, once, instead of being recorded as sent to nobody', async () => {
+    const agent = await mkAgent('Orphan', { tokens: 1000 });
+    await pool.query('update records set created_by = null where id = $1', [agent]);
+    await aiEvent(agent);
+    const adminId = (await as(admin.token, 'GET', '/me')).json().id as string;
+    const budgets = app.get(AgentBudgetService);
+    await budgets.afterUsageChange(ws, agent);
+    await budgets.afterUsageChange(ws, agent);
+    const sent = (await pool.query("select user_id, coalesce(sum(count),0)::int n from notifications where type = 'agent_budget_warning' and record_id = $1 group by user_id", [agent])).rows;
+    expect(sent).toEqual([{ user_id: adminId, n: 1 }]);
+  });
+
+  it('if nobody at all can be told, the notice is NOT recorded as sent, so a later change can still send it', async () => {
+    const agent = await mkAgent('Nobody', { tokens: 1000 });
+    await pool.query('update records set created_by = null where id = $1', [agent]);
+    await aiEvent(agent);
+    await pool.query("update memberships set status = 'pending' where workspace_id = $1 and role = 'admin'", [ws]);
+    try {
+      await app.get(AgentBudgetService).afterUsageChange(ws, agent);
+      expect((await pool.query('select 1 from agent_budget_notices where agent_id = $1', [agent])).rowCount).toBe(0);
+    } finally {
+      await pool.query("update memberships set status = 'active' where workspace_id = $1 and role = 'admin'", [ws]);
+    }
+    await app.get(AgentBudgetService).afterUsageChange(ws, agent);
+    expect((await pool.query('select 1 from agent_budget_notices where agent_id = $1', [agent])).rowCount).toBeGreaterThan(0);
   });
 });

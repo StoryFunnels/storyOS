@@ -16,6 +16,12 @@ export interface ManagedAiCompletion {
   text: string;
   tokensIn: number;
   tokensOut: number;
+  /**
+   * ticket #1138: true ONLY when the vendor's response carried both token counts. `tokensIn`/`tokensOut` are 0 when it did not (a
+   * zero-fill this type predates), so a consumer that must not guess (a budget) reads THIS flag and treats anything else, including a
+   * client that does not set it, as "not reported".
+   */
+  usageReported?: boolean;
 }
 
 /**
@@ -107,6 +113,7 @@ export class OpenAiManagedAiClient implements ManagedAiClient {
       text,
       tokensIn: data.usage?.prompt_tokens ?? 0,
       tokensOut: data.usage?.completion_tokens ?? 0,
+      usageReported: Number.isFinite(data.usage?.prompt_tokens) && Number.isFinite(data.usage?.completion_tokens),
     };
   }
 }

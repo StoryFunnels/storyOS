@@ -5,7 +5,17 @@ import type { BudgetUsage } from './agent-budget';
 /** ticket #1138: the pure rules, with a clock the test owns. Every instant is an explicit UTC time. */
 const at = (iso: string) => new Date(iso);
 const period = budgetPeriod(at('2026-11-15T12:00:00Z'));
-const usage = (u: Partial<BudgetUsage> = {}): BudgetUsage => ({ runs: 0, tokens: 0, runsWithTokens: 0, finishedRuns: 0, finishedWithoutTokens: 0, ...u });
+const usage = (u: Partial<BudgetUsage> = {}): BudgetUsage => ({
+  runs: 0,
+  tokens: 0,
+  runsWithTokens: 0,
+  finishedRuns: 0,
+  finishedWithoutTokens: 0,
+  aiFieldTokens: 0,
+  aiFieldCallsWithTokens: 0,
+  aiFieldCallsWithoutTokens: 0,
+  ...u,
+});
 
 describe('the month', () => {
   it('is the UTC calendar month: starts at 00:00Z on the 1st and resets at 00:00Z on the 1st of the next', () => {
@@ -107,6 +117,36 @@ describe('tokens the tool did not report are never counted as zero (CLAUDE.md: n
     const t = evaluateBudget({ tokens: null, runs: null }, usage({ runs: 2, tokens: 321, runsWithTokens: 2, finishedRuns: 2 }), period);
     expect(t.tokens.used).toBe(321);
     expect(t.runs.used).toBe(2);
+  });
+});
+
+describe('AI-field usage is a second source of the same token total (Otto, 2026-11-03)', () => {
+  const eval1 = (u: Partial<BudgetUsage>, limit = 1000) => evaluateBudget({ tokens: limit, runs: null }, usage(u), period).tokens;
+  it('is added to the runs\' tokens, and shown on its own', () => {
+    const t = eval1({ tokens: 300, runsWithTokens: 1, finishedRuns: 1, aiFieldTokens: 500, aiFieldCallsWithTokens: 2 });
+    expect(t.used).toBe(800);
+    expect(t.state).toBe('warning');
+    expect(t.measurement).toBe('full');
+    expect(t.ai_field).toEqual({ tokens: 500, calls: 2, unmeasured_calls: 0 });
+  });
+  it('alone, with no run having finished, it is the whole total', () => {
+    const t = eval1({ aiFieldTokens: 1000, aiFieldCallsWithTokens: 1 });
+    expect(t.used).toBe(1000);
+    expect(t.state).toBe('paused');
+  });
+  it('calls that finished without usage are null, never 0: not_reported alone, partial beside a reporter, and they never pause', () => {
+    const none = eval1({ aiFieldCallsWithoutTokens: 3 });
+    expect(none.used).toBeNull();
+    expect(none.measurement).toBe('not_reported');
+    expect(none.state).toBe('not_measured');
+    expect(none.ai_field).toEqual({ tokens: null, calls: 3, unmeasured_calls: 3 });
+    const mixed = eval1({ aiFieldTokens: 850, aiFieldCallsWithTokens: 1, aiFieldCallsWithoutTokens: 1 });
+    expect(mixed.used).toBe(850);
+    expect(mixed.measurement).toBe('partial');
+    expect(mixed.state).toBe('warning');
+  });
+  it('no calls at all: the AI-field part is a true 0 over 0 calls', () => {
+    expect(eval1({}).ai_field).toEqual({ tokens: 0, calls: 0, unmeasured_calls: 0 });
   });
 });
 

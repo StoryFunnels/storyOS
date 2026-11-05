@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { agentBudgetNotices, databases, fields, records } from '../db/schema';
+import { agentBudgetNotices, databases, fields, memberships, records } from '../db/schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { BUDGET_FIELD_NAMES, BUDGET_RUN_FIELD, BUDGET_TOKEN_FIELD, budgetPeriod, evaluateBudget, noticeFor, parseBudgetLimit } from './agent-budget';
 import type { BudgetLimits, BudgetStatus, BudgetUsage } from './agent-budget';
@@ -13,7 +13,7 @@ export interface AgentBudget {
   status: BudgetStatus;
 }
 
-const EMPTY_USAGE: BudgetUsage = { runs: 0, tokens: 0, runsWithTokens: 0, finishedRuns: 0, finishedWithoutTokens: 0 };
+const EMPTY_USAGE: BudgetUsage = { runs: 0, tokens: 0, runsWithTokens: 0, finishedRuns: 0, finishedWithoutTokens: 0, aiFieldTokens: 0, aiFieldCallsWithTokens: 0, aiFieldCallsWithoutTokens: 0 };
 
 /**
  * ticket #1138 — an agent's budget and what it has used this month.
@@ -76,6 +76,34 @@ export class AgentBudgetService {
    * EMPTY via `?? `): its usage is a true zero, because the count of Run records is a count, not an unreported measurement.
    */
   async usageFor(workspaceId: string, agentIds: string[], now: Date): Promise<Map<string, BudgetUsage>> {
+    const out = await this.runUsageFor(workspaceId, agentIds, now);
+    // AI-field calls the agent caused (ticket #1138, Otto 2026-11-03): from the `outward.ai_field` log rows, which carry the agent id
+    // from the run credential's origin (never a header a caller could set) and, once the call ended, its recorded `usage`.
+    // `usage` an object = the vendor reported it; `usage` JSON null = it finished without the vendor saying; no key = the call
+    // failed or is still running, which is neither. Counted by SQL for the same UTC month, never by fetching rows.
+    if (agentIds.length === 0) return out;
+    const { startsAt, resetsAt } = budgetPeriod(now);
+    const res = (await this.db.execute(sql`
+      SELECT e.agent_id::text AS agent_id,
+        coalesce(sum((e.payload -> 'usage' ->> 'tokens_in')::numeric + (e.payload -> 'usage' ->> 'tokens_out')::numeric) FILTER (WHERE jsonb_typeof(e.payload -> 'usage') = 'object'), 0)::float8 AS tokens,
+        count(*) FILTER (WHERE jsonb_typeof(e.payload -> 'usage') = 'object')::int AS with_tokens,
+        count(*) FILTER (WHERE jsonb_typeof(e.payload -> 'usage') = 'null')::int AS without_tokens
+      FROM activity_events e
+      WHERE e.workspace_id = ${workspaceId}::uuid AND e.type = 'outward.ai_field' AND e.source = 'agent'
+        AND e.created_at >= ${startsAt.toISOString()}::timestamptz AND e.created_at < ${resetsAt.toISOString()}::timestamptz
+        AND e.agent_id IN (${sql.join(
+          agentIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})
+      GROUP BY e.agent_id`)) as unknown as { rows?: Array<{ agent_id: string; tokens: number; with_tokens: number; without_tokens: number }> };
+    for (const row of res.rows ?? []) {
+      out.set(row.agent_id, { ...(out.get(row.agent_id) ?? EMPTY_USAGE), aiFieldTokens: Number(row.tokens), aiFieldCallsWithTokens: row.with_tokens, aiFieldCallsWithoutTokens: row.without_tokens });
+    }
+    return out;
+  }
+
+  /** The Runs-records half of `usageFor`. */
+  private async runUsageFor(workspaceId: string, agentIds: string[], now: Date): Promise<Map<string, BudgetUsage>> {
     const out = new Map<string, BudgetUsage>();
     if (agentIds.length === 0) return out;
     const runsDb = await this.db.query.databases.findFirst({
@@ -121,6 +149,9 @@ export class AgentBudgetService {
         runsWithTokens: row.runs_with_tokens,
         finishedRuns: row.finished_runs,
         finishedWithoutTokens: row.finished_without_tokens,
+        aiFieldTokens: 0,
+        aiFieldCallsWithTokens: 0,
+        aiFieldCallsWithoutTokens: 0,
       });
     }
     return out;
@@ -183,6 +214,14 @@ export class AgentBudgetService {
       const notices = noticeFor(b.status);
       if (notices.length === 0) return;
       const agent = await this.db.query.records.findFirst({ where: eq(records.id, agentId), columns: { title: true, createdBy: true, databaseId: true } });
+      // Who is told: the agent's manager (its creator) while they are an active member; if they left (or the creator is unknown), the
+      // workspace's active admins. If NOBODY can be told, nothing is recorded as sent, so a later change can still send it: a notice
+      // row means "someone was told", never "we tried".
+      const recipients = await this.recipientsFor(workspaceId, agent?.createdBy ?? null);
+      if (!agent || recipients.length === 0) {
+        this.logger.warn(`budget notice for agent ${agentId}: nobody in workspace ${workspaceId} can be told (no active manager or admin); not recorded as sent`);
+        return;
+      }
       for (const n of notices) {
         const [row] = await this.db
           .insert(agentBudgetNotices)
@@ -190,15 +229,14 @@ export class AgentBudgetService {
           .onConflictDoNothing()
           .returning({ id: agentBudgetNotices.id });
         if (!row || n.silent) continue;
-        if (!agent?.createdBy) continue;
         try {
           await this.notifications.notify({
             workspaceId,
             databaseId: agent.databaseId,
             recordId: agentId,
-            actorId: agent.createdBy,
+            actorId: recipients[0]!,
             type: n.level === 'warning' ? 'agent_budget_warning' : 'agent_budget_paused',
-            recipients: [agent.createdBy],
+            recipients,
             allowSelf: true,
             snippet: this.sentence(agent.title, n, b),
           });
@@ -212,11 +250,21 @@ export class AgentBudgetService {
     }
   }
 
+  /** The agent's creator if they are still an active member, else the workspace's active admins (capped by notify at 20). */
+  private async recipientsFor(workspaceId: string, createdBy: string | null): Promise<string[]> {
+    if (createdBy) {
+      const m = await this.db.query.memberships.findFirst({ where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, createdBy), eq(memberships.status, 'active')), columns: { userId: true } });
+      if (m) return [m.userId];
+    }
+    const admins = await this.db.select({ userId: memberships.userId }).from(memberships).where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.role, 'admin'), eq(memberships.status, 'active')));
+    return admins.map((a) => a.userId);
+  }
+
   private sentence(name: string, n: { metric: 'tokens' | 'runs'; level: 'warning' | 'paused'; limit: number }, b: AgentBudget): string {
     const unit = n.metric === 'tokens' ? 'tokens' : 'runs';
     const m = b.status[n.metric];
     const used = m.used === null ? 'an unknown number of' : m.used.toLocaleString('en-US');
-    const partial = n.metric === 'tokens' && b.status.tokens.measurement === 'partial' ? ` (at least; ${b.status.tokens.unmeasured_runs} finished run(s) did not report tokens)` : '';
+    const partial = n.metric === 'tokens' && b.status.tokens.measurement === 'partial' ? ` (at least; ${b.status.tokens.unmeasured_runs} finished run(s) and ${b.status.tokens.ai_field.unmeasured_calls} AI-field call(s) did not report tokens)` : '';
     const resets = b.status.period.resets_at.slice(0, 10);
     if (n.level === 'warning') {
       return `${name} has used ${used} of its ${n.limit.toLocaleString('en-US')} ${unit} this month${partial}: over 80%. At 100% it pauses until you raise its budget or the month resets (${resets}).`;
