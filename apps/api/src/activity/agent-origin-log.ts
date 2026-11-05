@@ -28,11 +28,11 @@ export type AgentOutwardChannel =
 export async function logAgentOriginOutward(
   db: Db,
   input: { workspaceId: string; recordId: string; recordTitle?: string | null; channel: AgentOutwardChannel; summary: string; origin?: EventOrigin | null },
-): Promise<void> {
+): Promise<string | null> {
   const origin = input.origin ?? currentEventOrigin();
-  if (!origin) return;
+  if (!origin) return null;
   const actor = currentActor();
-  await db.insert(activityEvents).values({
+  const [row] = await db.insert(activityEvents).values({
     workspaceId: input.workspaceId,
     recordId: null,
     actorId: actor?.userId ?? null,
@@ -45,5 +45,6 @@ export async function logAgentOriginOutward(
     // a server-run agent has no Runner: its origin carries '' (EventOrigin.runnerId is required), the column is a uuid
     runnerId: origin.runnerId || null,
     runnerName: origin.runnerName,
-  });
+  }).returning({ id: activityEvents.id });
+  return row?.id ?? null;
 }

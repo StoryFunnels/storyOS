@@ -44,7 +44,8 @@ const idFixtures: IdFixture[] = [];
 const NOT_DATABASE_KEYED: Array<[RegExp, string]> = [
   [/\/notifications\/:id\//, 'a notification is the caller\'s OWN row; it carries no database or space to restrict'],
   [/\/space-groups\/:group/, 'a space group is a presentational heading: it owns nothing and carries no access rule (views-and-the-sidebar.md, 2026-10-23 amendment)'],
-  [/\/files\/:id/, 'files carry no space/database at upload time (#238 note in files.controller.ts); the workspace is the only scope'],
+  [/\/agents\/:agent\/budget/, 'keyed by a record of the Agents SYSTEM database (not a database a person restricts here); it needs read on that database AND the Runs database and answers the missing-id 404 otherwise, asserted for a guest with only an Agents grant in test/agent-budgets.test.ts'],
+  [/\/files\/:id/,'files carry no space/database at upload time (#238 note in files.controller.ts); the workspace is the only scope'],
 ];
 
 const adm = (m: string, u: string, p?: unknown) => call(app, owner.token, m, u, p);

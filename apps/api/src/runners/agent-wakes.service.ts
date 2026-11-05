@@ -13,6 +13,8 @@ import { SkillsService } from '../skills/skills.service';
 import { SKILL_TEXT_CAP } from '../agents/agent-runtime';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { runnerConnection, offlineSince } from './runner-present';
+import { AgentBudgetService } from './agent-budget.service';
+import type { BudgetStatus } from './agent-budget';
 import { holdFor } from './runner-sharing';
 import type { Hold } from './runner-sharing';
 import type { RunnerRow } from './runner-present';
@@ -192,6 +194,8 @@ export class AgentWakesService {
     private readonly runCredentials: RunCredentialsService,
     /** ticket #1184: resolves the skills an agent names, as its owner, for the claim. */
     private readonly skillsService: SkillsService,
+    /** ticket #1138: the agent's monthly budget. A paused agent is not given a wake; a run's usage may owe its manager a notice. */
+    private readonly budgets: AgentBudgetService,
   ) {}
 
   registerRunHooks(hooks: WakeRunHooks): void {
@@ -510,7 +514,7 @@ export class AgentWakesService {
     return row?.w ?? null;
   }
 
-  private async claimOnce(runner: RunnerRow, max: number, wakeId: string | undefined, now: Date): Promise<ClaimedWake[]> {
+  private async claimOnce(runner: RunnerRow, maxWanted: number, wakeId: string | undefined, now: Date): Promise<ClaimedWake[]> {
     // A held Runner (limit pause, outside its working hours, reserve) and one whose chosen tool is gone claim nothing: the wakes wait.
     if (holdFor(runner, now)) return [];
     if (runner.chosenTool && !runner.tools.some((t) => t.id === runner.chosenTool && t.installed)) return [];
@@ -518,21 +522,32 @@ export class AgentWakesService {
     const enabledId = info?.fieldIds.get('enabled');
     if (!info || !enabledId) return [];
     if (wakeId && !/^[0-9a-f-]{36}$/i.test(wakeId)) return [];
+    // ticket #1138: an agent over its monthly budget is not given a wake (it stays queued and shows "waiting for its budget"), and a
+    // claim of several wakes may not walk past a run cap in one step: it takes no more than the fewest runs any budgeted agent has left.
+    // Decided FRESH on every poll round (this runs each time), so raising the budget resumes the agent on the next poll.
+    const assigned = await this.db.select({ agentId: runnerAgents.agentId }).from(runnerAgents).where(eq(runnerAgents.runnerId, runner.id));
+    const gate = await this.budgets.claimGate(runner.workspaceId, assigned.map((a) => a.agentId), now);
+    const max = gate.runsLeft.size > 0 ? Math.max(1, Math.min(maxWanted, ...gate.runsLeft.values())) : maxWanted;
+    const notBlocked = gate.blocked.size > 0 ? sql`AND w.agent_id NOT IN (${sql.join([...gate.blocked].map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
     const lease = new Date(now.getTime() + WAKE_LEASE_SECONDS * 1000);
     const only = wakeId ? sql`AND w.id = ${wakeId}::uuid` : sql``;
+    // The picked ids are a MATERIALIZED CTE on purpose. As a plain `id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)` the planner may turn
+    // the subquery into a semi-join and run it again per row, and then LIMIT n does not bound the rows updated: ticket #1138's run-cap test
+    // saw a claim of max 1 hand out 4 wakes (only on a fresh database, where the planner has no statistics). MATERIALIZED evaluates it once.
     const res = (await this.db.execute(sql`
-      UPDATE agent_wakes SET status = 'claimed', runner_id = ${runner.id}::uuid, claim_nonce = gen_random_uuid()::text,
-        lease_expires_at = ${lease.toISOString()}::timestamptz, claimed_at = ${now.toISOString()}::timestamptz, updated_at = ${now.toISOString()}::timestamptz
-      WHERE status = 'queued' AND id IN (
+      WITH picked AS MATERIALIZED (
         SELECT w.id FROM agent_wakes w
           JOIN runner_agents ra ON ra.agent_id = w.agent_id AND ra.runner_id = ${runner.id}::uuid
           JOIN records a ON a.id = w.agent_id AND a.deleted_at IS NULL AND (a.values ->> ${enabledId}) = 'true'
           JOIN memberships m ON m.workspace_id = w.workspace_id AND m.user_id = a.created_by AND m.status = 'active' AND m.role <> 'guest'
-        WHERE w.workspace_id = ${runner.workspaceId}::uuid AND w.status = 'queued' AND w.not_before <= ${now.toISOString()}::timestamptz ${only}
+        WHERE w.workspace_id = ${runner.workspaceId}::uuid AND w.status = 'queued' AND w.not_before <= ${now.toISOString()}::timestamptz ${only} ${notBlocked}
         ORDER BY w.created_at, w.id
         LIMIT ${max}
         FOR UPDATE OF w SKIP LOCKED
-      ) RETURNING id`)) as unknown as { rows?: Array<{ id: string }> };
+      )
+      UPDATE agent_wakes SET status = 'claimed', runner_id = ${runner.id}::uuid, claim_nonce = gen_random_uuid()::text,
+        lease_expires_at = ${lease.toISOString()}::timestamptz, claimed_at = ${now.toISOString()}::timestamptz, updated_at = ${now.toISOString()}::timestamptz
+      WHERE status = 'queued' AND id IN (SELECT id FROM picked) RETURNING id`)) as unknown as { rows?: Array<{ id: string }> };
     const ids = (res.rows ?? []).map((r) => r.id);
     if (ids.length === 0) return [];
     const rows = await this.db.select().from(agentWakes).where(inArray(agentWakes.id, ids)).orderBy(asc(agentWakes.createdAt));
@@ -571,6 +586,8 @@ export class AgentWakesService {
       await this.hooks?.setRunStatus(wake, 'Running', undefined, { runner: runner.name, tool: runner.chosenTool ?? undefined, startedAt: now }).catch((e) => this.logger.warn(`could not mark Run running for wake ${wake.id}: ${String(e)}`));
       out.push(await this.present(wake, info, skills.loaded, { token: credential.token, scope: credential.scope, expires_at: credential.expires_at }));
     }
+    // ticket #1138: a run just STARTED, which may be the one that crosses 80% or 100% of a run cap.
+    for (const agentId of new Set(out.map((w) => w.agent.id))) await this.budgets.afterUsageChange(runner.workspaceId, agentId, now);
     return out;
   }
 
@@ -844,6 +861,8 @@ export class AgentWakesService {
     await this.revokeRunCredential(flipped);
     const runStatus = requeue ? 'Queued' : terminal === 'done' ? 'Succeeded' : terminal === 'canceled' ? 'Canceled' : 'Failed';
     await this.hooks?.setRunStatus(flipped, runStatus, note, result).catch((e) => this.logger.warn(`Run update failed for wake ${wakeId}: ${String(e)}`));
+    // ticket #1138: the attempt's tokens are on the Run now, so this is where a token budget crosses 80% or 100%.
+    await this.budgets.afterUsageChange(flipped.workspaceId, flipped.agentId, now);
     if (requeue) {
       return { wake_id: flipped.id, status: 'queued' as WakeStatus, requeued: true, repeated: false, ...(limit ? { not_before: until } : { must_comment: 'rewoken' as const }) };
     }
@@ -1084,9 +1103,13 @@ export class AgentWakesService {
     const busy = await this.db.select({ agentId: agentWakes.agentId, runnerId: agentWakes.runnerId }).from(agentWakes).where(and(eq(agentWakes.workspaceId, workspaceId), eq(agentWakes.status, 'claimed')));
     const busyAgents = new Set(busy.map((b) => b.agentId));
     const busyRunners = new Set(busy.map((b) => b.runnerId).filter((id): id is string => Boolean(id)));
+    const queuedAgents = [...new Set(rows.filter((r) => r.status === 'queued').map((r) => r.agentId))];
+    const budgets = queuedAgents.length ? await this.budgets.statuses(workspaceId, queuedAgents, now, { onlyBudgeted: true }) : new Map();
     return rows.map((w) => {
       const runner = (w.runnerId ? claimedRunners.get(w.runnerId) : null) ?? assigned.get(w.agentId) ?? null;
+      const paused = budgets.get(w.agentId)?.status;
       const state = deriveRunState({
+        budgetPause: paused?.paused_reason && paused.resumes_at ? { metric: paused.paused_reason, resumesAt: paused.resumes_at } : null,
         wakeStatus: w.status as WakeStatus,
         claimedAt: w.claimedAt,
         runStatus: w.runId ? (statuses.get(w.runId) ?? null) : null,
@@ -1113,10 +1136,35 @@ export class AgentWakesService {
     });
   }
 
+  /** Can this viewer read the Runs database (the source of every usage number in a budget)? A guest with only an Agents grant cannot. */
+  async mayReadRuns(membership: Membership): Promise<boolean> {
+    const runsDb = await this.db.query.databases.findFirst({
+      where: and(eq(databases.workspaceId, membership.workspaceId), eq(databases.isSystem, true), eq(databases.systemKey, 'agent_runs'), isNull(databases.deletedAt)),
+      columns: { id: true, spaceId: true },
+    });
+    return Boolean(runsDb && (await this.access.effectiveForDatabase(membership, { id: runsDb.id, spaceId: runsDb.spaceId })) !== null);
+  }
+
+  /**
+   * ticket #1138: one agent's budget for the agent's page: its limits, this month's usage, and whether it is paused. `null` (the
+   * caller 404s) unless the viewer can read BOTH the agent and the Runs the numbers come from, so the answer for an agent they cannot
+   * see is the one a nonexistent id gets.
+   */
+  async budgetFor(membership: Membership, agentId: string, now = new Date()) {
+    if (!/^[0-9a-f-]{36}$/i.test(agentId)) return null;
+    const info = await this.agentsDbInfo(membership.workspaceId);
+    if (!info || (await this.access.effectiveForDatabase(membership, { id: info.id, spaceId: info.spaceId })) === null) return null;
+    if (!(await this.mayReadRuns(membership))) return null;
+    const agent = await this.db.query.records.findFirst({ where: and(eq(records.id, agentId), eq(records.databaseId, info.id), isNull(records.deletedAt)), columns: { id: true, title: true } });
+    if (!agent) return null;
+    const b = await this.budgets.statusFor(membership.workspaceId, agentId, now);
+    return b ? { agent: { id: agent.id, name: agent.title }, limits: b.limits, ...b.status } : null;
+  }
+
   /** The waiting counts the web and MCP show ("N waiting", the sidebar number). Hidden wakes are not counted. */
   async summary(membership: Membership) {
     const info = await this.agentsDbInfo(membership.workspaceId);
-    const empty = { agents: [] as Array<{ agent_id: string; name: string; runner: { id: string; name: string } | null; can_run: boolean; waiting: number }>, waiting_total: 0, agents_that_cannot_run: 0 };
+    const empty = { agents: [] as Array<{ agent_id: string; name: string; runner: { id: string; name: string } | null; can_run: boolean; waiting: number; budget: BudgetStatus | null }>, waiting_total: 0, agents_that_cannot_run: 0 };
     if (!info || (await this.access.effectiveForDatabase(membership, { id: info.id, spaceId: info.spaceId })) === null) return empty;
     const queued = await this.visibleFilter(
       membership,
@@ -1128,6 +1176,11 @@ export class AgentWakesService {
     const assigned = await this.assignments(membership.workspaceId);
     const out = [];
     let cannot = 0;
+    // ticket #1138: each agent's month so far, for the ones that HAVE a budget (null = none set; the page shows usage via GET /agents/{agent}/budget).
+    // Usage is counted from the Runs database, so a viewer who cannot read it is not shown numbers derived from it (null, as for a count they could not see).
+    const budgets = (await this.mayReadRuns(membership))
+      ? await this.budgets.statuses(membership.workspaceId, agentRows.map((a) => a.id), new Date(), { onlyBudgeted: true })
+      : new Map<string, { status: BudgetStatus }>();
     for (const a of agentRows) {
       const facts = this.agentFacts(info, a.values as Record<string, unknown>);
       const w = waiting.get(a.id) ?? 0;
@@ -1135,7 +1188,7 @@ export class AgentWakesService {
       const runner = assigned.get(a.id) ?? null;
       const canRun = facts.enabled && facts.ownAi && runner?.status === 'active';
       if (facts.enabled && facts.ownAi && !canRun) cannot++;
-      out.push({ agent_id: a.id, name: a.title, runner: runner ? { id: runner.id, name: runner.name } : null, can_run: canRun, waiting: w });
+      out.push({ agent_id: a.id, name: a.title, runner: runner ? { id: runner.id, name: runner.name } : null, can_run: canRun, waiting: w, budget: budgets.get(a.id)?.status ?? null });
     }
     return { agents: out, waiting_total: queued.length, agents_that_cannot_run: cannot };
   }
