@@ -130,6 +130,8 @@ describe('the existing_elsewhere choice (#1149 AC4)', () => {
     expect(REUSE_COPY.existingSub({ noun: 'client', count: 11, space: 'Empty space', its: 'Client Work', adds: [] })).toBe(
       "Your 11 clients stay where they are, and Empty space links to them. It already has every field this pack needs. Nothing in it is removed or renamed. People who can't open Client Work won't see these clients here.",
     );
+    // ticket #1223: the plural of a -y noun is -ies; the old noun + "s" only read right by accident of the broken singular
+    expect(REUSE_COPY.existingSub({ noun: 'company', count: 3, space: 'S', its: 'W', adds: [] })).toContain('Your 3 companies stay where they are');
     expect(REUSE_COPY.existingSub({ noun: 'client', count: 1, space: 'S', its: 'W', adds: ['Owner', 'Industry'] })).toContain('Your 1 client stays where it is, and S links to it. Adds Owner, Industry.');
   });
 

@@ -10,6 +10,8 @@
  */
 import type { PackPreviewItem } from '@storyos/schemas';
 
+import { pluralNoun } from '@/lib/records';
+
 export interface PackRelation {
   from: string;
   to: string;
@@ -121,7 +123,7 @@ export const REUSE_COPY = {
   /** `count` is a live number; null while loading or when it could not be read — then no number is claimed. */
   existingSub: (o: { noun: string; count: number | null; space: string; its: string; adds: string[] | null }) => {
     const one = o.count === 1;
-    const things = one ? o.noun : `${o.noun}s`;
+    const things = pluralNoun(o.noun, one ? 1 : 2); // not `${noun}s`: "company" is "companies" (ticket #1223)
     const lead = o.count === null ? `Your ${things}` : `Your ${o.count} ${things}`;
     return (
       `${lead} ${one ? 'stays where it is' : 'stay where they are'}, and ${o.space} links to ${one ? 'it' : 'them'}. ` +

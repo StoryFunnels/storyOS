@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { apiErrorMessage } from '@/lib/api';
-import { asksBeforeLine, asksBeforePhrases, summaryFor, waitingLine } from '@/lib/runners/agents';
+import { asksBeforeLine, asksBeforePhrases, summaryFor } from '@/lib/runners/agents';
+import { queuedRunsLine, recordsWaitingCount, runnerLineState } from '@/lib/runners/runner-state';
 import type { AgentView } from '@/lib/runners/agents';
 import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
 import { canSeeRunnerDetails, canHireAgents, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
@@ -30,6 +31,7 @@ import { FirstRunCard } from './first-run-card';
 import { AgentAdvanced } from './agent-advanced';
 import { CatchUpBox } from './catch-up-box';
 import { RunList } from './run-list';
+import { RunnerUnknownLine } from './runner-unknown-line';
 import { RunsOnLine } from './runs-on-line';
 
 /**
@@ -86,7 +88,9 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const isOwner = canChangeRunsOn(agent.ownerId, me);
   const ownerName = isOwner ? 'you' : (members.data?.find((x) => x.user.id === agent.ownerId)?.user.name ?? 'its owner');
   const row = summaryFor(summary.data, agent.id);
-  const assigned = row?.runner ?? null;
+  // Ticket #1223: "No Runner yet" is only said once the summary has loaded and named none; loading and failed say something else.
+  const runnerState = runnerLineState(summary, agent.id);
+  const assigned = runnerState.kind === 'assigned' ? runnerState.runner : null;
   const mine = ownerRunners(runners.data ?? [], agent.ownerId, me);
   const assignedRunner = mine.find((r) => r.id === assigned?.id);
   const workspaceModel = workspaceInfo?.settings?.default_agent_model ?? null;
@@ -157,7 +161,11 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
         <>
           {/* A non-owner sees where it runs, read-only: listing or assigning someone else's Runner is not possible. */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <RunsOnLine assigned={assigned} runners={mine} canChange={isOwner} masked={masked} onPick={pick} onAdd={goAdd} now={new Date()} pending={m.assign.isPending} />
+            {runnerState.kind === 'loading' || runnerState.kind === 'failed' ? (
+              <RunnerUnknownLine failed={runnerState.kind === 'failed'} onRetry={() => void summary.refetch()} retrying={summary.isFetching} />
+            ) : (
+              <RunsOnLine assigned={assigned} runners={mine} canChange={isOwner} masked={masked} onPick={pick} onAdd={goAdd} now={new Date()} pending={m.assign.isPending} />
+            )}
             {mayRunNow && <RunNowButton onRun={runAgentNow} pending={runNow.isPending} alreadyQueued={openManualWake(wakes.data?.data ?? [])} />}
           </div>
           {/* Ticket #1152: records already in its trigger state before it could run never wake it; one click starts them. */}
@@ -191,18 +199,17 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
               }}
             />
           )}
-          {!assigned &&
+          {runnerState.kind === 'none' &&
             (isOwner ? (
               <FirstRunCard
                 agentName={agent.name}
-                waiting={summary.data ? (row?.waiting ?? 0) : null}
-                names={(wakes.data?.data ?? []).filter((w) => w.status === 'queued').flatMap((w) => (w.record?.title ? [w.record.title] : []))}
+                recordsWaiting={recordsWaitingCount(row)}
                 onAdd={goAdd}
               />
             ) : (
               <p className="m-0 text-body text-muted" data-testid="owner-must-add">
                 {agent.name} hasn’t started work yet. {ownerName === 'its owner' ? 'Its owner' : ownerName} needs to add a Runner for it.
-                {row && row.waiting > 0 ? ` ${waitingLine(row.waiting)}.` : ''}
+                {row && row.waiting > 0 ? ` ${queuedRunsLine(row.waiting)}.` : ''}
               </p>
             ))}
         </>

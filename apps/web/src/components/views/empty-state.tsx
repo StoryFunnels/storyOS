@@ -2,6 +2,7 @@
 
 import { Inbox, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { pluralNoun } from '@/lib/records';
 
 /**
  * Coached empty state (#154): shared across the feed/list/gallery (and table)
@@ -41,7 +42,7 @@ export function EmptyState({
       <p className="max-w-sm text-body text-muted">
         {onAdd
           ? `Nothing here yet. Add your first ${noun} to get started.`
-          : `Nothing here yet. New ${noun}s will show up here.`}
+          : `Nothing here yet. New ${pluralNoun(noun, 2)} will show up here.`}
       </p>
       {onAdd && (
         <Button type="button" size="sm" onClick={onAdd}>
