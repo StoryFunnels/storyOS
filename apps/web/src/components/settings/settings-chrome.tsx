@@ -58,15 +58,12 @@ export function SettingsRow({
   leading,
   children,
   className,
-  inlineControls,
 }: {
   title: ReactNode;
   description?: ReactNode;
   leading?: ReactNode;
   children?: ReactNode;
   className?: string;
-  /** A small control (a switch) that stays beside the words on a phone instead of dropping under them at full width. */
-  inlineControls?: boolean;
 }) {
   return (
     <div
@@ -76,22 +73,11 @@ export function SettingsRow({
       )}
     >
       {leading}
-      <div className={cn('flex min-w-0 flex-1 flex-col leading-[1.35]', !inlineControls && 'max-sm:basis-full')}>
+      <div className="flex min-w-0 flex-1 flex-col leading-[1.35] max-sm:basis-full">
         <b className="truncate font-medium text-ink">{title}</b>
         {description && <span className="text-label leading-[1.35]! text-muted">{description}</span>}
       </div>
-      {children && (
-        <div
-          className={cn(
-            'flex shrink-0 flex-wrap items-center gap-2',
-            // On a phone the controls take their own line and share it. A switch is never one of the buttons that stretches (it was
-            // drawn 328px wide with its knob at the left): its width is its own.
-            !inlineControls && 'max-sm:w-full max-sm:[&>button:not([role=switch])]:flex-1',
-          )}
-        >
-          {children}
-        </div>
-      )}
+      {children && <div className="flex shrink-0 flex-wrap items-center gap-2 max-sm:w-full max-sm:[&>button]:flex-1">{children}</div>}
     </div>
   );
 }
