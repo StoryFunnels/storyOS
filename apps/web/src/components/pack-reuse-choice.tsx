@@ -31,7 +31,7 @@ export function ReuseChoice({
   newSpace,
   pick,
   adds,
-  stale,
+  notice,
   onPick,
 }: {
   ws: string;
@@ -42,15 +42,38 @@ export function ReuseChoice({
   pick: ReusePick | undefined;
   /** One-candidate row: fields the install would add to the existing database (from the what-if preview); undefined while unknown. */
   adds: string[] | undefined;
-  /** The pick was dropped because the server no longer stands behind it (confirming preview said no): say so, once. */
-  stale: boolean;
+  /** A pick the server refused (a 422 on the confirming preview or on the install) was dropped: the sentence that says so, until they choose again. */
+  notice: string | null;
   onPick: (pick: ReusePick) => void;
 }) {
   const view = reuseView(choice.hint);
-  if (view.kind === 'none') return <ReuseNone name={choice.name} view={view} />;
-  if (view.kind === 'many')
-    return <ReuseManyView name={choice.name} newSpace={newSpace} view={view} pick={pick} stale={stale || isStalePick(view, pick)} onPick={onPick} />;
-  return <ReuseSingle ws={ws} choice={{ name: choice.name, hint: view.hint }} newSpace={newSpace} selected={pick?.use === true} adds={adds} onSelect={(use) => onPick({ use })} />;
+  // A pick the review itself no longer offers (the list refetched without it) says the same thing a refused one does.
+  const note = notice ?? (isStalePick(view, pick) ? REUSE_COPY.stalePick(choice.name) : null);
+  const sentence = note && <ReuseNotice name={choice.name} text={note} />;
+  if (choice.exhausted) return <span className="mt-1 flex flex-col" data-testid="pack-reuse-choice" data-database={choice.name} data-kind="exhausted">{sentence}</span>;
+  if (view.kind === 'none')
+    return (
+      <>
+        {sentence}
+        <ReuseNone name={choice.name} view={view} />
+      </>
+    );
+  if (view.kind === 'many') return <ReuseManyView name={choice.name} newSpace={newSpace} view={view} pick={pick} notice={note} onPick={onPick} />;
+  return (
+    <>
+      {sentence}
+      <ReuseSingle ws={ws} choice={{ name: choice.name, hint: view.hint }} newSpace={newSpace} selected={pick?.use === true} adds={adds} onSelect={(use) => onPick({ use })} />
+    </>
+  );
+}
+
+/** The one sentence under a row after its pick was refused. A status region, so a screen reader hears it appear. */
+function ReuseNotice({ name, text }: { name: string; text: string }) {
+  return (
+    <p role="status" className="mt-1.5 text-label leading-[1.45] text-ink-secondary" data-testid="pack-reuse-stale" data-database={name}>
+      {text}
+    </p>
+  );
 }
 
 const radioCard = (on: boolean, disabled: boolean) =>
@@ -78,14 +101,14 @@ export function ReuseManyView({
   newSpace,
   view,
   pick,
-  stale,
+  notice,
   onPick,
 }: {
   name: string;
   newSpace: string;
   view: Extract<ReuseView, { kind: 'many' }>;
   pick: ReusePick | undefined;
-  stale: boolean;
+  notice: string | null;
   onPick: (pick: ReusePick) => void;
 }) {
   const chosen = pickedCandidate(view, pick);
@@ -117,11 +140,7 @@ export function ReuseManyView({
           </span>
         </label>
       </span>
-      {stale && (
-        <p role="status" className="mt-1.5 text-label leading-[1.45] text-ink-secondary" data-testid="pack-reuse-stale">
-          {REUSE_COPY.stalePick(name)}
-        </p>
-      )}
+      {notice && <ReuseNotice name={name} text={notice} />}
       {using && (
         <>
           <span

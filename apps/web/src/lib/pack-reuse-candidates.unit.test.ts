@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ReuseManyView, ReuseNone } from '@/components/pack-reuse-choice';
+import { ReuseChoice, ReuseManyView, ReuseNone } from '@/components/pack-reuse-choice';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   REUSE_COPY,
+  addRefusals,
   aDatabase,
   anArticle,
+  applyRefusals,
   cantUseLine,
   droppedPicks,
+  noDatabaseMessage,
+  refusalNotice,
+  reuseRefusals,
+  shortReason,
+  type RefusedCandidates,
   existingChoices,
   isReusableCandidate,
   isStalePick,
@@ -139,34 +148,154 @@ describe('stale picks fall back (unconfigured is not invalid)', () => {
     expect(isStalePick(v, undefined)).toBe(false);
     if (v.kind === 'many') expect(pickedCandidate(v, { use: true, databaseId: 'gone' })).toBeNull();
   });
-  it('the confirming preview drops what the server does not adopt, and keeps what it does', () => {
-    const picks = { Issues: { action: 'reuse', database_id: 'db-audit' }, Projects: { action: 'reuse', database_id: 'p' } };
+  it('the confirming preview data drops what the server does not adopt, and keeps what it does', () => {
+    const picks = { Issues: { database_id: 'db-audit' }, Projects: { database_id: 'p' } };
     expect(
       droppedPicks(picks, [
         { name: 'Issues', existing_elsewhere: { adopted: true, reusable: true } },
-        { name: 'Projects', existing_elsewhere: { adopted: false, reusable: false, reason: 'gone' } },
+        { name: 'Projects', existing_elsewhere: { adopted: false, reusable: false, reason: 'Budget is a text here but this pack needs a number.' } },
       ]),
-    ).toEqual(['Projects']);
-    expect(droppedPicks(picks, [])).toEqual(['Issues', 'Projects']);
+    ).toEqual([{ name: 'Projects', databaseId: 'p', kind: 'refused', reason: 'Budget is a text here but this pack needs a number.' }]);
+    expect(droppedPicks(picks, []).map((r) => [r.name, r.kind])).toEqual([['Issues', 'gone'], ['Projects', 'gone']]);
   });
-  it('says why in one sentence', () => {
-    expect(REUSE_COPY.stalePick('Issues')).toBe('The Issues you picked can’t be used any more, so this pack will create its own.');
+  it('says why in one sentence (Dara): the name follows the database', () => {
+    expect(REUSE_COPY.stalePick('Issues')).toBe('That Issues database is gone or you can no longer reach it, so this pack will make a new one.');
+    expect(REUSE_COPY.stalePick('Sprints')).toBe('That Sprints database is gone or you can no longer reach it, so this pack will make a new one.');
+  });
+});
+
+/** The exact 422 body the API sends for a picked id that is not a candidate (apps/api/test/pack-reuse-candidates.test.ts pins the sentence). */
+const goneBody = (name: string) => ({ error: { code: 'validation_failed', message: noDatabaseMessage(name), request_id: 'r' } });
+
+describe('a 422 on a reuse pick — on EVERY path, the install included (Dara review of PR 1417)', () => {
+  const choices = existingChoices([{ name: 'Issues', existing_elsewhere: issues }]);
+  const picked = { Issues: { use: true, databaseId: 'db-audit' } };
+  const sent = reuseResolutions(choices, picked);
+
+  it('the "no database you can edit" 422 is a gone refusal, naming the database that was sent', () => {
+    expect(reuseRefusals(goneBody('Issues'), sent)).toEqual([{ name: 'Issues', databaseId: 'db-audit', kind: 'gone' }]);
+    expect(noDatabaseMessage('Issues')).toBe('There is no Issues database you can edit.');
+  });
+  it('a 422 with a reason of its own is that pick’s refusal, with the reason (one pick)', () => {
+    const body = { error: { code: 'validation_failed', message: 'Priority is a text here but this pack needs a select.' } };
+    expect(reuseRefusals(body, sent)).toEqual([{ name: 'Issues', databaseId: 'db-audit', kind: 'refused', reason: 'Priority is a text here but this pack needs a select.' }]);
+  });
+  it('the reason may arrive in details, as the API puts per-value messages', () => {
+    const body = { error: { code: 'validation_failed', message: 'x', details: [{ message: noDatabaseMessage('Issues') }] } };
+    expect(reuseRefusals(body, sent).map((r) => r.kind)).toEqual(['gone']);
+  });
+  it('is not a refusal when it is not a 422, has no pick behind it, or the message is unrelated with several picks', () => {
+    expect(reuseRefusals({ error: { code: 'forbidden', message: noDatabaseMessage('Issues') } }, sent)).toEqual([]);
+    expect(reuseRefusals({ error: { code: 'internal_error', message: 'boom' } }, sent)).toEqual([]);
+    expect(reuseRefusals(goneBody('Issues'), {})).toEqual([]);
+    expect(reuseRefusals(undefined, sent)).toEqual([]);
+    expect(reuseRefusals({ error: { code: 'validation_failed', message: 'Something else.' } }, { Issues: { database_id: 'a' }, Projects: { database_id: 'b' } })).toEqual([]);
+  });
+  it('with several picks only the one the sentence names is refused', () => {
+    const picks = { Issues: { database_id: 'a' }, Projects: { database_id: 'b' } };
+    expect(reuseRefusals(goneBody('Projects'), picks).map((r) => r.name)).toEqual(['Projects']);
+  });
+
+  /** What the dialog does on a refusal, as pure state: drop the pick, remember the refusal, apply it to the choices. */
+  const afterRefusal = (body: unknown) => {
+    const refusals = reuseRefusals(body, sent);
+    const refused: RefusedCandidates = addRefusals({}, refusals);
+    const next = applyRefusals(choices, refused);
+    const selection = Object.fromEntries(Object.entries(picked).filter(([n]) => !refusals.some((r) => r.name === n)));
+    const notice = refusals.map(refusalNotice)[0] ?? null;
+    return { refusals, next, selection, notice };
+  };
+
+  it('INSTALL path: the dead pick is no longer selected, no longer in the list, nothing is sent for it, and the sentence shows', () => {
+    const { next, selection, notice } = afterRefusal(goneBody('Issues'));
+    expect(reuseResolutions(next, selection)).toEqual({});
+    expect(reusedNames(next, selection)).toEqual([]);
+    const view = reuseView(next[0]!.hint);
+    if (view.kind !== 'many') throw new Error('three candidates are left: a many row');
+    expect(view.usable.map((c) => c.database_id)).toEqual(['db-storyos']);
+    expect(view.total).toBe(4);
+    const html = renderToStaticMarkup(createElement(ReuseChoice, { ws: 'w', choice: next[0]!, newSpace: 'Dev Tracker', pick: selection.Issues, adds: undefined, notice, onPick: noop }));
+    expect(html).toContain('That Issues database is gone or you can no longer reach it, so this pack will make a new one.');
+    expect(html).not.toContain('db-audit');
+    expect(html).not.toContain('Issues in Website Audit');
+    expect(html).toMatch(/checked=""\/><span class="flex min-w-0 flex-col"><b[^>]*>Create a new Issues database here/);
+    expect(html).not.toContain('pack-reuse-pick');
+  });
+  it('PREVIEW path: the same refusal from the confirming preview gives the same state', () => {
+    // the confirming preview throws the same body the install does, and the dialog runs both through reuseRefusals
+    expect(afterRefusal(goneBody('Issues')).refusals).toEqual(reuseRefusals(goneBody('Issues'), sent));
+  });
+  it('a refusal WITH a reason moves the candidate to the can’t-be-used line instead of deleting it', () => {
+    const reason = 'Priority is a text here but this pack needs a select.';
+    const { next, notice } = afterRefusal({ error: { code: 'validation_failed', message: reason } });
+    const view = reuseView(next[0]!.hint);
+    if (view.kind !== 'many') throw new Error('fixture');
+    expect(view.usable.map((c) => c.database_id)).toEqual(['db-storyos']);
+    expect(view.unusable.map((c) => c.space_name)).toContain('Website Audit');
+    expect(cantUseLine(view.unusable)).toContain('Website Audit (Priority is a text here but this pack needs a select)');
+    expect(notice).toBe('That Issues database can’t take this pack now: Priority is a text here but this pack needs a select. This pack will make a new one.');
+  });
+  it('a refused database does not come back when the preview refetches the same candidates', () => {
+    const refused = addRefusals({}, reuseRefusals(goneBody('Issues'), sent));
+    const again = applyRefusals(existingChoices([{ name: 'Issues', existing_elsewhere: issues }]), refused);
+    expect(JSON.stringify(again)).not.toContain('db-audit');
+  });
+  it('when every candidate is gone the row keeps only its sentence, not a disabled radio with a stale reason', () => {
+    const two = existingChoices([{ name: 'Issues', existing_elsewhere: several([storyos, audit]) }]);
+    const refused = addRefusals(addRefusals({}, [{ name: 'Issues', databaseId: 'db-storyos', kind: 'gone' }]), [{ name: 'Issues', databaseId: 'db-audit', kind: 'gone' }]);
+    const next = applyRefusals(two, refused);
+    expect(next[0]!.exhausted).toBe(true);
+    const html = renderToStaticMarkup(createElement(ReuseChoice, { ws: 'w', choice: next[0]!, newSpace: 'S', pick: undefined, adds: undefined, notice: REUSE_COPY.stalePick('Issues'), onPick: noop }));
+    expect(html).toContain('gone or you can no longer reach it');
+    expect(html).not.toContain('type="radio"');
+    expect(html).not.toContain('Can&#x27;t use one');
+  });
+  it('one candidate left and usable: the row becomes the single-candidate two-card row, with the sentence above', () => {
+    const two = existingChoices([{ name: 'Issues', existing_elsewhere: several([storyos, audit]) }]);
+    const next = applyRefusals(two, addRefusals({}, [{ name: 'Issues', databaseId: 'db-audit', kind: 'gone' }]));
+    expect(reuseView(next[0]!.hint).kind).toBe('single');
+    expect(next[0]!.exhausted).toBe(false);
+  });
+  it('wiring: BOTH the confirming preview and the install classify their error with reuseRefusals (guard on the dialog source)', () => {
+    const dialog = readFileSync(join(__dirname, '../components/pack-install-dialog.tsx'), 'utf8');
+    expect(dialog).toContain('refuse(reuseRefusals(confirmPicks.error, manyPicks))');
+    expect(dialog).toMatch(/onError: \(e\) => \{[\s\S]*reuseRefusals\(e, manyPicks\)[\s\S]*if \(refuse\(refusals\)\)[\s\S]*return;/);
+  });
+});
+
+describe('shortReason — one candidate’s reason inside the brackets (pure)', () => {
+  it('the Linear reason, as the API words it today, shortens to "syncs from Linear" (this pins the web side of that wording)', () => {
+    expect(shortReason(LINEAR)).toBe('syncs from Linear');
+  });
+  it('a type clash is the API sentence as given, without its full stop', () => {
+    expect(shortReason('Priority is a text here but this pack needs a select.')).toBe('Priority is a text here but this pack needs a select');
+  });
+  it('drops the API’s trailing advice, which the row already offers', () => {
+    expect(shortReason('Something is off. Create a new one here.')).toBe('Something is off');
+  });
+  it('an unknown reason is used as given; no reason claims nothing specific', () => {
+    expect(shortReason('A brand new refusal')).toBe('A brand new refusal');
+    expect(shortReason(undefined)).toBe('it can’t take this pack');
+    expect(shortReason('')).toBe('it can’t take this pack');
   });
 });
 
 describe('the lines (Dara copy, ticket #1176)', () => {
-  it('can’t be used: names each, the Linear ones once at the end', () => {
-    expect(cantUseLine([tool, eng, sf])).toBe(
-      '3 can’t be used: The Tool (Estimate is a select here but this pack needs a number), Engineering (Linear), StoryFunnels (Linear). The Linear ones sync from Linear.',
+  it('can’t be used: EACH one carries its own bracketed reason, and there is no trailing Linear sentence (Dara)', () => {
+    expect(cantUseLine([eng, sf, tool])).toBe(
+      '3 can’t be used: Engineering (Linear) (syncs from Linear), StoryFunnels (Linear) (syncs from Linear), The Tool (Estimate is a select here but this pack needs a number).',
     );
+    expect(cantUseLine([eng, sf, tool])).not.toContain('The Linear ones sync from Linear');
   });
-  it('one that can’t be used names its reason; none, no line', () => {
-    expect(cantUseLine([tool])).toBe('The Tool can’t be used: Estimate is a select here but this pack needs a number.');
-    expect(cantUseLine([eng])).toBe('Engineering (Linear) can’t be used: synced from Linear.');
+  it('one mirror among type clashes does not drag a Linear sentence onto the others, and shows its own reason', () => {
+    const line = cantUseLine([tool, eng])!;
+    expect(line).toContain('Engineering (Linear) (syncs from Linear)');
+    expect(line).not.toMatch(/Linear ones/);
+  });
+  it('one that can’t be used is the same form; none, no line', () => {
+    expect(cantUseLine([tool])).toBe('1 can’t be used: The Tool (Estimate is a select here but this pack needs a number).');
+    expect(cantUseLine([eng])).toBe('1 can’t be used: Engineering (Linear) (syncs from Linear).');
     expect(cantUseLine([])).toBeNull();
-  });
-  it('a type clash with no Linear one carries no Linear sentence', () => {
-    expect(cantUseLine([tool, { ...tool, space_name: 'Other' }])).not.toContain('Linear');
   });
   it('none usable: one quiet line', () => {
     expect(noneUsableLine('Sprints', [eng, sf])).toBe('You have 2 Sprints databases, but both sync from Linear, so this pack makes its own.');
@@ -225,10 +354,10 @@ describe('anArticle — the article follows the name’s sound, in one helper', 
 });
 
 describe('the rendered rows (markup, not source text)', () => {
-  const many = (pick: Parameters<typeof ReuseManyView>[0]['pick'], stale = false) => {
+  const many = (pick: Parameters<typeof ReuseManyView>[0]['pick'], notice: string | null = null) => {
     const v = reuseView(issues);
     if (v.kind !== 'many') throw new Error('fixture');
-    return renderToStaticMarkup(createElement(ReuseManyView, { name: "Issues", newSpace: "Dev Tracker", view: v, pick, stale, onPick: noop }));
+    return renderToStaticMarkup(createElement(ReuseManyView, { name: "Issues", newSpace: "Dev Tracker", view: v, pick, notice, onPick: noop }));
   };
   it('default: two radios, create new checked, no picker, no adds line, the can’t-use line present', () => {
     const html = many(undefined);
@@ -262,8 +391,8 @@ describe('the rendered rows (markup, not source text)', () => {
     expect(html).toContain('It already has every field this pack needs.');
   });
   it('a stale pick falls back to create new with the sentence, no picker', () => {
-    const html = many({ use: true, databaseId: 'gone' }, true);
-    expect(html).toContain('The Issues you picked can’t be used any more');
+    const html = many({ use: true, databaseId: 'gone' }, REUSE_COPY.stalePick('Issues'));
+    expect(html).toContain('That Issues database is gone or you can no longer reach it');
     expect(html).not.toContain('pack-reuse-pick');
     expect(html).toMatch(/checked=""\/><span class="flex min-w-0 flex-col"><b[^>]*>Create a new Issues database here/);
   });

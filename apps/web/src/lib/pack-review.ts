@@ -108,8 +108,13 @@ export const REUSE_COPY = {
   pickedAdds: (o: { noun: string; space: string; added: string[] | undefined }) =>
     `${o.added === undefined ? '' : o.added.length > 0 ? `Adds ${o.added.join(', ')} to it. ` : 'It already has every field this pack needs. '}` +
     `Nothing in it is removed or renamed. People who can’t open ${o.space} won’t see these ${o.noun}s here.`,
-  /** A pick the review no longer trusts (the database is gone, or the server refused it): the sentence that explains the fall-back. */
-  stalePick: (name: string) => `The ${name} you picked can’t be used any more, so this pack will create its own.`,
+  /**
+   * A pick whose database is gone, or that the person can no longer reach (Dara, ticket #1176 review): the sentence that explains the
+   * fall-back to "create new". The name follows the pack's database name.
+   */
+  stalePick: (name: string) => `That ${name} database is gone or you can no longer reach it, so this pack will make a new one.`,
+  /** A pick the server refused WITH a reason of its own (it no longer fits the pack): the reason, then the fall-back. */
+  refusedPick: (name: string, reason: string) => `That ${name} database can’t take this pack now: ${reason}. This pack will make a new one.`,
   createTitle: (name: string) => `Create a new ${name} here`,
   createSub: (space: string) => `Empty, in ${space}, with the fields this pack needs.`,
   useTitle: (name: string, space?: string) => (space ? `Use your existing ${name} (in ${space})` : `Use your existing ${name}`),
@@ -135,6 +140,8 @@ export interface ExistingChoice {
   /** The database's name in the pack — what the install's `resolutions` are keyed by. */
   name: string;
   hint: ExistingElsewhere;
+  /** Every candidate was refused during this review (see `applyRefusals`): the row draws only its sentence, no radios. */
+  exhausted?: boolean;
 }
 
 /**
@@ -168,11 +175,26 @@ export function isReusableCandidate(c: ReuseCandidate): boolean {
 
 /**
  * The server words a Linear mirror's refusal as "...synced from Linear..." (apps/api/src/packs/packs.service.ts). There is no flag for
- * it on the candidate, so the review recognises the reason text: used ONLY to phrase the can't-be-used line shorter, never to decide
- * whether something is usable (that is `reusable`).
+ * it on the candidate, so the review recognises the reason TEXT: used ONLY to phrase the can't-be-used line shorter, never to decide
+ * whether something is usable (that is `reusable`). The wording is pinned on the API side by apps/api/test/pack-reuse-candidates.test.ts
+ * ("a Linear mirror ... is listed reusable:false"), and on this side by the real API sentence in pack-reuse-candidates.unit.test.ts.
+ * If the API rewords it, the line falls back to the server's own sentence in brackets; nothing becomes usable or unusable.
  */
 export function isLinearMirrorReason(reason: string | undefined): boolean {
   return /synced from Linear/i.test(reason ?? '');
+}
+
+/**
+ * One candidate's reason as it sits inside the brackets of the can't-be-used line (pure, tested):
+ *  - a Linear mirror: "syncs from Linear" (the API's sentence is a paragraph);
+ *  - a type clash: the API's own sentence as given ("Priority is a text here but this pack needs a select"), without its full stop;
+ *  - anything else: as given. Every API refusal ends with the advice "Create a new one here.", which the row's own default already
+ *    offers, so that tail is dropped.
+ */
+export function shortReason(reason: string | undefined): string {
+  if (isLinearMirrorReason(reason)) return 'syncs from Linear';
+  const r = (reason ?? '').trim().replace(/\s*Create a new one here\.?$/i, '').trim().replace(/\.$/, '');
+  return r || 'it can’t take this pack';
 }
 
 /**
@@ -259,28 +281,99 @@ export function singleReusable(choices: ExistingChoice[]): ExistingChoice[] {
   });
 }
 
+/** What the API says when a picked id is not a candidate (deleted, no longer editable, foreign, built-in): the same words as a database that is not there. */
+export function noDatabaseMessage(name: string): string {
+  return `There is no ${name} database you can edit.`;
+}
+
 /**
- * What the confirming preview (asked WITH the picks) says back: the names it did not adopt, i.e. picks the server no longer stands behind.
- * `databases` is that preview's list; a pick whose row is missing, not adopted or not reusable counts as dropped.
+ * A reuse pick the server refused, from a 422 (`validation_failed`) on ANY request that carried it: the confirming preview or the install.
+ *  - `gone`: "There is no <Name> database you can edit." The database was deleted or the person lost access; it leaves the list.
+ *  - `refused`: the server named a reason of its own (the pack no longer fits it); the candidate moves to the can't-be-used line.
+ * `picks` are the `resolutions` that were sent (name -> {database_id}). With one pick a refusal that is not the "no database" sentence is that
+ * pick's own reason; with several, only an unambiguous "no database" sentence is attributed, so a reason is never pinned on the wrong database.
  */
-export function droppedPicks(picks: Record<string, unknown>, databases: Array<{ name: string; existing_elsewhere?: ExistingElsewhere }>): string[] {
-  return Object.keys(picks).filter((name) => {
+export interface ReuseRefusal {
+  name: string;
+  databaseId: string;
+  kind: 'gone' | 'refused';
+  reason?: string;
+}
+export function reuseRefusals(error: unknown, picks: Record<string, { database_id?: string }>): ReuseRefusal[] {
+  const e = (error as { error?: { code?: string; message?: string; details?: Array<{ message?: string }> } } | null | undefined)?.error;
+  if (!e || e.code !== 'validation_failed') return [];
+  const messages = [e.message, ...(e.details ?? []).map((d) => d.message)].filter((m): m is string => typeof m === 'string' && m.length > 0);
+  const names = Object.keys(picks).filter((n) => picks[n]!.database_id);
+  const out: ReuseRefusal[] = [];
+  for (const name of names) {
+    if (messages.includes(noDatabaseMessage(name))) out.push({ name, databaseId: picks[name]!.database_id!, kind: 'gone' });
+  }
+  if (out.length === 0 && names.length === 1 && messages.length > 0) {
+    out.push({ name: names[0]!, databaseId: picks[names[0]!]!.database_id!, kind: 'refused', reason: messages[0] });
+  }
+  return out;
+}
+
+/**
+ * What the confirming preview's DATA says (asked WITH the picks): a pick whose row is missing or not adopted is refused. With a reason of
+ * its own it is `refused` (moves to the can't-be-used line), otherwise `gone`.
+ */
+export function droppedPicks(
+  picks: Record<string, { database_id?: string }>,
+  databases: Array<{ name: string; existing_elsewhere?: ExistingElsewhere }>,
+): ReuseRefusal[] {
+  return Object.keys(picks).flatMap((name) => {
     const e = databases.find((d) => d.name === name)?.existing_elsewhere;
-    return !(e?.adopted === true && e.reusable === true);
+    if (e?.adopted === true && e.reusable === true) return [];
+    const databaseId = picks[name]!.database_id ?? '';
+    return [e?.reason ? { name, databaseId, kind: 'refused' as const, reason: e.reason } : { name, databaseId, kind: 'gone' as const }];
+  });
+}
+
+/** The sentence under a row after a refusal. */
+export function refusalNotice(r: ReuseRefusal): string {
+  return r.kind === 'gone' ? REUSE_COPY.stalePick(r.name) : REUSE_COPY.refusedPick(r.name, shortReason(r.reason));
+}
+
+/** What the review remembers about refused candidates: name -> database id -> how it was refused. */
+export type RefusedCandidates = Record<string, Record<string, { kind: 'gone' | 'refused'; reason?: string }>>;
+
+/** Folds new refusals into what is remembered. */
+export function addRefusals(prev: RefusedCandidates, refusals: ReuseRefusal[]): RefusedCandidates {
+  const next: RefusedCandidates = { ...prev };
+  for (const r of refusals) next[r.name] = { ...next[r.name], [r.databaseId]: { kind: r.kind, reason: r.reason } };
+  return next;
+}
+
+/**
+ * The choices with the refused candidates applied: a `gone` one LEAVES the list, a `refused` one stays but is no longer reusable (it is
+ * named in the can't-be-used line with the server's reason). A refused database never comes back as a radio, even after the review
+ * refetches. When nothing is left to pick the choice is marked `exhausted`: the row keeps only its sentence.
+ */
+export function applyRefusals(choices: ExistingChoice[], refused: RefusedCandidates): ExistingChoice[] {
+  return choices.map((c) => {
+    const r = refused[c.name];
+    if (!r || !c.hint.candidates) return c;
+    const candidates = c.hint.candidates.flatMap((cand) => {
+      const hit = r[cand.database_id];
+      if (!hit) return [cand];
+      if (hit.kind === 'gone') return [];
+      return [{ database_id: cand.database_id, space_name: cand.space_name, reusable: false, reason: hit.reason ?? cand.reason }];
+    });
+    const single = reuseView({ ...c.hint, candidates });
+    const none = candidates.length === 0;
+    const usableLeft = candidates.some(isReusableCandidate);
+    return { name: c.name, exhausted: none || (!usableLeft && single.kind === 'single'), hint: { ...c.hint, candidates } };
   });
 }
 
 /**
- * The line under the picker for the rest: "3 can't be used: The Tool (Estimate is a select here but this pack needs a number), Engineering
- * (Linear), StoryFunnels (Linear). The Linear ones sync from Linear." The server's reasons are whole sentences; a Linear mirror is named
- * once, at the end, and an ordinary reason goes in brackets without its full stop. Empty when everything can be used.
+ * The line under the picker for the rest, each with its OWN reason (Dara): "3 can't be used: Engineering (syncs from Linear),
+ * StoryFunnels (syncs from Linear), The Tool (Priority is a text here but this pack needs a select)." Empty when all can be used.
  */
 export function cantUseLine(unusable: ReuseCandidate[]): string | null {
   if (unusable.length === 0) return null;
-  const short = (c: ReuseCandidate) => (isLinearMirrorReason(c.reason) ? 'synced from Linear' : (c.reason ?? 'it can’t take this pack').trim().replace(/\.$/, ''));
-  if (unusable.length === 1) return `${unusable[0]!.space_name} can’t be used: ${short(unusable[0]!)}.`;
-  const names = unusable.map((c) => (isLinearMirrorReason(c.reason) ? c.space_name : `${c.space_name} (${short(c)})`)).join(', ');
-  return `${unusable.length} can’t be used: ${names}.${unusable.some((c) => isLinearMirrorReason(c.reason)) ? ' The Linear ones sync from Linear.' : ''}`;
+  return `${unusable.length} can’t be used: ${unusable.map((c) => `${c.space_name} (${shortReason(c.reason)})`).join(', ')}.`;
 }
 
 /** The quiet line when several exist and none can be used: "You have 2 Sprints databases, but both sync from Linear, so this pack makes its own." */

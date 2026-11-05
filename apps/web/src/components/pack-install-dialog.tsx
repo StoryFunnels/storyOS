@@ -24,15 +24,21 @@ import type { MarkManifest } from '@/lib/pack-marks';
 import { PackMap, PackWhy } from '@/components/pack-review';
 import { ReuseChoice } from '@/components/pack-reuse-choice';
 import {
+  addRefusals,
+  applyRefusals,
   droppedPicks,
   existingChoices,
   manyChoices,
   reusedLabels,
   reuseNote,
+  refusalNotice,
+  reuseRefusals,
   reuseResolutions,
   singleReusable,
   type ExistingElsewhere,
   type PackRelation,
+  type RefusedCandidates,
+  type ReuseRefusal,
   type ReuseSelection,
 } from '@/lib/pack-review';
 import { InstallList } from '@/components/pack-install-list';
@@ -656,7 +662,12 @@ export function InstallDialog({
   // #1149 — databases that already exist in ANOTHER space. Nothing is reused unless the person picks it: `reuse` is empty by
   // default, so the install sends no reuse resolution and the pack creates its own, as before.
   const [reuse, setReuse] = useState<ReuseSelection>({});
-  const choices = preview.data ? existingChoices(preview.data.databases) : [];
+  // #1176 — candidates the server refused during THIS review (a 422 on the confirming preview or on the install). They are applied to
+  // the choices every render, so a refused database never comes back as a radio, even after the preview refetches; `notices` holds the
+  // one sentence per database that says what happened, until the person chooses again.
+  const [refused, setRefused] = useState<RefusedCandidates>({});
+  const [notices, setNotices] = useState<Record<string, string>>({});
+  const choices = preview.data ? applyRefusals(existingChoices(preview.data.databases), refused) : [];
   // Only the one-candidate rows are asked "as if reused" (below): a row with several is asked WITH the person's pick instead.
   const usable = singleReusable(choices);
   const picked = reuseResolutions(choices, reuse);
@@ -691,7 +702,16 @@ export function InstallDialog({
   // and the pack fits; anything else (the database was deleted, lost its access, the refusal is a 422) drops the pick back to
   // "create new" with a sentence, never a crash and never an install that goes somewhere the review did not show.
   const manyPicks = reuseResolutions(manyChoices(choices), reuse);
-  const [droppedPick, setDroppedPick] = useState<Record<string, boolean>>({});
+  // A refused pick, on EVERY path (the preview below and the install): back to "create new", the candidate leaves the radios (or moves to
+  // the can't-be-used line when the server gave a reason), and one sentence says so. Returns whether anything was refused.
+  const refuse = (refusals: ReuseRefusal[]): boolean => {
+    if (refusals.length === 0) return false;
+    const names = refusals.map((r) => r.name);
+    setReuse((prev) => Object.fromEntries(Object.entries(prev).filter(([n]) => !names.includes(n))));
+    setRefused((prev) => addRefusals(prev, refusals));
+    setNotices((prev) => ({ ...prev, ...Object.fromEntries(refusals.map((r) => [r.name, refusalNotice(r)])) }));
+    return true;
+  };
   const confirmPicks = useQuery({
     queryKey: ['pack-preview-picks', ws, slug, target?.id ?? null, JSON.stringify(manyPicks)],
     enabled: Boolean(entry.data) && Object.keys(manyPicks).length > 0,
@@ -710,14 +730,10 @@ export function InstallDialog({
     },
   });
   useEffect(() => {
-    const dropped = confirmPicks.isError
-      ? Object.keys(manyPicks)
-      : confirmPicks.data
-        ? droppedPicks(manyPicks, confirmPicks.data.databases)
-        : [];
-    if (dropped.length === 0) return;
-    setReuse((prev) => Object.fromEntries(Object.entries(prev).filter(([n]) => !dropped.includes(n))));
-    setDroppedPick((prev) => ({ ...prev, ...Object.fromEntries(dropped.map((n) => [n, true])) }));
+    // Only a refusal the server SAID (a 422) or a preview that does not adopt the pick drops it; a dropped connection leaves the pick
+    // alone, and the install will say if it is refused.
+    if (confirmPicks.isError) refuse(reuseRefusals(confirmPicks.error, manyPicks));
+    else if (confirmPicks.data) refuse(droppedPicks(manyPicks, confirmPicks.data.databases));
   }, [confirmPicks.data, confirmPicks.isError]);
 
   // #1172 — the automations a person switched ON in this review ("Database.Rule name" → true). Default: none, so every rule that
@@ -810,12 +826,22 @@ export function InstallDialog({
     // With a target space the server's refusal text IS the message (it names the database and the space it lives in): never a
     // generic one in its place.
     // A reuse the server refuses (422) says why in its own words: show those, not a generic line.
-    onError: (e) =>
+    onError: (e) => {
+      // #1176 — the server refused a database the person picked (it was deleted, or they lost access, or it no longer fits the pack).
+      // Nothing was installed. The review STAYS OPEN on the row, back on "create new" with the sentence, so pressing Install again is a
+      // fresh, informed choice; it never goes ahead as "create new" behind their back.
+      const refusals = reuseRefusals(e, manyPicks);
+      if (refuse(refusals)) {
+        toast.error(refusalNotice(refusals[0]!));
+        requestAnimationFrame(() => document.querySelector('[data-testid="pack-reuse-stale"]')?.scrollIntoView({ block: 'nearest' }));
+        return;
+      }
       toast.error(
         target || Object.keys(picked).length > 0
           ? apiErrorMessage(e, 'Install failed — try again')
           : 'Install failed — see the collisions below and try again',
-      ),
+      );
+    },
   });
 
   // #569 — a reuse-only row (any database collision) is never rendered a
@@ -1138,9 +1164,9 @@ export function InstallDialog({
                                 newSpace={spaceName ?? 'this space'}
                                 pick={reuse[c.name]}
                                 adds={addsFor(c.name)}
-                                stale={droppedPick[c.name] === true}
+                                notice={notices[c.name] ?? null}
                                 onPick={(next) => {
-                                  setDroppedPick((prev) => ({ ...prev, [c.name]: false }));
+                                  setNotices((prev) => Object.fromEntries(Object.entries(prev).filter(([n]) => n !== c.name)));
                                   setReuse((prev) => ({ ...prev, [c.name]: next }));
                                 }}
                               />
