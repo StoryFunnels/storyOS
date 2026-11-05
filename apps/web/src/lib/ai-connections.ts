@@ -164,3 +164,27 @@ export function lastUsedText(c: Pick<AiConnection, 'kind' | 'last_used_at'>, dat
   if (c.last_used_at) return `Last used ${date(c.last_used_at)}`;
   return c.kind === 'token' ? 'Never used' : 'Last use not recorded';
 }
+
+/**
+ * Ticket #1187 (Dara's review) — what the body of Connect your AI shows under the AI apps list.
+ *
+ *  - `pending`: the list has not loaded, so nothing is claimed yet (a green card must not flash up under a list that is about to say
+ *    "3 need reconnecting").
+ *  - `list-only`: at least one app is listed. The list IS the state of the connection; "Your AI is connected" would contradict it, so
+ *    the card and its "Try asking it" block are hidden. The steps open from the header's "Connect an AI".
+ *  - `card`: nothing is listed but an AI is known to be connected (the first connection, e.g. by an agent token): the card says so.
+ *  - `steps`: nothing is connected, or the person asked to connect another.
+ */
+export type ConnectBody = 'pending' | 'list-only' | 'card' | 'steps';
+
+export function connectBody(input: { appCount: number | undefined; aiConnected: boolean; adding: boolean }): ConnectBody {
+  if (input.appCount === undefined) return 'pending';
+  if (input.adding) return 'steps';
+  if (input.appCount > 0) return 'list-only';
+  return input.aiConnected ? 'card' : 'steps';
+}
+
+/** A broken row's Disconnect is quiet so the fix (Reconnect) is the one bordered button; a healthy row's is the ordinary bordered one. */
+export function disconnectVariant(c: Pick<AiConnection, 'reaches'>): 'ghost' | 'secondary' {
+  return canReconnect(c) ? 'ghost' : 'secondary';
+}

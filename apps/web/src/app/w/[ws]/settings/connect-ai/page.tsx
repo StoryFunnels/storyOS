@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { AiConnectionsSection } from '@/components/settings/ai-connections-list';
 import { CopyBox, copyToClipboard as copy } from '@/components/settings/copy-box';
 import { SettingsPageHeader } from '@/components/settings/settings-chrome';
-import { NEEDS_RECONNECT_REASON, clientFor } from '@/lib/ai-connections';
+import { NEEDS_RECONNECT_REASON, clientFor, connectBody, useAiConnections } from '@/lib/ai-connections';
 import type { AiConnection } from '@/lib/ai-connections';
 import { ClientLogo } from '@/components/connect-ai-logos';
 import { cn } from '@/lib/utils';
@@ -164,7 +164,8 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
   const [checkMessage, setCheckMessage] = useState('');
   const connected = useAiConnected(ws);
   const selected = CONNECT_CLIENTS[client];
-  const showConnected = connected.data === true && !adding;
+  const apps = useAiConnections(ws);
+  const body = connectBody({ appCount: apps.data?.length, aiConnected: connected.data === true, adding });
 
   async function checkConnection() {
     setChecking(true);
@@ -226,12 +227,14 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
       <SettingsPageHeader
         title="Connect your AI"
         lead={
-          showConnected
-            ? 'Your AI can work in StoryOS — and everything it does is marked as its own.'
-            : 'Use StoryOS from the AI you already talk to. Pick yours:'
+          body === 'list-only'
+            ? 'Apps and tokens that work in StoryOS as you'
+            : body === 'card'
+              ? 'Your AI can work in StoryOS — and everything it does is marked as its own.'
+              : 'Use StoryOS from the AI you already talk to. Pick yours:'
         }
         action={
-          showConnected ? (
+          body === 'list-only' || body === 'card' ? (
             <Button size="sm" onClick={() => setAdding(true)}>
               <Plus className="mr-1 h-3.5 w-3.5" />
               Connect an AI
@@ -241,9 +244,9 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
       />
       <AiConnectionsSection ws={ws} panel={(c, close, recheck) => <ReconnectPanel c={c} onClose={close} recheck={recheck} />} />
 
-      {showConnected ? (
+      {body === 'card' ? (
         <ConnectedCard onAnother={() => setAdding(true)} />
-      ) : (
+      ) : body === 'steps' ? (
         <>
           <div className="mb-2 mt-1 flex flex-wrap gap-1.5" role="tablist" aria-label="AI client">
             {CLIENT_IDS.map((id) => (
@@ -286,7 +289,7 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
             )}
           </div>
         </>
-      )}
+      ) : null}
 
       <p className="mt-3.5 text-label text-muted">
         Connecting a script, a self-hosted agent or another tool? Use an{' '}

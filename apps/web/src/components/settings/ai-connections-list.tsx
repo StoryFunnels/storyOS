@@ -13,6 +13,7 @@ import {
   clientFor,
   connectionState,
   connectionWords,
+  disconnectVariant,
   lastUsedText,
   useAiConnections,
   useDisconnectAiConnection,
@@ -27,7 +28,7 @@ export type AiConnectionsView =
 
 /**
  * The words under a row's name (ticket #1187, the prototype's): what is wrong for a broken one, what it reaches for the rest, since
- * when. A token says it is one; an OAuth app's "last use" is never recorded, and says so rather than staying silent.
+ * when, and the last use only when there is a date.
  */
 export function connectionLine(c: AiConnection, date: (v: unknown) => string): string {
   const when = c.connected_at ? `connected ${date(c.connected_at)}` : 'connection date not recorded';
@@ -41,7 +42,8 @@ export function connectionLine(c: AiConnection, date: (v: unknown) => string): s
         : c.reaches === 'one_workspace' && c.approved
           ? `Reaches one workspace${c.approved.workspace_name ? ` · ${c.approved.workspace_name}` : ''}`
           : words.reaches;
-  return `${reach} · ${when} · ${lastUsedText(c, date).replace(/^Last/, 'last')}`;
+  // Last use only when there is a date: "not recorded" and "never used" are lines of nothing (Dara's review).
+  return c.last_used_at ? `${reach} · ${when} · ${lastUsedText(c, date).replace(/^Last/, 'last')}` : `${reach} · ${when}`;
 }
 
 /** Presentational: every state is a value, so every state has a test. */
@@ -98,27 +100,30 @@ export function AiConnectionsList({
                 }
               >
                 {broken && <SettingsPill tone="bad">Not working</SettingsPill>}
-                {broken && onReconnect && (
+                {/* One wrapper: SettingsRow stretches its DIRECT button children on a phone; these keep their natural width. */}
+                <div className="flex items-center gap-2">
+                  {broken && onReconnect && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label={`Reconnect ${c.client_name}`}
+                      aria-expanded={reconnectingId === c.id}
+                      onClick={() => onReconnect(c)}
+                    >
+                      Reconnect
+                    </Button>
+                  )}
                   <Button
                     size="sm"
-                    variant="secondary"
-                    aria-label={`Reconnect ${c.client_name}`}
-                    aria-expanded={reconnectingId === c.id}
-                    onClick={() => onReconnect(c)}
+                    variant={disconnectVariant(c)}
+                    disabled={view.busyId !== null}
+                    aria-label={`Disconnect ${c.client_name}`}
+                    onClick={() => onDisconnect(c)}
                   >
-                    Reconnect
+                    {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    {busy ? 'Disconnecting…' : 'Disconnect'}
                   </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={view.busyId !== null}
-                  aria-label={`Disconnect ${c.client_name}`}
-                  onClick={() => onDisconnect(c)}
-                >
-                  {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                  {busy ? 'Disconnecting…' : 'Disconnect'}
-                </Button>
+                </div>
               </SettingsRow>
               {broken && reconnectingId === c.id && panel?.(c)}
             </li>

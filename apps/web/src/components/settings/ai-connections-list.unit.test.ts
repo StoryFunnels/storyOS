@@ -34,7 +34,7 @@ describe('the connected AI clients list (#1030)', () => {
     expect(out).toContain('Reaches all your workspaces');
     expect(out).not.toMatch(/Read only|Read and write/);
     expect(out).toContain('connected &lt;2026-10-01&gt;');
-    expect(out).toContain('last use not recorded');
+    expect(out).not.toMatch(/not recorded|never used/i);
     expect(out).toContain('Cursor key');
     expect(out).toContain('Personal access token · This workspace only');
     expect(out).toContain('last used &lt;2026-10-20&gt;');
