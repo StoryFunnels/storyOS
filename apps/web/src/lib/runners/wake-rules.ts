@@ -203,7 +203,10 @@ export function zoneLabel(timeZone: string, now: Date = new Date()): string {
   try {
     const part = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' }).formatToParts(now).find((p) => p.type === 'timeZoneName')?.value ?? '';
     const m = /GMT(?:([+-])(\d{1,2})(?::(\d{2}))?)?/.exec(part);
-    const off = m?.[1] ? `UTC${m[1] === '-' ? '−' : '+'}${Number(m[2])}${m[3] && m[3] !== '00' ? `:${m[3]}` : ''}` : 'UTC';
+    const hours = Number(m?.[2] ?? 0);
+    const mins = Number(m?.[3] ?? 0);
+    // No offset at all, or an offset of zero (some runtimes say "GMT", others "GMT+00:00"): the zone is UTC, written the one way.
+    const off = m?.[1] && (hours !== 0 || mins !== 0) ? `UTC${m[1] === '-' ? '−' : '+'}${hours}${mins ? `:${String(mins).padStart(2, '0')}` : ''}` : 'UTC';
     return `${timeZone.replace(/_/g, ' ')} (${off})`;
   } catch {
     return 'your time zone';

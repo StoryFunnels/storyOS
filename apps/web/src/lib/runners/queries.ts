@@ -76,30 +76,56 @@ export function useAgentWakes(ws: string, agentId: string | undefined) {
   });
 }
 
+/** The newest wakes across ALL agents the list asks for, in ONE request (see `LAST_RUN_PAGE`). */
+export interface LastRunPage {
+  wakes: WakeDto[];
+  hasMore: boolean;
+}
+
+/** Newest wakes read for the list's Last run column: the API's own page ceiling (`agent-wakes.service.ts`: at most 200). */
+export const LAST_RUN_PAGE = 200;
+
 /**
- * Ticket #1196 — the list's "Last run" column: one small read per agent (its newest wakes), because the queue is paged and a
- * workspace-wide page could miss an agent's last run and print "Never" for one that ran. Not the agent page's own query (that polls
- * every 10 s and is 50 rows); this one is cheap and slow. Keyed by agent so the answers stay put when the list reorders.
+ * Ticket #1196 — the list's "Last run" column from ONE request however many agents there are (never one per agent). The newest
+ * `LAST_RUN_PAGE` wakes of the whole workspace carry each wake's server-derived `run_state` (needs approval, running, waiting for
+ * the limit, done, failed), which is what a Run record's status becomes. An agent with no wake in that page is "unknown" when older
+ * pages exist, "never" when the page was the whole queue (`lastRunsByAgent`). It refetches on the summary's 30 s beat.
  */
-export function useLastRuns(ws: string, agentIds: readonly string[]): Record<string, { wakes: WakeDto[]; hasMore: boolean } | undefined> {
-  const results = useQueries({
-    queries: agentIds.map((id) => ({
-      queryKey: ['agent-last-run', ws, id] as const,
-      queryFn: async () => {
-        const body = unwrap<{ data: WakeDto[]; next_cursor: string | null }>(
-          await api.GET('/api/v1/workspaces/{ws}/agent-wakes', { params: { path: { ws }, query: { agent: id, limit: 20 } } } as never),
-        );
-        return { wakes: body.data, hasMore: Boolean(body.next_cursor) };
-      },
-      staleTime: 30_000,
-      refetchInterval: 60_000,
-    })),
+export function useLastRuns(ws: string, enabled = true) {
+  return useQuery({
+    queryKey: ['agent-last-runs', ws] as const,
+    queryFn: async (): Promise<LastRunPage> => {
+      const body = unwrap<{ data: WakeDto[]; next_cursor: string | null }>(
+        await api.GET('/api/v1/workspaces/{ws}/agent-wakes', { params: { path: { ws }, query: { limit: LAST_RUN_PAGE } } } as never),
+      );
+      return { wakes: body.data, hasMore: Boolean(body.next_cursor) };
+    },
+    enabled,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
-  const out: Record<string, { wakes: WakeDto[]; hasMore: boolean } | undefined> = {};
-  agentIds.forEach((id, i) => {
-    out[id] = results[i]?.data;
+}
+
+/**
+ * Ticket #1196 — who a departed owner was. A removed member is TOMBSTONED in the Members database (`active` = false, row kept,
+ * ADR-0017 section 7), so the people list no longer has them but their row does. One request for the Members database's rows, made
+ * only when some owner is missing from the people list, so it costs nothing in the normal case.
+ */
+export function useMembersDirectory(ws: string, enabled: boolean) {
+  const dbs = useDatabases(ws, enabled);
+  const membersDb = (dbs.data ?? []).find((d) => d.isSystem && d.name === 'Members');
+  return useQuery({
+    queryKey: ['members-directory', ws, membersDb?.id] as const,
+    queryFn: async () => {
+      const body = unwrap<{ data: Array<{ title: string; values: Record<string, unknown> }> }>(
+        await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', { params: { path: { ws, db: membersDb!.id }, query: { limit: 200 } } } as never),
+      );
+      return body.data;
+    },
+    enabled: enabled && Boolean(membersDb),
+    staleTime: 60_000,
+    retry: false,
   });
-  return out;
 }
 
 /** Ticket #1196 — the fields of each database the hire card needs to look inside (same cache entries as `useDatabase`). */

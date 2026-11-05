@@ -9,9 +9,9 @@ import { StatusMark } from '@/components/runners/status-mark';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { Button } from '@/components/ui/button';
 import { useMembers } from '@/components/table-view/use-table-data';
-import { agentCountLine, lastRunLabel, lastRunOf, managerLabel, runsOnCell } from '@/lib/runners/agent-list';
+import { agentCountLine, lastRunLabel, lastRunState, lastRunTitle, lastRunsByAgent, managerLabel, needsDirectory, runsOnCell } from '@/lib/runners/agent-list';
 import { summaryFor } from '@/lib/runners/agents';
-import { useAgents, useLastRuns, useRunners, useWakeSummary } from '@/lib/runners/queries';
+import { useAgents, useLastRuns, useMembersDirectory, useRunners, useWakeSummary } from '@/lib/runners/queries';
 import { canHireAgents, canSeeRunnerDetails } from '@/lib/runners/access';
 import { useWorkspace } from '@/lib/queries';
 import { describeRunner } from '@/lib/runners/status';
@@ -23,7 +23,7 @@ import { describeRunner } from '@/lib/runners/status';
  *
  * At phone width a row keeps the agent and where it runs; status, last run and manager are one tap away on its page.
  */
-const COLS = 'grid items-center gap-2.5 px-3 grid-cols-[minmax(0,1fr)_auto] min-[701px]:grid-cols-[minmax(160px,1.6fr)_minmax(100px,1fr)_165px_56px_80px]';
+const COLS = 'grid items-center gap-2.5 px-3 grid-cols-[minmax(0,1fr)_auto] min-[701px]:grid-cols-[minmax(140px,1.6fr)_minmax(90px,1fr)_150px_84px_104px]';
 
 export default function AgentsIndexPage() {
   const { ws } = useParams<{ ws: string }>();
@@ -31,7 +31,9 @@ export default function AgentsIndexPage() {
   const summary = useWakeSummary(ws);
   const runners = useRunners(ws);
   const members = useMembers(ws, true);
-  const lastRuns = useLastRuns(ws, agents.map((a) => a.id));
+  const lastRunPage = useLastRuns(ws);
+  const lastRuns = lastRunsByAgent(agents.map((a) => a.id), lastRunPage.data?.wakes, lastRunPage.data?.hasMore ?? false);
+  const directory = useMembersDirectory(ws, needsDirectory(agents, members.data));
   const [hireOpen, setHireOpen] = useState(false);
   const workspace = useWorkspace(ws).data;
   const role = workspace?.role;
@@ -78,8 +80,7 @@ export default function AgentsIndexPage() {
             const runner = row?.runner ? runners.data?.find((r) => r.id === row.runner!.id) : undefined;
             const status = runner ? describeRunner(runner, now) : null;
             const placed = runsOnCell(a, row?.runner, showMachine);
-            const lr = lastRuns[a.id];
-            const last = lr ? lastRunOf(lr.wakes, lr.hasMore) : ({ kind: 'unknown' } as const);
+            const last = lastRuns[a.id] ?? ({ kind: 'unknown' } as const);
             return (
               <Link key={a.id} href={`/w/${ws}/agents/${a.id}`} className={`${COLS} border-t border-border-default py-2.5 text-body text-ink hover:bg-hover max-[700px]:[&:nth-child(2)]:border-t-0`} data-testid="agent-row">
                 <span className="flex min-w-0 items-center gap-2">
@@ -93,8 +94,11 @@ export default function AgentsIndexPage() {
                 <span className="max-[700px]:hidden">
                   {status ? <StatusMark tone={status.tone}>{status.label}</StatusMark> : a.usesRunner && !row?.runner ? <StatusMark tone="off">Waiting for a Runner</StatusMark> : null}
                 </span>
-                <span className="text-muted max-[700px]:hidden">{lastRunLabel(last, now)}</span>
-                <span className="truncate max-[700px]:hidden">{managerLabel(a, members.data)}</span>
+                <span className="min-w-0 leading-[1.3] text-muted max-[700px]:hidden" title={lastRunTitle(last)} data-testid="last-run">
+                  {lastRunLabel(last, now)}
+                  {lastRunState(last) && <small className="block truncate text-label">{lastRunState(last)}</small>}
+                </span>
+                <span className="truncate max-[700px]:hidden">{managerLabel(a, members.data, directory.data)}</span>
               </Link>
             );
           })}
