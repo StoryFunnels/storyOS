@@ -31,26 +31,26 @@ describe('the connected AI clients list (#1030)', () => {
   it('shows each client with how it connected, what it reaches, since when and last used, and a Disconnect for each', () => {
     const out = html({ kind: 'ready', items: [oauth, token], busyId: null });
     expect(out).toContain('Claude');
-    expect(out).toContain('Connected by signing in · All your workspaces');
+    expect(out).toContain('Reaches all your workspaces');
     expect(out).not.toMatch(/Read only|Read and write/);
-    expect(out).toContain('Connected &lt;2026-10-01&gt;');
-    expect(out).toContain('Last use not recorded');
+    expect(out).toContain('connected &lt;2026-10-01&gt;');
+    expect(out).not.toMatch(/not recorded|never used/i);
     expect(out).toContain('Cursor key');
     expect(out).toContain('Personal access token · This workspace only');
-    expect(out).toContain('Last used &lt;2026-10-20&gt;');
+    expect(out).toContain('last used &lt;2026-10-20&gt;');
     expect(out.match(/>Disconnect</g)).toHaveLength(2);
     expect(out).toContain('aria-label="Disconnect Claude"');
   });
 
   it('a connection limited to one workspace names it, with no access wording', () => {
     const out = html({ kind: 'ready', items: [bound], busyId: null });
-    expect(out).toContain('Connected by signing in · Acme only');
+    expect(out).toContain('Reaches one workspace · Acme');
     expect(out).not.toMatch(/Read only|Read and write/);
   });
 
   it('a connection that needs reconnecting says so and still has its Disconnect', () => {
     const out = html({ kind: 'ready', items: [legacy], busyId: null });
-    expect(out).toContain('Reconnect needed');
+    expect(out).toContain('Can’t reach StoryOS until it is reconnected');
     expect(out).not.toContain('All your workspaces');
     expect(out).toContain('aria-label="Disconnect Cursor"');
   });
@@ -76,6 +76,6 @@ describe('the connected AI clients list (#1030)', () => {
   });
 
   it('a connection with no recorded date does not invent one', () => {
-    expect(html({ kind: 'ready', items: [{ ...oauth, connected_at: null }], busyId: null })).toContain('Connection date not recorded');
+    expect(html({ kind: 'ready', items: [{ ...oauth, connected_at: null }], busyId: null })).toContain('connection date not recorded');
   });
 });

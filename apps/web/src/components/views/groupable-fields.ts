@@ -26,6 +26,16 @@ export interface GroupableField {
  * Mirrors `boardGroupError`: select · workflow · single-user · the single ("a")
  * side of a one-to-many relation.
  */
+/**
+ * The single ("a") side of a one-to-many relation: a record links to AT MOST ONE
+ * related record, so grouping by it never puts a record under two headings.
+ * Mirrors the relation arm of `boardGroupError`. Shared by the board and the list
+ * (ticket #1147) so the two cannot disagree about which relations can group.
+ */
+export function isSingleSidedRelation(field: GroupableField): boolean {
+  return field.type === 'relation' && field.relation?.cardinality === 'one_to_many' && field.relation?.side === 'a';
+}
+
 export function canGroupBoardBy(field: GroupableField): boolean {
   if (field.type === 'select' || field.type === 'workflow') return true;
   // #307: a date groups into one column per period (week/month/quarter/year). A
@@ -33,9 +43,7 @@ export function canGroupBoardBy(field: GroupableField): boolean {
   // the single-valued rule holds. Columns come from the DATA, not from options.
   if (field.type === 'date') return true;
   if (field.type === 'user') return field.config?.['multi'] !== true;
-  if (field.type === 'relation') {
-    return field.relation?.cardinality === 'one_to_many' && field.relation?.side === 'a';
-  }
+  if (field.type === 'relation') return isSingleSidedRelation(field);
   // #498 — bins turn a number into single-valued buckets, same as a date's
   // period. Unconfigured (no bins yet) stays refused, mirroring the server's
   // boardGroupError exactly — never offer what the API will reject.
@@ -64,13 +72,17 @@ export function boardGroupIsReadOnly(field: GroupableField): boolean {
 }
 
 /**
- * LIST: grouped section headers. Narrower than a board on purpose — `list-view.tsx`
- * only resolves a group key for select/workflow today, so offering a relation here
- * would save a config the renderer then ignores. Widen this (and the renderer)
- * together, never one without the other.
+ * LIST: grouped section headers. Narrower than a board on purpose: `list-view.tsx`
+ * resolves a heading for select/workflow and, since ticket #1147, for the single
+ * side of a one-to-many relation (the Team Wiki pack's "All pages" groups by Team).
+ * The server has no list-specific rule (`boardGroupError` guards boards only; a
+ * list's `group_by_field_id` just has to be a live field), so the relation arm
+ * reuses the board's single-valued rule: a many-to-many or the "many" side would
+ * draw one record under several headings, and is not offered. Widen this (and the
+ * renderer) together, never one without the other.
  */
 export function canGroupListBy(field: GroupableField): boolean {
-  return field.type === 'select' || field.type === 'workflow';
+  return field.type === 'select' || field.type === 'workflow' || isSingleSidedRelation(field);
 }
 
 /**
@@ -100,6 +112,6 @@ export function boardGroupDisabledReason(field: GroupableField): string | null {
 export function listGroupDisabledReason(field: GroupableField): string | null {
   if (canGroupListBy(field)) return null;
   return canGroupBoardBy(field)
-    ? 'a list can only group by a select or status field — try a board'
+    ? 'a list can only group by a select, a status or a single relation field — try a board'
     : (boardGroupDisabledReason(field) ?? 'this field cannot group a list');
 }

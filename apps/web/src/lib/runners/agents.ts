@@ -34,6 +34,9 @@ export interface AgentView {
   asksBefore: string[];
   /** When the agent record was created: "Hired 30 Oct". Null when the API did not say. */
   hiredAt: string | null;
+  /** Ticket #1180 — the saved `tools` text and `model` as stored (null = not set: the essentials, and the workspace's model). */
+  tools: string | null;
+  model: string | null;
 }
 
 function labelOf(value: unknown, field: FieldWithOptions | undefined): string | null {
@@ -62,6 +65,8 @@ export function toAgentView(rec: AgentRecordLike, fields: readonly FieldWithOpti
     job: richTextPreview(rec.values['goal'], 400),
     asksBefore: labelsOf(rec.values['approval_policy'], f('approval_policy')),
     hiredAt: rec.created_at ?? null,
+    tools: typeof rec.values['tools'] === 'string' && rec.values['tools'].trim() ? rec.values['tools'] : null,
+    model: typeof rec.values['model'] === 'string' && rec.values['model'].trim() ? rec.values['model'].trim() : null,
   };
 }
 

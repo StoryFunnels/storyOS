@@ -37,6 +37,49 @@ export interface MemberUser {
   image?: string | null;
 }
 
+/** The slice of an agent (lib/runners/agents.ts `AgentView`) the @ picker reads. */
+export interface MentionAgent {
+  id: string;
+  name: string;
+  enabled: boolean;
+  aiMode: 'Non-AI' | 'Your own AI' | 'StoryOS AI' | null;
+}
+
+/**
+ * Can an @-mention of this agent wake it? The ONE named predicate for "mentionable agent" (CLAUDE.md: never inline a
+ * capability gate). It mirrors the server's authority, `AgentWakesService.enqueue` in apps/api/src/runners/agent-wakes.service.ts:
+ * it skips `agent_disabled` unless the agent is enabled and `not_own_ai` unless its AI mode is "Your own AI" (a "StoryOS AI"
+ * agent is not woken by a mention today). A row that is not mentionable is still LISTED, disabled, with the reason, so the
+ * picker never answers "No matches" about an agent that exists.
+ */
+export function agentMentionState(a: Pick<MentionAgent, 'enabled' | 'aiMode'>): { ok: true } | { ok: false; reason: string } {
+  if (!a.enabled) return { ok: false, reason: 'Switched off' };
+  if (a.aiMode === 'Your own AI') return { ok: true };
+  if (a.aiMode === 'Non-AI') return { ok: false, reason: 'Runs without an AI' };
+  return { ok: false, reason: 'Not on your own AI' };
+}
+
+/**
+ * Mention node props for an agent picked from the @ menu. `kind: 'agent'` + `id` is exactly what the server parses
+ * (`collectMentions` in apps/api/src/mentions/mentions.service.ts feeds `wakeMentionedAgents` in comments.service.ts); `label` is
+ * the snapshot a chip falls back on. Pinned by a test, since nothing fails to compile if the two drift.
+ */
+export function agentMentionProps(a: Pick<MentionAgent, 'id' | 'name'>): MentionProps {
+  return { kind: 'agent', id: a.id, label: a.name, db: '' };
+}
+
+/** An agent row for the @ picker: matched by name like people, mentionable ones first (stable within each group). */
+export function agentPickerRows<T extends MentionAgent>(
+  agents: T[],
+  query: string,
+): Array<{ agent: T; disabledReason: string | null }> {
+  const rows = filterMembers(agents, query).map((agent) => {
+    const state = agentMentionState(agent);
+    return { agent, disabledReason: state.ok ? null : state.reason };
+  });
+  return [...rows.filter((r) => !r.disabledReason), ...rows.filter((r) => r.disabledReason)];
+}
+
 /** Mention node props for a person picked from the @ menu. */
 export function userMentionProps(u: MemberUser): MentionProps {
   return { kind: 'user', id: u.id, label: u.name, db: '' };
