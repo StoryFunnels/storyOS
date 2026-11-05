@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, GripVertical, Plus, SlidersHorizontal, X } from 'lucide-react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
@@ -37,6 +37,7 @@ import { directionLabel, pickPrimarySort, sortableFields } from './sort-config';
 import { optionsFromChildren } from './menu-options';
 import { FieldsMenu } from './fields-menu';
 import { HiddenColumnsList } from './hidden-columns-list';
+import { OPEN_DISPLAY_MENU_EVENT } from './display-menu-open';
 import { groupingPatch } from './view-grouping';
 import type { ViewConfig } from './use-view-state';
 import { TOOLBAR_BTN } from './toolbar-chip';
@@ -118,6 +119,12 @@ export function DisplayMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  // #1162 — the board's all-hidden notice opens this same menu (see display-menu-open.ts).
+  useEffect(() => {
+    const openMenu = () => setOpen(true);
+    window.addEventListener(OPEN_DISPLAY_MENU_EVENT, openMenu);
+    return () => window.removeEventListener(OPEN_DISPLAY_MENU_EVENT, openMenu);
+  }, []);
 
   const isTable = viewType === 'table';
   const hasCards = ['board', 'calendar', 'gallery', 'list', 'feed'].includes(viewType);

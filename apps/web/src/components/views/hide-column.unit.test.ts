@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ALL_HIDDEN_LINK_TARGET,
+  allHiddenNotice,
+  allOptionColumnsHidden,
+  focusTargetAfterHide,
   arrangeBoardColumns,
   canHideBoardColumn,
   hideBoardColumn,
@@ -66,6 +70,34 @@ describe('#1162 — who is offered Hide column', () => {
       expect(canHideBoardColumn({ ...ok, groupType }), String(groupType)).toBe(false);
     }
   });
+});
+
+describe('#1162 review — the all-hidden notice', () => {
+  it('counts the option columns only when EVERY one is hidden (the no-value bucket is not one)', () => {
+    expect(allOptionColumnsHidden(COLS, ['triage', 'todo', 'done'])).toBe(3);
+  });
+  it('partial hiding gets no notice (Dev Tracker Active stays as it is)', () => {
+    expect(allOptionColumnsHidden(COLS, ['triage', 'todo'])).toBe(0);
+    expect(allOptionColumnsHidden(COLS, undefined)).toBe(0);
+  });
+  it('a board with no option columns at all gets none', () => {
+    expect(allOptionColumnsHidden([col(NO_VALUE, 'No value')], undefined)).toBe(0);
+  });
+  it('stale ids do not count toward "all"', () => {
+    expect(allOptionColumnsHidden(COLS, ['triage', 'todo', 'gone'])).toBe(0);
+  });
+  it('words come from the data: N and the field name, singular for one', () => {
+    expect(allHiddenNotice(5, 'Status')).toEqual({ text: 'All 5 Status columns are hidden.', link: 'Show them in Display' });
+    expect(allHiddenNotice(1, 'Status')).toEqual({ text: 'The 1 Status column is hidden.', link: 'Show it in Display' });
+  });
+});
+
+describe('#1162 review — where focus goes after Hide', () => {
+  const ids = ['a', 'b', 'c'];
+  it('middle: the next visible column', () => expect(focusTargetAfterHide(ids, 'b')).toBe('c'));
+  it('first: the next visible column', () => expect(focusTargetAfterHide(ids, 'a')).toBe('b'));
+  it('last: the previous column', () => expect(focusTargetAfterHide(ids, 'c')).toBe('b'));
+  it('only one left: the notice link', () => expect(focusTargetAfterHide(['a'], 'a')).toBe(ALL_HIDDEN_LINK_TARGET));
 });
 
 describe('#1162 — the round trip through the shared helpers', () => {

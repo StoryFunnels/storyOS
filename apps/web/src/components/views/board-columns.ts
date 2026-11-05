@@ -121,6 +121,43 @@ export function canHideBoardColumn(opts: { columnId: string; groupType: string |
   return opts.groupType === 'select' || opts.groupType === 'workflow';
 }
 
+/** Marks the all-hidden notice's link, the last-resort focus target after a Hide (see `focusTargetAfterHide`). */
+export const ALL_HIDDEN_LINK_TARGET = 'all-hidden-link';
+
+/**
+ * #1162 (design review) — the number of option columns when EVERY one of them is hidden, else 0. Only that case gets
+ * the notice: a board with some columns hidden (Dev Tracker's Active hides four on purpose) is left as it is, and
+ * Display's Hidden columns list is where those are found. The no-value bucket is not an option and is not counted.
+ */
+export function allOptionColumnsHidden(
+  columns: readonly { id: string }[],
+  hiddenOptionIds: readonly string[] | undefined,
+): number {
+  const options = columns.filter((c) => c.id !== NO_VALUE);
+  if (options.length === 0) return 0;
+  return hiddenBoardColumns(options, hiddenOptionIds).length === options.length ? options.length : 0;
+}
+
+/** The notice's sentence and the words of its Display link, from the data (N and the group-by field's name). */
+export function allHiddenNotice(count: number, fieldName: string): { text: string; link: string } {
+  return count === 1
+    ? { text: `The 1 ${fieldName} column is hidden.`, link: 'Show it in Display' }
+    : { text: `All ${count} ${fieldName} columns are hidden.`, link: 'Show them in Display' };
+}
+
+/**
+ * #1162 (design review) — where keyboard focus goes after "Hide column" removes the focused column's `⋯`: the next
+ * visible option column's, else the previous one's (the hidden one was last), else the notice's link (none left).
+ * `visibleOptionIds` is the drawn option columns in order, BEFORE the hide, the no-value bucket excluded.
+ */
+export function focusTargetAfterHide(visibleOptionIds: readonly string[], hiddenId: string): string {
+  const i = visibleOptionIds.indexOf(hiddenId);
+  const rest = visibleOptionIds.filter((id) => id !== hiddenId);
+  if (rest.length === 0) return ALL_HIDDEN_LINK_TARGET;
+  if (i < 0) return rest[0]!;
+  return i < rest.length ? rest[i]! : rest[rest.length - 1]!;
+}
+
 /**
  * A board grouped by DATE is exempt from ordering: its columns are chronological
  * periods, and any other order is meaningless. It is also already immune to the

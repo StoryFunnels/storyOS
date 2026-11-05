@@ -1,10 +1,19 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { arrangeBoardColumns, canHideBoardColumn, hideBoardColumn } from './board-columns';
+import {
+  ALL_HIDDEN_LINK_TARGET,
+  allHiddenNotice,
+  allOptionColumnsHidden,
+  arrangeBoardColumns,
+  canHideBoardColumn,
+  focusTargetAfterHide,
+  hideBoardColumn,
+} from './board-columns';
+import { requestOpenDisplayMenu } from './display-menu-open';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StateCategory } from '@storyos/schemas';
 import type { MouseEvent } from 'react';
 import {
@@ -299,6 +308,22 @@ export function BoardView({
       records.hasNextPage,
     ],
   );
+
+  // #1162 — every option column hidden: say so beside the No value lane (a bare "No value" reads as data loss).
+  const allHiddenCount = allOptionColumnsHidden(columns, config.hidden_option_ids);
+  // #1162 — after a Hide the focused column's ⋯ is gone; the target is picked at Hide time and focused once the
+  // columns have re-rendered. Always applied (a mouse Hide moves focus too, harmlessly: no focus ring after a click).
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    pendingFocus.current = null;
+    const el =
+      id === ALL_HIDDEN_LINK_TARGET
+        ? document.querySelector<HTMLElement>('[data-all-hidden-link]')
+        : document.querySelector<HTMLElement>(`[data-column-menu="${CSS.escape(id)}"]`);
+    el?.focus();
+  }, [shownColumns]);
 
   const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
 
@@ -601,6 +626,10 @@ export function BoardView({
               onPatch && canHideBoardColumn({ columnId: column.id, groupType: groupField.type, readOnly })
                 ? () => {
                     const previous = config.hidden_option_ids;
+                    pendingFocus.current = focusTargetAfterHide(
+                      shownColumns.filter((c) => c.id !== NO_VALUE).map((c) => c.id),
+                      column.id,
+                    );
                     onPatch({ hidden_option_ids: hideBoardColumn(columns, previous, column.id) });
                     toast.success('Column hidden. Show it again in Display.', {
                       action: { label: 'Undo', onClick: () => onPatch({ hidden_option_ids: previous }) },
@@ -637,6 +666,19 @@ export function BoardView({
           />
           </ErrorBoundary>
         ))}
+        {allHiddenCount > 0 && groupField && (
+          <p className="order-first mt-0.5 w-[85vw] shrink-0 self-start text-label text-muted md:order-none md:w-[258px]">
+            {allHiddenNotice(allHiddenCount, groupField.displayName).text}{' '}
+            <button
+              type="button"
+              data-all-hidden-link
+              onClick={requestOpenDisplayMenu}
+              className="rounded text-ink underline underline-offset-2 hover:text-ink"
+            >
+              {allHiddenNotice(allHiddenCount, groupField.displayName).link}
+            </button>
+          </p>
+        )}
       </div>
       {/* #755 — the board otherwise never advances past its first page: no
           affordance meant every column count (and hide_empty_groups) was
@@ -745,6 +787,7 @@ function BoardColumn({
                 <button
                   type="button"
                   aria-label={`Column actions for ${column.label}`}
+                  data-column-menu={column.id}
                   /* #1162/#900 — rests at --faint and darkens on hover/focus/open; never hover-only. */
                   className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink focus-visible:text-ink aria-expanded:bg-hover aria-expanded:text-ink"
                 >
