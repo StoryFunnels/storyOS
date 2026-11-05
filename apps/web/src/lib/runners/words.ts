@@ -116,7 +116,7 @@ export function agentsLine(agents: ReadonlyArray<{ name: string }>): string {
 /**
  * The toast when Done succeeds (Dara, v45). It says what is TRUE: new work wakes the agent. It must not say a record that was
  * already waiting starts: wakes come from events, so a record waiting before the Runner existed wakes nothing until catch-up
- * (ticket #1152) runs, and that is not built. The agents named are the ones the Runner was actually assigned to.
+ * (ticket #1152) runs. `readyToastWithScope` (catch-up-copy.ts) is the fuller sentence when the trigger names its state. The agents named are the ones the Runner was actually assigned to.
  */
 export function readyToast(machine: string, agentNames: readonly string[]): string {
   if (agentNames.length === 0) return `${machine} is ready.`;

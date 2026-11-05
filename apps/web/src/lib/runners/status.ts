@@ -64,6 +64,8 @@ const REASON_WORDS: Record<string, string> = {
   approval_decided: 'An approval was decided',
   must_comment: 'Asked to leave a comment',
   retry: 'Tried again',
+  // Ticket #1152: a record already in the trigger state before the agent could run, started by the one-click catch-up.
+  catch_up: 'Started on a record that was already waiting',
 };
 
 /** Why the agent was woken, as one phrase. A reason this build has not heard of is shown as "Woken", never as the raw slug. */

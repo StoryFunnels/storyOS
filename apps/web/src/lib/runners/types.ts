@@ -75,7 +75,7 @@ export interface RunState {
   tool?: string;
 }
 
-export type WakeReason = 'state_change' | 'assigned' | 'mention' | 'automation' | 'manual' | 'approval_decided' | 'must_comment' | 'retry';
+export type WakeReason = 'state_change' | 'assigned' | 'mention' | 'automation' | 'manual' | 'approval_decided' | 'must_comment' | 'retry' | 'catch_up';
 
 export interface WakeDto {
   id: string;
@@ -96,6 +96,20 @@ export interface WakeSummaryAgent {
   runner: { id: string; name: string } | null;
   can_run: boolean;
   waiting: number;
+  /**
+   * Ticket #1152 — records already in the agent's trigger state(s) that no wake was ever made for. A number (0 included) only for the
+   * agent's owner or an admin while the agent is enabled and on Your own AI; null for everyone else. Absent from a server that
+   * predates the field, which reads as "not told", never as zero.
+   */
+  catch_up?: number | null;
+}
+
+/** `POST .../agents/{agent}/catch-up` (ticket #1152): at most 25 wakes per click; `remaining` is what another click will queue. */
+export interface CatchUpResult {
+  queued: number;
+  already_waiting: number;
+  remaining: number;
+  skipped: number;
 }
 
 export interface WakeSummary {
