@@ -432,7 +432,7 @@ function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
   return (
     <span
       title={`This event was made by ${label === 'MCP' ? 'an MCP client' : `an ${label}`}, not typed by a person`}
-      className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-micro font-medium text-primary-text"
+      className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-micro font-medium text-accent-text"
     >
       <Icon className="h-3 w-3" />
       {label}
