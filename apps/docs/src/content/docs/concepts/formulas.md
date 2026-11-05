@@ -31,6 +31,14 @@ result type, and previews the value against a real record as you type.
 | Weighted score | `{Impact} * 2 + {Confidence} - {Effort}` |
 | Kickoff deadline | `add_days({Start}, 14)` |
 
+### Showing a formula as money or a percentage
+
+A formula that returns a **number** can be formatted: leave it plain, show it as a **percentage**
+(with a progress bar), or show it as **currency**. Currency needs a 3-letter code such as `USD` or
+`EUR` — a formula never guesses one — and an optional number of decimal places. A formula that
+returns text, a date or a checkbox can't be currency. For example, a Quote Line's **Line Total** =
+`{Qty} * {Price}` in `EUR` shows as `€1,250.00`.
+
 ### With rollups
 
 [Rollup fields](/concepts/lookups-and-rollups/) aggregate related records (count / sum / avg / min
