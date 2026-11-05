@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { apiErrorMessage } from '@/lib/api';
-import { asksBeforeLine, summaryFor, waitingLine } from '@/lib/runners/agents';
+import { asksBeforeLine, asksBeforePhrases, summaryFor, waitingLine } from '@/lib/runners/agents';
 import type { AgentView } from '@/lib/runners/agents';
 import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
 import { canSeeRunnerDetails, canHireAgents, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
@@ -20,11 +20,15 @@ import { useAgentsDatabaseAccess, useRunNow, useSetAiMode } from '@/lib/runners/
 import { useWorkspace } from '@/lib/queries';
 import { canChangeRunsOn, ownerRunners } from '@/lib/runners/runs-on';
 import { canEditAgentSettings } from '@/lib/runners/agent-settings';
-import { limitBrand, shortDate } from '@/lib/runners/words';
+import { clockTime, limitBrand, shortDate, toolName } from '@/lib/runners/words';
+import { catchUpCount, offersCatchUp } from '@/lib/runners/catch-up';
+import { CATCH_UP_FAILED, startedToast } from '@/lib/runners/catch-up-copy';
+import { useCatchUp, useCatchUpScope } from '@/lib/runners/use-catch-up';
 import { HireDialog } from './hire-dialog';
 import { NonAiLine, RunNowButton } from './let-it-think';
 import { FirstRunCard } from './first-run-card';
 import { AgentAdvanced } from './agent-advanced';
+import { CatchUpBox } from './catch-up-box';
 import { RunList } from './run-list';
 import { RunsOnLine } from './runs-on-line';
 
@@ -56,6 +60,13 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const aiMode = useSetAiMode(ws, dbId);
   const runNow = useRunNow(ws);
   const confirm = useConfirm();
+  // Ticket #1152: the count is the server's (`catch_up` in the summary, null for anyone but the owner or an admin); the words
+  // (noun, state) are read only once there is a box to word, and fall back to "record" if they cannot be.
+  const catchUpRow = summaryFor(summary.data, agentId);
+  const catchUp = catchUpCount(catchUpRow);
+  const catchUpWords = useCatchUpScope(ws, agentId, catchUp !== null);
+  const catchUpMutation = useCatchUp(ws);
+  const [catchUpError, setCatchUpError] = useState<string | null>(null);
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
   if (error || !agent) {
@@ -149,7 +160,37 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
             <RunsOnLine assigned={assigned} runners={mine} canChange={isOwner} masked={masked} onPick={pick} onAdd={goAdd} now={new Date()} pending={m.assign.isPending} />
             {mayRunNow && <RunNowButton onRun={runAgentNow} pending={runNow.isPending} alreadyQueued={openManualWake(wakes.data?.data ?? [])} />}
           </div>
-          {/* HOOK, ticket #1152 (web half, not built): the one-click catch-up box for records already waiting goes HERE, under "Runs on". */}
+          {/* Ticket #1152: records already in its trigger state before it could run never wake it; one click starts them. */}
+          {catchUp !== null && offersCatchUp({ usesRunner, hasRunner: Boolean(assigned), mayLearnMachine: !masked, count: catchUp }) && (
+            <CatchUpBox
+              agentName={agent.name}
+              count={catchUp}
+              words={catchUpWords}
+              job={agent.job}
+              asksPhrases={asksBeforePhrases(agent.asksBefore)}
+              runs={{
+                machine: assigned?.name ?? null,
+                tool: assignedRunner ? toolName(assignedRunner.chosen_tool, assignedRunner.tools) : null,
+                brand: assignedRunner?.chosen_tool ? limitBrand(assignedRunner.chosen_tool, assignedRunner.tools) : null,
+                runner: assignedRunner ?? null,
+                clock: (iso) => clockTime(iso),
+              }}
+              pending={catchUpMutation.isPending}
+              error={catchUpError}
+              onOpen={() => setCatchUpError(null)}
+              onStart={async () => {
+                setCatchUpError(null);
+                try {
+                  const result = await catchUpMutation.mutateAsync(agent.id);
+                  toast.success(startedToast(agent.name, result, catchUpWords));
+                  return true;
+                } catch (e) {
+                  setCatchUpError(apiErrorMessage(e, CATCH_UP_FAILED));
+                  return false;
+                }
+              }}
+            />
+          )}
           {!assigned &&
             (isOwner ? (
               <FirstRunCard

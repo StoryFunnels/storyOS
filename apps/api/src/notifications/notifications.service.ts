@@ -114,7 +114,18 @@ export type NotificationType =
    * #1130 / ADR-0021 §2 — a wake lost its lease three times (the Runner stopped answering), so the agent's job failed. Bare or on the
    * record, sent once to the agent's owner. Not an opt-out ping: it explains why work silently did not happen.
    */
-  | 'agent_wake_failed';
+  | 'agent_wake_failed'
+  /**
+   * #1138 / ADR-0021 — an agent has used 80% of its monthly token budget or run cap. Sent ONCE per (agent, month, metric, limit value)
+   * to the agent's manager (its owner), on the agent's record. Not an opt-out ping: it is the only warning before the agent pauses.
+   */
+  | 'agent_budget_warning'
+  /**
+   * #1138 / ADR-0021 — the agent reached 100% of its monthly budget and is paused (its claims stop; the work waits in the queue). Sent
+   * once, with the sentence that says what resumes it: raising the budget, or the month resetting. Not an opt-out ping: it explains why
+   * work silently stopped.
+   */
+  | 'agent_budget_paused';
 
 /**
  * The types a user can switch off (#31). `notifications.type` is a plain text

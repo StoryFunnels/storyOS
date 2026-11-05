@@ -11,7 +11,7 @@ import { databaseQuery, useDatabase } from '@/components/table-view/use-table-da
 import type { Field } from '@/components/table-view/use-table-data';
 import { toAgentView } from './agents';
 import type { AgentRecordLike, AgentView } from './agents';
-import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, WakeDto, WakeSummary } from './types';
+import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, RunnerSharingPatch, WakeDto, WakeSummary } from './types';
 
 /**
  * Ticket #1139 — every Runner read and write the screens make, on the REAL endpoints (ADR-0021 §11). No fake data lives here:
@@ -259,6 +259,22 @@ export function useRunnerMutations(ws: string) {
       mutationFn: async ({ id, tool }: { id: string; tool: string }) =>
         unwrap<RunnerDto>(await api.PATCH('/api/v1/workspaces/{ws}/runners/{id}', { params: { path: { ws, id } }, body: { tool } } as never)),
       onSuccess: refresh,
+    }),
+    /**
+     * Ticket #1137 — working hours and "leave me X%". The answer is the whole Runner, written into the list before the call resolves
+     * so the screen shows what the server holds the moment the save lands (not after the next poll).
+     */
+    setSharing: useMutation({
+      mutationFn: async ({ id, patch }: { id: string; patch: RunnerSharingPatch }) =>
+        unwrap<RunnerDto>(await api.PATCH('/api/v1/workspaces/{ws}/runners/{id}', { params: { path: { ws, id } }, body: patch } as never)),
+      onSuccess: (dto) => {
+        qc.setQueryData<RunnerDto[] | { data: RunnerDto[] }>(runnerKeys.runners(ws), (old) => {
+          if (!old || !dto?.id) return old;
+          const swap = (list: RunnerDto[]) => list.map((r) => (r.id === dto.id ? dto : r));
+          return Array.isArray(old) ? swap(old) : { ...old, data: swap(old.data) };
+        });
+        refresh();
+      },
     }),
     remove: useMutation({
       mutationFn: async (id: string) => {

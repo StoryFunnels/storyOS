@@ -87,6 +87,19 @@ const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
 
+/**
+ * #1199 — a scheduled rule's top-N selection as the keys a pack manifest and the install hash carry: present ONLY when the rule has one.
+ * Absent, not `null`: every pack installed before this shipped hashed its rules without these keys, so adding `sort: null` to every
+ * projection would make each of them read "Changed since install" on uninstall and none would ever be removed.
+ */
+export function topNOf(rule: { sort?: unknown; topNLimit?: number | null }): { sort?: unknown; limit?: number } {
+  const hasSort = Array.isArray(rule.sort) && rule.sort.length > 0;
+  return {
+    ...(hasSort ? { sort: rule.sort } : {}),
+    ...(rule.topNLimit !== null && rule.topNLimit !== undefined ? { limit: rule.topNLimit } : {}),
+  };
+}
+
 /** Marks a sample-value token that matched nothing (#1015). */
 const SAMPLE_UNRESOLVED = Symbol('sample-unresolved');
 
@@ -1067,6 +1080,8 @@ export class PacksService {
             (a) => refify(redactSecrets(a), idToRef, where) as Record<string, unknown>,
           ),
           enabled: rule.enabled,
+          // #1199 — a scheduled rule's top-N selection travels with the pack; a rule without one gets neither key.
+          ...topNOf(rule),
         });
       }
     }
@@ -2557,6 +2572,7 @@ export class PacksService {
           condition: live.condition,
           actions: live.actions,
           enabled: live.enabled,
+          ...topNOf(live),
         };
         if (this.hashOf(projection) !== item.contentHash) {
           kept.push({
@@ -2638,7 +2654,7 @@ export class PacksService {
     dbId: string,
     ruleId: string,
   ): Promise<
-    { name: string; trigger: unknown; condition?: unknown; actions: unknown; enabled: boolean } | undefined
+    { name: string; trigger: unknown; condition?: unknown; actions: unknown; enabled: boolean; sort?: unknown; topNLimit?: number | null } | undefined
   > {
     const { data } = await this.automations.list(dbId);
     return data.find((r) => r.id === ruleId);
@@ -2914,6 +2930,7 @@ export class PacksService {
             condition: existing.condition,
             actions: existing.actions,
             enabled: existing.enabled,
+            ...topNOf(existing),
           }),
         );
         continue;
@@ -2934,6 +2951,9 @@ export class PacksService {
           condition,
           actions: actions as never,
           enabled: state.enabled,
+          // #1199 — the service refuses these on a non-schedule trigger and checks `sort` against the database's fields.
+          ...(planned.sort ? { sort: planned.sort } : {}),
+          ...(planned.limit !== undefined ? { limit: planned.limit } : {}),
         },
         membership.userId,
       );
@@ -2948,7 +2968,7 @@ export class PacksService {
       hashes.set(
         `automation:${created.id}`,
         // `condition ?? null`: a live rule without one reads back `null`, and `undefined` would hash differently, so every unconditioned rule read as edited.
-        this.hashOf({ name: targetName, trigger, condition: condition ?? null, actions, enabled: state.enabled }),
+        this.hashOf({ name: targetName, trigger, condition: condition ?? null, actions, enabled: state.enabled, ...topNOf(created) }),
       );
     }
   }

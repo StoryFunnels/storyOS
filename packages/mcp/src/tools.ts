@@ -737,6 +737,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   // #1130 — the wake queue, read-only on purpose: waking, claiming and finishing a wake are things that HAPPEN in the workspace or are done by a Runner program (see coverage.ts).
   list_agent_wakes: 'read',
   get_agent_wake_summary: 'read',
+  // #1138 — read-only on purpose: an agent's budget is set by the person who manages it (the API refuses an agent writing its own), so the tool only reads it.
+  get_agent_budget: 'read',
   // #231 — read-only on purpose: the rules that refuse an agent's writes are not the agent's to change (see coverage.ts).
   list_validation_rules: 'read',
   get_validation_rule_violations: 'read',
@@ -7603,7 +7605,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List the agent wake queue',
       description:
-        "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_hours (until the Runner's working hours open), waiting_for_reserve (the person's reserve, where the tool reports it), waiting_for_turn (one job at a time). " +
+        "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_hours (until the Runner's working hours open), waiting_for_reserve (the person's reserve, where the tool reports it), waiting_for_budget (the agent used its monthly token budget or run cap, ticket #1138: `until` is when the UTC month resets and `budget_metric` says tokens or runs; raising the budget resumes it sooner), waiting_for_turn (one job at a time). " +
         "Newest first. Filter with agent (the Agents-database record's uuid) and record (a record uuid, or its number together with `database`). Only wakes whose record and agent YOU can read are listed; a hidden one is neither shown nor counted. Use it to answer \"is the agent working on this?\" after setting an agent in a record's agent field or @-mentioning it. Waking, claiming and finishing a wake are not tools: they happen when something changes in the workspace, or are done by a Runner.",
       inputSchema: {
         workspace: z.string(),
@@ -7637,12 +7639,27 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Agent wake counts',
       description:
-        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), and waiting (queued wakes). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
+        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), waiting (queued wakes), and `budget` (ticket #1138: its monthly token and run budget against this month's usage, for an agent that has one; null otherwise. get_agent_budget has the full detail, including tokens the tool did not report). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/agent-wakes/summary', { params: { path: { ws: ws.id } } } as never));
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_agent_budget',
+    {
+      title: "An agent's monthly budget and usage",
+      description:
+        "#1138: one agent's monthly budget (tokens, and a cap on runs) and what it has used this UTC calendar month, counted from its Run records. `limits` are the two number fields on the agent's record (`Monthly token budget`, `Monthly run cap`; null = no limit). `tokens` and `runs` each carry limit, used, percent (whole number, rounded down) and state: unlimited, ok, warning (80% or more: its manager was told once), paused (100%: the agent is not given new work until the budget is raised or the month resets, and its queued work waits) or not_measured. READ `tokens.used` CAREFULLY: it is null, never 0, when the finished runs' tool did not report token usage (the Claude Code CLI may not), and `tokens.measurement` (full, partial, not_reported, no_finished_runs) with `unmeasured_runs` says how much of the total is real. A partial total is a lower bound: say \"at least\". `tokens.used` also includes the tokens AI fields used when THIS agent's write caused the recompute (`tokens.ai_field`: tokens (null when the calls finished and the vendor reported none), calls, unmeasured_calls); a person's write and another agent's are not counted, and a call that failed is not counted. `state` is the worst of the two, `paused_reason` names which, and `resumes_at` is the month reset. To SET or RAISE a budget, update those fields on the agent's record with update_record (a person can; the API refuses an agent changing its own budget, so do not try to raise yours). You can read it only if you can read both the Agents and the Runs databases. Quote these numbers, never estimate them.",
+      inputSchema: { workspace: z.string(), agent: z.string().describe("The agent record's uuid (from the Agents database; list_agent_wakes and get_agent_wake_summary show it).") },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/agents/{agent}/budget', { params: { path: { ws: ws.id, agent } } } as never));
       return text(res);
     }),
   );

@@ -18,10 +18,14 @@ export type RunStateName =
   | 'waiting_for_limit'
   | 'waiting_for_hours'
   | 'waiting_for_reserve'
+  /** ticket #1138: the AGENT (not the Runner) has used its monthly budget. `until` is the month's reset; raising the budget resumes it sooner. */
+  | 'waiting_for_budget'
   | 'waiting_for_turn';
 
 export interface RunState {
   state: RunStateName;
+  /** `waiting_for_budget` only: which budget ran out, 'tokens' or 'runs'. */
+  budget_metric?: 'tokens' | 'runs';
   /** An instant (ISO). The client formats it in the viewer's timezone. */
   since?: string;
   until?: string;
@@ -40,6 +44,8 @@ export interface RunStateInput {
   agentBusy: boolean;
   /** The wake's own `not_before`: a run stopped by the subscription limit may not be claimed before it (ticket #1133). */
   notBefore?: Date | null;
+  /** ticket #1138: set when the agent is paused by its monthly budget. Absent for an agent with no budget or one within it. */
+  budgetPause?: { metric: 'tokens' | 'runs'; resumesAt: Date } | null;
   now: Date;
 }
 
@@ -67,6 +73,10 @@ export function deriveRunState(i: RunStateInput): RunState {
   const heldMs = i.notBefore && i.notBefore.getTime() > i.now.getTime() ? i.notBefore.getTime() : 0;
   if (pausedMs || heldMs) {
     return { state: 'waiting_for_limit', until: new Date(Math.max(pausedMs, heldMs)).toISOString(), ...(r.chosenTool ? { tool: r.chosenTool } : {}), runner_name: r.name };
+  }
+  // ticket #1138: the agent's own monthly budget is a firm, dated reason (the month's reset), so it is named before the softer rules below.
+  if (i.budgetPause) {
+    return { state: 'waiting_for_budget', until: i.budgetPause.resumesAt.toISOString(), budget_metric: i.budgetPause.metric, runner_name: r.name };
   }
   // ticket #1137: the person's own rules. Working hours name when the window opens; a reserve names when the tool says it resets (or nothing).
   const holds = holdsFor(r, i.now);

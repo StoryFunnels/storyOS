@@ -80,9 +80,10 @@ describe('the current row', () => {
     expect(menuFor('admin', '/w/ws/settings/members').home.active).toBe(false);
   });
 
-  it('keeps Integrations current on a provider page and on Connections', () => {
+  it('keeps Integrations current on a provider page; /connections is a redirect now (ticket #1188), so no row claims it', () => {
     expect(current('/w/ws/settings/integrations/github')).toEqual(['Integrations']);
-    expect(current('/w/ws/settings/connections')).toEqual(['Integrations']);
+    expect(current('/w/ws/settings/integrations/custom-api')).toEqual(['Integrations']);
+    expect(current('/w/ws/settings/connections')).toEqual([]);
   });
 });
 

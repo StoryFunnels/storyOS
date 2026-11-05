@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -20,16 +20,28 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
-import { PackMap, PackWhy, ReuseChoice } from '@/components/pack-review';
+import type { MarkManifest } from '@/lib/pack-marks';
+import { PackMap, PackWhy } from '@/components/pack-review';
+import { ReuseChoice } from '@/components/pack-reuse-choice';
 import {
+  addRefusals,
+  applyRefusals,
+  droppedPicks,
   existingChoices,
-  reusedNames,
+  manyChoices,
+  reusedLabels,
   reuseNote,
+  refusalNotice,
+  reuseRefusals,
   reuseResolutions,
+  singleReusable,
   type ExistingElsewhere,
   type PackRelation,
+  type RefusedCandidates,
+  type ReuseRefusal,
   type ReuseSelection,
 } from '@/lib/pack-review';
+import { restoreFocusAfterRefusal } from '@/lib/pack-reuse-focus';
 import { InstallList } from '@/components/pack-install-list';
 import { AutomationStateLine, InstalledAutomationLine } from '@/components/pack-automation-state';
 import type { AutomationPreviewItem } from '@/lib/pack-automation-state';
@@ -651,8 +663,14 @@ export function InstallDialog({
   // #1149 — databases that already exist in ANOTHER space. Nothing is reused unless the person picks it: `reuse` is empty by
   // default, so the install sends no reuse resolution and the pack creates its own, as before.
   const [reuse, setReuse] = useState<ReuseSelection>({});
-  const choices = preview.data ? existingChoices(preview.data.databases) : [];
-  const usable = choices.filter((c) => c.hint.reusable);
+  // #1176 — candidates the server refused during THIS review (a 422 on the confirming preview or on the install). They are applied to
+  // the choices every render, so a refused database never comes back as a radio, even after the preview refetches; `notices` holds the
+  // one sentence per database that says what happened, until the person chooses again.
+  const [refused, setRefused] = useState<RefusedCandidates>({});
+  const [notices, setNotices] = useState<Record<string, string>>({});
+  const choices = preview.data ? applyRefusals(existingChoices(preview.data.databases), refused) : [];
+  // Only the one-candidate rows are asked "as if reused" (below): a row with several is asked WITH the person's pick instead.
+  const usable = singleReusable(choices);
   const picked = reuseResolutions(choices, reuse);
   // What "use existing" would add to each reusable database ("Adds Owner, Industry."): the SAME preview, asked as if every
   // reusable one were chosen, so the numbers come from the server's own decision functions, not a guess here.
@@ -668,7 +686,7 @@ export function InstallDialog({
           body: {
             manifest: entry.data!.manifest,
             ...(target ? { target_space_id: target.id } : {}),
-            resolutions: reuseResolutions(usable, Object.fromEntries(usable.map((c) => [c.name, true]))),
+            resolutions: reuseResolutions(usable, Object.fromEntries(usable.map((c) => [c.name, { use: true }]))),
           } as never,
         } as never,
       );
@@ -680,6 +698,47 @@ export function InstallDialog({
     const gains = ifReused.data?.databases.find((d) => d.name === name)?.gains;
     return gains ? gains.fields.map((f) => f.name) : undefined;
   };
+  // #1176 — a pick among SEVERAL same-named databases is confirmed by the server: the SAME preview, asked with
+  // `resolutions[name] = { action: 'reuse', database_id }`. It says adopted + reusable only for a database the person can still edit
+  // and the pack fits; anything else (the database was deleted, lost its access, the refusal is a 422) drops the pick back to
+  // "create new" with a sentence, never a crash and never an install that goes somewhere the review did not show.
+  const manyPicks = reuseResolutions(manyChoices(choices), reuse);
+  // A refused pick, on EVERY path (the preview below and the install): back to "create new", the candidate leaves the radios (or moves to
+  // the can't-be-used line when the server gave a reason), and one sentence says so. Returns whether anything was refused.
+  const refuse = (refusals: ReuseRefusal[]): boolean => {
+    if (refusals.length === 0) return false;
+    const names = refusals.map((r) => r.name);
+    setReuse((prev) => Object.fromEntries(Object.entries(prev).filter(([n]) => !names.includes(n))));
+    setRefused((prev) => addRefusals(prev, refusals));
+    setNotices((prev) => ({ ...prev, ...Object.fromEntries(refusals.map((r) => [r.name, refusalNotice(r)])) }));
+    // The refused radio may be the one the person just picked by keyboard: it leaves the page and focus would fall to the dialog. Two frames:
+    // the state above commits first, then focus goes to the row's own selected radio (only if focus was actually lost).
+    requestAnimationFrame(() => requestAnimationFrame(() => restoreFocusAfterRefusal(document, names)));
+    return true;
+  };
+  const confirmPicks = useQuery({
+    queryKey: ['pack-preview-picks', ws, slug, target?.id ?? null, JSON.stringify(manyPicks)],
+    enabled: Boolean(entry.data) && Object.keys(manyPicks).length > 0,
+    retry: false,
+    staleTime: 0,
+    queryFn: async () => {
+      const { data, error } = await api.POST(
+        '/api/v1/workspaces/{ws}/packs/preview' as never,
+        {
+          params: { path: { ws } },
+          body: { manifest: entry.data!.manifest, ...(target ? { target_space_id: target.id } : {}), resolutions: manyPicks } as never,
+        } as never,
+      );
+      if (error) throw error;
+      return data as unknown as PreviewResult;
+    },
+  });
+  useEffect(() => {
+    // Only a refusal the server SAID (a 422) or a preview that does not adopt the pick drops it; a dropped connection leaves the pick
+    // alone, and the install will say if it is refused.
+    if (confirmPicks.isError) refuse(reuseRefusals(confirmPicks.error, manyPicks));
+    else if (confirmPicks.data) refuse(droppedPicks(manyPicks, confirmPicks.data.databases));
+  }, [confirmPicks.data, confirmPicks.isError]);
 
   // #1172 — the automations a person switched ON in this review ("Database.Rule name" → true). Default: none, so every rule that
   // installs off stays off. Sent as `enable_automations` on the confirming preview AND the install, so they cannot disagree.
@@ -771,12 +830,22 @@ export function InstallDialog({
     // With a target space the server's refusal text IS the message (it names the database and the space it lives in): never a
     // generic one in its place.
     // A reuse the server refuses (422) says why in its own words: show those, not a generic line.
-    onError: (e) =>
+    onError: (e) => {
+      // #1176 — the server refused a database the person picked (it was deleted, or they lost access, or it no longer fits the pack).
+      // Nothing was installed. The review STAYS OPEN on the row, back on "create new" with the sentence, so pressing Install again is a
+      // fresh, informed choice; it never goes ahead as "create new" behind their back.
+      const refusals = reuseRefusals(e, manyPicks);
+      if (refuse(refusals)) {
+        toast.error(refusalNotice(refusals[0]!));
+        requestAnimationFrame(() => document.querySelector('[data-testid="pack-reuse-stale"]')?.scrollIntoView({ block: 'nearest' }));
+        return;
+      }
       toast.error(
         target || Object.keys(picked).length > 0
           ? apiErrorMessage(e, 'Install failed — try again')
           : 'Install failed — see the collisions below and try again',
-      ),
+      );
+    },
   });
 
   // #569 — a reuse-only row (any database collision) is never rendered a
@@ -1029,7 +1098,7 @@ export function InstallDialog({
                       soleDatabase={card.workflow?.database}
                       heading
                     />
-                    <PackVisual pack={card} />
+                    <PackVisual pack={card} manifest={entry.data && 'manifest' in entry.data ? (entry.data.manifest as MarkManifest) : undefined} />
                   </>
                 ) : entry.data && 'screenshots' in entry.data && entry.data.screenshots[0] ? (
                   <img
@@ -1097,9 +1166,13 @@ export function InstallDialog({
                                 ws={ws}
                                 choice={c}
                                 newSpace={spaceName ?? 'this space'}
-                                selected={reuse[c.name] === true}
+                                pick={reuse[c.name]}
                                 adds={addsFor(c.name)}
-                                onSelect={(useExisting) => setReuse((prev) => ({ ...prev, [c.name]: useExisting }))}
+                                notice={notices[c.name] ?? null}
+                                onPick={(next) => {
+                                  setNotices((prev) => Object.fromEntries(Object.entries(prev).filter(([n]) => n !== c.name)));
+                                  setReuse((prev) => ({ ...prev, [c.name]: next }));
+                                }}
                               />
                             ))}
                         {row.kind === 'database' && row.action === 'collision' && (
@@ -1170,7 +1243,7 @@ export function InstallDialog({
                 )}
                 <p className="-mb-1 flex items-center gap-1.5 text-label text-muted" data-testid="pack-install-note">
                   <Check className="h-3 w-3 shrink-0" />
-                  {reuseNote(reusedNames(choices, reuse)) ??
+                  {reuseNote(reusedLabels(choices, reuse)) ??
                     (notNew(rows).length === 0
                     ? 'All new — nothing already in your workspace changes.'
                     : `${notNew(rows).length === 1 ? 'One thing' : `${notNew(rows).length} things`} already exist in your workspace — see the notes above. Nothing you have is removed.`)}

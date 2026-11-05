@@ -67,6 +67,7 @@ import { SkillsService } from '../skills/skills.service';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import type { EnqueueResult, WakeRow } from '../runners/agent-wakes.service';
 import type { WakeReason } from '../runners/wake.constants';
+import { BUDGET_FIELD_NAMES } from '../runners/agent-budget';
 import { EXIT_LABEL, RUNNER_RUN_FIELD_NAMES, addUsage, capSummary } from '../runners/run-record';
 import type { RunResult } from '../runners/run-record';
 
@@ -366,10 +367,13 @@ export class AgentsService implements OnModuleInit {
    */
   private async ensureAgentSettingsFields(agentsDbId: string): Promise<void> {
     const have = new Set(
-      (await this.db.select({ apiName: fieldsTable.apiName }).from(fieldsTable).where(and(eq(fieldsTable.databaseId, agentsDbId), inArray(fieldsTable.apiName, ['tools', 'model'])))).map((r) => r.apiName),
+      (await this.db.select({ apiName: fieldsTable.apiName }).from(fieldsTable).where(and(eq(fieldsTable.databaseId, agentsDbId), inArray(fieldsTable.apiName, ['tools', 'model', ...BUDGET_FIELD_NAMES])))).map((r) => r.apiName),
     );
     if (!have.has('tools')) await this.fields.create(agentsDbId, { display_name: 'Tools', type: 'text', config: { multiline: true } });
     if (!have.has('model')) await this.fields.create(agentsDbId, { display_name: 'Model', type: 'text', config: {} });
+    // ticket #1138: the monthly budget, in tokens and in runs. Empty = no limit. Whole numbers; the write guard (records.service.ts) refuses anything else.
+    if (!have.has('monthly_token_budget')) await this.fields.create(agentsDbId, { display_name: 'Monthly token budget', type: 'number', config: {} });
+    if (!have.has('monthly_run_cap')) await this.fields.create(agentsDbId, { display_name: 'Monthly run cap', type: 'number', config: {} });
   }
 
   /**

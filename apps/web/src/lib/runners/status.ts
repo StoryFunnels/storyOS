@@ -1,5 +1,5 @@
-import type { RunState, RunnerDto, WakeDto } from './types';
-import { checkedAgo, clockTime, limitBrand, shortDate, toolName } from './words';
+import type { RunState, RunnerDto, RunnerHold, WakeDto } from './types';
+import { checkedAgo, clockTime, limitBrand, resumeWhen, shortDate, toolName } from './words';
 import type { TimeOpts } from './words';
 
 /**
@@ -24,13 +24,16 @@ export interface StatusLine {
 /** The Runner's own line on Settings › Runners: "Online · checked a minute ago". */
 export function describeRunner(r: RunnerDto, now: Date, o: TimeOpts = {}): StatusLine {
   const tool = toolName(r.chosen_tool, r.tools);
+  // Ticket #1137: why it is not claiming right now. Only a Runner that is otherwise reachable says so: an offline Runner, a missing
+  // tool or an outdated one is a bigger fact and keeps its own line (its agents wait either way).
+  if (r.hold && (r.connection === 'online' || r.connection === 'paused')) return describeHold(r, r.hold, now, o);
   switch (r.connection) {
     case 'online':
       return { tone: 'on', label: r.last_seen_at ? `Online · checked ${checkedAgo(r.last_seen_at, now)}` : 'Online' };
     case 'offline':
       return { tone: 'off', label: `${r.offline_since ? `Offline since ${clockTime(r.offline_since, o)}` : 'Offline'} · agents wait until it’s back` };
     case 'paused':
-      // Quiet hours (#1137) are not built, so today the only pause is a limit. A pause with another reason says so plainly.
+      // `hold` (ticket #1137) names the reason when the API gives one; with none, a pause with a reason other than a limit says so plainly.
       return r.pause_reason === 'limit_reached' || !r.pause_reason
         ? { tone: 'limit', label: `Waiting for your ${limitBrand(r.chosen_tool, r.tools)} limit to reset${r.paused_until ? ` at ${clockTime(r.paused_until, o)}` : ''}` }
         : { tone: 'off', label: `Paused${r.paused_until ? ` until ${clockTime(r.paused_until, o)}` : ''}` };
@@ -40,6 +43,23 @@ export function describeRunner(r: RunnerDto, now: Date, o: TimeOpts = {}): Statu
       return { tone: 'off', label: 'Needs an update · run npx @storyos/runner@latest' };
     case 'revoked':
       return { tone: 'off', label: 'Removed' };
+  }
+}
+
+/**
+ * The three reasons a Runner is not claiming (ticket #1137), in the words the ticket gave. Only the limit wait is amber: it is the
+ * one the person cannot lift. Working hours and the reserve are the person's OWN rules working, so they are calm grey, and never gold
+ * (gold means an agent is acting). Times are the viewer's own clock.
+ */
+export function describeHold(r: Pick<RunnerDto, 'chosen_tool' | 'tools'>, hold: RunnerHold, now: Date, o: TimeOpts = {}): StatusLine {
+  const at = hold.resumes_at ? resumeWhen(hold.resumes_at, now, o) : null;
+  switch (hold.reason) {
+    case 'limit_reached':
+      return { tone: 'limit', label: `Waiting for your ${limitBrand(r.chosen_tool, r.tools)} limit to reset${at ? ` at ${at}` : ''}` };
+    case 'working_hours':
+      return { tone: 'off', label: `Outside working hours${at ? `, resumes ${at}` : ''}` };
+    case 'reserve':
+      return { tone: 'off', label: `Keeping your reserve${at ? `, resumes ${at}` : ''}` };
   }
 }
 
@@ -64,6 +84,8 @@ const REASON_WORDS: Record<string, string> = {
   approval_decided: 'An approval was decided',
   must_comment: 'Asked to leave a comment',
   retry: 'Tried again',
+  // Ticket #1152: a record already in the trigger state before the agent could run, started by the one-click catch-up.
+  catch_up: 'Started on a record that was already waiting',
 };
 
 /** Why the agent was woken, as one phrase. A reason this build has not heard of is shown as "Woken", never as the raw slug. */
@@ -81,6 +103,8 @@ export function reasonLine(w: Pick<WakeDto, 'reason' | 'coalesced_count'>): stri
  * (Marek's #1133); until the row carries them the sub-line says only what is true, and never claims "nothing was changed".
  */
 export interface RunViewOpts extends TimeOpts {
+  /** The moment "today" is measured from when a resume time falls on another day. The app passes nothing. */
+  now?: Date;
   /** A viewer who may not be told the machine or the tool (a guest): the row says what is happening, not on what. */
   masked?: boolean;
 }
@@ -125,6 +149,15 @@ export function describeRun(w: WakeDto, o: RunViewOpts = {}): RunLine {
         sub: base,
         action: null,
       };
+    case 'waiting_for_hours': {
+      // Ticket #1137. Calm grey like the other waits: it is the person's own rule, not a fault and not the agent acting.
+      const at = s.until ? resumeWhen(s.until, o.now ?? new Date(), o) : null;
+      return { tone: 'off', label: `Outside working hours${at ? `, resumes ${at}` : ''}`, sub: base, action: null };
+    }
+    case 'waiting_for_reserve': {
+      const at = s.until ? resumeWhen(s.until, o.now ?? new Date(), o) : null;
+      return { tone: 'off', label: `Keeping your reserve${at ? `, resumes ${at}` : ''}`, sub: base, action: null };
+    }
     case 'waiting_for_turn':
       return { tone: 'off', label: 'Waiting for the Runner', sub: 'Waiting its turn: the Runner does one job at a time', action: null };
     case 'waiting_for_runner':

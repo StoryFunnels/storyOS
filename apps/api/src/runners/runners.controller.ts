@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { AuthGuard } from '../auth/auth.guard';
@@ -7,6 +7,7 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { runnerAssignmentSchema, runnerToolChoiceSchema, runnerUpdateSchema } from './runner.dto';
 import { GUEST_RUNNER_MESSAGE, RunnersService } from './runners.service';
 import { AgentCatchUpService } from './agent-catch-up.service';
+import { AgentWakesService } from './agent-wakes.service';
 
 class RunnerToolChoiceDto extends createZodDto(runnerToolChoiceSchema) {}
 class RunnerUpdateDto extends createZodDto(runnerUpdateSchema) {}
@@ -42,6 +43,7 @@ export class RunnersController {
   constructor(
     private readonly runners: RunnersService,
     private readonly catchUp: AgentCatchUpService,
+    private readonly wakes: AgentWakesService,
   ) {}
 
   @Post('runners/pairing-codes')
@@ -132,5 +134,16 @@ export class RunnersController {
   startOnWaiting(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
     assertPerson(req, 'start an agent on the records already waiting');
     return this.catchUp.run(req.membership, agent);
+  }
+
+  @Get('agents/:agent/budget')
+  @ApiOperation({
+    summary:
+      "An agent's monthly budget and what it has used this month (ticket #1138), for the agent's page. `limits` are the two number fields on the agent's record (monthly_token_budget, monthly_run_cap; null = no limit); `tokens` and `runs` each carry limit, used, percent (whole, rounded down), and a state (unlimited, ok, warning at 80%, paused at 100%, not_measured). `tokens.used` is null, never 0, when the finished runs' tool did not report usage; `tokens.measurement` (full, partial, not_reported, no_finished_runs) and `unmeasured_runs` say how much of the total is measured. `state` is the worst of the two; when paused, `paused_reason` names which and `resumes_at` is the UTC month reset (raising the budget resumes it sooner). The month is the UTC calendar month. To set or raise a budget, update those fields on the agent's record (a person; an agent cannot change its own). 404 unless you can read both the agent and the Runs database the numbers are counted from.",
+  })
+  async budget(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
+    const out = await this.wakes.budgetFor(req.membership, agent);
+    if (!out) throw new NotFoundException('Agent not found');
+    return out;
   }
 }

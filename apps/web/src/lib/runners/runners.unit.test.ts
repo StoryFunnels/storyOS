@@ -68,7 +68,7 @@ describe('the Runner status line (Settings › Runners)', () => {
     expect(describeRunner(runner({ connection: 'tool_missing' }), NOW, TZ).label).toBe('Claude Code was not found on this computer · agents wait');
     expect(describeRunner(runner({ connection: 'outdated' }), NOW, TZ).label).toContain('npx @storyos/runner@latest');
   });
-  it('a pause for any reason other than a limit is not called a limit (quiet hours are #1137, not built)', () => {
+  it('a pause for any reason other than a limit is not called a limit (working hours arrive as a `hold`, ticket #1137)', () => {
     expect(describeRunner(runner({ connection: 'paused', pause_reason: 'quiet_hours', paused_until: '2026-10-29T18:00:00Z' }), NOW, TZ).label).toBe('Paused until 18:00');
   });
 });

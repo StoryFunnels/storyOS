@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -12,6 +11,7 @@ import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 import { useSpaces } from '@/lib/queries';
 
 interface Connection {
@@ -98,20 +98,12 @@ export default function ShopifyIntegrationPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link className="text-label text-muted hover:text-ink" href={`/w/${ws}/settings/integrations`}>
-        ← Integrations
-      </Link>
-      <div className="mt-6 flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] bg-hover">
-          <ShoppingBag className="h-6 w-6 text-ink" />
-        </span>
-        <div>
-          <h1 className="text-lg font-semibold text-ink">Shopify</h1>
-          <p className="text-body text-muted">
-            Bring your product catalogue into StoryOS, with navigable relations.
-          </p>
-        </div>
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <div className="flex flex-col gap-[18px]">
+        <ProviderPageHeader ws={ws} id="shopify">
+          Bring your product catalogue into StoryOS, with navigable relations.
+        </ProviderPageHeader>
+        <ProviderConnectionCard ws={ws} id="shopify" />
       </div>
 
       <IntegrationSetupGuide
@@ -135,27 +127,6 @@ export default function ShopifyIntegrationPage() {
           },
         ]}
       />
-
-      <section className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
-        <h2 className="text-sm font-semibold text-ink">
-          {connected ? 'Shopify is connected' : 'Connect your Shopify store'}
-        </h2>
-        <p className="mt-1 text-body text-muted">
-          {connected
-            ? 'You can now create the product catalogue below, or add individual Shopify sources from any database.'
-            : 'StoryOS uses a custom app Admin API access token (read-only scopes). It never modifies your store.'}
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {!connected && (
-            <Link href={`/w/${ws}/settings/connections?add=shopify&name=${encodeURIComponent('Shopify')}`}>
-              <Button>Connect Shopify</Button>
-            </Link>
-          )}
-          <Link href={`/w/${ws}/settings/connections`}>
-            <Button variant="secondary">Manage connection</Button>
-          </Link>
-        </div>
-      </section>
 
       {connected && (
         <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
