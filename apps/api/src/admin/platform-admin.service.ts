@@ -26,12 +26,24 @@ export class PlatformAdminService {
    * exists yet (they haven't signed up), logs and no-ops — safe to set the
    * env var before the operator's first sign-up; it takes effect on the next
    * restart after they do.
+   *
+   * #1040: only a VERIFIED account is seeded. Holding the address is what proves it is the operator: an account that merely
+   * signed up with it (anyone can, before the operator does) waits, and takes effect on the first restart after the link in
+   * the verification email is opened (Google sign-in arrives verified; with no mail configured the link is in the API log).
+   * An account that is already a platform admin keeps it: the seed only ever grants, it never revokes.
    */
   async seedFromEnv(email: string): Promise<void> {
     const account = await this.db.query.user.findFirst({ where: eq(user.email, email) });
     if (!account) {
       this.logger.warn(
         `PLATFORM_ADMIN_EMAIL=${email} is set but no matching user exists yet — will retry next boot.`,
+      );
+      return;
+    }
+    if (!account.emailVerified) {
+      this.logger.warn(
+        `PLATFORM_ADMIN_EMAIL=${email} matches an account whose email is not verified yet — not seeded. Open the link in the ` +
+          'verification email (or the API log when no mail is configured), then restart.',
       );
       return;
     }

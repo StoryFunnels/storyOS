@@ -46,13 +46,22 @@ describe('PlatformAdminService.isPlatformAdmin', () => {
 
 describe('PlatformAdminService.seedFromEnv', () => {
   it('grants the matching user when found', async () => {
-    const { db, inserts } = makeDb({ userRow: { id: 'u1', email: 'ops@storyos.dev' } });
+    const { db, inserts } = makeDb({ userRow: { id: 'u1', email: 'ops@storyos.dev', emailVerified: true } });
     const svc = new PlatformAdminService(db);
 
     await svc.seedFromEnv('ops@storyos.dev');
 
     expect(inserts).toHaveLength(1);
     expect(inserts[0]).toMatchObject({ userId: 'u1', grantedBy: null });
+  });
+
+  it('#1040: does NOT grant an account whose email is not verified (anyone can sign up with the address first)', async () => {
+    const { db, inserts } = makeDb({ userRow: { id: 'u2', email: 'ops@storyos.dev', emailVerified: false } });
+    const svc = new PlatformAdminService(db);
+
+    await svc.seedFromEnv('ops@storyos.dev');
+
+    expect(inserts).toHaveLength(0);
   });
 
   it('no-ops when no user with that email exists yet', async () => {
