@@ -7,13 +7,15 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { apiErrorMessage } from '@/lib/api';
 import { asksBeforeLine, summaryFor, waitingLine } from '@/lib/runners/agents';
 import type { AgentView } from '@/lib/runners/agents';
 import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
 import { canSeeRunnerDetails, canHireAgents, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
-import { letItThinkToast, offersLetItThink, offersRunNow, openManualWake, OWN_AI, runNowToast, soleOnlineRunner } from '@/lib/runners/let-it-think';
+import { confirmLetItThink, runWithoutAiToast } from '@/lib/runners/let-it-think-copy';
+import { letItThinkToast, NON_AI, offersLetItThink, offersRunNow, offersRunWithoutAi, openManualWake, OWN_AI, runNowToast, soleOnlineRunner } from '@/lib/runners/let-it-think';
 import { useAgentsDatabaseAccess, useRunNow, useSetAiMode } from '@/lib/runners/use-let-it-think';
 import { useWorkspace } from '@/lib/queries';
 import { canChangeRunsOn, ownerRunners } from '@/lib/runners/runs-on';
@@ -53,6 +55,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const agentsAccess = useAgentsDatabaseAccess(ws);
   const aiMode = useSetAiMode(ws, dbId);
   const runNow = useRunNow(ws);
+  const confirm = useConfirm();
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
   if (error || !agent) {
@@ -81,14 +84,29 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   // Ticket #1210: the manager (or an admin) may move a Non-AI agent to Your own AI from here, preselecting the manager's only online Runner.
   const ownAiOptionId = agentsAccess.optionId(OWN_AI);
   const mayLetItThink = offersLetItThink(agent) && canLetAgentThink({ role, isOwner, myAccess: agentsAccess.myAccess }) && Boolean(dbId) && Boolean(ownAiOptionId);
-  function letItThink() {
+  async function letItThink() {
     if (!ownAiOptionId) return;
+    // Cost and privacy in plain words, and that no run starts by itself: one Cancel away from a slip.
+    if (!(await confirm(confirmLetItThink(agent!.name)))) return;
     const preselect = soleOnlineRunner(mine);
     aiMode.letItThink.mutate(
       { agentId: agent!.id, ownAiOptionId, preselect: preselect ? { id: preselect.id, name: preselect.name } : null },
       {
         onSuccess: (result) => (result.assignError ? toast.warning : toast.success)(letItThinkToast(agent!.name, result, isOwner)),
         onError: (e) => toast.error(apiErrorMessage(e, 'Could not switch this agent to your AI. Try again.')),
+      },
+    );
+  }
+  // Ticket #1210: the way back lives in Advanced, for the same people, and only for an agent that thinks with their own AI.
+  const nonAiOptionId = agentsAccess.optionId(NON_AI);
+  const mayRunWithoutAi = offersRunWithoutAi(agent) && canLetAgentThink({ role, isOwner, myAccess: agentsAccess.myAccess }) && Boolean(dbId) && Boolean(nonAiOptionId);
+  function runWithoutAi() {
+    if (!nonAiOptionId) return;
+    aiMode.switchBack.mutate(
+      { agentId: agent!.id, nonAiOptionId },
+      {
+        onSuccess: () => toast.success(runWithoutAiToast(agent!.name)),
+        onError: (e) => toast.error(apiErrorMessage(e, 'Could not switch this agent. Try again.')),
       },
     );
   }
@@ -174,6 +192,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
           chosenTool={assignedRunner?.chosen_tool}
           saving={saveSettings.isPending}
           onSave={(values) => saveSettings.mutateAsync({ agentId: agent.id, values, ensureFields: !settingsFieldsReady })}
+          runWithoutAi={mayRunWithoutAi ? { onSwitch: runWithoutAi, pending: aiMode.switchBack.isPending } : undefined}
         />
       )}
       <RunList masked={masked} ws={ws} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />

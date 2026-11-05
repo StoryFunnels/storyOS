@@ -22,6 +22,14 @@ export function offersLetItThink(agent: Pick<AgentView, 'enabled' | 'aiMode'>): 
   return agent.enabled && (agent.aiMode === 'Non-AI' || agent.aiMode === null);
 }
 
+/**
+ * Whether Advanced offers "Run without an AI": an agent that currently thinks with the person's own AI and is enabled (a switched-off
+ * agent shows no Advanced at all). The gate on WHO is `canLetAgentThink`, the same one as the reverse switch.
+ */
+export function offersRunWithoutAi(agent: Pick<AgentView, 'enabled' | 'aiMode'>): boolean {
+  return agent.enabled && agent.aiMode === 'Your own AI';
+}
+
 /** The option id the Agents database stores for a mode label, or null when this database has no such option (an older pack). */
 export function aiModeOptionId(fields: readonly FieldWithOptions[], label: typeof OWN_AI | typeof NON_AI): string | null {
   return fields.find((f) => f.apiName === 'ai_mode')?.options?.find((o) => o.label === label)?.id ?? null;
