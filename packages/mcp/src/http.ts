@@ -2,7 +2,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { buildServer } from './server.js';
-import { makeClientFor } from './client.js';
+import { defaultBaseUrl, makeClientFor } from './client.js';
 import { resolveToolProfile } from './tool-profiles.js';
 import {
   fetchAuthorizationMetadata,
@@ -29,20 +29,76 @@ function bearer(req: IncomingMessage): string | undefined {
   return typeof h === 'string' && h.startsWith('Bearer ') ? h.slice(7).trim() : undefined;
 }
 
-function readBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve) => {
-    let data = '';
-    req.on('data', (c) => (data += c));
-    req.on('end', () => {
-      if (!data) return resolve(undefined);
-      try {
-        resolve(JSON.parse(data));
-      } catch {
-        resolve(undefined);
+/** #1047: the largest request body /mcp accepts. A JSON-RPC call is small; 4 MiB leaves room for a long document body. */
+export const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
+
+export class BodyTooLargeError extends Error {
+  constructor(readonly limit: number) {
+    super(`Request body is larger than ${limit} bytes`);
+  }
+}
+
+/**
+ * Read a JSON body, stopping at `limit` bytes: past it the request is paused and the promise rejects with BodyTooLargeError, so
+ * nothing beyond the cap is buffered. Chunks are kept as Buffers and decoded once, so a multi-byte character split across two
+ * chunks is not mangled. An empty or non-JSON body resolves to undefined (the transport answers that with its own error).
+ */
+export function readBody(req: IncomingMessage, limit: number = DEFAULT_MAX_BODY_BYTES): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    const finish = (fn: () => void) => {
+      if (done) return;
+      done = true;
+      fn();
+    };
+    req.on('data', (c: Buffer | string) => {
+      if (done) return;
+      const chunk = typeof c === 'string' ? Buffer.from(c) : c;
+      size += chunk.length;
+      if (size > limit) {
+        chunks.length = 0;
+        req.pause();
+        finish(() => reject(new BodyTooLargeError(limit)));
+        return;
       }
+      chunks.push(chunk);
     });
-    req.on('error', () => resolve(undefined));
+    req.on('end', () =>
+      finish(() => {
+        const data = Buffer.concat(chunks).toString('utf8');
+        if (!data) return resolve(undefined);
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve(undefined);
+        }
+      }),
+    );
+    req.on('error', () => finish(() => resolve(undefined)));
   });
+}
+
+/** The declared Content-Length, or undefined when absent or not a plain non-negative integer (chunked uploads have none). */
+function declaredLength(req: IncomingMessage): number | undefined {
+  const h = req.headers['content-length'];
+  if (typeof h !== 'string' || !/^\d+$/.test(h)) return undefined;
+  return Number(h);
+}
+
+/**
+ * #1047: is this bearer one the API accepts? Only a definite 401 from GET /me counts as "no": a network error or a 5xx answers
+ * "unknown" and the request goes on (the API still checks the token on every call the tools make), so an API hiccup never locks
+ * a valid connection out. Exported for the handler's default; tests inject their own.
+ */
+export async function tokenRejected(baseUrl: string, token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/api/v1/me`, { headers: { Authorization: `Bearer ${token}` } });
+    return res.status === 401;
+  } catch {
+    return false;
+  }
 }
 
 function rpcError(
@@ -66,6 +122,8 @@ function rpcError(
  */
 export interface HttpConfig {
   oauth: boolean;
+  /** #1047: the largest request body accepted, in bytes (MCP_MAX_BODY_BYTES; default 4 MiB). */
+  maxBodyBytes: number;
   /** Public origin of THIS MCP endpoint (e.g. https://mcp.storyos.dev). */
   publicUrl: string;
   /** Base URL of the OAuth authorization server (the StoryOS API's auth mount). */
@@ -73,8 +131,10 @@ export interface HttpConfig {
 }
 
 export function resolveConfig(e: NodeJS.ProcessEnv = process.env): HttpConfig {
+  const max = Number(e.MCP_MAX_BODY_BYTES);
   return {
     oauth: e.MCP_OAUTH === 'true' || e.MCP_OAUTH === '1',
+    maxBodyBytes: Number.isInteger(max) && max > 0 ? max : DEFAULT_MAX_BODY_BYTES,
     publicUrl: (e.MCP_PUBLIC_URL ?? 'https://mcp.storyos.dev').replace(/\/$/, ''),
     authServer: (e.MCP_AUTH_SERVER ?? 'https://app.storyos.dev/api/v1/auth').replace(/\/$/, ''),
   };
@@ -100,7 +160,7 @@ export function resolveConfig(e: NodeJS.ProcessEnv = process.env): HttpConfig {
  * challenge (harmless), and we cannot force a client that only reacts to
  * `resource_metadata` to prefer its PAT — that last mile is client-side.
  */
-export function challengeHeader(config: HttpConfig): string | string[] {
+export function challengeHeader(config: Pick<HttpConfig, 'oauth' | 'publicUrl' | 'authServer'>): string | string[] {
   if (!config.oauth) return 'Bearer realm="StoryOS MCP"';
   const resourceMetadata = `${config.publicUrl}/.well-known/oauth-protected-resource`;
   return [
@@ -109,7 +169,16 @@ export function challengeHeader(config: HttpConfig): string | string[] {
   ];
 }
 
-export function createRequestListener(config: HttpConfig = resolveConfig()) {
+/** What the handler asks the outside world; injectable so tests need no API. */
+export interface HttpDeps {
+  /** True only when the API definitely refuses this bearer (see `tokenRejected`). */
+  tokenRejected: (token: string) => Promise<boolean>;
+}
+
+export function createRequestListener(
+  config: HttpConfig = resolveConfig(),
+  deps: HttpDeps = { tokenRejected: (token) => tokenRejected(defaultBaseUrl(), token) },
+) {
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // Permissive CORS so browser-based MCP clients (e.g. the Inspector) can connect.
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*');
@@ -192,7 +261,29 @@ export function createRequestListener(config: HttpConfig = resolveConfig()) {
       return;
     }
 
-    const body = req.method === 'POST' ? await readBody(req) : undefined;
+    // #1047: the size is checked before anything is read, and the token before the body is: an oversized or unauthenticated
+    // request costs a header check (and one GET /me), never a buffered body or a server build.
+    const tooLarge = () => rpcError(res, 413, -32600, `Request body too large (limit ${config.maxBodyBytes} bytes)`, { Connection: 'close' });
+    const declared = declaredLength(req);
+    if (declared !== undefined && declared > config.maxBodyBytes) {
+      tooLarge();
+      return;
+    }
+    if (await deps.tokenRejected(token)) {
+      rpcError(res, 401, -32001, 'Invalid or expired bearer token', { 'WWW-Authenticate': challengeHeader(config) });
+      return;
+    }
+
+    let body: unknown;
+    if (req.method === 'POST') {
+      try {
+        body = await readBody(req, config.maxBodyBytes);
+      } catch (err) {
+        if (!(err instanceof BodyTooLargeError)) throw err;
+        tooLarge(); // `Connection: close`: the rest of the paused body is never read, the socket closes after this answer
+        return;
+      }
+    }
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     const mcp = await buildServer(makeClientFor(token), profile.allow ? { onlyTools: profile.allow } : {});
     res.on('close', () => {
