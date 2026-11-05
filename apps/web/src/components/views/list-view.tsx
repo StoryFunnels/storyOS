@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { api } from '@/lib/api';
 import { inferStateCategory, isFinishedStateCategory } from '@storyos/schemas';
 import type { StateCategory } from '@storyos/schemas';
 import { ArrowDown, ArrowUp, ChevronRight, Plus } from 'lucide-react';
@@ -21,14 +23,14 @@ import { CardFieldChip, RecordNumberBadge } from './board-view';
 import { EmptyState, databaseNoun } from './empty-state';
 import { arrangeBoardColumns } from './board-columns';
 import { canGroupListBy } from './groupable-fields';
+import { NO_VALUE, buildListGroups } from './list-groups';
+import { useRelationGroupTargets } from './relation-group-targets';
 import { groupCountLabel } from './paginated-count';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { useViewSearch } from './view-search';
 import { ViewQueryError } from './query-error';
 import { StateGlyph } from './state-glyph';
-
-const NO_VALUE = '__none__';
 
 /* #1115 — the row's fixed slots, shared by the header and every row so the columns line up:
    a trailing value that is a set of chips (labels, linked records) needs room for two or three,
@@ -107,25 +109,21 @@ export function ListView({
     [database.data, config.card_field_ids, groupField?.id],
   );
 
+  // Ticket #1147 — a relation group's headings are the related records' titles.
+  const relationTargets = useRelationGroupTargets(
+    ws,
+    groupField?.type === 'relation' ? groupField.relation?.target_database_id : undefined,
+  );
+
   const groups = useMemo(() => {
-    if (!groupField) return [{ id: NO_VALUE, label: '', color: '', category: null, rows }];
-    const buckets = new Map<string, RecordRow[]>();
-    for (const o of groupField.options ?? []) buckets.set(o.id, []);
-    buckets.set(NO_VALUE, []);
-    for (const row of rows) {
-      const v = (row.values[groupField.apiName] as string | undefined) ?? NO_VALUE;
-      (buckets.get(v) ?? buckets.get(NO_VALUE)!).push(row);
-    }
-    const columns = [
-      ...(groupField.options ?? []).map((o) => ({
-        id: o.id,
-        label: o.label,
-        color: OPTION_COLORS[o.color] ?? OPTION_COLORS.gray!,
-        category: o.category ?? null,
-        rows: buckets.get(o.id)!,
-      })),
-      { id: NO_VALUE, label: 'No value', color: OPTION_COLORS.gray!, category: null, rows: buckets.get(NO_VALUE)! },
-    ];
+    if (!groupField) return [{ id: NO_VALUE, label: '', color: '', category: null as StateCategory | null, rows }];
+    const columns = buildListGroups({
+      field: groupField,
+      rows,
+      targets: relationTargets.data,
+      neutralColor: OPTION_COLORS.gray!,
+      optionColor: (name) => OPTION_COLORS[name] ?? OPTION_COLORS.gray!,
+    }) as Array<{ id: string; label: string; color: string; category: StateCategory | null; rows: RecordRow[] }>;
     /* #825 — the Groups controls in the toolbar (hide empty groups, hide the
        no-value group, column order) were offered for every GROUPED view,
        including this one, but this renderer never read them: a picker offering
@@ -141,7 +139,7 @@ export function ListView({
       },
       { groupType: groupField.type, hasMore: Boolean(records.hasNextPage) },
     ).filter((g) => g.rows.length > 0 || g.id !== NO_VALUE);
-  }, [groupField, rows, config.column_sort, config.hide_empty_groups, config.hide_empty_no_value_group, records.hasNextPage]);
+  }, [groupField, rows, relationTargets.data, config.column_sort, config.hide_empty_groups, config.hide_empty_no_value_group, records.hasNextPage]);
 
   // #1115 — the row's own state: the workflow field, or the first select whose options carry a
   // category. Its glyph sits before the title and colours the row's percent — grouped or not.
@@ -200,11 +198,29 @@ export function ListView({
       return next;
     });
 
-  const addIn = (groupId: string) =>
+  const addIn = (groupId: string) => {
+    // A relation is not written through record values (the validator refuses it by design): create the
+    // record, then link it, the same two steps a board drop makes. Ticket #1147.
+    const viaLink = groupField?.type === 'relation' && groupId !== NO_VALUE;
     createRecord.mutate(
-      { name: 'Untitled', ...(groupField && groupId !== NO_VALUE ? { [groupField.apiName]: groupId } : {}) },
-      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+      {
+        name: 'Untitled',
+        ...(groupField && groupId !== NO_VALUE && !viaLink ? { [groupField.apiName]: groupId } : {}),
+      },
+      {
+        onSuccess: async (created) => {
+          if (viaLink && groupField) {
+            const { error } = await api.PUT('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/links/{field}', {
+              params: { path: { ws, db, rec: created.id, field: groupField.id } },
+              body: { record_ids: [groupId] },
+            });
+            if (error) toast.error(`Created, but could not set ${groupField.displayName}`);
+          }
+          router.push(`/w/${ws}/d/${db}/r/${created.id}`);
+        },
+      },
     );
+  };
 
   if (rows.length === 0)
     return (
@@ -249,7 +265,9 @@ export function ListView({
         )}
         {groups.map((group) => {
           const isCollapsed = collapsed.has(group.id);
-          const groupStatus = groupField ? { color: group.color, category: group.category } : undefined;
+          // A relation group's colour is not a state (it is the related record), so a row with no status of its own
+          // must not borrow one from its heading (ticket #1147: it drew a half-filled glyph on Brand guidelines).
+          const groupStatus = groupField && groupField.type !== 'relation' ? { color: group.color, category: group.category } : undefined;
           return (
             <div key={group.id} className="mb-3">
               {groupField && (

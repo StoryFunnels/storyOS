@@ -2,7 +2,10 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Bot, CheckCheck, Database as DatabaseIcon, Star } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bot, CheckCheck, Star } from 'lucide-react';
+import { DatabaseGlyph } from '@/components/database-glyph';
+import { buildDatabaseCards } from '@/lib/home-database-cards';
+import type { DatabaseSummary, Space } from '@/lib/queries';
 import { api } from '@/lib/api';
 import { useFavorites } from '@/components/sidebar';
 import { useDateFormat } from '@/lib/preferences';
@@ -91,9 +94,11 @@ function favoriteHref(ws: string, f: FavoriteRow): string {
 export function WorkspaceHomeBlocks({
   ws,
   databases,
+  spaces,
 }: {
   ws: string;
-  databases: Array<{ id: string; name: string }>;
+  databases: ReadonlyArray<Pick<DatabaseSummary, 'id' | 'name' | 'icon' | 'color' | 'spaceId'>>;
+  spaces: ReadonlyArray<Pick<Space, 'id' | 'name'>>;
 }) {
   const approvals = usePendingApprovals(ws);
   const runs = useRecentRuns(ws);
@@ -199,14 +204,19 @@ export function WorkspaceHomeBlocks({
           </div>
         )}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {databases.map((d) => (
+          {buildDatabaseCards(databases, spaces).map((d) => (
             <Link
               key={d.id}
               href={`/w/${ws}/d/${d.id}`}
+              title={d.label}
               className={`${CARD} flex items-center gap-2 p-3 text-body text-ink hover:bg-hover`}
             >
-              <DatabaseIcon className="h-4 w-4 shrink-0 text-muted" />
-              <span className="min-w-0 flex-1 truncate">{d.name}</span>
+              {/* The sidebar's own glyph component: icon and colour come from the database, not from this card. */}
+              <DatabaseGlyph icon={d.icon} color={d.color} id={d.id} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{d.name}</span>
+                {d.spaceName && <span className="block truncate text-label text-muted">{d.spaceName}</span>}
+              </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted" />
             </Link>
           ))}

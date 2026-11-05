@@ -114,11 +114,30 @@ describe('canGroupListBy — narrower on purpose, matches what list-view renders
     expect(canGroupListBy(f('workflow'))).toBe(true);
   });
 
-  it('rejects user and relation — list-view has no group key for them yet', () => {
+  it('rejects user — list-view has no group key for it', () => {
     expect(canGroupListBy(f('user', { config: {} }))).toBe(false);
-    expect(
-      canGroupListBy(f('relation', { relation: { cardinality: 'one_to_many', side: 'a' } })),
-    ).toBe(false);
+  });
+
+  // Ticket #1147: this used to assert the single-side relation was REJECTED, because the list
+  // could not draw it. The list now draws it (list-groups.ts), so the picker offers it, in the
+  // same commit; only the single side, exactly as the board's server rule says.
+  it('accepts the single side of a one-to-many relation, and only that relation shape', () => {
+    const rel = (cardinality: string, side: string | null) =>
+      f('relation', { relation: side ? { cardinality, side } : null });
+    expect(canGroupListBy(rel('one_to_many', 'a'))).toBe(true);
+    expect(listGroupDisabledReason(rel('one_to_many', 'a'))).toBeNull();
+    for (const [c, s] of [['one_to_many', 'b'], ['many_to_many', 'a'], ['many_to_many', 'b'], ['one_to_many', null]] as const) {
+      expect(canGroupListBy(rel(c, s)), `${c}/${s}`).toBe(false);
+      expect(listGroupDisabledReason(rel(c, s))).toBeTruthy();
+    }
+  });
+
+  it('mirrors the board (the server boardGroupError) for every relation shape', () => {
+    for (const c of ['one_to_many', 'many_to_many', 'one_to_one'])
+      for (const side of ['a', 'b', null]) {
+        const rel = f('relation', { relation: side ? { cardinality: c, side } : null });
+        expect(canGroupListBy(rel), `${c}/${side}`).toBe(canGroupBoardBy(rel));
+      }
   });
 });
 
@@ -167,8 +186,8 @@ describe('listGroupDisabledReason — points at the board when that is the answe
   it('tells you to use a board for a field a board could group', () => {
     expect(listGroupDisabledReason(f('user', { config: {} }))).toContain('try a board');
     expect(
-      listGroupDisabledReason(f('relation', { relation: { cardinality: 'one_to_many', side: 'a' } })),
-    ).toContain('try a board');
+      listGroupDisabledReason(f('relation', { relation: { cardinality: 'one_to_many', side: 'b' } })),
+    ).toBeTruthy();
   });
 
   it('returns null for select/workflow', () => {
