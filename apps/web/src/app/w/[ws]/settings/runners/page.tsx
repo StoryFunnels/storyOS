@@ -58,7 +58,8 @@ export default function RunnersPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[720px] flex-col gap-[18px] p-4 sm:p-8">
+    // The root sets NO centring, width or padding: the shared Settings layout owns the column (settings/layout.tsx, ticket #1186).
+    <div className="flex flex-col gap-[18px]">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-[22px] font-bold tracking-[-0.02em] text-ink">Runners</h1>

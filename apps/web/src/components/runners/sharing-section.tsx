@@ -173,9 +173,10 @@ export function SharingSection({
           </span>
         </span>
         {editable && shownReserve !== null && (
-          <MenuSelect label="Share to keep for you" value={String(shownReserve)} options={reserveOptions(shownReserve)} onChange={(v) => saveReserve(Number(v))} className="min-w-[4.5rem] max-w-[6rem]" />
+          <MenuSelect label="Share to keep for you" value={String(shownReserve)} options={reserveOptions(shownReserve)} onChange={(v) => saveReserve(Number(v))} disabled={!rv.measurable} className="min-w-[4.5rem] max-w-[6rem]" />
         )}
-        {editable && <Switch checked={shownReserve !== null} onCheckedChange={(on) => saveReserve(reserveSwitch(on))} aria-label="Keep a share for me" />}
+        {/* Not measurable: the control is disabled, not hidden and not cleared. The stored value stays shown and comes back enabled if a measurable tool is chosen. */}
+        {editable && <Switch checked={shownReserve !== null} onCheckedChange={(on) => saveReserve(reserveSwitch(on))} disabled={!rv.measurable} aria-label="Keep a share for me" />}
       </div>
       {rv.message && (
         <p className="m-0 mx-3.5 mb-2.5 rounded-[var(--radius-control)] border border-border-default bg-hover px-2.5 py-2 text-label leading-[1.45] text-ink-secondary" data-testid="reserve-unmeasurable">

@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 // The API's OWN schema (apps/api/src/runners/runner-sharing.ts), not a copy: every value this screen can send is run through it.
 import { reservePercentSchema, workingHoursSchema } from '../../../../api/src/runners/runner-sharing';
+import { RunnerRow } from '@/components/runners/runner-row';
 import { SharingSection } from '@/components/runners/sharing-section';
 import { apiErrorMessage } from '@/lib/api';
 import { canUseRunners } from './access';
@@ -215,6 +219,45 @@ describe('a refusal is shown in the API’s own words', () => {
     const body = { error: { code: 'validation_failed', message: 'Request validation failed', details: [{ path: 'working_hours.end', message: 'start and end are the same time. Leave working hours off to allow every hour.' }] } };
     expect(apiErrorMessage(body, 'fallback')).toBe('start and end are the same time. Leave working hours off to allow every hour.');
     expect(apiErrorMessage(new TypeError('fetch failed'), 'Could not save that. Your earlier setting is kept.')).toBe('Could not save that. Your earlier setting is kept.');
+  });
+});
+
+describe('the reserve controls when the tool cannot be measured (Dara, review of PR #1416)', () => {
+  const html = (r: RunnerDto) => renderToStaticMarkup(createElement(SharingSection, { runner: r, editable: true, onSave: () => Promise.resolve(), computerZone: 'Europe/Madrid' }));
+  const reserveSwitchTag = (out: string) => out.match(/<button[^>]*role="switch"[^>]*aria-label="Keep a share for me"[^>]*>/)![0];
+  const reserveMenuTag = (out: string) => out.match(/<button[^>]*aria-label="Share to keep for you"[^>]*>/)![0];
+  it('not measurable: the switch and the percent menu are DISABLED, the stored 20% is still shown, and the pill and the explanation stay', () => {
+    const out = html(runner({ reserve_percent: 20, reserve_measurable: false }));
+    expect(reserveSwitchTag(out)).toContain('disabled=""');
+    expect(reserveSwitchTag(out)).toContain('aria-checked="true"'); // nothing is cleared
+    expect(reserveMenuTag(out)).toContain('disabled=""');
+    expect(out).toContain('>20%<');
+    expect(out).toContain('Not kept');
+    expect(out).toContain('Cannot be measured for this tool.');
+  });
+  it('not measurable with no stored value: the switch is disabled too, so the page never invites an action it has said cannot work', () => {
+    expect(reserveSwitchTag(html(runner({ reserve_percent: null, reserve_measurable: false })))).toContain('disabled=""');
+  });
+  it('measurable: both are live, with the stored value', () => {
+    const out = html(runner({ reserve_percent: 30, reserve_measurable: true }));
+    expect(reserveSwitchTag(out)).not.toContain('disabled=""');
+    expect(reserveMenuTag(out)).not.toContain('disabled=""');
+    expect(out).toContain('>30%<');
+  });
+  it('the working-hours switch is NOT affected: hours are enforced for every tool', () => {
+    const out = html(runner({ reserve_measurable: false }));
+    expect(out.match(/<button[^>]*role="switch"[^>]*aria-label="Working hours"[^>]*>/)![0]).not.toContain('disabled=""');
+  });
+});
+
+describe('the Sharing disclosure uses the shared open-state chevron (Dara, review of PR #1416)', () => {
+  const row = renderToStaticMarkup(createElement(RunnerRow, { runner: runner(), now: NOW, onRemove: () => {}, tz: TZ }));
+  it('is a details with the `group` class and a ChevronRight icon that rotates on group-open, like AdvancedSection; no text glyph', () => {
+    expect(row).toMatch(/<details class="group /);
+    expect(row).toMatch(/lucide-chevron-right[^"]*group-open:rotate-90|group-open:rotate-90[^"]*lucide-chevron-right/);
+    expect(row).not.toContain('›');
+    const chrome = readFileSync(join(fileURLToPath(new URL('../..', import.meta.url)), 'components/settings/settings-chrome.tsx'), 'utf8');
+    expect(chrome).toContain('transition-transform group-open:rotate-90'); // the shared one this must keep matching
   });
 });
 

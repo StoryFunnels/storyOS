@@ -1,5 +1,6 @@
 'use client';
 
+import { ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ClientLogo } from '@/components/connect-ai-logos';
 import { describeRunner } from '@/lib/runners/status';
@@ -54,9 +55,8 @@ export function RunnerRow({
       </div>
       <details className="group border-t border-border-default">
         <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-2.5 text-body font-semibold text-ink [&::-webkit-details-marker]:hidden">
-          <span aria-hidden className="text-muted transition-transform group-open:rotate-90">
-            ›
-          </span>
+          {/* The shared disclosure's chevron (AdvancedSection in settings-chrome.tsx): an icon that rotates on `group-open`, so it points down while open. */}
+          <ChevronRight className="h-3 w-3 shrink-0 text-muted transition-transform group-open:rotate-90" aria-hidden />
           Sharing your subscription
           <span className="text-label font-normal text-muted">· keep some for yourself</span>
         </summary>
