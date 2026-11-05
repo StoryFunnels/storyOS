@@ -132,7 +132,13 @@ describe('the wiring (ticket #1216)', () => {
 
   it('the middle column and its layout are gone: nothing draws a settings nav inside the page area', () => {
     expect(existsSync(`${SRC}components/settings/settings-nav.tsx`)).toBe(false);
-    expect(existsSync(`${SRC}app/w/[ws]/settings/layout.tsx`)).toBe(false);
+    // Ticket #1186 re-adds a settings/layout.tsx, but only as the page COLUMN (left-aligned, 720px, 28px gutter). The point of this
+    // test is that the layout draws no menu, so the assertion is on that and not on the file's absence.
+    const layoutFile = `${SRC}app/w/[ws]/settings/layout.tsx`;
+    if (existsSync(layoutFile)) {
+      const layout = readFileSync(layoutFile, 'utf8');
+      expect(layout).not.toMatch(/SettingsNav|settingsNavGroups|<nav\b|SettingsSidebarMenu/);
+    }
   });
 });
 
