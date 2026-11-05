@@ -68,7 +68,7 @@ export interface SettingsPage {
   path?: string;
   /** Path under `/w/{ws}` for a page that is not (yet) under settings. Packs is the only one: ticket #1186 moves it. */
   outside?: string;
-  /** Other path prefixes under settings that count as being on this page (e.g. Integrations also owns /connections). */
+  /** Other path prefixes under settings that count as being on this page (none today: /connections now redirects to Integrations, ticket #1188). */
   alsoActiveFor?: string[];
   /** Offered only where this cloud capability is on; hidden, not greyed, on a self-managed deployment. */
   cloud?: SettingsCloudGate;
@@ -102,7 +102,7 @@ export const SETTINGS_PAGES: ReadonlyArray<SettingsPage> = [
   { id: 'runners', group: 'ai', label: 'Runners', access: 'editors', path: '/runners' },
   { id: 'agent-rules', group: 'ai', label: 'Agent rules', access: 'admins', path: '/governance' },
 
-  { id: 'integrations', group: 'connections', label: 'Integrations', access: 'admins', path: '/integrations', alsoActiveFor: ['/connections'] },
+  { id: 'integrations', group: 'connections', label: 'Integrations', access: 'admins', path: '/integrations' },
   { id: 'api-tokens', group: 'connections', label: 'API tokens', access: 'editors', path: '/api' },
   { id: 'webhooks', group: 'connections', label: 'Webhooks', access: 'admins', path: '/webhooks' },
 

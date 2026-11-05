@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
+import { ProviderPageHeader } from '@/components/settings/provider-card';
 
 interface AgentsPack {
   exists: boolean;
@@ -62,29 +62,14 @@ export default function DelegateToAgentIntegrationPage() {
   const enabled = pack.data?.exists === true;
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link
-        href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Integrations
-      </Link>
-      <div className="mb-3 flex items-center gap-2">
-        <Bot className="h-6 w-6 text-ink" />
-        <h1 className="text-lg font-semibold text-ink">Delegate to agent</h1>
-        {enabled && (
-          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
-            enabled
-          </span>
-        )}
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <div className="mb-5">
+        <ProviderPageHeader ws={ws} id="delegate-agent">
+          Assign a StoryOS agent to any record — from that record&apos;s <strong>···</strong> menu, choose
+          <strong> Delegate to agent</strong> and pick one. It runs through the same tool catalog a manual run uses, and posts its outcome back as a
+          comment on the record, with a link to the full run.
+        </ProviderPageHeader>
       </div>
-      <p className="mb-5 text-body text-muted">
-        Assign a StoryOS agent to any record — from that record&apos;s <strong>···</strong> menu,
-        choose
-        <strong> Delegate to agent</strong> and pick one. It runs through the same tool catalog a
-        manual run uses, and posts its outcome back as a comment on the record, with a link to the
-        full run.
-      </p>
 
       <IntegrationSetupGuide
         className="mb-5"

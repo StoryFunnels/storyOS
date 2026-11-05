@@ -100,6 +100,20 @@ export function confirmToggleWebhook(url: string, enabling: boolean): SettingsCo
       };
 }
 
+/**
+ * Ticket #1188 — Disconnect on a provider's page. `name` is what the person sees for the connection ("Linear", or "Meta comments"
+ * for a saved Custom API connection) and `effect` is the provider's own sentence about what stops (`ProviderPageDef.disconnectEffect`),
+ * so the blast radius is named per provider and never a generic "this cannot be undone". Cancel resolves false and nothing is called.
+ */
+export function confirmDisconnectProvider(name: string, effect: string): SettingsConfirm {
+  return {
+    title: `Disconnect ${name}?`,
+    message: `${effect} To use it again you connect it again.`,
+    confirmLabel: 'Disconnect',
+    danger: true,
+  };
+}
+
 export function confirmRemoveCalendarMapping(database: string, calendar: string): SettingsConfirm {
   return {
     title: `Stop syncing ${database} with ${calendar}?`,
