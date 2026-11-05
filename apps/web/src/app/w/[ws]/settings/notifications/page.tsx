@@ -46,7 +46,7 @@ export default function NotificationsPage() {
       <SettingsPageBody>
         <SettingsBox>
           {EVENTS.map(({ key, label, description }) => (
-            <SettingsRow key={key} title={label} description={description}>
+            <SettingsRow key={key} title={label} description={description} inlineControls>
               <Switch
                 checked={prefs.data?.notifications[key] ?? true}
                 disabled={prefs.isLoading}
