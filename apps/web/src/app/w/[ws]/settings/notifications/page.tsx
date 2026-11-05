@@ -46,14 +46,7 @@ export default function NotificationsPage() {
       <SettingsPageBody>
         <SettingsBox>
           {EVENTS.map(({ key, label, description }) => (
-            // A switch stays beside its words on a phone: the row's phone rule would put the words on their own line and stretch the
-            // switch, so this row undoes both (the words keep their natural basis, the controls their own width).
-            <SettingsRow
-              key={key}
-              title={label}
-              description={description}
-              className="max-sm:flex-nowrap max-sm:[&>div:first-of-type]:basis-auto max-sm:[&>div:last-of-type]:w-auto"
-            >
+            <SettingsRow key={key} title={label} description={description} inlineControls>
               <Switch
                 checked={prefs.data?.notifications[key] ?? true}
                 disabled={prefs.isLoading}

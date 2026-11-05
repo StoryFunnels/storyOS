@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AdminsOnlyNotice } from '@/components/settings/admins-only';
-import { AdvancedSection } from '@/components/settings/settings-chrome';
+import { AdvancedSection, SettingsBox } from '@/components/settings/settings-chrome';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { confirmRevokeSession } from '@/lib/settings-confirmations';
 import { SETTINGS_PAGES, canOpenAdminSettings, settingsFlags, settingsNavGroups } from '@/lib/settings-nav';
@@ -174,6 +174,34 @@ describe('no explanation lives only in a tooltip (ticket #900)', () => {
     const audit = page('audit-log');
     expect(audit).toContain('data-testid="audit-record-id"');
     expect(audit).toContain('record {e.record_id}');
+  });
+});
+
+describe('a box heading with a count of 0 (the Trash "Databases0" defect, sent back by Vera)', () => {
+  const box = (aside: unknown) =>
+    renderToStaticMarkup(createElement(SettingsBox, { title: 'Databases', aside: aside as never, children: 'x' }));
+
+  it('0 renders as its own right-aligned count, not a bare digit run onto the title', () => {
+    const html = box(0);
+    expect(html).toMatch(/<span class="ml-auto[^"]*">0<\/span>/);
+    expect(html).not.toContain('Databases0');
+  });
+
+  it('a positive count and a text aside render the same way; no aside, null and false render no span', () => {
+    expect(box(3)).toMatch(/<span class="ml-auto[^"]*">3<\/span>/);
+    expect(box('1 installed')).toMatch(/<span class="ml-auto[^"]*">1 installed<\/span>/);
+    for (const none of [undefined, null, false]) expect(box(none)).not.toContain('ml-auto');
+  });
+
+  it('the Trash section passes its count straight through, so an empty section shows 0', () => {
+    expect(read(join(SRC, 'components/entity/trash-list.tsx'))).toContain('aside={items.length}');
+  });
+
+  it('no Settings component guards a numeric value with `&&`', () => {
+    // `{n && <X/>}` prints 0 when n is 0. Checked over the settings chrome and the pages' shared list components.
+    for (const f of ['components/settings/settings-chrome.tsx', 'components/entity/trash-list.tsx']) {
+      expect(read(join(SRC, f)), f).not.toMatch(/\{(aside|items\.length|count|total)\s&&\s/);
+    }
   });
 });
 
