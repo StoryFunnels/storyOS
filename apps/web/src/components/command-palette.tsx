@@ -17,6 +17,7 @@ import { stepIndex } from '@/lib/list-nav';
 import { cn } from '@/lib/utils';
 import { databaseColor } from '@/lib/entity-color';
 import { useBackLayer } from '@/lib/back-layers';
+import { placeHref } from '@/lib/hidden-section';
 
 interface RecordHit {
   id: string;
@@ -229,7 +230,8 @@ export function CommandPalette() {
         // two same-named databases in different spaces read distinctly. A
         // space place has no breadcrumb of its own — stays the literal 'Space'.
         hint: place.kind === 'database' ? recordBreadcrumb(place.space_name ?? null, place.name) : 'Space',
-        run: () => (place.kind === 'database' ? go(`/w/${ws}/d/${place.id}`) : go(`/w/${ws}`)),
+        // ticket #1211 — a space opens ITS page; every space result used to go to the workspace home.
+        run: () => go(placeHref(ws, place)),
       });
     }
     const actions: Array<[string, React.ReactNode, () => void]> = [

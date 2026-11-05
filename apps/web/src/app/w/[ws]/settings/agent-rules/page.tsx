@@ -1,6 +1,7 @@
 'use client';
 
 import { AgentActions } from '@/components/governance/agent-actions';
+import { DefaultAgentModel } from '@/components/governance/default-agent-model';
 import { SettingsBox, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
 import { Switch } from '@/components/ui/switch';
 import { useSkillSharing } from '@/lib/skill-sharing';
@@ -133,6 +134,7 @@ export default function AgentRulesPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <SettingsPageHeader title="Agent rules" lead="What AI may do in this workspace without asking a person" />
+      <DefaultAgentModel ws={ws} />
       <SettingsBox className="mb-6">
         <SettingsRow
           title="Let AI share skills with the whole workspace"
@@ -148,7 +150,7 @@ export default function AgentRulesPage() {
       </SettingsBox>
       <p className="mb-6 text-body text-muted">
         Below: which agents exist here, what each one can reach, what is held for a person to approve, and what people recently
-        decided. Apart from the switch above, nothing on this page changes a scope or decides an approval.
+        decided. Apart from the default model and the skill-sharing switch above, nothing on this page changes a scope or decides an approval.
       </p>
 
       {loading ? (

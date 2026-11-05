@@ -80,6 +80,7 @@ describe('the checklist link (AC2)', () => {
 /** Every control the Governance page had, listed from the old page (origin/main before this ticket). A dropped one fails. */
 const FORMER_GOVERNANCE_CONTROLS = [
   '<AgentActions',
+  '<DefaultAgentModel',
   'title="Agents"',
   'title="Gates in force"',
   'title="Approvals"',

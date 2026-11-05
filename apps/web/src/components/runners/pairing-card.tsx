@@ -1,15 +1,13 @@
 'use client';
 
-import { Check, Copy, Loader2 } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import { useEffect, useReducer, useRef } from 'react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { CommandBlock, PairingCode } from './pairing-blocks';
 import { Segmented } from '@/components/ui/segmented';
 import { apiErrorMessage } from '@/lib/api';
 import {
   canPressDone,
-  codeAriaLabel,
-  displayCode,
   expiredCopy,
   pairingReducer,
   pairingStart,
@@ -131,7 +129,7 @@ export function PairingCard({
               <span>
                 On the computer where <b className="font-semibold text-ink">Claude Code or Cursor</b> is signed in, open Terminal and run:
               </span>
-              <Command />
+              <CommandBlock />
             </Step>
             <Step n={2} ok={connected}>
               <span>When it asks for a code, type:</span>
@@ -140,13 +138,7 @@ export function PairingCard({
                   Getting your code…
                 </p>
               ) : (
-                <div
-                  className="pt-1.5 font-mono text-[22px] font-semibold tracking-[0.18em] text-ink sm:text-[26px]"
-                  aria-label={'code' in state ? codeAriaLabel(state.code) : undefined}
-                  data-testid="pairing-code"
-                >
-                  {'code' in state ? displayCode(state.code) : ''}
-                </div>
+                'code' in state && <PairingCode code={state.code} />
               )}
               <span className="text-label text-muted">{COPY.codeNote}</span>
             </Step>
@@ -183,29 +175,6 @@ function Step({ n, ok, children }: { n: number; ok: boolean; children: React.Rea
       </span>
       <span className="flex min-w-0 flex-col gap-1">{children}</span>
     </li>
-  );
-}
-
-function Command() {
-  return (
-    <div className="mt-1.5 flex h-[34px] max-w-[360px] items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-app pl-2.5 pr-1 font-mono text-[12px] text-ink">
-      <span className="flex-1 overflow-x-auto whitespace-nowrap">{COPY.command}</span>
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        aria-label={`Copy ${COPY.command}`}
-        onClick={() => {
-          navigator.clipboard.writeText(COPY.command).then(
-            () => toast.success('Copied'),
-            () => toast.error('Could not copy. Select the command and copy it.'),
-          );
-        }}
-      >
-        <Copy className="h-3 w-3" aria-hidden />
-        Copy
-      </Button>
-    </div>
   );
 }
 
