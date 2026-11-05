@@ -1,9 +1,12 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { summaryFor } from '@/lib/runners/agents';
 import { useAgents, useMyUserId, useRunnerMutations, useWakeSummary } from '@/lib/runners/queries';
+import { readyToastWithScope } from '@/lib/runners/catch-up-copy';
+import { fetchCatchUpScope } from '@/lib/runners/use-catch-up';
 import { readyToast } from '@/lib/runners/words';
 
 /**
@@ -18,6 +21,7 @@ import { readyToast } from '@/lib/runners/words';
  */
 export function useFinishPairing(ws: string) {
   const router = useRouter();
+  const qc = useQueryClient();
   const me = useMyUserId();
   const { agents } = useAgents(ws);
   const summary = useWakeSummary(ws);
@@ -27,7 +31,10 @@ export function useFinishPairing(ws: string) {
     const needing = agents.filter((a) => a.usesRunner && a.ownerId === me && !summaryFor(summary.data, a.id)?.runner);
     const results = await Promise.allSettled(needing.map((a) => m.assign.mutateAsync({ agentId: a.id, runnerId: done.runnerId })));
     const assigned = needing.filter((_, i) => results[i]!.status === 'fulfilled');
-    toast.success(readyToast(done.runnerName, assigned.map((a) => a.name)));
+    // Ticket #1152 (Dara, v45): with exactly one agent sent to it, say which new records wake it: "New clients in Onboarding now wake
+    // Onboarding Assistant." Several agents, or a trigger that does not name its state, keep the general sentence.
+    const scoped = assigned.length === 1 ? readyToastWithScope(done.runnerName, assigned[0]!.name, await fetchCatchUpScope(qc, ws, assigned[0]!.id)) : null;
+    toast.success(scoped ?? readyToast(done.runnerName, assigned.map((a) => a.name)));
     router.push(assigned[0] ? `/w/${ws}/agents/${assigned[0].id}` : `/w/${ws}/agents`);
   };
 }
