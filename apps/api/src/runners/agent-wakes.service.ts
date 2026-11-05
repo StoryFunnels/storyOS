@@ -531,10 +531,11 @@ export class AgentWakesService {
     const notBlocked = gate.blocked.size > 0 ? sql`AND w.agent_id NOT IN (${sql.join([...gate.blocked].map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
     const lease = new Date(now.getTime() + WAKE_LEASE_SECONDS * 1000);
     const only = wakeId ? sql`AND w.id = ${wakeId}::uuid` : sql``;
+    // The picked ids are a MATERIALIZED CTE on purpose. As a plain `id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)` the planner may turn
+    // the subquery into a semi-join and run it again per row, and then LIMIT n does not bound the rows updated: ticket #1138's run-cap test
+    // saw a claim of max 1 hand out 4 wakes (only on a fresh database, where the planner has no statistics). MATERIALIZED evaluates it once.
     const res = (await this.db.execute(sql`
-      UPDATE agent_wakes SET status = 'claimed', runner_id = ${runner.id}::uuid, claim_nonce = gen_random_uuid()::text,
-        lease_expires_at = ${lease.toISOString()}::timestamptz, claimed_at = ${now.toISOString()}::timestamptz, updated_at = ${now.toISOString()}::timestamptz
-      WHERE status = 'queued' AND id IN (
+      WITH picked AS MATERIALIZED (
         SELECT w.id FROM agent_wakes w
           JOIN runner_agents ra ON ra.agent_id = w.agent_id AND ra.runner_id = ${runner.id}::uuid
           JOIN records a ON a.id = w.agent_id AND a.deleted_at IS NULL AND (a.values ->> ${enabledId}) = 'true'
@@ -543,7 +544,10 @@ export class AgentWakesService {
         ORDER BY w.created_at, w.id
         LIMIT ${max}
         FOR UPDATE OF w SKIP LOCKED
-      ) RETURNING id`)) as unknown as { rows?: Array<{ id: string }> };
+      )
+      UPDATE agent_wakes SET status = 'claimed', runner_id = ${runner.id}::uuid, claim_nonce = gen_random_uuid()::text,
+        lease_expires_at = ${lease.toISOString()}::timestamptz, claimed_at = ${now.toISOString()}::timestamptz, updated_at = ${now.toISOString()}::timestamptz
+      WHERE status = 'queued' AND id IN (SELECT id FROM picked) RETURNING id`)) as unknown as { rows?: Array<{ id: string }> };
     const ids = (res.rows ?? []).map((r) => r.id);
     if (ids.length === 0) return [];
     const rows = await this.db.select().from(agentWakes).where(inArray(agentWakes.id, ids)).orderBy(asc(agentWakes.createdAt));

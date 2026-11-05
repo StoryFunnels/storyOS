@@ -204,8 +204,9 @@ describe('AC2: 80% notifies once, 100% pauses claims for that agent', () => {
       expect((await as(admin.token, 'POST', `/workspaces/${ws}/agents/${agent}/delegate`, { record_id: t })).statusCode).toBe(201);
     }
     expect((await pool.query("select 1 from agent_wakes where agent_id = $1 and status = 'queued'", [agent])).rowCount).toBe(4);
+    const diag = JSON.stringify({ gate: [...(await app.get(AgentBudgetService).claimGate(ws, [agent], new Date())).runsLeft], status: (await budget(agent)).runs });
     const got = claimed(await claim(5));
-    expect(got).toHaveLength(1);
+    expect(got, `agents claimed: ${got.map((w) => w.agent.id === agent ? 'cap' : w.agent.id)}; before: ${diag}`).toHaveLength(1);
     expect((await complete(got[0]!)).statusCode).toBe(200);
     expect(await notes('agent_budget_paused', agent)).toBe(1);
     expect(await notes('agent_budget_warning', agent)).toBe(1);
