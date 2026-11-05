@@ -112,6 +112,22 @@ describe('anonymous surface: POST /public/forms/:token (per-IP)', () => {
   });
 });
 
+describe('authenticated surface: per-PERSON buckets for sessions (#1043)', () => {
+  it('two signed-in people behind ONE address each get their own budget; a bogus session bearer shares the address bucket', async () => {
+    const sa = await signUpUser(app, 'SessionUserA');
+    const sb = await signUpUser(app, 'SessionUserB');
+
+    for (let i = 0; i < TEST_RATE_LIMIT; i++) {
+      const ok = await inject('GET', '/me', { token: sa.token });
+      expect(ok.statusCode, `session A request ${i} should be allowed`).toBe(200);
+    }
+    expect((await inject('GET', '/me', { token: sa.token })).statusCode, 'session A is over its own limit').toBe(429);
+
+    // Same address (app.inject), different person: before #1043 this shared A's exhausted IP bucket and got 429.
+    expect((await inject('GET', '/me', { token: sb.token })).statusCode, "session B must NOT share A's bucket").toBe(200);
+  });
+});
+
 describe('authenticated surface: per-PAT buckets', () => {
   it('gives each valid PAT its own bucket — one user is not throttled by another', async () => {
     // Two DIFFERENT users, each with their own valid PAT.
