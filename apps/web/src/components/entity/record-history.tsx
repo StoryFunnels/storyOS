@@ -98,7 +98,7 @@ function SourceBadge({ source }: { source: string }) {
     <span
       className={cn(
         'rounded-[var(--radius-chip)] px-1.5 py-0.5 text-micro font-medium uppercase tracking-wide',
-        isAiSource(source) ? 'bg-accent-soft text-[var(--accent)]' : 'bg-hover text-ink-secondary',
+        isAiSource(source) ? 'bg-accent-soft text-accent-text' : 'bg-hover text-ink-secondary',
       )}
     >
       {SOURCE_LABEL[source] ?? source}
