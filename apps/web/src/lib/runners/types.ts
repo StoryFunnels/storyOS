@@ -17,6 +17,27 @@ export interface RunnerTool {
   installed: boolean;
   version?: string;
   logged_in?: boolean;
+  /** Ticket #1137: true only where the tool reports how much of the person's plan is used. Absent on an API that predates it. */
+  reserve_measurable?: boolean;
+}
+
+export type WorkingDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+/** Ticket #1137, `workingHoursSchema` in apps/api/src/runners/runner-sharing.ts: wall-clock times in an IANA zone. */
+export interface WorkingHours {
+  days: WorkingDay[];
+  /** "HH:MM", 24-hour. When `end` is not after `start` the window runs past midnight and belongs to the day it starts. */
+  start: string;
+  end: string;
+  timezone: string;
+}
+
+export type HoldReason = 'limit_reached' | 'working_hours' | 'reserve';
+
+/** Why a Runner is not claiming right now (`holdFor` in runner-sharing.ts). `resumes_at` null = nothing can say when. */
+export interface RunnerHold {
+  reason: HoldReason;
+  resumes_at: string | null;
 }
 
 export type RunnerRecordStatus = 'pending' | 'active' | 'revoked';
@@ -39,6 +60,24 @@ export interface RunnerDto {
   /** While pending: when the pairing window closes. */
   pending_expires_at: string | null;
   agents: Array<{ id: string; name: string }>;
+  /**
+   * Ticket #1137, `runner-present.ts`. Every field is optional here so an API that predates them, or a fixture, reads as "no rule":
+   * the screen never invents a rule from an absent field.
+   */
+  working_hours?: WorkingHours | null;
+  reserve_percent?: number | null;
+  reserve_measurable?: boolean;
+  reserve_unmeasurable_message?: string | null;
+  within_working_hours?: boolean | null;
+  working_hours_closes_at?: string | null;
+  working_hours_resumes_at?: string | null;
+  hold?: RunnerHold | null;
+}
+
+/** The body of `PATCH /workspaces/{ws}/runners/{id}` for the sharing settings: any subset, `null` clears (RunnerUpdateDto). */
+export interface RunnerSharingPatch {
+  working_hours?: WorkingHours | null;
+  reserve_percent?: number | null;
 }
 
 export interface PairingCodeIssued {
@@ -64,7 +103,11 @@ export type RunStateName =
   | 'waiting_for_runner'
   | 'runner_offline'
   | 'waiting_for_limit'
-  | 'waiting_for_turn';
+  | 'waiting_for_turn'
+  /** Ticket #1137: outside the Runner's working hours; `until` is when the window opens. */
+  | 'waiting_for_hours'
+  /** Ticket #1137: the person's reserve is being kept; `until` is the tool's reported reset, absent when unknown. */
+  | 'waiting_for_reserve';
 
 /** `since` / `until` are ISO instants; the client formats them in the viewer's timezone. */
 export interface RunState {
