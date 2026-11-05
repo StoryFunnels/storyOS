@@ -1,8 +1,9 @@
-import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { env } from '../config/env';
 import { ConnectionsService } from './connections.service';
+import { clearNonceCookie, readNonceCookie } from './oauth-nonce-cookie';
 
 function redirect(reply: FastifyReply, url: string): void {
   void reply.header('location', url).code(302).send();
@@ -17,6 +18,11 @@ function redirect(reply: FastifyReply, url: string): void {
  * State is verified BEFORE anything provider-specific: an invalid/expired/
  * tampered state is rejected without ever touching the registry, so a bad
  * state can't be used to probe which providers exist or are configured.
+ *
+ * #1048: a valid signature is not enough. The state must come back to the
+ * browser that started the connect (the nonce cookie set by `/start`), and
+ * only once (its nonce is recorded). An authorize link opened in another
+ * browser, or a callback URL replayed, is refused.
  */
 @ApiTags('connections')
 @Controller('connections/oauth')
@@ -26,6 +32,7 @@ export class ConnectionsOAuthController {
   @Get('callback')
   @ApiOperation({ summary: 'OAuth2 callback — verifies state, exchanges the code, seals the tokens' })
   async callback(
+    @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
     @Query('state') state?: string,
     @Query('code') code?: string,
@@ -33,6 +40,13 @@ export class ConnectionsOAuthController {
   ) {
     const verified = this.connections.verifyOAuthState(state);
     if (!verified) throw new BadRequestException('Invalid or expired OAuth state');
+    const cookieNonce = readNonceCookie(req.headers.cookie);
+    void reply.header('set-cookie', clearNonceCookie()); // one round-trip per cookie, whatever happens next
+    if (!(await this.connections.consumeOAuthState(verified, cookieNonce))) {
+      throw new BadRequestException(
+        'This connect link was opened in a different browser, or has already been used. Start it again from Settings → Connections.',
+      );
+    }
 
     if (providerError || !code) {
       redirect(
