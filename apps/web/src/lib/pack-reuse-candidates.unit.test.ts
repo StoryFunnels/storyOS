@@ -18,6 +18,7 @@ import {
   shortReason,
   type RefusedCandidates,
   existingChoices,
+  isGoneReason,
   isReusableCandidate,
   isStalePick,
   manyChoices,
@@ -157,6 +158,41 @@ describe('stale picks fall back (unconfigured is not invalid)', () => {
       ]),
     ).toEqual([{ name: 'Projects', databaseId: 'p', kind: 'refused', reason: 'Budget is a text here but this pack needs a number.' }]);
     expect(droppedPicks(picks, []).map((r) => [r.name, r.kind])).toEqual([['Issues', 'gone'], ['Projects', 'gone']]);
+  });
+  it('CONFIRMING PREVIEW + GONE: the server answers 201 with the "no database you can edit" sentence as the reason; that is GONE, not a reason of the pack’s own (Vera)', () => {
+    const picks = { Issues: { database_id: 'db-audit' } };
+    const preview = [{ name: 'Issues', existing_elsewhere: { adopted: false, reusable: false, reason: 'There is no Issues database you can edit.' } }];
+    expect(droppedPicks(picks, preview)).toEqual([{ name: 'Issues', databaseId: 'db-audit', kind: 'gone' }]);
+    // what the dialog then shows: the same sentence as the 422 paths, the deleted database off the list AND off the can't-be-used line
+    const choices = existingChoices([{ name: 'Issues', existing_elsewhere: issues }]);
+    const refusals = droppedPicks(picks, preview);
+    const next = applyRefusals(choices, addRefusals({}, refusals));
+    const view = reuseView(next[0]!.hint);
+    if (view.kind !== 'many') throw new Error('fixture');
+    expect(view.usable.map((c) => c.database_id)).toEqual(['db-storyos']);
+    expect(view.unusable.map((c) => c.database_id)).not.toContain('db-audit');
+    expect(cantUseLine(view.unusable)).not.toContain('Website Audit');
+    const notice = refusalNotice(refusals[0]!);
+    expect(notice).toBe('That Issues database is gone or you can no longer reach it, so this pack will make a new one.');
+    expect(notice).not.toContain('can’t take this pack now');
+  });
+  it('a real own reason on the confirming preview keeps the "can’t take this pack now" wording and the can’t-be-used line', () => {
+    const refusals = droppedPicks({ Issues: { database_id: 'db-audit' } }, [
+      { name: 'Issues', existing_elsewhere: { adopted: false, reusable: false, reason: 'Priority is a text here but this pack needs a select.' } },
+    ]);
+    expect(refusals[0]!.kind).toBe('refused');
+    expect(refusalNotice(refusals[0]!)).toContain('can’t take this pack now: Priority is a text here but this pack needs a select');
+    const next = applyRefusals(existingChoices([{ name: 'Issues', existing_elsewhere: issues }]), addRefusals({}, refusals));
+    const view = reuseView(next[0]!.hint);
+    if (view.kind !== 'many') throw new Error('fixture');
+    expect(cantUseLine(view.unusable)).toContain('Website Audit (Priority is a text here but this pack needs a select)');
+  });
+  it('isGoneReason is the one test for the "no such database" sentence, name-aware, on every path', () => {
+    expect(isGoneReason('Issues', 'There is no Issues database you can edit.')).toBe(true);
+    expect(isGoneReason('Issues', '  There is no Issues database you can edit.  ')).toBe(true);
+    expect(isGoneReason('Issues', 'There is no Projects database you can edit.')).toBe(false);
+    expect(isGoneReason('Issues', 'Priority is a text here but this pack needs a select.')).toBe(false);
+    expect(isGoneReason('Issues', undefined)).toBe(false);
   });
   it('says why in one sentence (Dara): the name follows the database', () => {
     expect(REUSE_COPY.stalePick('Issues')).toBe('That Issues database is gone or you can no longer reach it, so this pack will make a new one.');

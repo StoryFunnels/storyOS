@@ -281,9 +281,22 @@ export function singleReusable(choices: ExistingChoice[]): ExistingChoice[] {
   });
 }
 
-/** What the API says when a picked id is not a candidate (deleted, no longer editable, foreign, built-in): the same words as a database that is not there. */
+/**
+ * What the API says when a picked id is not a candidate (deleted, no longer editable, foreign, built-in): the same words as a database
+ * that is not there. The wording is pinned on the API side by apps/api/test/pack-reuse-candidates.test.ts (the "unknown/read-only/foreign
+ * id" cases, which assert this exact sentence); the web recognises it by TEXT, as it does the Linear reason, because the refusal has no code.
+ */
 export function noDatabaseMessage(name: string): string {
   return `There is no ${name} database you can edit.`;
+}
+
+/**
+ * Is this reason the "there is no such database" sentence, i.e. the pick is GONE (deleted, or no longer reachable) rather than refused for
+ * a reason of its own? Used on EVERY path that reads a refusal: a 422 body and the confirming preview's 201 data (where the same sentence
+ * arrives as `existing_elsewhere.reason`). Pure, so both paths classify identically.
+ */
+export function isGoneReason(name: string, reason: string | undefined): boolean {
+  return (reason ?? '').trim() === noDatabaseMessage(name);
 }
 
 /**
@@ -306,7 +319,7 @@ export function reuseRefusals(error: unknown, picks: Record<string, { database_i
   const names = Object.keys(picks).filter((n) => picks[n]!.database_id);
   const out: ReuseRefusal[] = [];
   for (const name of names) {
-    if (messages.includes(noDatabaseMessage(name))) out.push({ name, databaseId: picks[name]!.database_id!, kind: 'gone' });
+    if (messages.some((m) => isGoneReason(name, m))) out.push({ name, databaseId: picks[name]!.database_id!, kind: 'gone' });
   }
   if (out.length === 0 && names.length === 1 && messages.length > 0) {
     out.push({ name: names[0]!, databaseId: picks[names[0]!]!.database_id!, kind: 'refused', reason: messages[0] });
@@ -326,7 +339,9 @@ export function droppedPicks(
     const e = databases.find((d) => d.name === name)?.existing_elsewhere;
     if (e?.adopted === true && e.reusable === true) return [];
     const databaseId = picks[name]!.database_id ?? '';
-    return [e?.reason ? { name, databaseId, kind: 'refused' as const, reason: e.reason } : { name, databaseId, kind: 'gone' as const }];
+    // The server answers a deleted pick with 201 and the "no database you can edit" sentence as the reason: that is GONE, not a reason
+    // of the pack's own. Only a real reason keeps the "can't take this pack now" wording and the can't-be-used line.
+    return [e?.reason && !isGoneReason(name, e.reason) ? { name, databaseId, kind: 'refused' as const, reason: e.reason } : { name, databaseId, kind: 'gone' as const }];
   });
 }
 

@@ -41,6 +41,7 @@ import {
   type ReuseRefusal,
   type ReuseSelection,
 } from '@/lib/pack-review';
+import { restoreFocusAfterRefusal } from '@/lib/pack-reuse-focus';
 import { InstallList } from '@/components/pack-install-list';
 import { AutomationStateLine, InstalledAutomationLine } from '@/components/pack-automation-state';
 import type { AutomationPreviewItem } from '@/lib/pack-automation-state';
@@ -710,6 +711,9 @@ export function InstallDialog({
     setReuse((prev) => Object.fromEntries(Object.entries(prev).filter(([n]) => !names.includes(n))));
     setRefused((prev) => addRefusals(prev, refusals));
     setNotices((prev) => ({ ...prev, ...Object.fromEntries(refusals.map((r) => [r.name, refusalNotice(r)])) }));
+    // The refused radio may be the one the person just picked by keyboard: it leaves the page and focus would fall to the dialog. Two frames:
+    // the state above commits first, then focus goes to the row's own selected radio (only if focus was actually lost).
+    requestAnimationFrame(() => requestAnimationFrame(() => restoreFocusAfterRefusal(document, names)));
     return true;
   };
   const confirmPicks = useQuery({
