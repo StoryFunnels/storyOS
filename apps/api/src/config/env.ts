@@ -289,6 +289,13 @@ export const envSchema = z.object({
    */
   HTTP_ACTION_ALLOW_PRIVATE_CIDRS: z.string().optional().default(''),
   /**
+   * #1044 — comma-separated CIDRs a workspace SMTP connection may reach although they are private (a self-hosted StoryOS whose
+   * mail relay sits on its own network, e.g. 10.0.0.0/8). Empty by default: an SMTP connection must point at a public host.
+   * BLOCKED_CIDRS and the metadata addresses stay refused either way. The operator's own SMTP_HOST (transactional mail) is not
+   * affected: it is the operator's setting, not a workspace's.
+   */
+  SMTP_ALLOW_PRIVATE_CIDRS: z.string().optional().default(''),
+  /**
    * #239 — daily YouTube Data API v3 quota (default 10,000 units, the stock
    * per-project allocation; reads cost 1 unit/call). SourcesService checks
    * this before each sync cycle and marks the run 'skipped_quota' instead of
