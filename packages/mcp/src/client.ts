@@ -5,7 +5,7 @@ import { createStoryOSClient } from '@storyos/sdk';
  * app uses (MN-076). Auth is a personal access token (mn_pat_…); the API scopes
  * every response to what that token's user can access, so the MCP inherits security.
  */
-const defaultBaseUrl = () => process.env.STORYOS_URL ?? 'http://localhost:3001';
+export const defaultBaseUrl = () => process.env.STORYOS_URL ?? 'http://localhost:3001';
 
 /** The typed openapi-fetch client the tools issue JSON calls through. */
 export type Client = ReturnType<typeof createStoryOSClient>;
