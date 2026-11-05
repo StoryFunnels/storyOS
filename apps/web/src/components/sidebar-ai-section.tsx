@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Activity, Bot, ChevronRight, Library, Package, Plug } from 'lucide-react';
 import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
 import { CARET_HIT_AREA } from '@/components/sidebar-row-style';
+import { SidebarTierLabel } from '@/components/sidebar-tier-label';
 import {
   CONNECT_AI_MOVED_HINT,
   CONNECT_AI_MOVED_TOAST,
@@ -158,7 +159,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
   return (
     <div data-testid="sidebar-ai-section">
       {/* #805 — the quiet tier label (10px, wide tracking); gold, and a notch heavier so it reads as a mark. */}
-      <p className="mb-0.5 mt-1 px-3 text-micro font-semibold uppercase tracking-[0.16em] text-accent-text">AI</p>
+      <SidebarTierLabel className="text-accent-text">AI</SidebarTierLabel>
       {rows.slice(0, 1).map(renderRow)}
       {agentsHref && (
         <>
