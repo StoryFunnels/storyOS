@@ -97,12 +97,13 @@ describe('#1192 the rule (pure)', () => {
     expect(parsed.triggers[0]).not.toHaveProperty('enabled');
   });
 
-  it('the registry has non-gated triggers to check (the loop below is not vacuous)', () => {
+  it('the registry has triggers to check (the loop below is not vacuous)', () => {
     const all = PACK_REGISTRY.flatMap((p) => p.manifest.triggers.map((t) => ({ slug: p.slug, t })));
     expect(PACK_REGISTRY.length).toBeGreaterThan(8);
     expect(all.length).toBeGreaterThan(5);
-    expect(all.filter((x) => !x.t.human_gate).length).toBeGreaterThan(0);
-    expect(all.filter((x) => x.t.human_gate).length).toBeGreaterThan(0);
+    expect(all.filter((x) => !x.t.human_gate).length).toBe(all.length);
+    // #1212 REWROTE this: it used to demand that the registry contain at least one human_gate trigger (the #1183 default), which pinned
+    // the gate into every built-in pack. The gated path is still covered, by a custom manifest, in the #1212 block below.
   });
 });
 
@@ -346,4 +347,79 @@ describe('#1192 what is NOT changed', () => {
     expect([403, 404]).toContain(res.statusCode);
     expect((await liveBindings(ws)).rows).toHaveLength(0);
   }, 120_000);
+});
+
+/**
+ * Ticket #1212 - reverses ticket #1183. No built-in pack sets `human_gate`: the person's "Wake it automatically" choice in the install
+ * review is the only switch, so a pack agent starts by itself once switched on. `human_gate` stays available to a custom manifest.
+ */
+describe('#1212 no built-in pack gates its agent; the review switch is the only one', () => {
+  it('no manifest in the registry (every built-in pack, starter and sibling) sets human_gate on any trigger', () => {
+    const gated = PACK_REGISTRY.flatMap((p) => p.manifest.triggers.filter((t) => 'human_gate' in t && t.human_gate !== false).map((t) => `${p.slug}: ${label(t)}`));
+    expect(gated).toEqual([]);
+    // Not vacuous: the registry has triggers, and the ones that used to be gated are among them.
+    const bySlug = (slug: string) => PACK_REGISTRY.find((p) => p.slug === slug)!.manifest.triggers.length;
+    for (const slug of ['agency-os', 'client-portal', 'dev-project-os', 'content-engine', 'book-launch', 'coaching-os', 'consulting-os', 'dev-tracker']) {
+      expect(bySlug(slug), slug).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('a pack that used to be gated (Dev Project OS) installs its trigger OFF, and ticking "Wake it automatically" makes the agent start by itself', async () => {
+    const entry = PACK_REGISTRY.find((p) => p.slug === 'dev-project-os')!;
+    const m = packManifestSchema.parse(entry.manifest);
+    const trig = m.triggers[0]!;
+    const ws = await newWs('Trig 1212 wake');
+
+    const pv = await preview(ws, m);
+    expect((pv.json().triggers as Array<{ name: string; enabled_on_install?: boolean; switched_off_because?: string; human_gate?: boolean }>)[0]).toMatchObject({ enabled_on_install: false, switched_off_because: 'wakes_agent' });
+    expect((pv.json().triggers as Array<{ human_gate?: boolean }>)[0]!.human_gate).toBeUndefined();
+
+    const res = await install(ws, m, { enable_agent_triggers: [label(trig)] });
+    expect(res.statusCode, res.body).toBe(201);
+    const out = (res.json().triggers as TriggerOut[])[0]!;
+    expect(out).toMatchObject({ action: 'created', enabled: true });
+    expect(out.human_gate).toBeUndefined();
+    const { rows } = await liveBindings(ws);
+    expect(rows[0]!.values['human_gate'] ?? false, 'the live binding is not gated').toBe(false);
+
+    const dbs = (await as('GET', `/workspaces/${ws}/databases`)).json() as Array<{ id: string; name: string }>;
+    const issues = dbs.find((d) => d.name === trig.database)!;
+    const detail = (await as('GET', `/workspaces/${ws}/databases/${issues.id}`)).json() as { fields: Array<{ apiName: string; displayName: string; options?: Array<{ id: string; label: string }> }> };
+    const field = detail.fields.find((f) => f.displayName === trig.state_field)!;
+    const before = await wakesFor(ws, trig.agent);
+    const created = await as('POST', `/workspaces/${ws}/databases/${issues.id}/records`, { values: { name: `Wake ${Math.random()}`, [field.apiName]: field.options!.find((o) => o.label === trig.state_option)!.id } });
+    expect(created.statusCode, created.body).toBe(201);
+    await subscriber.settle(created.json().id);
+    expect(await wakesFor(ws, trig.agent), 'the agent started by itself, no person started a run').toBe(before + 1);
+  }, 180_000);
+
+  it('the same install WITHOUT the tick starts nothing (the #1192 default is kept)', async () => {
+    const m = packManifestSchema.parse(PACK_REGISTRY.find((p) => p.slug === 'dev-project-os')!.manifest);
+    const trig = m.triggers[0]!;
+    const ws = await newWs('Trig 1212 off');
+    expect((await install(ws, m)).statusCode).toBe(201);
+    const { rows } = await liveBindings(ws);
+    expect(rows.every((r) => !enabledOf(r))).toBe(true);
+    const dbs = (await as('GET', `/workspaces/${ws}/databases`)).json() as Array<{ id: string; name: string }>;
+    const issues = dbs.find((d) => d.name === trig.database)!;
+    const detail = (await as('GET', `/workspaces/${ws}/databases/${issues.id}`)).json() as { fields: Array<{ apiName: string; displayName: string; options?: Array<{ id: string; label: string }> }> };
+    const field = detail.fields.find((f) => f.displayName === trig.state_field)!;
+    const created = await as('POST', `/workspaces/${ws}/databases/${issues.id}/records`, { values: { name: `Off ${Math.random()}`, [field.apiName]: field.options!.find((o) => o.label === trig.state_option)!.id } });
+    await subscriber.settle(created.json().id);
+    expect(await wakesFor(ws, trig.agent)).toBe(0);
+  }, 180_000);
+
+  it('human_gate is still honoured on a custom manifest: it installs enabled, reports human_gate, and never starts the agent by itself', async () => {
+    const m = withSlug(supportInbox(), 'trig-1212-custom-gate');
+    m.triggers = [{ ...m.triggers[0]!, human_gate: true }];
+    const ws = await newWs('Trig 1212 gate');
+    const pv = await preview(ws, m);
+    expect((pv.json().triggers as Array<Record<string, unknown>>)[0]).toMatchObject({ enabled_on_install: true, human_gate: true });
+    const res = await install(ws, m, { enable_agent_triggers: [label(m.triggers[0]!)] });
+    expect(res.statusCode, res.body).toBe(201);
+    expect((res.json().triggers as TriggerOut[])[0]).toMatchObject({ enabled: true, human_gate: true });
+    const t = await ticketsOf(ws);
+    await mkTicket(ws, t, 'New');
+    expect(await wakesFor(ws, 'Triage'), 'a gated trigger never starts anything by itself, even ticked on').toBe(0);
+  }, 180_000);
 });

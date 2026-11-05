@@ -1,6 +1,7 @@
 'use client';
 
 import { AgentActions } from '@/components/governance/agent-actions';
+import { DefaultAgentModel } from '@/components/governance/default-agent-model';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -131,8 +132,10 @@ export default function GovernancePage() {
       <h1 className="mb-1 text-lg font-semibold text-ink">Agent rules</h1>
       <p className="mb-6 text-body text-muted">
         Which agents exist here, what each one can reach, what is held for a person to approve, and what people
-        recently decided. This page only shows. Nothing on it changes a scope or decides an approval.
+        recently decided. Apart from the default model, this page only shows. Nothing on it changes a scope or decides an approval.
       </p>
+
+      <DefaultAgentModel ws={ws} />
 
       {loading ? (
         <p className="text-body text-muted">Loading…</p>

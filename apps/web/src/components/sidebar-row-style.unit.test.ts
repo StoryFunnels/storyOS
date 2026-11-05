@@ -206,7 +206,11 @@ describe('CARET_HIT_AREA (#799)', () => {
     expect(CARET_HIT_AREA).toContain('max-md:before:-inset-y-4');
   });
   it('is applied by every caret button in sidebar.tsx, so the three sites cannot drift', () => {
-    const src = readFileSync(fileURLToPath(new URL('./sidebar.tsx', import.meta.url)), 'utf8');
+    const whole = readFileSync(fileURLToPath(new URL('./sidebar.tsx', import.meta.url)), 'utf8');
+    // The Hidden section's header (ticket #1211) is a full-width LABEL button that states aria-expanded, not a small caret
+    // control; it is sized by its own row (34px in the drawer), so it is left out of the count of caret hit areas.
+    const src = whole.replace(/function HiddenSection\([\s\S]*?\nfunction HiddenRow\(/, 'function HiddenRow(');
+    expect(src.length).toBeLessThan(whole.length);
     const buttons = src.match(/aria-expanded=\{[^}]+\}/g) ?? [];
     expect(buttons.length).toBe(3);
     expect((src.match(/CARET_HIT_AREA\)/g) ?? []).length).toBe(3);

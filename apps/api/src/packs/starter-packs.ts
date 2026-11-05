@@ -13,19 +13,15 @@ import type { PackRegistryEntry } from '@storyos/schemas';
  * cannot — a workflow state with a human gate, a deterministic automation, and
  * an agent bound to a real state transition.
  *
- * ── The human gate, consistently ─────────────────────────────────────────────
+ * ── Agents wake by themselves, once a person says so ─────────────────────────
  *
- * Every agent below is bound with `human_gate: true`. That is a deliberate,
- * repeated choice, not seven independent ones: each agent drafts something
- * outward-facing or otherwise consequential (a client welcome packet, a
- * follow-up email, session notes, a chapter's revision notes) at exactly the
- * state transition where a business would want a person to decide "yes, run
- * this now" rather than have it fire silently on every record that enters that
- * state (`trigger.subscriber.ts` skips auto-dispatch whenever
- * `human_gate === true` — see its doc). Pair that with each agent's
- * `approval_policy` (already gated on `outward`/`email` per ADR-0010 §4) and a
- * run is reviewed twice: once to launch it, once before anything leaves the
- * workspace.
+ * No agent below is gated (`human_gate: false`, written out because the manifest type requires it; ticket #1212, which reverses ticket #1183). A pack's agent trigger
+ * installs OFF (ticket #1192) and the person switches it on in the install review ("Wake it
+ * automatically"); once on, the agent starts when a record reaches its state. That choice is the only
+ * switch: a second gate that made a person start every run only made hired agents useless out of the box.
+ * What holds anything consequential is the agent's `approval_policy` (already gated on `outward`/`email`
+ * per ADR-0010 §4) and the approvals queue, not a launch gate. `human_gate` stays available to anyone
+ * who wants "ask me before each run" (`trigger.subscriber.ts` skips auto-dispatch whenever it is true).
  *
  * ── What's deliberately left out ─────────────────────────────────────────────
  *
@@ -62,7 +58,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     highlights: [
       'Clients, Contacts, Projects and Tasks, fully related',
       'Client lifecycle: Lead → Onboarding → Active → Paused → Churned',
-      'An "Onboarding Assistant" agent drafts a welcome packet — gated, your call to run it',
+      'An "Onboarding Assistant" agent drafts a welcome packet — it wakes by itself once you switch it on in the install review',
       'Notifies you when a project’s status changes',
     ],
     manifest: {
@@ -80,7 +76,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       ],
       scenario: 'pack',
       summary:
-        'Clients, projects and a task system to run an agency, with a gated onboarding agent and a ' +
+        'Clients, projects and a task system to run an agency, with an onboarding agent and a ' +
         'project-status automation.',
       requires: { connections: [], ai: 'byo' },
       databases: [
@@ -229,7 +225,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Clients',
           state_field: 'Status',
           state_option: 'Onboarding',
-          human_gate: true,
+          human_gate: false,
         },
       ],
       derived_fields: [],
@@ -293,7 +289,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     highlights: [
       'Tasks, Deliverables, Meetings and Requests, ready to share with a guest',
       'Client Approval workflow: Not needed → Waiting → Approved → Changes requested',
-      'An "Approval Drafter" agent drafts the approval-request message — gated, your call to run it',
+      'An "Approval Drafter" agent drafts the approval-request message — it wakes by itself once you switch it on in the install review',
       'Notifies you when a deliverable’s status changes',
     ],
     manifest: {
@@ -436,7 +432,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Tasks',
           state_field: 'Client Approval',
           state_option: 'Waiting',
-          human_gate: true,
+          human_gate: false,
         },
       ],
       derived_fields: [],
@@ -506,7 +502,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     highlights: [
       'Issues, Sprints, Releases and Product Docs, fully related',
       'Full task-DNA workflow: Triage → Backlog → To Do → In Progress → In Review → Done/Canceled',
-      'A "Triage Bot" agent proposes type/priority/labels for new issues — gated, your call to run it',
+      'A "Triage Bot" agent proposes type/priority/labels for new issues — it wakes by itself once you switch it on in the install review',
       'Notifies you when a release ships',
     ],
     manifest: {
@@ -524,7 +520,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       ],
       scenario: 'pack',
       summary:
-        'Issues, sprints and releases for a dev team, with a gated triage agent and a release-status ' +
+        'Issues, sprints and releases for a dev team, with a triage agent and a release-status ' +
         'automation.',
       requires: { connections: [], ai: 'byo' },
       databases: [
@@ -671,7 +667,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Issues',
           state_field: 'State',
           state_option: 'Triage',
-          human_gate: true,
+          human_gate: false,
         },
       ],
       derived_fields: [],
@@ -739,7 +735,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     highlights: [
       'Articles, Topics and Campaigns, fully related',
       'Editorial workflow: Idea → Brief → Writing → Editing → Design → Ready → Published',
-      'A "Draft Assistant" agent writes a first outline from the brief — gated, your call to run it',
+      'A "Draft Assistant" agent writes a first outline from the brief — it wakes by itself once you switch it on in the install review',
       'Notifies you when an article’s stage changes',
     ],
     manifest: {
@@ -757,7 +753,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       ],
       scenario: 'pack',
       summary:
-        'An editorial pipeline with topic clusters and campaigns, a gated drafting agent, and a ' +
+        'An editorial pipeline with topic clusters and campaigns, a drafting agent, and a ' +
         'stage-change automation.',
       requires: { connections: [], ai: 'byo' },
       databases: [
@@ -867,7 +863,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Articles',
           state_field: 'Stage',
           state_option: 'Brief',
-          human_gate: true,
+          human_gate: false,
         },
       ],
       derived_fields: [],
@@ -933,7 +929,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     highlights: [
       'Books, Chapters, Research Notes, Launch & Marketing and Appearances, fully related',
       'Manuscript workflow: Outline → Draft → Revised → Final',
-      'A "Revision Assistant" agent proposes pacing/continuity notes — gated, your call to run it',
+      'A "Revision Assistant" agent proposes pacing/continuity notes — it wakes by itself once you switch it on in the install review',
       'Notifies you when a chapter is finalized',
     ],
     manifest: {
@@ -951,7 +947,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       ],
       scenario: 'pack',
       summary:
-        'A manuscript board, research notes and a launch campaign, with a gated revision agent and a ' +
+        'A manuscript board, research notes and a launch campaign, with a revision agent and a ' +
         'chapter-finalized automation.',
       requires: { connections: [], ai: 'byo' },
       databases: [
@@ -1102,7 +1098,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Chapters',
           state_field: 'Status',
           state_option: 'Draft',
-          human_gate: true,
+          human_gate: false,
         },
       ],
       derived_fields: [],
@@ -1171,7 +1167,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     highlights: [
       'Clients, Programs, Sessions and Action Items, fully related',
       'Session workflow: Scheduled → Done / No-show / Rescheduled / Canceled',
-      'A "Session Notes Assistant" agent drafts notes and action items — gated, your call to run it',
+      'A "Session Notes Assistant" agent drafts notes and action items — it wakes by itself once you switch it on in the install review',
       'Notifies you when a client’s status changes',
     ],
     manifest: {
@@ -1189,7 +1185,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       ],
       scenario: 'pack',
       summary:
-        'Clients, programs and sessions for a coaching practice, with a gated session-notes agent and ' +
+        'Clients, programs and sessions for a coaching practice, with a session-notes agent and ' +
         'a client-status automation.',
       requires: { connections: [], ai: 'byo' },
       databases: [
@@ -1316,7 +1312,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Sessions',
           state_field: 'Status',
           state_option: 'Done',
-          human_gate: true,
+          human_gate: false,
         },
       ],
       derived_fields: [],
@@ -1378,7 +1374,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
     highlights: [
       'Clients, Proposals, Engagements and Deliverables & Tasks, fully related',
       'Proposal pipeline: Draft → Sent → Negotiating → Won / Lost',
-      'A "Follow-up Drafter" agent drafts the follow-up email — gated, your call to run it',
+      'A "Follow-up Drafter" agent drafts the follow-up email — it wakes by itself once you switch it on in the install review',
       'Notifies you when an engagement’s status changes',
     ],
     manifest: {
@@ -1396,7 +1392,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
       ],
       scenario: 'pack',
       summary:
-        'A proposal pipeline and engagement tracker for consulting work, with a gated follow-up agent ' +
+        'A proposal pipeline and engagement tracker for consulting work, with a follow-up agent ' +
         'and an engagement-status automation.',
       requires: { connections: [], ai: 'byo' },
       databases: [
@@ -1530,7 +1526,7 @@ export const STARTER_PACKS: PackRegistryEntry[] = [
           database: 'Proposals',
           state_field: 'Stage',
           state_option: 'Negotiating',
-          human_gate: true,
+          human_gate: false,
         },
       ],
       derived_fields: [],

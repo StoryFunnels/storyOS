@@ -35,7 +35,7 @@ export const DEV_TRACKER_PACK: PackRegistryEntry = {
     'Issues: State (Triage to Canceled), Priority, Assignee, Labels, Estimate, Due date, Project, Sprint, Release, Sub-issues',
     'Projects, Sprints and Releases, linked to the issues they hold; a release page is the changelog',
     'Active, My issues, Triage and Projects views; the space opens on Active',
-    'Tells the assignee, and a Triage agent that suggests Labels and Priority and flags a likely duplicate when you start it (it never starts by itself)',
+    'Tells the assignee, and a Triage agent that suggests Labels and Priority and flags a likely duplicate (switch it on in the install review and it runs by itself)',
   ],
   manifest: {
     format_version: 1,
@@ -164,7 +164,7 @@ export const DEV_TRACKER_PACK: PackRegistryEntry = {
         ai_mode: 'your_own_ai',
       },
     ],
-    triggers: [{ agent: 'Triage', database: 'Issues', state_field: 'State', state_option: 'Triage', human_gate: true }],
+    triggers: [{ agent: 'Triage', database: 'Issues', state_field: 'State', state_option: 'Triage', human_gate: false }],
     derived_fields: [],
     views: [
       {

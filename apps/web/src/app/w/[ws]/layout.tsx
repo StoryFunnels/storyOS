@@ -13,6 +13,8 @@ import { sessionVerdict } from '@/lib/session-state';
 import { SessionUnavailable } from '@/components/session-unavailable';
 import { CommandPalette } from '@/components/command-palette';
 import { QuickAddFab } from '@/components/quick-add-fab';
+import { useRememberOutsideSettings } from '@/components/settings/use-settings-back';
+import { showQuickAddFab } from '@/lib/quick-add-visibility';
 import { ShortcutsOverlay } from '@/components/shortcuts-overlay';
 import { Sidebar } from '@/components/sidebar';
 import { SplitArea, SplitHost } from '@/components/entity/split-screen-host';
@@ -40,6 +42,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   useScrollMemory();
   // #1018 — a focus ring is for the keyboard, never after a mouse press.
   useInputModality();
+  // #1216 — Settings' "Back" returns to the last page outside it, so every page visited is remembered here.
+  useRememberOutsideSettings(ws, pathname);
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.
@@ -219,7 +223,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       </div>
       <CommandPalette />
       <ShortcutsOverlay />
-      <QuickAddFab />
+      {/* #1216 — Settings has nothing to create, and the button covered its last card on a phone. */}
+      {showQuickAddFab(pathname) && <QuickAddFab />}
       <UndoHotkey />
       <StoryOSToaster />
         </>

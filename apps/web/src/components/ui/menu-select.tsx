@@ -9,6 +9,8 @@ export interface MenuOption {
   value: string;
   label: ReactNode;
   disabled?: boolean;
+  /** #1180 — an optional second line under the label (a one-line tradeoff). Absent: the row is exactly as before. */
+  description?: string;
 }
 
 const TRIGGER =
@@ -25,6 +27,8 @@ export function MenuSelect({
   onChange,
   options,
   className,
+  contentClassName,
+  disabled,
 }: {
   label: string;
   value: string;
@@ -32,17 +36,20 @@ export function MenuSelect({
   options: MenuOption[];
   /** #1118 — size only (a row that must share its width with siblings); the look stays this component's. */
   className?: string;
+  /** #1180 — size of the OPEN list only (a list whose rows carry a description needs more than the default 12rem). */
+  contentClassName?: string;
+  disabled?: boolean;
 }) {
   const current = options.find((o) => o.value === value) ?? options[0];
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={cn(TRIGGER, className)} aria-label={label}>
+        <button type="button" className={cn(TRIGGER, 'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-card', className)} aria-label={label} disabled={disabled}>
           <span className="min-w-0 flex-1 truncate text-left">{current?.label ?? '—'}</span>
           <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-72 w-48 overflow-y-auto">
+      <DropdownMenuContent align="end" className={cn('max-h-72 w-48 overflow-y-auto', contentClassName)}>
         {options.map((o) => (
           <DropdownMenuItem
             key={o.value}
@@ -50,7 +57,10 @@ export function MenuSelect({
             onSelect={() => onChange(o.value)}
             className="justify-between text-label data-[disabled]:opacity-40"
           >
-            <span className="min-w-0 truncate">{o.label}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{o.label}</span>
+              {o.description && <span className="block text-muted">{o.description}</span>}
+            </span>
             {o.value === value && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
           </DropdownMenuItem>
         ))}
