@@ -84,7 +84,8 @@ describe('the page wires the gates and the confirm', () => {
     expect(src).toMatch(/mayRunWithoutAi = offersRunWithoutAi\(agent\) && canLetAgentThink\(/);
     expect(src).toContain('runWithoutAi={mayRunWithoutAi ?');
   });
-  it('the catch-up hook for ticket #1152 stays, and nothing of it is built', () => {
-    expect(src).toContain('HOOK, ticket #1152');
+  it('the catch-up hook comment for ticket #1152 is gone: the box took its place', () => {
+    expect(src).not.toContain('HOOK, ticket #1152');
+    expect(src).toContain('<CatchUpBox');
   });
 });

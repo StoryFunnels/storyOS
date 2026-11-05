@@ -55,3 +55,26 @@ describe('a switch is never stretched (#1186 send-back: 328 x 20 at 390px)', () 
     }
   });
 });
+
+describe('no Settings page root sets its own column (ticket #1137, Dara: the Runners page sat at x=445, every other page at x=313)', () => {
+  // The layout takes centring, width and padding from each page's root, so a root either says nothing about the column or says
+  // the one standard string the layout is known to override. Anything else (the Runners page had its own `max-w-[720px]`) is a root
+  // that can escape the column, and nothing fails to compile when it does.
+  const STANDARD = /^mx-auto (flex )?max-w-3xl (flex-col gap-\[18px\] )?p-4 sm:p-8$/;
+  const ROOT = /return \(\s*(?:\/\/[^\n]*\n\s*)*<(?:div|section|main)\s+(?:data-testid="[^"]*"\s+)?className="([^"]*)"/g;
+  const OWN = /\bmx-auto\b|\bmax-w-/;
+  it('every page root is free of column classes or exactly the standard string', () => {
+    for (const file of pages()) {
+      for (const m of readFileSync(file, 'utf8').matchAll(ROOT)) {
+        const cls = m[1]!;
+        if (!OWN.test(cls)) continue;
+        expect(cls, file).toMatch(STANDARD);
+      }
+    }
+  });
+  it('the Runners page root sets no centring or width at all', () => {
+    const roots = [...read('app/w/[ws]/settings/runners/page.tsx').matchAll(ROOT)].map((m) => m[1]!);
+    expect(roots.length).toBeGreaterThan(0);
+    for (const cls of roots) expect(cls).not.toMatch(OWN);
+  });
+});

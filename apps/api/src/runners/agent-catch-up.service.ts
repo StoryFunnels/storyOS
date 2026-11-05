@@ -10,6 +10,7 @@ import { RecordsService } from '../records/records.service';
 import { resolveAgentIdentity } from '../agents/agent-identity';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AgentWakesService } from './agent-wakes.service';
+import { AgentBudgetService } from './agent-budget.service';
 
 /** At most this many wakes are queued by ONE click. The rest are reported as `remaining`, never dropped (ticket #1152). */
 export const CATCH_UP_MAX_PER_CLICK = 25;
@@ -50,15 +51,16 @@ export class AgentCatchUpService {
     private readonly access: AccessService,
     private readonly records: RecordsService,
     private readonly wakes: AgentWakesService,
+    private readonly budgets: AgentBudgetService,
   ) {}
 
   /**
-   * Hook for the agent's budget and limits (tickets #1137/#1138, not built yet): how many wakes this agent may still be given right
-   * now. `null` = no limit, which is every agent today. When those tickets land, return the remaining allowance here and the click
-   * queues at most that many, with the rest reported as `remaining` exactly like the per-click cap.
+   * How many wakes this agent may still be given right now (ticket #1138): `null` = no cap, 0 = paused by its monthly budget, else the
+   * runs it has left under its run cap. The click queues at most that many, with the rest reported as `remaining` exactly like the
+   * per-click cap. Queued wakes would only wait behind the pause anyway; not queueing them keeps a paused agent's backlog honest.
    */
-  protected catchUpAllowance(_workspaceId: string, _agentId: string): number | null {
-    return null;
+  protected catchUpAllowance(workspaceId: string, agentId: string): Promise<number | null> {
+    return this.budgets.catchUpAllowance(workspaceId, agentId);
   }
 
   /** The agent's armed bindings, as one record filter per binding, grouped by database. */
@@ -174,7 +176,7 @@ export class AgentCatchUpService {
 
     const plans = await this.plans(caller.workspaceId, agentId);
     const alreadyWaiting = await this.countFor(plans, owner, agentId, 'open');
-    const allowance = this.catchUpAllowance(caller.workspaceId, agentId);
+    const allowance = await this.catchUpAllowance(caller.workspaceId, agentId);
     const cap = allowance === null ? CATCH_UP_MAX_PER_CLICK : Math.max(0, Math.min(CATCH_UP_MAX_PER_CLICK, allowance));
     const ids = await this.pick(plans, owner, agentId, cap);
 

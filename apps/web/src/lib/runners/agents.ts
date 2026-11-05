@@ -83,6 +83,14 @@ export function asksBeforeLine(labels: readonly string[]): string {
   return labels.map((l) => HOLD_WORDS[l] ?? l).join(' · ');
 }
 
+/** The same words, one lower-cased phrase per hold, for a sentence that continues "It asks you before …" (ticket #1152's dialog). */
+export function asksBeforePhrases(labels: readonly string[]): string[] {
+  return labels.map((l) => {
+    const w = HOLD_WORDS[l] ?? l;
+    return w.charAt(0).toLowerCase() + w.slice(1);
+  });
+}
+
 /**
  * The count the sidebar's Agents row carries (Otto's AC1): agents that SHOULD be working and cannot, because no Runner serves
  * them. The server derives it (`agents_that_cannot_run`), already filtered to what the viewer may read; this only decides

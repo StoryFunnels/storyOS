@@ -44,7 +44,7 @@ const wake = (state: RunStateName, over: Partial<WakeDto> = {}): WakeDto => ({
   finished_at: '2026-10-12T10:00:00Z',
   ...over,
 });
-const ALL: RunStateName[] = ['needs_approval', 'running', 'done', 'failed', 'canceled', 'waiting_for_runner', 'runner_offline', 'waiting_for_limit', 'waiting_for_turn'];
+const ALL: RunStateName[] = ['needs_approval', 'running', 'done', 'failed', 'canceled', 'waiting_for_runner', 'runner_offline', 'waiting_for_limit', 'waiting_for_turn', 'waiting_for_hours', 'waiting_for_reserve'];
 const runList = (wakes: WakeDto[], extra: Record<string, unknown> = {}) => renderToStaticMarkup(createElement(RunList, { ws: 'w1', wakes, more: false, tz, ...extra }));
 
 describe('the status mark: gold only on running and approval', () => {
@@ -66,7 +66,7 @@ describe('the status mark: gold only on running and approval', () => {
 });
 
 describe('the run list renders every state as drawn', () => {
-  it('all nine states render, each with its own words', () => {
+  it('all eleven states render, each with its own words (the two ticket #1137 holds are pinned in sharing.unit.test.ts)', () => {
     const out = runList(ALL.map((s) => wake(s, { run_state: { state: s, runner_name: 'MacBook', since: '2026-10-29T18:40:00Z', until: '2026-10-30T14:00:00Z', tool: 'claude-code' } })));
     for (const text of [
       'Needs your approval',
@@ -175,14 +175,13 @@ describe('a Runner row on Settings › Runners', () => {
       'Waiting for your Cursor limit to reset at 14:00',
     );
   });
-  it('Sharing your subscription is drawn but NOT functional: switches disabled, off, and the section says so (ticket #1137 wires it)', () => {
+  it('Sharing your subscription is wired (ticket #1137): no "not yet" banner, and a viewer who may not edit gets no switch', () => {
     const out = html(runner);
-    expect(out).toContain('Quiet hours');
+    expect(out).toContain('Working hours');
     expect(out).toContain('Keep a share for me');
-    expect(out).toContain('Agents pause when 80% of your Claude limit is used');
-    expect((out.match(/role="switch"/g) ?? []).length).toBe(2);
-    expect((out.match(/role="switch"[^>]*aria-checked="false"[^>]*disabled=""/g) ?? []).length).toBe(2);
-    expect(out).toContain('not switched on yet');
+    expect(out).not.toContain('not switched on yet');
+    expect(out).not.toContain('NOT YET');
+    expect(out).not.toContain('role="switch"');
   });
   it('Remove carries Dara’s sentence and no API-key card exists on the page', () => {
     const out = html(runner);
@@ -235,8 +234,9 @@ describe('a guest with a grant on the Agents database is not told which computer
       expect(src.match(/canHireAgents\(role\) && \(?\s*<(Button|HireDialog)/g) ?? [], rel).toHaveLength(2);
     }
   });
-  it('the Agents page says "Runs on a Runner" to a guest and never the machine', () => {
+  it('the Agents page gives the "Runs on" cell the viewer’s own can-see-machines answer (ticket #1196 moved the wording into runsOnCell, whose guest case is tested in lib/runners/agent-list.unit.test.ts)', () => {
     const src = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/agents/page.tsx', import.meta.url)), 'utf8');
-    expect(src).toContain("showMachine ? `Runs on ${row.runner.name}` : 'Runs on a Runner'");
+    expect(src).toContain('const showMachine = canSeeRunnerDetails(role)');
+    expect(src).toContain('runsOnCell(a, row?.runner, showMachine)');
   });
 });

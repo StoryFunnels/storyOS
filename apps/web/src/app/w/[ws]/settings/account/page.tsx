@@ -14,6 +14,18 @@ import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRemovePhoto, confirmRevokeSession } from '@/lib/settings-confirmations';
 import { Label } from '@/components/ui/label';
+import {
+  AdvancedSection,
+  SettingsBox,
+  SettingsPageBody,
+  SettingsPageHeader,
+  SettingsPill,
+  SettingsRow,
+} from '@/components/settings/settings-chrome';
+import { cn } from '@/lib/utils';
+
+/** The Settings pages' field label: the prototype's 12px semibold, one step under the field it labels (#974 design). */
+const FIELD_LABEL = 'text-label font-semibold';
 
 /** Downscale to a 256px cover-crop PNG before upload (matches account-menu.tsx). */
 async function resizeTo256(file: File): Promise<Blob> {
@@ -27,58 +39,81 @@ async function resizeTo256(file: File): Promise<Blob> {
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'));
 }
 
+interface SessionRow {
+  token: string;
+  createdAt: string;
+  userAgent?: string | null;
+  ipAddress?: string | null;
+}
+
+/**
+ * Profile (ticket #1189, Dara's #974 design): who you are (photo, name, email, one Save) and your password sit on the page; the
+ * power controls (the devices you are signed in on, and erasing the account) sit under a labelled "Advanced". Nothing was removed:
+ * every control the page had is still here, the rare ones one click further.
+ */
 export default function AccountPage() {
   const { data: session, refetch } = useSession();
+  const sessions = useQuery({
+    queryKey: ['auth-sessions'],
+    queryFn: async () => {
+      const { data, error } = await authClient.listSessions();
+      if (error) throw new Error(error.message);
+      return (data ?? []) as unknown as SessionRow[];
+    },
+    enabled: Boolean(session),
+  });
 
   if (!session) return <div className="p-4 text-body text-muted sm:p-8">Loading…</div>;
 
+  const others = (sessions.data ?? []).filter((s) => s.token !== session.session.token).length;
+
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Profile</h1>
-      <p className="mb-6 text-body text-muted">Manage your profile and sign-in details.</p>
+      <SettingsPageHeader title="Profile" lead="How you appear to everyone in your workspaces" />
 
-      <div className="flex flex-col gap-8">
-        <PhotoSection
+      <SettingsPageBody>
+        <ProfileBox
           userId={session.user.id}
           name={session.user.name}
           image={session.user.image ?? null}
+          email={session.user.email}
+          verified={session.user.emailVerified}
           onChange={() => void refetch()}
         />
-        <NameSection currentName={session.user.name} onSaved={() => void refetch()} />
-        <EmailSection email={session.user.email} verified={session.user.emailVerified} />
-        <PasswordSection />
-        <SessionsSection currentToken={session.session.token} />
-        <DeleteAccountSection email={session.user.email} />
-      </div>
+        <PasswordBox />
+        <AdvancedSection
+          title="Sessions and account"
+          summary={sessions.data ? `${others} other session${others === 1 ? '' : 's'}` : 'your devices, and deleting your account'}
+        >
+          <SessionsRows rows={sessions.data ?? []} currentToken={session.session.token} loading={sessions.isLoading} />
+          <DeleteAccountRow email={session.user.email} />
+        </AdvancedSection>
+      </SettingsPageBody>
     </div>
   );
 }
 
-function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="border-b border-border-default pb-8 last:border-b-0 last:pb-0">
-      <h2 className="mb-1 text-sm font-medium text-ink">{title}</h2>
-      {description && <p className="mb-3 text-body text-muted">{description}</p>}
-      {children}
-    </section>
-  );
-}
-
-function PhotoSection({
+/** The photo, the name and the email are one box with one Save, as drawn. The photo saves as soon as it is chosen. */
+function ProfileBox({
   userId,
   name,
   image,
+  email,
+  verified,
   onChange,
 }: {
   userId: string;
   name: string;
   image: string | null;
+  email: string;
+  verified: boolean;
   onChange: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [override, setOverride] = useState<string | null | undefined>(undefined);
   const current = override !== undefined ? override : image;
   const imageUrl = current ? (current.startsWith('/') ? `${API_URL}${current}` : current) : null;
+  const confirm = useConfirm();
 
   async function upload(file: File) {
     try {
@@ -96,8 +131,6 @@ function PhotoSection({
     }
   }
 
-  const confirm = useConfirm();
-
   async function remove() {
     if (!(await confirm(confirmRemovePhoto()))) return;
     await fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' });
@@ -105,16 +138,35 @@ function PhotoSection({
     onChange();
   }
 
+  const [draft, setDraft] = useState(name);
+  const save = useMutation({
+    mutationFn: async () => {
+      const { error } = await authClient.updateUser({ name: draft.trim() });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      onChange();
+      toast.success('Name updated');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Could not update name'),
+  });
+  const dirty = draft.trim() !== '' && draft.trim() !== name;
+
   return (
-    <Section title="Photo" description="PNG, JPG or WebP, up to 1MB.">
-      <div className="flex items-center gap-4">
-        <Avatar userId={userId} name={name} image={imageUrl} size={64} />
-        <div className="flex gap-2">
+    <SettingsBox>
+      {/* Not a SettingsRow: the picture sits beside BOTH lines of text, on a phone too, which the row's `leading` slot does not do. */}
+      <div className="flex min-h-[46px] flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-2 text-body">
+        <Avatar userId={userId} name={name} image={imageUrl} size={32} />
+        <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+          <b className="font-medium text-ink">Photo</b>
+          <span className="text-label leading-[1.35]! text-muted">PNG, JPG or WebP, up to 1 MB</span>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 max-sm:w-full max-sm:[&>button]:flex-1">
           <Button variant="secondary" size="sm" onClick={() => fileRef.current?.click()}>
             {imageUrl ? 'Change' : 'Upload'}
           </Button>
           {imageUrl && (
-            <Button variant="ghost" size="sm" onClick={remove}>
+            <Button variant="secondary" size="sm" onClick={remove}>
               Remove
             </Button>
           )}
@@ -131,63 +183,38 @@ function PhotoSection({
           e.target.value = '';
         }}
       />
-    </Section>
-  );
-}
-
-function NameSection({ currentName, onSaved }: { currentName: string; onSaved: () => void }) {
-  const [name, setName] = useState(currentName);
-  const save = useMutation({
-    mutationFn: async () => {
-      const { error } = await authClient.updateUser({ name: name.trim() });
-      if (error) throw new Error(error.message);
-    },
-    onSuccess: () => {
-      onSaved();
-      toast.success('Name updated');
-    },
-    onError: (e: Error) => toast.error(e.message || 'Could not update name'),
-  });
-
-  return (
-    <Section title="Name" description="How you appear across the workspace.">
       <form
-        className="flex max-w-sm items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (name.trim() && name.trim() !== currentName) save.mutate();
+          if (dirty) save.mutate();
         }}
       >
-        <div className="flex-1">
-          <Label htmlFor="display-name">Display name</Label>
-          <Input id="display-name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <div className="flex flex-col gap-1.5 border-t border-border-default px-3.5 py-3">
+          <Label htmlFor="display-name" className={FIELD_LABEL}>
+            Name
+          </Label>
+          <Input id="display-name" size="sm" value={draft} onChange={(e) => setDraft(e.target.value)} required className="max-w-[420px]" />
+          <span className="text-label text-muted">How you appear across the workspace.</span>
         </div>
-        <Button type="submit" disabled={save.isPending || !name.trim() || name.trim() === currentName}>
-          Save
-        </Button>
+        <div className="flex flex-col gap-1.5 px-3.5 pb-3">
+          <span className={cn(FIELD_LABEL, 'text-ink-secondary')}>Email</span>
+          <span className="flex flex-wrap items-center gap-2 text-body text-ink">
+            {email}
+            <SettingsPill tone={verified ? 'ok' : 'neutral'}>{verified ? 'Verified' : 'Unverified'}</SettingsPill>
+          </span>
+          <span className="text-label text-muted">Changing your email will be available soon.</span>
+        </div>
+        <div className="flex items-center justify-end gap-3 border-t border-border-default px-3.5 py-2.5">
+          <Button type="submit" disabled={save.isPending || !dirty}>
+            {save.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
       </form>
-    </Section>
+    </SettingsBox>
   );
 }
 
-function EmailSection({ email, verified }: { email: string; verified: boolean }) {
-  return (
-    <Section title="Email" description="Changing your email will be available soon.">
-      <div className="flex items-center gap-2 text-sm text-ink">
-        {email}
-        <span
-          className={`rounded-[var(--radius-pill)] px-2 py-0.5 text-meta font-medium ${
-            verified ? 'border border-border-default bg-hover text-warning-text' : 'bg-hover text-muted'
-          }`}
-        >
-          {verified ? 'Verified' : 'Unverified'}
-        </span>
-      </div>
-    </Section>
-  );
-}
-
-function PasswordSection() {
+function PasswordBox() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const change = useMutation({
@@ -208,59 +235,48 @@ function PasswordSection() {
   });
 
   return (
-    <Section title="Password" description="Changing it signs out your other sessions.">
+    <SettingsBox title="Password">
       <form
-        className="flex max-w-sm flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           if (current && next.length >= 8) change.mutate();
         }}
       >
-        <div>
-          <Label htmlFor="cur-pw">Current password</Label>
-          <Input id="cur-pw" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
-        </div>
-        <div>
-          <Label htmlFor="new-pw">New password</Label>
+        <div className="flex flex-col gap-1.5 px-3.5 py-3">
+          <Label htmlFor="cur-pw" className={FIELD_LABEL}>
+            Current password
+          </Label>
+          <Input id="cur-pw" size="sm" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required className="max-w-[420px]" />
+          <Label htmlFor="new-pw" className={cn(FIELD_LABEL, 'mt-1.5')}>
+            New password
+          </Label>
           <Input
             id="new-pw"
+            size="sm"
             type="password"
             value={next}
             onChange={(e) => setNext(e.target.value)}
             minLength={8}
             required
+            className="max-w-[420px]"
           />
-          <p className="mt-1 text-label text-faint">At least 8 characters.</p>
+          <span className="text-label text-muted">At least 8 characters. Changing it signs you out everywhere else.</span>
         </div>
-        <div>
-          <Button type="submit" disabled={change.isPending || !current || next.length < 8}>
+        <div className="flex items-center justify-end gap-3 border-t border-border-default px-3.5 py-2.5">
+          <Button type="submit" variant="secondary" disabled={change.isPending || !current || next.length < 8}>
             Change password
           </Button>
         </div>
       </form>
-    </Section>
+    </SettingsBox>
   );
 }
 
-interface SessionRow {
-  token: string;
-  createdAt: string;
-  userAgent?: string | null;
-  ipAddress?: string | null;
-}
-
-function SessionsSection({ currentToken }: { currentToken: string }) {
+/** The devices you are signed in on. Signing one out confirms (ticket #1093) and names the device; this device has no button. */
+function SessionsRows({ rows, currentToken, loading }: { rows: SessionRow[]; currentToken: string; loading: boolean }) {
   const qc = useQueryClient();
   const confirm = useConfirm();
   const fmt = useDateFormat();
-  const sessions = useQuery({
-    queryKey: ['auth-sessions'],
-    queryFn: async () => {
-      const { data, error } = await authClient.listSessions();
-      if (error) throw new Error(error.message);
-      return (data ?? []) as unknown as SessionRow[];
-    },
-  });
 
   const revoke = useMutation({
     mutationFn: async (token: string) => {
@@ -268,47 +284,50 @@ function SessionsSection({ currentToken }: { currentToken: string }) {
       if (error) throw new Error(error.message);
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['auth-sessions'] }),
-    onError: (e: Error) => toast.error(e.message || 'Could not revoke session'),
+    onError: (e: Error) => toast.error(e.message || 'Could not sign that device out'),
   });
 
-  const rows = (sessions.data ?? []).slice().sort((a, b) => (a.token === currentToken ? -1 : b.token === currentToken ? 1 : 0));
+  const sorted = rows.slice().sort((a, b) => (a.token === currentToken ? -1 : b.token === currentToken ? 1 : 0));
 
   return (
-    <Section title="Active sessions" description="Devices where you're signed in.">
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        {rows.length === 0 && <p className="px-4 py-6 text-body text-muted">No other sessions.</p>}
-        {rows.map((s) => {
-          const isCurrent = s.token === currentToken;
-          return (
-            <div
-              key={s.token}
-              className="flex items-center justify-between border-b border-border-default px-4 py-3 last:border-b-0"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm text-ink">
-                  {describeAgent(s.userAgent)}
-                  {isCurrent && <span className="ml-2 text-label text-success">This device</span>}
-                </p>
-                <p className="text-label text-muted">
-                  {s.ipAddress || 'unknown IP'} · signed in {fmt.dateTime(s.createdAt)}
-                </p>
-              </div>
-              {!isCurrent && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    if (await confirm(confirmRevokeSession(describeAgent(s.userAgent), s.ipAddress || 'unknown IP'))) revoke.mutate(s.token);
-                  }}
-                >
-                  Revoke
-                </Button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </Section>
+    <>
+      {sorted.length === 0 && (
+        <SettingsRow
+          title={loading ? 'Loading…' : 'No other sessions'}
+          description={loading ? undefined : 'You are signed in on this device only.'}
+        />
+      )}
+      {sorted.map((s) => {
+        const isCurrent = s.token === currentToken;
+        const device = describeAgent(s.userAgent);
+        const ip = s.ipAddress || 'unknown IP';
+        return (
+          <SettingsRow
+            key={s.token}
+            title={
+              <>
+                {device}
+                {isCurrent && <span className="ml-2 text-label font-normal text-success">This device</span>}
+              </>
+            }
+            description={`${ip} · signed in ${fmt.dateTime(s.createdAt)}`}
+          >
+            {!isCurrent && (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={revoke.isPending}
+                onClick={async () => {
+                  if (await confirm(confirmRevokeSession(device, ip))) revoke.mutate(s.token);
+                }}
+              >
+                Sign out
+              </Button>
+            )}
+          </SettingsRow>
+        );
+      })}
+    </>
   );
 }
 
@@ -332,7 +351,7 @@ function describeAgent(ua?: string | null): string {
  * while you are the only admin of a workspace (409, whose own sentence is shown). A workspace admin can only remove a person from
  * THEIR workspace; this is the one way to delete the account itself.
  */
-function DeleteAccountSection({ email }: { email: string }) {
+function DeleteAccountRow({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState('');
   const [blocked, setBlocked] = useState<string | null>(null);
@@ -355,9 +374,9 @@ function DeleteAccountSection({ email }: { email: string }) {
   });
 
   return (
-    <Section
+    <SettingsRow
       title="Delete my account"
-      description="Erase your account and leave every workspace. This is separate from a workspace admin removing you from one workspace."
+      description="Erases your account and removes you from every workspace. This can’t be undone, and it is separate from a workspace admin removing you from one workspace."
     >
       <Dialog
         open={open}
@@ -424,6 +443,6 @@ function DeleteAccountSection({ email }: { email: string }) {
           </div>
         </DialogContent>
       </Dialog>
-    </Section>
+    </SettingsRow>
   );
 }

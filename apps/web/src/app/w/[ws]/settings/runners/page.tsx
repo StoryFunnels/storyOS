@@ -12,6 +12,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { apiErrorMessage } from '@/lib/api';
 import { useRunnerMutations, useRunners, useWakeSummary } from '@/lib/runners/queries';
 import { canUseRunners, GUEST_RUNNERS_MESSAGE } from '@/lib/runners/access';
+import { canEditSharing } from '@/lib/runners/sharing';
 import { confirmRemoveRunner, COPY } from '@/lib/runners/words';
 import { useWorkspace } from '@/lib/queries';
 
@@ -57,7 +58,8 @@ export default function RunnersPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[720px] flex-col gap-[18px] p-4 sm:p-8">
+    // The root sets NO centring, width or padding: the shared Settings layout owns the column (settings/layout.tsx, ticket #1186).
+    <div className="flex flex-col gap-[18px]">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h1 className="text-[22px] font-bold tracking-[-0.02em] text-ink">Runners</h1>
@@ -111,6 +113,14 @@ export default function RunnersPage() {
             key={r.id}
             runner={r}
             now={now}
+            canEditSharing={canEditSharing({ role: workspace.data?.role })}
+            onSaveSharing={async (patch) => {
+              try {
+                await m.setSharing.mutateAsync({ id: r.id, patch });
+              } catch (e) {
+                throw new Error(apiErrorMessage(e, 'Could not save that. Your earlier setting is kept.'), { cause: e });
+              }
+            }}
             removing={m.remove.isPending && m.remove.variables === r.id}
             onRemove={() => void remove(r.id, r.name, r.agents.map((a) => a.name))}
           />

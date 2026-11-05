@@ -44,6 +44,18 @@ export function clockTime(iso: string | Date, o: TimeOpts = {}): string {
   return new Intl.DateTimeFormat(o.locale ?? 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: o.timeZone }).format(new Date(iso));
 }
 
+/**
+ * "22:00" when the instant falls on the viewer's today, "Tue 22:00" on any other day: a window that opens tomorrow must not read
+ * as though it opens in an hour. `now` is a parameter so a test can fix the day.
+ */
+export function resumeWhen(iso: string | Date, now: Date, o: TimeOpts = {}): string {
+  const day = (d: Date) => new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: o.timeZone }).format(d);
+  const at = new Date(iso);
+  if (day(at) === day(now)) return clockTime(at, o);
+  const weekday = new Intl.DateTimeFormat(o.locale ?? 'en-GB', { weekday: 'short', timeZone: o.timeZone }).format(at);
+  return `${weekday} ${clockTime(at, o)}`;
+}
+
 /** "29 Oct". */
 export function shortDate(iso: string | Date, o: TimeOpts = {}): string {
   return new Intl.DateTimeFormat(o.locale ?? 'en-GB', { day: 'numeric', month: 'short', timeZone: o.timeZone }).format(new Date(iso));
@@ -116,7 +128,7 @@ export function agentsLine(agents: ReadonlyArray<{ name: string }>): string {
 /**
  * The toast when Done succeeds (Dara, v45). It says what is TRUE: new work wakes the agent. It must not say a record that was
  * already waiting starts: wakes come from events, so a record waiting before the Runner existed wakes nothing until catch-up
- * (ticket #1152) runs, and that is not built. The agents named are the ones the Runner was actually assigned to.
+ * (ticket #1152) runs. `readyToastWithScope` (catch-up-copy.ts) is the fuller sentence when the trigger names its state. The agents named are the ones the Runner was actually assigned to.
  */
 export function readyToast(machine: string, agentNames: readonly string[]): string {
   if (agentNames.length === 0) return `${machine} is ready.`;

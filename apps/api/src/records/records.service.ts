@@ -80,6 +80,7 @@ import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates
 import { AgentWriteGatesService, type AgentWriteOperation } from '../action-gates/agent-write-gates.service';
 import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { currentActor } from '../common/credential-context';
+import { BUDGET_FIELD_NAMES, budgetWriteProblem } from '../runners/agent-budget';
 import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
 import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context';
 // #434 — type only (erased at compile time): RecordsService does not take a
@@ -644,6 +645,7 @@ export class RecordsService implements OnModuleInit {
       if (!relationDef || relationDef.type !== 'relation') continue; // dangling — resolve to nothing
 
       let targetFieldId: string | null = null;
+      let targetIsFormula = false;
       let filterSql: SQL | undefined;
       if (targetApiName || filterNode) {
         const side = relationDef.config['side'] as 'a' | 'b';
@@ -653,8 +655,12 @@ export class RecordsService implements OnModuleInit {
         if (!relation) continue;
         const targetDbId = side === 'a' ? relation.databaseBId : relation.databaseAId;
         const targetDefs = await this.fieldDefs(targetDbId);
-        if (targetApiName)
-          targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id ?? null;
+        if (targetApiName) {
+          const targetDef = targetDefs.find((d) => d.api_name === targetApiName);
+          targetFieldId = targetDef?.id ?? null;
+          // ticket #1200: a formula's value is never in `values`, only in `computed_values`.
+          targetIsFormula = targetDef?.type === 'formula';
+        }
         if (filterNode) {
           const ctx: CompilerContext = {
             defs: new Map(targetDefs.map((d) => [d.api_name, d])),
@@ -679,7 +685,7 @@ export class RecordsService implements OnModuleInit {
           for (const row of targetRows) {
             passesFilter.add(row.id);
             if (targetFieldId) {
-              const raw = (row.values as Record<string, unknown>)[targetFieldId];
+              const raw = ((targetIsFormula ? row.computedValues : row.values) as Record<string, unknown>)[targetFieldId];
               if (typeof raw === 'number') numberById.set(row.id, raw);
             }
           }
@@ -1791,10 +1797,15 @@ export class RecordsService implements OnModuleInit {
     }
 
     if (!targetApiName || !targetDefs) return result;
-    const targetFieldId = targetDefs.find((d) => d.api_name === targetApiName)?.id;
+    const targetDef = targetDefs.find((d) => d.api_name === targetApiName);
+    const targetFieldId = targetDef?.id;
     if (!targetFieldId) return result;
+    // ticket #1200: a formula target is read from `computed_values` (where materializeFormulas writes it), every
+    // other aggregate target from `values`. One column choice feeds both the cast and the typeof guard below, so the
+    // two cannot disagree about where the number lives.
+    const targetBag = targetDef.type === 'formula' ? records.computedValues : records.values;
 
-    const numExpr = sql`((${records.values}->>${targetFieldId})::numeric)`;
+    const numExpr = sql`((${targetBag}->>${targetFieldId})::numeric)`;
     const aggExpr =
       op === 'sum'
         ? sql<number>`sum(${numExpr})`
@@ -1812,7 +1823,7 @@ export class RecordsService implements OnModuleInit {
         and(
           eq(records.id, otherCol),
           isNull(records.deletedAt),
-          sql`jsonb_typeof(${records.values}->${targetFieldId}) = 'number'`,
+          sql`jsonb_typeof(${targetBag}->${targetFieldId}) = 'number'`,
           filterSql,
         ),
       )
@@ -2039,6 +2050,15 @@ export class RecordsService implements OnModuleInit {
           if (d.type !== 'rollup' || d.config['relation_field_id'] !== reverseFieldId) return false;
           if (d.config['op'] === 'count') return true; // link-membership rollup — safe (if redundant) to always recompute
           if (changedApiNames.has(d.config['target_field_api_name'] as string)) return true;
+          /*
+           * ticket #1200: a rollup over a FORMULA names the formula as its target, but a write only ever lists the
+           * fields that were typed into (qty, price) — never the formula that depends on them. Matching on the target's
+           * name would therefore never fire, and a quote's total would go stale the moment a line's quantity changed.
+           * So any change to a record whose database holds that formula can move the sum. Coarse on purpose, for the
+           * reason formulaAggregateAffected below is: a formula can read several fields and an under-matching filter
+           * leaves a wrong number on screen, which is the failure this exists to prevent.
+           */
+          if (myDefs.some((x) => x.type === 'formula' && x.api_name === d.config['target_field_api_name'])) return true;
           // MN-295: a filtered sum/avg/min/max also needs recompute when the
           // changed field is one the filter reads, not just the target field.
           const filterNode = activeFilter(d.config['filter'] as FilterNode | undefined);
@@ -3014,14 +3034,20 @@ export class RecordsService implements OnModuleInit {
    * `values` is absent for a restore, where the values come from an old version: for an agent source that is refused outright.
    */
   private async assertAgentSettingsWritable(databaseId: string, keys: string[], source: ChangeSource, values?: Record<string, unknown>): Promise<void> {
-    if (!keys.includes('tools') && !keys.includes('model')) return;
+    // ticket #1138: the monthly budget is the same kind of setting. An agent that could raise its own budget would have no budget.
+    const budgetKeys = BUDGET_FIELD_NAMES.filter((k) => keys.includes(k));
+    if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
     if (source === 'agent') {
-      throw new ForbiddenException('An agent cannot change an agent\'s Tools or Model setting: they are set by the person who manages the agent.');
+      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model or budget setting: they are set by the person who manages the agent.');
     }
     const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });
     if (problems.length > 0) throw new UnprocessableEntityException(problems.map((p) => p.message).join(' '));
+    for (const k of budgetKeys) {
+      const problem = budgetWriteProblem(values?.[k]);
+      if (problem) throw new UnprocessableEntityException(problem);
+    }
   }
 
   /** Batch create (≤100, enforced by the DTO), one transaction, one activity event each. */
@@ -4121,7 +4147,7 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'update', source, agentId, 'Restoring a version');
     // #1180: a restore writes old values by field id, so it cannot be key-checked; an agent restoring an agent record could re-set Tools/Model.
-    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools'], source);
+    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools', ...BUDGET_FIELD_NAMES], source);
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });
@@ -5865,7 +5891,7 @@ export function validateSorts(
   });
 }
 
-function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, FieldDef>): boolean {
+export function formulaDependsOnlyOnOwnRecord(def: FieldDef, byApiName: Map<string, FieldDef>): boolean {
   const visited = new Set<string>();
   const walk = (ast: FormulaNode): boolean => {
     for (const apiName of formulaRefs(ast)) {
