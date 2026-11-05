@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { MenuSelect } from '@/components/ui/menu-select';
 import { apiErrorMessage } from '@/lib/api';
+import { RUN_WITHOUT_AI } from '@/lib/runners/let-it-think-copy';
 import {
   agentModelView,
   ESSENTIAL_TOOLS,
@@ -46,6 +48,7 @@ export function AgentAdvanced({
   chosenTool,
   saving,
   onSave,
+  runWithoutAi,
 }: {
   savedTools: string | null;
   savedModel: string | null;
@@ -58,6 +61,8 @@ export function AgentAdvanced({
   saving: boolean;
   /** Resolves when the API accepted the write; rejects with the API's error. */
   onSave: (values: { tools?: string | null; model?: string | null }) => Promise<unknown>;
+  /** Ticket #1210: the way back to Non-AI. Passed ONLY to the manager or an admin of a Your-own-AI agent; absent means no control is drawn. */
+  runWithoutAi?: { onSwitch: () => void; pending: boolean };
 }) {
   const [tools, setTools] = useState<string | null>(savedTools);
   const [model, setModel] = useState<string | null>(savedModel);
@@ -242,6 +247,18 @@ export function AgentAdvanced({
             )}
           </div>
         </section>
+
+        {runWithoutAi && (
+          <section aria-labelledby="agent-aimode-h" data-testid="agent-ai-mode">
+            <h2 id="agent-aimode-h" className="m-0 text-body font-bold text-ink">
+              {RUN_WITHOUT_AI.heading}
+            </h2>
+            <p className="mb-1.5 mt-0.5 text-label leading-[1.45] text-muted">{RUN_WITHOUT_AI.note}</p>
+            <Button type="button" variant="secondary" size="sm" onClick={runWithoutAi.onSwitch} disabled={runWithoutAi.pending} data-testid="run-without-ai">
+              {runWithoutAi.pending ? RUN_WITHOUT_AI.pending : RUN_WITHOUT_AI.button}
+            </Button>
+          </section>
+        )}
 
         {problem && (
           <p className="m-0 break-words text-label text-warning-text" role="alert" data-testid="advanced-problem">
