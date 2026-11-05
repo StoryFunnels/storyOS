@@ -144,6 +144,16 @@ export function settingsHomeHref(ws: string): string {
   return `/w/${ws}/settings`;
 }
 
+/**
+ * Whether `pathname` is a Settings page (the home or anything beneath it). The ONE answer to "are we in Settings?": it decides
+ * whether the app sidebar shows the settings menu instead of the space tree (ticket #1216), whether the rail gear is lit, whether
+ * the floating "+" is offered, and what Back remembers. Packs (`/w/{ws}/packs`) is NOT a settings path even though the menu links
+ * to it: the business-packs page is also reached from the sidebar's own row, so it keeps the space tree.
+ */
+export function isSettingsPath(pathname: string | null | undefined): boolean {
+  return pathname != null && /^\/w\/[^/]+\/settings(\/|$)/.test(pathname);
+}
+
 function pageHref(ws: string, page: SettingsPage): string {
   return page.outside ? `/w/${ws}${page.outside}` : `${settingsHomeHref(ws)}${page.path}`;
 }
