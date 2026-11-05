@@ -13,6 +13,7 @@ import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import { PROVIDER_FIELD_CATALOG } from '@/lib/source-field-catalog';
 import { autoMatchMapping, type ExistingFieldLike } from '@/lib/source-field-match';
@@ -225,21 +226,12 @@ export default function YouTubeIntegrationPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link
-        className="text-label text-muted hover:text-ink"
-        href={`/w/${ws}/settings/integrations`}
-      >
-        ← Integrations
-      </Link>
-      <div className="mt-6 flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] bg-hover">
-          <Video className="h-6 w-6 text-ink" />
-        </span>
-        <div>
-          <h1 className="text-lg font-semibold text-ink">YouTube</h1>
-          <p className="text-body text-muted">Bring videos, comments and metrics into StoryOS.</p>
-        </div>
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <div className="flex flex-col gap-[18px]">
+        <ProviderPageHeader ws={ws} id="youtube">
+          Bring videos, comments and metrics into StoryOS.
+        </ProviderPageHeader>
+        <ProviderConnectionCard ws={ws} id="youtube" />
       </div>
 
       <IntegrationSetupGuide
@@ -263,31 +255,6 @@ export default function YouTubeIntegrationPage() {
           },
         ]}
       />
-
-      <section className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
-        <h2 className="text-sm font-semibold text-ink">
-          {connected ? 'YouTube is connected' : 'Connect your YouTube account'}
-        </h2>
-        <p className="mt-1 text-body text-muted">
-          {connected
-            ? 'Add a YouTube source from the database where you want videos, comments or metrics to appear.'
-            : 'StoryOS requests read-only YouTube access. It cannot publish or modify videos with this connection.'}
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {!connected && (
-            <Button
-              onClick={() => {
-                window.location.href = `${API_URL}/api/v1/workspaces/${ws}/connections/oauth/google/start`;
-              }}
-            >
-              Connect YouTube
-            </Button>
-          )}
-          <Link href={`/w/${ws}/settings/connections`}>
-            <Button variant="secondary">Manage connection</Button>
-          </Link>
-        </div>
-      </section>
 
       {connected && (
         <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">

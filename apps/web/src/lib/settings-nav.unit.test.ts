@@ -151,7 +151,7 @@ describe('role gates are unchanged, per group (ticket #1185 AC4; #939/#940 class
       expect(read(layout), p.id).toContain('<AdminsOnly');
     }
   });
-  it('the Connections page (reached from Integrations) and every Integrations subpage are covered the same way', () => {
+  it('the old Connections URL (a redirect now, ticket #1188) and every Integrations subpage are covered the same way', () => {
     expect(read('../app/w/[ws]/settings/connections/layout.tsx')).toContain('<AdminsOnly');
     expect(read('../app/w/[ws]/settings/integrations/layout.tsx')).toContain('<AdminsOnly');
   });
@@ -210,8 +210,9 @@ describe('active state', () => {
     expect(isSettingsLinkActive('/w/ws/settings/integrations', link('integrations'))).toBe(true);
     expect(isSettingsLinkActive('/w/ws/settings/integrations/github', link('integrations'))).toBe(true);
   });
-  it('Integrations also owns /connections, which has no nav entry of its own until ticket #1188 merges it', () => {
-    expect(isSettingsLinkActive('/w/ws/settings/connections', link('integrations'))).toBe(true);
+  it('/connections is no alias of Integrations any more: it redirects (ticket #1188), so no nav row has to claim it', () => {
+    expect(isSettingsLinkActive('/w/ws/settings/connections', link('integrations'))).toBe(false);
+    expect(SETTINGS_PAGES.some((p) => p.alsoActiveFor?.includes('/connections'))).toBe(false);
   });
   it('a prefix of the same letters is not the page: /api is not /api-keys', () => {
     expect(isSettingsLinkActive('/w/ws/settings/api-keys', link('api-tokens'))).toBe(false);

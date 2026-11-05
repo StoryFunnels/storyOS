@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRevokeToken } from '@/lib/settings-confirmations';
+import { canConnectAi } from '@/lib/settings-nav';
+import { useWorkspace } from '@/lib/queries';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
 
@@ -24,7 +26,37 @@ interface Token {
   created_at: string;
 }
 
+/**
+ * Ticket #1188 — API tokens is a Connections page that members reach (a token is per person) and guests do not (ticket #1091: the API
+ * refuses a guest's token). The nav already hides it from a guest; this is the in-page half, so a guest who types the URL is told
+ * why instead of being offered a form the API will refuse. Same predicate as the nav and Connect your AI (`canConnectAi`).
+ */
 export default function ApiSettingsPage() {
+  const { ws } = useParams<{ ws: string }>();
+  const workspace = useWorkspace(ws);
+  if (workspace.isPending) return <p className="p-6 text-body text-muted">Loading…</p>;
+  if (workspace.isError) {
+    return (
+      <p className="p-6 text-body text-error" role="alert">
+        Could not check your access. Try again in a moment.
+      </p>
+    );
+  }
+  if (!canConnectAi(workspace.data.role)) {
+    return (
+      <div className="p-6" data-testid="guests-cannot">
+        <h1 className="text-title font-semibold text-ink">API tokens</h1>
+        <p className="mt-2 max-w-prose text-body text-muted">
+          API tokens are for workspace members and admins. You are a guest here, so you cannot create or manage them. Ask a workspace admin if you need
+          access.
+        </p>
+      </div>
+    );
+  }
+  return <ApiTokensContent />;
+}
+
+function ApiTokensContent() {
   const { ws } = useParams<{ ws: string }>();
   const qc = useQueryClient();
   const fmt = useDateFormat();

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { architectPlanSchema, planAgentSchema } from './architect';
-import { stateCategorySchema } from './fields';
+import { automationLimitSchema, automationSortSchema, stateCategorySchema } from './fields';
 import { skillExampleSchema } from './skills';
 import { viewTypeSchema } from './views';
 
@@ -221,14 +221,33 @@ export const packViewSchema = z.object({
 export type PackView = z.infer<typeof packViewSchema>;
 
 /** An automation rule, with refs for `trigger.field_id`, action ids, etc. */
-export const packAutomationSchema = z.object({
-  database: nameSchema,
-  name: z.string().min(1).max(200),
-  trigger: jsonObjectSchema,
-  condition: z.unknown().optional(),
-  actions: z.array(jsonObjectSchema).default([]),
-  enabled: z.boolean().default(true),
-});
+export const packAutomationSchema = z
+  .object({
+    database: nameSchema,
+    name: z.string().min(1).max(200),
+    trigger: jsonObjectSchema,
+    condition: z.unknown().optional(),
+    actions: z.array(jsonObjectSchema).default([]),
+    enabled: z.boolean().default(true),
+    /**
+     * #1199 — top-N selection for a SCHEDULED rule ("the 5 deals stalled longest"), the same two keys and the same schemas the rule API
+     * takes (`createAutomationSchema`), so the ceiling (200) and the 3-key sort cap live in one place. `sort[].field` is a field api_name,
+     * not an id, so there is nothing to ref-rewrite; it is validated against the target database when the rule is created.
+     */
+    sort: automationSortSchema.optional(),
+    limit: automationLimitSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    // Mirrors the rule API: a record-triggered rule fires on ONE record, so there is no set to rank.
+    const hasSort = Boolean(val.sort && val.sort.length > 0);
+    if ((hasSort || val.limit !== undefined) && val.trigger.type !== 'schedule') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasSort ? 'sort' : 'limit'],
+        message: 'sort/limit (top-N selection) are only available on a schedule trigger',
+      });
+    }
+  });
 export type PackAutomation = z.infer<typeof packAutomationSchema>;
 
 /**

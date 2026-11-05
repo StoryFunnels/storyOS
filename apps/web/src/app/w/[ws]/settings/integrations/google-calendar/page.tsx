@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, CheckCircle2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { useDatabases, useSpaces } from '@/lib/queries';
 import { qualifiedDatabaseLabel } from '@/lib/database-labels';
 import { useDateFormat } from '@/lib/preferences';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 import { confirmRemoveCalendarMapping } from '@/lib/settings-confirmations';
 
 interface Connection {
@@ -94,7 +95,6 @@ async function calendarApi<T>(ws: string, path: string, init?: RequestInit): Pro
 export default function GoogleCalendarIntegrationPage() {
   const fmt = useDateFormat();
   const { ws } = useParams<{ ws: string }>();
-  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [connectionId, setConnectionId] = useState('');
   const [databaseId, setDatabaseId] = useState('');
@@ -122,9 +122,8 @@ export default function GoogleCalendarIntegrationPage() {
         params: { path: { ws } },
       } as never);
       if (error) throw error;
-      return (data as unknown as { data: Connection[] }).data.filter(
-        (item) => item.provider === 'google-calendar',
-      );
+      // ALL connections: this key is shared with the provider cards and the hub (ticket #1188), which read every provider's rows.
+      return (data as unknown as { data: Connection[] }).data;
     },
   });
 
@@ -160,13 +159,7 @@ export default function GoogleCalendarIntegrationPage() {
   });
 
   useEffect(() => {
-    if (searchParams.get('connected') === 'google-calendar') {
-      toast.success('Google Calendar connected');
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    const active = connections.data?.find((item) => item.status === 'active');
+    const active = connections.data?.find((item) => item.provider === 'google-calendar' && item.status === 'active');
     if (active && !connectionId) setConnectionId(active.id);
   }, [connections.data, connectionId]);
 
@@ -279,7 +272,7 @@ export default function GoogleCalendarIntegrationPage() {
   });
 
   const activeConnections = (connections.data ?? []).filter(
-    (connection) => connection.status === 'active',
+    (connection) => connection.provider === 'google-calendar' && connection.status === 'active',
   );
   const createCalendarDatabase = useMutation({
     mutationFn: async () => {
@@ -362,22 +355,11 @@ export default function GoogleCalendarIntegrationPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <Link
-        className="text-label text-muted hover:text-ink"
-        href={`/w/${ws}/settings/integrations`}
-      >
-        ← Integrations
-      </Link>
-      <div className="mt-5 flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-card)] bg-hover">
-          <CalendarDays className="h-6 w-6 text-ink" />
-        </span>
-        <div>
-          <h1 className="text-lg font-semibold text-ink">Google Calendar</h1>
-          <p className="text-body text-muted">
-            Two-way sync between dated StoryOS records and a Google calendar — push, pull, or both.
-          </p>
-        </div>
+      <div className="flex flex-col gap-[18px]">
+        <ProviderPageHeader ws={ws} id="google-calendar">
+          Two-way sync between dated StoryOS records and a Google calendar — push, pull, or both.
+        </ProviderPageHeader>
+        <ProviderConnectionCard ws={ws} id="google-calendar" />
       </div>
 
       <IntegrationSetupGuide className="mt-6" steps={setupSteps} />
@@ -387,22 +369,7 @@ export default function GoogleCalendarIntegrationPage() {
         every five minutes; simultaneous edits use last-write-wins and are reported after sync.
       </div>
 
-      {activeConnections.length === 0 ? (
-        <div className="mt-6 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
-          <p className="text-sm font-medium text-ink">Connect your Google account</p>
-          <p className="mt-1 text-body text-muted">
-            Calendar access is requested separately from Google sign-in and YouTube.
-          </p>
-          <Button
-            className="mt-4"
-            onClick={() => {
-              window.location.href = `${API_URL}/api/v1/workspaces/${ws}/connections/oauth/google-calendar/start`;
-            }}
-          >
-            Connect Google Calendar
-          </Button>
-        </div>
-      ) : (
+      {activeConnections.length === 0 ? null : (
         <>
           <section className="mt-6 rounded-[var(--radius-card)] border border-border-strong bg-hover p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center">

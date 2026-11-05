@@ -1,10 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowDownToLine, ArrowLeft, Sparkles } from 'lucide-react';
+import { AlertTriangle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -14,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useDateFormat } from '@/lib/preferences';
+import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 import {
   WRITE_BACK_DISCLOSURE,
   dueIn,
@@ -123,7 +123,10 @@ export default function LinearIntegrationPage() {
       } as never);
       if (error) throw error;
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['linear-config', ws] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['linear-config', ws] });
+      void qc.invalidateQueries({ queryKey: ['integration-facts', ws] });
+    },
     onError: (e) => toast.error(apiErrorMessage(e, 'Could not save Linear settings')),
   });
 
@@ -181,6 +184,7 @@ export default function LinearIntegrationPage() {
     onError: (error) => {
       // A failed run is recorded server-side too: show it in Health, not just in a toast that goes away.
       void qc.invalidateQueries({ queryKey: ['linear-config', ws] });
+      void qc.invalidateQueries({ queryKey: ['integration-facts', ws] });
       toast.error(apiErrorMessage(error, 'Import failed'));
     },
   });
@@ -193,27 +197,14 @@ export default function LinearIntegrationPage() {
   const interval = cfg?.auto_sync.interval_minutes ?? 60;
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link
-        href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Integrations
-      </Link>
-      <div className="mb-3 flex items-center gap-2">
-        <ArrowDownToLine className="h-6 w-6 text-ink" />
-        <h1 className="text-lg font-semibold text-ink">Linear (import &amp; mirror)</h1>
-        {cfg?.has_key && (
-          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
-            connected
-          </span>
-        )}
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <div className="mb-5 flex flex-col gap-[18px]">
+        <ProviderPageHeader ws={ws} id="linear">
+          Each Linear team becomes a space with Issues, Sprints (from cycles) and Projects — states and priorities mapped, sub-issues and links
+          preserved. Re-import updates instead of duplicating. Preview first, then import; switch the schedule on to keep it current.
+        </ProviderPageHeader>
+        <ProviderConnectionCard ws={ws} id="linear" />
       </div>
-      <p className="mb-5 text-body text-muted">
-        Each Linear team becomes a space with Issues, Sprints (from cycles) and Projects — states and
-        priorities mapped, sub-issues and links preserved. Re-import updates instead of duplicating.
-        Preview first, then import; switch the schedule on to keep it current.
-      </p>
 
       {/* The stale state is the point of the loud failure: it must be on the page an admin opens, not only in an API response. */}
       {cfg && (health === 'stale' || health === 'failing') && (

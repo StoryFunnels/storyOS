@@ -7,7 +7,9 @@ import type { ThemePreference } from '@/lib/theme';
 import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
 import type { UserPreferences } from '@/lib/preferences';
 import { formatDate, formatDateTime, DEFAULT_REGIONAL } from '@/lib/format';
-import { Select } from '@/components/ui/select';
+import { MenuSelect } from '@/components/ui/menu-select';
+import { Segmented } from '@/components/ui/segmented';
+import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
 
 const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
   { value: 'system', label: 'System', icon: Monitor },
@@ -34,6 +36,12 @@ const WEEK_OPTIONS: { value: Regional['firstDayOfWeek']; label: string }[] = [
   { value: 'saturday', label: 'Saturday' },
 ];
 
+/**
+ * Preferences (ticket #1189, Dara's #974 design): one box, one row per preference, the words on the left and the control on the
+ * right. Every choice the page offered is still offered. The theme is the drawn segmented control; the three regional choices have
+ * options too long to sit in a segmented control on a phone (a friendly date format, "System default"), so they use the product's own
+ * menu, the same `MenuSelect` the rest of Settings uses instead of the browser's native select (Dara's ruling on ticket #1191).
+ */
 export default function PreferencesPage() {
   const { preference, setPreference } = useTheme();
   const prefs = usePreferences();
@@ -45,109 +53,60 @@ export default function PreferencesPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Preferences</h1>
-      <p className="mb-6 text-body text-muted">Personal settings for how the app looks and reads.</p>
+      <SettingsPageHeader title="Preferences" lead="Only for you, on this browser" />
 
-      <section className="border-b border-border-default pb-8">
-        <h2 className="mb-1 text-sm font-medium text-ink">Appearance</h2>
-        <p className="mb-3 text-body text-muted">
-          Choose a theme. System follows your device setting. Applies on this browser.
-        </p>
-        <div
-          role="radiogroup"
-          aria-label="Theme"
-          className="inline-flex gap-1 rounded-[var(--radius-card)] border border-border-default bg-card p-1"
-        >
-          {THEMES.map(({ value, label, icon: Icon }) => {
-            const active = preference === value;
-            return (
-              <button
-                key={value}
-                role="radio"
-                aria-checked={active}
-                onClick={() => setPreference(value)}
-                className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-body transition-colors ${
-                  active ? 'bg-active font-medium text-ink' : 'text-ink-secondary hover:bg-hover'
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" /> {label}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="pt-8">
-        <h2 className="mb-1 text-sm font-medium text-ink">Date &amp; time</h2>
-        <p className="mb-4 text-body text-muted">
-          How dates and times display across the app. Preview:{' '}
-          <span className="font-medium text-ink">{formatDateTime(new Date(), regional, { relative: false })}</span>
-        </p>
-        <div className="flex max-w-md flex-col gap-4">
-          <SelectRow
-            label="Date format"
-            value={regional.dateFormat}
-            options={DATE_OPTIONS}
-            disabled={prefs.isLoading}
-            onChange={(v) => setRegional({ dateFormat: v })}
-            preview={formatDate(new Date(), { ...regional, dateFormat: regional.dateFormat }, { relative: false })}
-          />
-          <SelectRow
-            label="Time format"
-            value={regional.timeFormat}
-            options={TIME_OPTIONS}
-            disabled={prefs.isLoading}
-            onChange={(v) => setRegional({ timeFormat: v })}
-          />
-          <SelectRow
-            label="First day of week"
-            value={regional.firstDayOfWeek}
-            options={WEEK_OPTIONS}
-            disabled={prefs.isLoading}
-            onChange={(v) => setRegional({ firstDayOfWeek: v })}
-          />
-        </div>
-      </section>
+      <SettingsPageBody>
+        <SettingsBox>
+          <SettingsRow title="Theme" description="System follows your device setting. Applies on this browser.">
+            <Segmented
+              label="Theme"
+              value={preference}
+              onChange={setPreference}
+              options={THEMES.map(({ value, label, icon: Icon }) => ({
+                value,
+                label: (
+                  <span className="flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5" aria-hidden /> {label}
+                  </span>
+                ),
+              }))}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title="Date format"
+            description={`How dates display across the app. Now: ${formatDate(new Date(), { ...regional }, { relative: false })}`}
+          >
+            <MenuSelect
+              label="Date format"
+              value={regional.dateFormat}
+              options={DATE_OPTIONS}
+              disabled={prefs.isLoading}
+              onChange={(v) => setRegional({ dateFormat: v as Regional['dateFormat'] })}
+              className="max-w-none min-w-44"
+            />
+          </SettingsRow>
+          <SettingsRow title="Time format" description={`12-hour or 24-hour clock. Now: ${formatDateTime(new Date(), regional, { relative: false })}`}>
+            <MenuSelect
+              label="Time format"
+              value={regional.timeFormat}
+              options={TIME_OPTIONS}
+              disabled={prefs.isLoading}
+              onChange={(v) => setRegional({ timeFormat: v as Regional['timeFormat'] })}
+              className="max-w-none min-w-44"
+            />
+          </SettingsRow>
+          <SettingsRow title="Week starts on" description="The first day of the week, where one is shown.">
+            <MenuSelect
+              label="Week starts on"
+              value={regional.firstDayOfWeek}
+              options={WEEK_OPTIONS}
+              disabled={prefs.isLoading}
+              onChange={(v) => setRegional({ firstDayOfWeek: v as Regional['firstDayOfWeek'] })}
+              className="max-w-none min-w-44"
+            />
+          </SettingsRow>
+        </SettingsBox>
+      </SettingsPageBody>
     </div>
-  );
-}
-
-function SelectRow<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-  disabled,
-  preview,
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-  disabled?: boolean;
-  preview?: string;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-4">
-      <span className="text-body text-ink-secondary">
-        {label}
-        {preview && <span className="ml-2 text-label text-faint">{preview}</span>}
-      </span>
-      {/* #761 — the one native <select> #854 missed; this site's chrome was
-          already correct, so the migration overrides the primitive's own
-          h-9/px-2 defaults rather than adopting a variant, to stay pixel-identical. */}
-      <Select
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value as T)}
-        className="h-auto min-w-40 px-2.5 py-1.5 text-body"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </Select>
-    </label>
   );
 }
