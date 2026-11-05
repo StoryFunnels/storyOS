@@ -131,12 +131,18 @@ export function needsDirectory(agents: ReadonlyArray<Pick<AgentView, 'ownerId'>>
 }
 
 /** The "Runs on" cell. A guest is never told the machine (`showMachine`); an agent that does not use a Runner says what it uses instead. */
-export function runsOnCell(agent: Pick<AgentView, 'usesRunner' | 'enabled' | 'aiMode'>, runner: { name: string } | null | undefined, showMachine: boolean): string {
+export function runsOnCell(
+  agent: Pick<AgentView, 'usesRunner' | 'enabled' | 'aiMode'>,
+  runner: { name: string } | null | undefined,
+  showMachine: boolean,
+  /** False while the summary that names the Runner has not loaded (or failed): then the cell says nothing rather than "No Runner yet" (ticket #1223). */
+  known = true,
+): string {
   if (!agent.usesRunner) {
     if (!agent.enabled) return 'Switched off';
     return agent.aiMode === 'StoryOS AI' ? 'StoryOS AI' : 'Without an AI';
   }
-  if (!runner) return 'No Runner yet';
+  if (!runner) return known ? 'No Runner yet' : '—';
   return showMachine ? runner.name : 'A Runner';
 }
 

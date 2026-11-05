@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cannotRunCount, summaryFor, toAgentView, waitingLine } from './agents';
+import { cannotRunCount, summaryFor, toAgentView } from './agents';
 import { canUseRunners } from './access';
 import { buildHireValues, canSubmitHire } from './hire';
 import { canPressDone, codeAriaLabel, defaultTool, displayCode, pairingReducer, pairingStart, pickableTools, shouldPoll } from './pairing';
@@ -292,8 +292,6 @@ describe('Remove, the first-time moment and the sidebar number', () => {
     expect(summaryFor(s, 'a1')?.waiting).toBe(3);
     expect(summaryFor(s, 'zzz')).toBeUndefined();
     expect(summaryFor(undefined, 'a1')).toBeUndefined();
-    expect(waitingLine(1)).toBe('1 record is waiting for it');
-    expect(waitingLine(3)).toBe('3 records are waiting for it');
   });
 });
 

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { canHireAgents, canSeeRunnerDetails } from '@/lib/runners/access';
 import type { RunnerDto, RunStateName, WakeDto } from '@/lib/runners/types';
-import { FirstRunCard, namesLine } from './first-run-card';
+import { FirstRunCard } from './first-run-card';
 import { RunList } from './run-list';
 import { RunnerRow } from './runner-row';
 import { RunsOnLine } from './runs-on-line';
@@ -114,7 +114,7 @@ describe('the run list renders every state as drawn', () => {
 });
 
 describe('the first-time moment', () => {
-  const html = (waiting: number | null) => renderToStaticMarkup(createElement(FirstRunCard, { agentName: 'Onboarding Assistant', waiting, onAdd: () => {} }));
+  const html = (recordsWaiting: number | null) => renderToStaticMarkup(createElement(FirstRunCard, { agentName: 'Onboarding Assistant', recordsWaiting, onAdd: () => {} }));
   it('says the agent has not started, why, and offers ONLY Add a Runner (no API-key button, it is not in v1)', () => {
     const out = html(1);
     expect(out).toContain('Onboarding Assistant hasn’t started work yet');
@@ -122,16 +122,11 @@ describe('the first-time moment', () => {
     expect(out).toContain('Add a Runner');
     expect(out).not.toMatch(/API key/i);
   });
-  it('names some of the waiting records without ever claiming more than the count', () => {
-    expect(namesLine(['Acme Co'], 1)).toBe('Acme Co.');
-    expect(namesLine(['Acme Co', 'Orbis'], 2)).toBe('Acme Co and Orbis.');
-    expect(namesLine(['A', 'B', 'C'], 3)).toBe('A, B and C.');
-    expect(namesLine(['A', 'B', 'C', 'D'], 7)).toBe('A, B, C and 4 more.');
-    expect(namesLine(['A', 'B', 'C'], 2)).toBe('A and B.'); // a stale page with more names than the server's count is capped by the count
-  });
-  it('shows the real waiting count, singular and plural, and leaves the line out rather than guess or print a zero', () => {
+  it('shows the summary\'s catch_up count (4 -> 4 records), singular and plural, and leaves the line out rather than guess or print a zero', () => {
     expect(html(1)).toContain('1 record is waiting for it');
     expect(html(3)).toContain('3 records are waiting for it');
+    expect(html(4)).toContain('4 records are waiting for it');
+    expect(html(4)).not.toContain('1 record');
     expect(html(0)).not.toMatch(/waiting for it/);
     expect(html(null)).not.toMatch(/waiting for it/);
   });
@@ -237,6 +232,6 @@ describe('a guest with a grant on the Agents database is not told which computer
   it('the Agents page gives the "Runs on" cell the viewer’s own can-see-machines answer (ticket #1196 moved the wording into runsOnCell, whose guest case is tested in lib/runners/agent-list.unit.test.ts)', () => {
     const src = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/agents/page.tsx', import.meta.url)), 'utf8');
     expect(src).toContain('const showMachine = canSeeRunnerDetails(role)');
-    expect(src).toContain('runsOnCell(a, row?.runner, showMachine)');
+    expect(src).toContain('runsOnCell(a, row?.runner, showMachine, Boolean(summary.data))');
   });
 });
