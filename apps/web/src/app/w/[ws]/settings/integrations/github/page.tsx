@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, GitBranch, Info } from 'lucide-react';
+import { Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useDateFormat } from '@/lib/preferences';
+import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 
 interface GithubConfig {
   repos: string[];
@@ -91,6 +92,7 @@ export default function GitHubIntegrationPage() {
       toast.success('GitHub settings saved');
       setToken('');
       void qc.invalidateQueries({ queryKey: ['github-config', ws] });
+      void qc.invalidateQueries({ queryKey: ['integration-facts', ws] });
     },
     onError: () => toast.error('Could not save (check repo format: owner/name)'),
   });
@@ -107,6 +109,7 @@ export default function GitHubIntegrationPage() {
     onSuccess: () => {
       toast.success('Watched repositories updated');
       void qc.invalidateQueries({ queryKey: ['github-config', ws] });
+      void qc.invalidateQueries({ queryKey: ['integration-facts', ws] });
       void qc.invalidateQueries({ queryKey: ['github-install-repos', ws] });
     },
     onError: () => toast.error('Could not update repositories'),
@@ -149,33 +152,14 @@ export default function GitHubIntegrationPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <Link
-        href={`/w/${ws}/settings/integrations`}
-        className="mb-4 inline-flex items-center gap-1.5 text-body text-muted hover:text-ink"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Integrations
-      </Link>
-      <div className="mb-3 flex items-center gap-2">
-        <GitBranch className="h-6 w-6 text-ink" />
-        <h1 className="text-lg font-semibold text-ink">GitHub</h1>
-        {connected ? (
-          <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
-            connected · installation {config.data?.installation_id}
-          </span>
-        ) : (
-          config.data?.has_token && (
-            <span className="rounded-full border border-border-default bg-hover px-2 py-0.5 text-meta text-ink">
-              token set
-            </span>
-          )
-        )}
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <div className="mb-5 flex flex-col gap-[18px]">
+        <ProviderPageHeader ws={ws} id="github">
+          Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync. PRs auto-link to issues referenced by{' '}
+          <code className="text-ink">#number</code> in the title or the branch name.
+        </ProviderPageHeader>
+        <ProviderConnectionCard ws={ws} id="github" />
       </div>
-      <p className="mb-5 text-body text-muted">
-        Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync. PRs
-        auto-link to issues referenced by <code className="text-ink">#number</code> in the title or
-        the branch name.
-      </p>
 
       <IntegrationSetupGuide
         className="mb-5"
@@ -240,9 +224,7 @@ export default function GitHubIntegrationPage() {
             </div>
           </div>
         ) : (
-          <Button size="sm" onClick={connect}>
-            Connect GitHub
-          </Button>
+          <p className="text-body text-muted">Use Connect GitHub above to install the app, or save a personal access token below.</p>
         )}
       </div>
 

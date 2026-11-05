@@ -132,6 +132,10 @@ describe('where the events are emitted', () => {
     const names = new Set<string>();
     for (const f of allSources(src)) {
       for (const m of code(readFileSync(f, 'utf8')).matchAll(/posthog\.capture\(\s*'([a-z_]+)'/g)) names.add(m[1]!);
+      // Connect your AI emits its copy events through its own `copy(value, 'event', props)` helper, which calls posthog.capture with a
+      // variable. Ticket #1188 removed the Integrations hub's copy of "Copy endpoint" (merged into Connect your AI), which had been the
+      // only literal `posthog.capture('mcp_endpoint_copied'`: the event was NOT dropped, this extractor just could not see the helper form.
+      for (const m of code(readFileSync(f, 'utf8')).matchAll(/\bcopy\([^)]*?,\s*'([a-z_]+)'/g)) names.add(m[1]!);
     }
     for (const name of [
       'csv_import_completed',

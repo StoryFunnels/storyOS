@@ -235,8 +235,9 @@ describe('a guest with a grant on the Agents database is not told which computer
       expect(src.match(/canHireAgents\(role\) && \(?\s*<(Button|HireDialog)/g) ?? [], rel).toHaveLength(2);
     }
   });
-  it('the Agents page says "Runs on a Runner" to a guest and never the machine', () => {
+  it('the Agents page gives the "Runs on" cell the viewer’s own can-see-machines answer (ticket #1196 moved the wording into runsOnCell, whose guest case is tested in lib/runners/agent-list.unit.test.ts)', () => {
     const src = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/agents/page.tsx', import.meta.url)), 'utf8');
-    expect(src).toContain("showMachine ? `Runs on ${row.runner.name}` : 'Runs on a Runner'");
+    expect(src).toContain('const showMachine = canSeeRunnerDetails(role)');
+    expect(src).toContain('runsOnCell(a, row?.runner, showMachine)');
   });
 });
