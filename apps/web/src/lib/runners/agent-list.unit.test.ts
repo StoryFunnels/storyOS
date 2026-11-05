@@ -12,53 +12,85 @@ const NOW = new Date('2026-11-05T14:00:00Z');
 describe('Last run', () => {
   const wake = (agent: string, state: string, finished_at: string | null, created_at = '2026-11-01T00:00:00Z', since?: string) =>
     ({ agent: { id: agent }, run_state: { state, ...(since ? { since } : {}) }, finished_at, created_at }) as never;
-  it('is the newest run per agent, from ONE page, whatever the order', () => {
-    const r = lastRunsByAgent(['a', 'b'], [wake('a', 'done', '2026-11-03T10:00:00Z'), wake('b', 'failed', '2026-11-04T09:00:00Z'), wake('a', 'done', '2026-11-04T08:00:00Z'), wake('a', 'done', '2026-11-01T10:00:00Z')], false);
+  /** What the Runs database told us: exact counts per agent, and the newest Run records by start time. */
+  const runs = (counts: Record<string, number>, latest: Array<[string, string]> = []) => ({ counts, latest: latest.map(([agentId, started]) => ({ agentId, started })) });
+
+  it('the time is the newest Run record of the agent (Run records are not pruned, wakes are after 30 days)', () => {
+    const r = lastRunsByAgent(['a', 'b'], [], runs({ a: 3, b: 1 }, [['a', '2026-11-04T08:00:00Z'], ['b', '2026-11-03T10:00:00Z'], ['a', '2025-10-01T10:00:00Z']]));
     expect(r['a']).toEqual({ kind: 'at', iso: '2026-11-04T08:00:00Z', state: 'done' });
-    expect(r['b']).toMatchObject({ kind: 'at', state: 'failed' });
+    expect(r['b']).toEqual({ kind: 'at', iso: '2026-11-03T10:00:00Z', state: 'done' });
   });
-  it('a run waiting for approval or for the limit SHOWS, with its state (it is not only finished runs)', () => {
-    const r = lastRunsByAgent(['a', 'b', 'c'], [wake('a', 'needs_approval', null, '2026-11-04T10:00:00Z', '2026-11-04T10:05:00Z'), wake('b', 'waiting_for_limit', null, '2026-11-04T11:00:00Z'), wake('c', 'running', null, '2026-11-04T12:00:00Z')], false);
+  it('PRUNED wakes: an agent that ran long ago and has no wake any more still shows its real time, not "Never"', () => {
+    const r = lastRunsByAgent(['old'], [], runs({ old: 2 }, [['old', '2025-10-02T09:00:00Z']]));
+    expect(r['old']).toEqual({ kind: 'at', iso: '2025-10-02T09:00:00Z', state: 'done' });
+    expect(lastRunLabel(r['old']!, NOW, UTC)).toBe('2 Oct 2025'); // the year label now rests on real data
+  });
+  it('an agent that HAS Run records but none in the newest page ran at an unknown time: "—", never "Never"', () => {
+    const r = lastRunsByAgent(['a'], [], runs({ a: 4 }, [['someone-else', '2026-11-04T08:00:00Z']]));
+    expect(r['a']).toEqual({ kind: 'ranUnknown' });
+    expect(lastRunLabel(r['a']!, NOW, UTC)).toBe('—');
+  });
+  it('"Never" appears ONLY when it is known: the Runs database was read AND has no Run record for the agent AND no wake shows a run', () => {
+    expect(lastRunsByAgent(['a'], [], runs({}))['a']).toEqual({ kind: 'never' });
+    expect(lastRunsByAgent(['a'], [wake('a', 'waiting_for_runner', null), wake('a', 'canceled', '2026-11-04T09:00:00Z')], runs({}))['a']).toEqual({ kind: 'never' });
+    // the same agent, but a wake shows a run the Run read did not: it ran
+    expect(lastRunsByAgent(['a'], [wake('a', 'done', '2026-11-04T09:00:00Z')], runs({}))['a']).toMatchObject({ kind: 'at' });
+  });
+  it('GUEST / not readable / not loaded: the Runs database could not be read, so nothing is known: "—", whatever the wake queue lacks', () => {
+    const r = lastRunsByAgent(['a', 'b'], [wake('b', 'done', '2026-11-04T09:00:00Z')], undefined);
+    expect(r['a']).toEqual({ kind: 'unknown' });
+    expect(r['b']).toMatchObject({ kind: 'at' }); // what IS visible is still shown
+    expect(lastRunsByAgent(['a'], undefined, undefined)['a']).toEqual({ kind: 'unknown' });
+    expect(lastRunLabel({ kind: 'unknown' }, NOW, UTC)).toBe('—');
+  });
+  it('a run waiting for approval or for the limit SHOWS, with its state, and its time wins when newer than the last started run', () => {
+    const r = lastRunsByAgent(
+      ['a', 'b', 'c'],
+      [wake('a', 'needs_approval', null, '2026-11-04T10:00:00Z', '2026-11-04T10:05:00Z'), wake('b', 'waiting_for_limit', null, '2026-11-04T11:00:00Z'), wake('c', 'running', null, '2026-11-04T12:00:00Z')],
+      runs({ a: 1, b: 1, c: 1 }, [['a', '2026-11-04T09:00:00Z'], ['b', '2026-11-04T09:00:00Z'], ['c', '2026-11-04T09:00:00Z']]),
+    );
     expect(r['a']).toEqual({ kind: 'at', iso: '2026-11-04T10:05:00Z', state: 'needs_approval' });
     expect(lastRunState(r['a']!)).toBe('Needs approval');
     expect(lastRunState(r['b']!)).toBe('Waiting for limit');
     expect(lastRunState(r['c']!)).toBe('Running');
     expect(lastRunState({ kind: 'at', iso: 'x', state: 'done' })).toBe('');
+    // an OLDER wake never overrides a newer started run
+    const old = lastRunsByAgent(['a'], [wake('a', 'failed', '2026-11-01T09:00:00Z')], runs({ a: 2 }, [['a', '2026-11-04T09:00:00Z']]));
+    expect(old['a']).toEqual({ kind: 'at', iso: '2026-11-04T09:00:00Z', state: 'done' });
   });
-  it('a wake that has not run (waiting for a Runner, cancelled) is not a run: with nothing else and nothing older, Never', () => {
-    const r = lastRunsByAgent(['a'], [wake('a', 'waiting_for_runner', null), wake('a', 'canceled', '2026-11-04T09:00:00Z'), wake('a', 'runner_offline', null)], false);
-    expect(r['a']).toEqual({ kind: 'never' });
-  });
-  it('"Never" about a page we did not fully read is a guess, so it is unknown ("—")', () => {
-    expect(lastRunsByAgent(['a'], [wake('a', 'waiting_for_runner', null)], true)['a']).toEqual({ kind: 'unknown' });
-    expect(lastRunsByAgent(['a'], undefined, false)['a']).toEqual({ kind: 'unknown' });
-    expect(lastRunLabel({ kind: 'unknown' }, NOW, UTC)).toBe('—');
-  });
-  it('60 agents are answered from the same ONE page (the count of requests does not depend on the count of agents)', () => {
+  it('60 agents are answered from the same reads (nothing in the answer depends on how many there are)', () => {
     const ids = Array.from({ length: 60 }, (_, i) => `a${i}`);
-    const page = ids.filter((_, i) => i % 2 === 0).map((id) => wake(id, 'done', '2026-11-04T09:00:00Z'));
-    const r = lastRunsByAgent(ids, page, false);
-    expect(Object.keys(r)).toHaveLength(60);
-    expect(ids.filter((id) => r[id]!.kind === 'at')).toHaveLength(30);
-    expect(ids.filter((id) => r[id]!.kind === 'never')).toHaveLength(30);
+    const counts = Object.fromEntries(ids.filter((_, i) => i % 3 !== 0).map((id) => [id, 1]));
+    const latest: Array<[string, string]> = ids.filter((_, i) => i % 3 === 1).map((id) => [id, '2026-11-04T09:00:00Z']);
+    const r = lastRunsByAgent(ids, [], runs(counts, latest));
+    expect(ids.filter((id) => r[id]!.kind === 'never')).toHaveLength(20);
+    expect(ids.filter((id) => r[id]!.kind === 'at')).toHaveLength(20);
+    expect(ids.filter((id) => r[id]!.kind === 'ranUnknown')).toHaveLength(20);
   });
-  it('labels: Never; the clock time today; the date this year; the date AND YEAR in another year', () => {
+  it('labels: Never; the clock time today; the date this year; the date AND YEAR in another year; a dash when unknown', () => {
     expect(lastRunLabel({ kind: 'never' }, NOW, UTC)).toBe('Never');
     expect(lastRunLabel({ kind: 'at', iso: '2026-11-05T09:05:00Z', state: 'done' }, NOW, UTC)).toBe('09:05');
     expect(lastRunLabel({ kind: 'at', iso: '2026-10-29T09:05:00Z', state: 'done' }, NOW, UTC)).toBe('29 Oct');
     expect(lastRunLabel({ kind: 'at', iso: '2025-10-29T09:05:00Z', state: 'done' }, NOW, UTC)).toBe('29 Oct 2025');
+    expect(lastRunLabel({ kind: 'ranUnknown' }, NOW, UTC)).toBe('—');
   });
-  it('the tooltip is the full date and time in the given zone, with the state when it is not done', () => {
+  it('the tooltip is the full date and time in the given zone, with the state when it is not done, and says why a dash is a dash', () => {
     expect(lastRunTitle({ kind: 'at', iso: '2026-10-29T09:05:00Z', state: 'done' }, UTC)).toBe('29 Oct 2026, 09:05');
     expect(lastRunTitle({ kind: 'at', iso: '2026-10-29T09:05:00Z', state: 'needs_approval' }, { timeZone: 'Europe/Madrid' })).toBe('Needs approval · 29 Oct 2026, 10:05');
     expect(lastRunTitle({ kind: 'never' }, UTC)).toBeUndefined();
+    expect(lastRunTitle({ kind: 'unknown' }, UTC)).toMatch(/cannot read/);
+    expect(lastRunTitle({ kind: 'ranUnknown' }, UTC)).toMatch(/has run/);
   });
-  it('the page issues ONE Last-run request and one list of agents: no per-agent query hook', () => {
+  it('the number of requests does not depend on the number of agents: three fixed reads, no per-agent query, and the page passes no ids', () => {
     const q = readFileSync(fileURLToPath(new URL('./queries.ts', import.meta.url)), 'utf8');
     const body = q.slice(q.indexOf('export function useLastRuns'), q.indexOf('export function useMembersDirectory'));
     expect(body).not.toMatch(/useQueries|\.map\(/);
-    expect(body.match(/api\.GET\(/g)).toHaveLength(1);
-    expect(body).toMatch(/refetchInterval: 30_000/);
+    expect(body.match(/api\.(GET|POST)\(/g)).toHaveLength(3);
+    expect(body).not.toMatch(/agentIds|agent:/);
+    // newest first, and "never" needs BOTH Runs reads (half an answer is not enough)
+    expect(body).toContain("direction: 'desc'");
+    expect(body).toContain('counts.data && latest.data');
+    expect(body.match(/refetchInterval: 30_000/g)).toHaveLength(3);
     const page = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/agents/page.tsx', import.meta.url)), 'utf8');
     expect(page).toContain('useLastRuns(ws)');
     expect(page).not.toMatch(/useLastRuns\(ws, /);

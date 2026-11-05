@@ -31,8 +31,8 @@ export default function AgentsIndexPage() {
   const summary = useWakeSummary(ws);
   const runners = useRunners(ws);
   const members = useMembers(ws, true);
-  const lastRunPage = useLastRuns(ws);
-  const lastRuns = lastRunsByAgent(agents.map((a) => a.id), lastRunPage.data?.wakes, lastRunPage.data?.hasMore ?? false);
+  const lastRunData = useLastRuns(ws);
+  const lastRuns = lastRunsByAgent(agents.map((a) => a.id), lastRunData.wakes, lastRunData.runs);
   const directory = useMembersDirectory(ws, needsDirectory(agents, members.data));
   const [hireOpen, setHireOpen] = useState(false);
   const workspace = useWorkspace(ws).data;

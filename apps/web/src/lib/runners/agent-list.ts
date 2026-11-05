@@ -11,28 +11,57 @@ import type { TimeOpts } from './words';
 /** The run states that mean a run EXISTS (it started, or finished): not "waiting for a Runner", not cancelled. */
 const RAN_STATES = new Set(['done', 'failed', 'running', 'needs_approval', 'waiting_for_limit', 'waiting_for_hours', 'waiting_for_reserve']);
 
-export type LastRun = { kind: 'at'; iso: string; state: string } | { kind: 'never' } | { kind: 'unknown' };
+export type LastRun = { kind: 'at'; iso: string; state: string } | { kind: 'ranUnknown' } | { kind: 'never' } | { kind: 'unknown' };
 
 type WakeLike = Pick<WakeDto, 'finished_at' | 'created_at' | 'run_state'> & { agent: { id: string } };
 
 /**
- * Every agent's last run from ONE page of the workspace's wake queue (newest first), never one request per agent. Each wake's
- * `run_state` is the server's derivation from the Run record, so a run waiting for approval or for the limit shows with that state,
- * not only the ones that finished. The newest wake whose run exists wins; its time is when it finished, else when it began waiting.
- * An agent absent from the page is `unknown` when older pages exist (we did not read them: "Never" would be a guess) and `never`
- * only when the page was the whole queue.
+ * What the Runs database told us, read in two calls that do not grow with the number of agents:
+ *  - `counts`: runs per agent, from the grouped count (exact: an agent with no group has NO Run record, which is how "never" is KNOWN);
+ *  - `latest`: the newest Run records by start time, one bounded page (`started` is the Run's "Started at").
+ * `undefined` for the whole thing means the viewer cannot read the Runs database (a guest), or it has not loaded, or a call failed:
+ * then nothing about "never" is known.
  */
-export function lastRunsByAgent(agentIds: readonly string[], wakes: readonly WakeLike[] | undefined, hasMore: boolean): Record<string, LastRun> {
-  const out: Record<string, LastRun> = {};
-  const best = new Map<string, LastRun>();
+export interface RunsKnowledge {
+  counts: Record<string, number>;
+  latest: ReadonlyArray<{ agentId: string; started: string }>;
+}
+
+/**
+ * Every agent's last run. The rule that matters is when the answer is "Never": ONLY when it is KNOWN, because a confident zero
+ * invites no checking (CLAUDE.md, Tyron: "never guess numbers, zero most of all"). So:
+ *  - the newest Run record of the agent that the latest page holds -> that time (the Run records are the source of truth: unlike
+ *    the wake queue they are not pruned after 30 days, and the viewer reads them the way they read the Runs database);
+ *  - the wake queue's `run_state` only ADDS what a Run record cannot say at a glance: a run waiting for approval, at its limit,
+ *    running or failed shows with that state, and its time wins when it is newer (or when the Run record has no time);
+ *  - the agent has Run records but none in the latest page -> it DID run and when is unknown: `ranUnknown`, shown "—";
+ *  - the agent has NO Run record (the grouped count is exact and has no group for it) and no wake shows a run -> `never`;
+ *  - the Runs database was not readable / not loaded -> `unknown` ("—"), whatever the wake queue says or lacks. An agent's
+ *    only run may be on a record the viewer cannot read, or its wakes may have been pruned: neither is evidence of "never".
+ */
+export function lastRunsByAgent(agentIds: readonly string[], wakes: readonly WakeLike[] | undefined, runs: RunsKnowledge | undefined): Record<string, LastRun> {
+  const fromWake = new Map<string, Extract<LastRun, { kind: 'at' }>>();
   for (const w of wakes ?? []) {
     const state = w.run_state?.state;
     if (!state || !RAN_STATES.has(state)) continue;
     const iso = w.finished_at ?? w.run_state.since ?? w.created_at;
-    const prev = best.get(w.agent.id);
-    if (!prev || (prev.kind === 'at' && new Date(iso) > new Date(prev.iso))) best.set(w.agent.id, { kind: 'at', iso, state });
+    const prev = fromWake.get(w.agent.id);
+    if (!prev || new Date(iso) > new Date(prev.iso)) fromWake.set(w.agent.id, { kind: 'at', iso, state });
   }
-  for (const id of agentIds) out[id] = !wakes ? { kind: 'unknown' } : (best.get(id) ?? (hasMore ? { kind: 'unknown' } : { kind: 'never' }));
+  const fromRuns = new Map<string, string>();
+  for (const r of runs?.latest ?? []) {
+    const prev = fromRuns.get(r.agentId);
+    if (!prev || new Date(r.started) > new Date(prev)) fromRuns.set(r.agentId, r.started);
+  }
+  const out: Record<string, LastRun> = {};
+  for (const id of agentIds) {
+    const wake = fromWake.get(id);
+    const started = fromRuns.get(id);
+    if (wake && (!started || new Date(wake.iso) >= new Date(started))) out[id] = wake;
+    else if (started) out[id] = { kind: 'at', iso: started, state: 'done' };
+    else if (!runs) out[id] = { kind: 'unknown' };
+    else out[id] = (runs.counts[id] ?? 0) > 0 ? { kind: 'ranUnknown' } : { kind: 'never' };
+  }
   return out;
 }
 
@@ -47,7 +76,7 @@ export function lastRunState(last: LastRun): string {
 /** "Never", "18:40" for today, "29 Oct" earlier this year, "29 Oct 2025" in another year. "—" when it could not be read. */
 export function lastRunLabel(last: LastRun, now: Date, o: TimeOpts = {}): string {
   if (last.kind === 'never') return 'Never';
-  if (last.kind === 'unknown') return '—';
+  if (last.kind === 'unknown' || last.kind === 'ranUnknown') return '—';
   const when = new Date(last.iso);
   if (shortDate(when, o) === shortDate(now, o)) return clockTime(when, o);
   const year = (d: Date) => new Intl.DateTimeFormat('en-GB', { year: 'numeric', timeZone: o.timeZone }).format(d);
@@ -56,6 +85,8 @@ export function lastRunLabel(last: LastRun, now: Date, o: TimeOpts = {}): string
 
 /** The full date and time, in the viewer's zone, for the tooltip ("29 Oct 2026, 18:40"). Absent when there is no time to show. */
 export function lastRunTitle(last: LastRun, o: TimeOpts = {}): string | undefined {
+  if (last.kind === 'ranUnknown') return 'It has run, but when is not shown here yet';
+  if (last.kind === 'unknown') return 'Not shown: this screen cannot read the run history';
   if (last.kind !== 'at') return undefined;
   const when = new Date(last.iso);
   const state = lastRunState(last);
