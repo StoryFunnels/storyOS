@@ -88,7 +88,7 @@ export function letItThinkToast(agentName: string, result: LetItThinkResult, run
  * the API lets start it. The start endpoint (`POST .../agents/{agent}/run`) is admin-only, so the button is too: showing it to a
  * member would offer what the server refuses. The role is the access.ts predicate's.
  */
-export function offersRunNow(agent: Pick<AgentView, 'usesRunner'>, assigned: { id: string } | null | undefined, mayRun: boolean): boolean {
+export function offersRunNow(agent: Pick<AgentView, 'usesRunner'>, assigned: { id: string | null } | null | undefined, mayRun: boolean): boolean {
   return mayRun && agent.usesRunner && Boolean(assigned);
 }
 

@@ -30,7 +30,7 @@ import {
   WAKE_RUN_CEILING_MS,
 } from './wake.constants';
 import type { WakeReason, WakeStatus } from './wake.constants';
-import { deriveRunState } from './run-state';
+import { deriveRunState, maskRunState, MASKED_RUNNER_NAME } from './run-state';
 import type { RunState } from './run-state';
 import type { WakeCompleteInput } from './runner.dto';
 import { attemptLine, capSummary, describeLimitSource, resolveLimitUntil } from './run-record';
@@ -1085,7 +1085,9 @@ export class AgentWakesService {
     const hasMore = visible.length > limit || !exhausted;
     const last = shown[shown.length - 1];
     const next = hasMore && last ? Buffer.from(JSON.stringify({ t: last.createdAt.toISOString(), id: last.id })).toString('base64url') : null;
-    return { data: await this.presentRows(membership.workspaceId, shown, now), next_cursor: next };
+    const data = await this.presentRows(membership.workspaceId, shown, now);
+    // ticket #1215: a guest is told THAT a Runner serves the agent, never which machine or tool (the web's `canSeeRunnerDetails`).
+    return { data: membership.role === 'guest' ? data.map((w) => ({ ...w, run_state: maskRunState(w.run_state) })) : data, next_cursor: next };
   }
 
   private async presentRows(workspaceId: string, rows: WakeRow[], now: Date) {
@@ -1164,7 +1166,7 @@ export class AgentWakesService {
   /** The waiting counts the web and MCP show ("N waiting", the sidebar number). Hidden wakes are not counted. */
   async summary(membership: Membership) {
     const info = await this.agentsDbInfo(membership.workspaceId);
-    const empty = { agents: [] as Array<{ agent_id: string; name: string; runner: { id: string; name: string } | null; can_run: boolean; waiting: number; budget: BudgetStatus | null }>, waiting_total: 0, agents_that_cannot_run: 0 };
+    const empty = { agents: [] as Array<{ agent_id: string; name: string; runner: { id: string | null; name: string } | null; can_run: boolean; waiting: number; budget: BudgetStatus | null }>, waiting_total: 0, agents_that_cannot_run: 0 };
     if (!info || (await this.access.effectiveForDatabase(membership, { id: info.id, spaceId: info.spaceId })) === null) return empty;
     const queued = await this.visibleFilter(
       membership,
@@ -1188,7 +1190,9 @@ export class AgentWakesService {
       const runner = assigned.get(a.id) ?? null;
       const canRun = facts.enabled && facts.ownAi && runner?.status === 'active';
       if (facts.enabled && facts.ownAi && !canRun) cannot++;
-      out.push({ agent_id: a.id, name: a.title, runner: runner ? { id: runner.id, name: runner.name } : null, can_run: canRun, waiting: w, budget: budgets.get(a.id)?.status ?? null });
+      // ticket #1215: a guest learns that the agent HAS a Runner (so "can it run" still reads right), not whose machine it is.
+      const shownRunner = runner ? (membership.role === 'guest' ? { id: null, name: MASKED_RUNNER_NAME } : { id: runner.id, name: runner.name }) : null;
+      out.push({ agent_id: a.id, name: a.title, runner: shownRunner, can_run: canRun, waiting: w, budget: budgets.get(a.id)?.status ?? null });
     }
     return { agents: out, waiting_total: queued.length, agents_that_cannot_run: cannot };
   }

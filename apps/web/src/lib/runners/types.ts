@@ -136,7 +136,8 @@ export interface WakeDto {
 export interface WakeSummaryAgent {
   agent_id: string;
   name: string;
-  runner: { id: string; name: string } | null;
+  /** Ticket #1215: a guest gets `{ id: null, name: 'a Runner' }`: that a Runner serves the agent, never which machine. */
+  runner: { id: string | null; name: string } | null;
   can_run: boolean;
   waiting: number;
   /**

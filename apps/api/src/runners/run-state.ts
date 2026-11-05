@@ -49,6 +49,20 @@ export interface RunStateInput {
   now: Date;
 }
 
+/**
+ * Ticket #1215: what a GUEST is told about a Runner. A Runner is a colleague's own computer and subscription; the web already hides
+ * which machine and tool (`canSeeRunnerDetails`), and the API now says the same: "a Runner", with no id, machine name or tool. Every
+ * other field keeps its meaning, so "Waiting to start" (a Runner is assigned) still reads differently from "Waiting for a Runner".
+ */
+export const MASKED_RUNNER_NAME = 'a Runner';
+
+export function maskRunState(s: RunState): RunState {
+  const out: RunState = { ...s };
+  delete out.tool;
+  if (out.runner_name !== undefined) out.runner_name = MASKED_RUNNER_NAME;
+  return out;
+}
+
 /** First match wins, in the order the ADR lists. A pure function: nothing here reads the database. */
 export function deriveRunState(i: RunStateInput): RunState {
   if (i.runStatus === 'Waiting approval') return { state: 'needs_approval' };

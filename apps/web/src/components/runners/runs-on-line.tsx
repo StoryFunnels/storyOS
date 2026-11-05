@@ -25,7 +25,7 @@ export function RunsOnLine({
   pending,
   masked = false,
 }: {
-  assigned: { id: string; name: string } | null;
+  assigned: { id: string | null; name: string } | null;
   runners: readonly RunnerDto[];
   canChange: boolean;
   onPick: (runnerId: string) => void;
