@@ -129,8 +129,8 @@ describe('the house rules for this surface, checked in the source', () => {
       expect(read(f), f).not.toMatch(/gold|accent-gold|var\(--[a-z-]+,/i);
     }
   });
-  it('the governance page mounts the workspace default', () => {
-    const page = read('../../app/w/[ws]/settings/governance/page.tsx');
+  it('the Agent rules page (was governance, ticket #1187) mounts the workspace default', () => {
+    const page = read('../../app/w/[ws]/settings/agent-rules/page.tsx');
     expect(page).toContain('<DefaultAgentModel ws={ws} />');
   });
 });

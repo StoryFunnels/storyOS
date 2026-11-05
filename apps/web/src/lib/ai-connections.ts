@@ -58,6 +58,53 @@ export function useDisconnectAiConnection(ws: string) {
   });
 }
 
+/**
+ * Ticket #1187 — the state of one connection, from what the API reports and nothing more.
+ *
+ * The API says `needs_reconnect` when the connection has no valid approval (the guard then refuses it: "This AI connection has not
+ * been approved. Reconnect the client and approve it when asked."). It does NOT say expired vs revoked: an OAuth connection whose
+ * tokens have all expired, or that was revoked, is not listed at all, so that cause cannot be shown and is never invented here. A
+ * `reaches` value this build does not know is `unknown`: no Reconnect is offered for a state we cannot name.
+ */
+export type ConnectionState =
+  | { kind: 'connected' }
+  | { kind: 'needs_reconnect'; reason: string }
+  | { kind: 'unknown' };
+
+/** What the data supports about WHY: the three causes the API documents for `needs_reconnect`, none of them guessed. */
+export const NEEDS_RECONNECT_REASON =
+  'It has no valid approval: it was connected before approval existed, was never approved, or was approved with the read-only level that has since been removed.';
+
+export function connectionState(c: Pick<AiConnection, 'reaches'>): ConnectionState {
+  switch (c.reaches) {
+    case 'all_workspaces':
+    case 'one_workspace':
+    case 'this_workspace':
+      return { kind: 'connected' };
+    case 'needs_reconnect':
+      return { kind: 'needs_reconnect', reason: NEEDS_RECONNECT_REASON };
+    default:
+      return { kind: 'unknown' };
+  }
+}
+
+/** Which written guide / logo a connection belongs to, by the name it registered with; anything else is the generic one. */
+export function clientFor(name: string): 'claude' | 'chatgpt' | 'other' {
+  const n = name.toLowerCase();
+  return n.includes('claude') ? 'claude' : n.includes('chatgpt') || n.includes('openai') ? 'chatgpt' : 'other';
+}
+
+/** The Reconnect action exists only for a connection the data says needs one. */
+export function canReconnect(c: Pick<AiConnection, 'reaches'>): boolean {
+  return connectionState(c).kind === 'needs_reconnect';
+}
+
+/** The summary in the box heading: "7 · 3 need reconnecting". */
+export function aiAppsSummary(items: Array<Pick<AiConnection, 'reaches'>>): string {
+  const n = items.filter(canReconnect).length;
+  return n > 0 ? `${items.length} · ${n} need reconnecting` : `${items.length}`;
+}
+
 export interface ConnectionWords {
   how: string;
   reaches: string;
@@ -116,4 +163,28 @@ export function connectionWords(c: Pick<AiConnection, 'kind' | 'client_name' | '
 export function lastUsedText(c: Pick<AiConnection, 'kind' | 'last_used_at'>, date: (v: unknown) => string): string {
   if (c.last_used_at) return `Last used ${date(c.last_used_at)}`;
   return c.kind === 'token' ? 'Never used' : 'Last use not recorded';
+}
+
+/**
+ * Ticket #1187 (Dara's review) — what the body of Connect your AI shows under the AI apps list.
+ *
+ *  - `pending`: the list has not loaded, so nothing is claimed yet (a green card must not flash up under a list that is about to say
+ *    "3 need reconnecting").
+ *  - `list-only`: at least one app is listed. The list IS the state of the connection; "Your AI is connected" would contradict it, so
+ *    the card and its "Try asking it" block are hidden. The steps open from the header's "Connect an AI".
+ *  - `card`: nothing is listed but an AI is known to be connected (the first connection, e.g. by an agent token): the card says so.
+ *  - `steps`: nothing is connected, or the person asked to connect another.
+ */
+export type ConnectBody = 'pending' | 'list-only' | 'card' | 'steps';
+
+export function connectBody(input: { appCount: number | undefined; aiConnected: boolean; adding: boolean }): ConnectBody {
+  if (input.appCount === undefined) return 'pending';
+  if (input.adding) return 'steps';
+  if (input.appCount > 0) return 'list-only';
+  return input.aiConnected ? 'card' : 'steps';
+}
+
+/** A broken row's Disconnect is quiet so the fix (Reconnect) is the one bordered button; a healthy row's is the ordinary bordered one. */
+export function disconnectVariant(c: Pick<AiConnection, 'reaches'>): 'ghost' | 'secondary' {
+  return canReconnect(c) ? 'ghost' : 'secondary';
 }
