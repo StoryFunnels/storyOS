@@ -166,11 +166,11 @@ Business Packs gallery (`GET /packs/registry`, `apps/web/.../w/[ws]/packs`) as t
 agentic alternative to the plain templates above — see `apps/api/src/packs/starter-packs.ts`
 for the manifests themselves.
 
-Every agent below is deliberately gated (`human_gate: true`): each one drafts something
-outward-facing or otherwise consequential, at exactly the transition where a person should
-decide "run this now" rather than have it fire on every record silently.
+No agent below sets `human_gate` (ticket #1212 reversed ticket #1183). Each agent's trigger installs
+off and the person switches it on in the install review; from then on the agent wakes by itself
+when a record reaches the state. Anything outward-facing waits in the approvals queue.
 
-| Starter (template) | Business Pack | Gated state → agent | Automation |
+| Starter (template) | Business Pack | State → agent | Automation |
 |---|---|---|---|
 | Client Work | **Agency OS** (`agency-os`) | Client → *Onboarding* → **Onboarding Assistant** drafts a welcome packet | Notify on project status change |
 | Client Space | **Client Portal** (`client-portal`) | Task's Client Approval → *Waiting* → **Approval Drafter** drafts the approval-request message | Notify on deliverable status change |

@@ -29,7 +29,11 @@ import {
   type Field,
 } from '@/components/table-view/use-table-data';
 import { EntityPickerRow } from './entity-picker-row';
+import { AgentAvatar } from '@/components/tyron/agent-avatar';
+import { useAgents } from '@/lib/runners/queries';
 import {
+  agentMentionProps,
+  agentPickerRows,
   filterMembers,
   mentionInsertContent,
   recordBreadcrumb,
@@ -92,6 +96,16 @@ const chipCls =
 function MentionChip(props: MentionProps) {
   const { ws, memberNames } = useContext(MentionScopeContext);
   if (props.kind === 'record') return <RecordChip {...props} ws={ws} />;
+  // ticket #1213: an agent mention renders as an agent (the shared AgentAvatar mark), never as a person's "@Name".
+  // The stored label is the name: agents are not in the members map.
+  if (props.kind === 'agent') {
+    return (
+      <span className={cn(chipCls, 'inline-flex items-center gap-1 align-baseline')}>
+        <AgentAvatar name={props.label || 'agent'} size="sm" className="h-4 w-4 [&>svg]:h-2.5 [&>svg]:w-2.5" />
+        {props.label || 'agent'}
+      </span>
+    );
+  }
   // @user: live display name from the members map; the stored label is the fallback
   // so an agent-written or offline mention still reads sensibly.
   const name = memberNames.get(props.id) ?? props.label;
@@ -355,6 +369,8 @@ interface PickerItem {
   breadcrumb?: string | null;
   idChip?: number | null;
   mention: MentionProps;
+  /** Listed but not pickable (ticket #1213: an agent a mention cannot wake); `breadcrumb` carries the reason. */
+  disabled?: boolean;
   /** #178: owning database of a record row, so the # picker can offer a
    *  client-side "narrow by database" filter over the current results. */
   databaseId?: string;
@@ -523,6 +539,7 @@ function makePickerMenu(opts: {
                 breadcrumb={item.breadcrumb}
                 idChip={item.idChip}
                 active={i === selectedIndex}
+                disabled={item.disabled}
                 onClick={() => onItemClick?.(item)}
               />
             ))
@@ -576,10 +593,18 @@ function Hint({ children }: { children: React.ReactNode }) {
 export function MentionSuggestionMenus({
   editor,
   ws,
+  agents: withAgents = false,
 }: {
   editor: BlockNoteEditor<never, never, never>;
   ws: string;
+  /** ticket #1213: also offer the agents the viewer can read. Only the COMMENT composer sets it, because a comment is the one
+   *  place an @-mention of an agent wakes it (comments.service.ts `wakeMentionedAgents`); a description or document would
+   *  insert a chip that does nothing. */
+  agents?: boolean;
 }) {
+  // Everything the viewer can read in the Agents database: a guest sees only the agents their grants reach. Not fetched
+  // unless asked (a document editor never needs it).
+  const agentList = useAgents(ws, withAgents);
   // See makePickerMenu: the live query text isn't in the menu props, so each
   // menu's getItems keeps its own query ref in sync for the empty-state header.
   const memberQuery = useRef('');
@@ -641,7 +666,7 @@ export function MentionSuggestionMenus({
     });
     if (error) return [];
     const members = (data as unknown as Array<{ user: MemberUser }>).map((m) => m.user);
-    return filterMembers(members, query)
+    const people: PickerItem[] = filterMembers(members, query)
       .slice(0, 8)
       .map((u) => ({
         key: u.id,
@@ -649,6 +674,19 @@ export function MentionSuggestionMenus({
         title: u.name,
         mention: userMentionProps(u),
       }));
+    if (!withAgents) return people;
+    // Agents sit UNDER people (ticket #1213), each marked as an agent with the shared mark, so one is never mistaken for a person.
+    const agentRows: PickerItem[] = agentPickerRows(agentList.agents, query)
+      .slice(0, 4)
+      .map(({ agent, disabledReason }) => ({
+        key: `agent:${agent.id}`,
+        icon: <AgentAvatar name={agent.name} size="sm" />,
+        title: agent.name,
+        breadcrumb: disabledReason ? `Agent · ${disabledReason}` : 'Agent',
+        mention: agentMentionProps(agent),
+        disabled: disabledReason !== null,
+      }));
+    return [...people, ...agentRows];
   };
 
   const getRecords = async (query: string): Promise<PickerItem[]> => {
@@ -751,7 +789,9 @@ export function MentionSuggestionMenus({
         triggerCharacter="@"
         getItems={getMembers}
         suggestionMenuComponent={MemberMenu}
-        onItemClick={(item) => insertMention(editor, item.mention)}
+        onItemClick={(item) => {
+          if (!item.disabled) insertMention(editor, item.mention);
+        }}
       />
       <SuggestionMenuController
         triggerCharacter="#"

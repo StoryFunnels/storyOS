@@ -60,15 +60,35 @@ async function dueRule(actions: unknown[]) {
   return rule.json().id as string;
 }
 
+/**
+ * Run the job queue dry, the way schedule-wakes.test.ts and schedule-intervals.test.ts do. ONE JobRunnerService.tick() claims at most 10
+ * jobs, oldest first, from a database that other files in the shard share — so a single tick answers "did our job run?" only when
+ * nothing older is queued, which is a property of the shard, not of the code under test.
+ */
+async function drainJobs() {
+  for (let i = 0; i < 8; i++) await app.get(JobRunnerService).tick();
+}
+
 describe('#1056 a scheduled rule runs an agent with nobody signed in', () => {
   it('the scheduler tick queues the run, the job runner runs the Non-AI agent, and the run is in Runs and in Automation runs', async () => {
     const rec = await as('POST', `/workspaces/${ws}/databases/${contentDb}/records`, { values: { name: 'Nightly target' } });
     expect(rec.statusCode, rec.body).toBe(201);
+    // #1396/#1395 CI — the SHARD this file runs in is not empty: earlier files leave enabled schedule rules whose nextDueAt is a fixed
+    // 2026-11-04 date (schedule-intervals' controlled clock), and from that day on they are due in REAL time. Every one of them fires
+    // on this tick and queues its own jobs AHEAD of ours (claimBatch is oldest-first, 10 per tick), so one job-runner tick never
+    // reached this rule's job. Model that crowd here, so the guard does not depend on which files share the shard: 12 older due rules.
+    // They run ANOTHER agent: every run_agent run here is titled '<agent> — Automation', so a crowd of the same agent would satisfy the
+    // assertion below by itself and prove nothing.
+    const decoy = await as('POST', `/workspaces/${ws}/databases/${agentsDb}/records`, {
+      values: { name: 'Decoy owl', enabled: true, scopes: [(await fieldsOf(agentsDb)).get('scopes')!.options!.find((o) => o.label === 'write')!.id] },
+    });
+    expect(decoy.statusCode, decoy.body).toBe(201);
+    for (let i = 0; i < 12; i++) await dueRule([{ type: 'run_agent', agent: decoy.json().id, target: 'trigger_record' }]);
     const ruleId = await dueRule([{ type: 'run_agent', agent: agentId, target: 'trigger_record' }]);
 
     await app.get(AutomationsService).tick(); // the scheduler's own entry point — no request, no session
     await app.get(AutomationsService).settle(rec.json().id);
-    await app.get(JobRunnerService).tick();
+    await drainJobs();
 
     const runFields = await fieldsOf(runsDb);
     const runs = (await as('GET', `/workspaces/${ws}/databases/${runsDb}/records`)).json().data as Array<{ title: string; values: Record<string, string> }>;
@@ -90,7 +110,7 @@ describe('#1056 a scheduled rule runs an agent with nobody signed in', () => {
 
     await app.get(AutomationsService).tick();
     await app.get(AutomationsService).settle(rec.json().id);
-    await app.get(JobRunnerService).tick();
+    await drainJobs();
 
     const approvals = (await as('GET', `/workspaces/${ws}/approvals`)).json();
     const pending = ((approvals.data ?? approvals) as Array<{ status: string; preview_text?: string }>).filter((a) => a.status === 'pending');

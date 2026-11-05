@@ -130,7 +130,7 @@ export class ClaudeCodeAdapter implements RunnerAdapter {
       // Measured on claude 2.1.104, same wake, ticket #1180: 113,848 -> 96,654 input tokens with all role-allowed tools, 28,840 -> 12,476
       // with the 8-tool preset, and the agent still read, updated, commented and ignored an injected instruction in every run. (This flag
       // also makes --exclude-dynamic-system-prompt-sections moot: it only applies to the default prompt, so it is no longer sent.)
-      '--system-prompt', buildSystemPrompt(wake, nativeRules),
+      '--system-prompt', buildSystemPrompt(wake, nativeRules, marker),
     ];
 
     // #1180: the model is the manager's choice for THIS agent. Absent = no flag at all: the customer's own default stands (their AI,

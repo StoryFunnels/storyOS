@@ -66,6 +66,18 @@ export function checkedAgo(iso: string | Date, now: Date): string {
   return d === 1 ? 'a day ago' : `${d} days ago`;
 }
 
+/**
+ * Ticket #1209: the line under the command while `npx @storyos/runner` has nothing to fetch (the package is not on npm yet,
+ * ticket #1140). The link is the closest existing page: the Runner guide has no "run it from the repo" section, only a note
+ * that the package is unpublished. REMOVE WHEN ticket #1140 clears: delete this constant and `NotPublishedLine` in
+ * components/runners/pairing-blocks.tsx.
+ */
+export const NOT_PUBLISHED_YET = {
+  before: 'Not published yet? Run it from the repo: see the',
+  linkText: 'Runner guide',
+  href: 'https://docs.storyos.dev/guides/runner/',
+} as const;
+
 /** Dara's exact strings (prototype v42 to v45, her comments on tickets #1129 and #1139). Pinned by a test. */
 export const COPY = {
   command: 'npx @storyos/runner',

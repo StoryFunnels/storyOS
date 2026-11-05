@@ -26,6 +26,7 @@ const HUBS = [HOME_HUB, INTEGRATIONS_HUB];
 /** Routes that are deliberately linked from nowhere, each with its reason. */
 const EXEMPT: Record<string, string> = {
   '/integrations/mcp': 'a redirect kept so an old link still resolves (to /connect-ai); it must not be linked',
+  '/governance': 'a redirect kept so an old link still resolves (to /agent-rules, ticket #1187); it must not be linked',
 };
 
 function settingsRoutes(dir = SETTINGS_DIR, prefix = ''): string[] {

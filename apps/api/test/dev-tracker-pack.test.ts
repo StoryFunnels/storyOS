@@ -17,6 +17,10 @@ import { signUpUser } from './helpers/users';
  *
  * `fixtures/dev-project-os-frozen.json` is the dev-project-os registry entry as it stood BEFORE this ticket. Dev Tracker is a new sibling
  * pack, so an installed Dev Project OS must be exactly what it was: that is asserted against the frozen copy, not against itself.
+ *
+ * Ticket #1212 EDITED the frozen copy on purpose, in three places and nothing else: the trigger's `human_gate` went true to false, and the pack's
+ * highlight and summary lost the word "gated" (the ruling reverses ticket #1183 for every built-in pack, this one included). The guard
+ * still pins "Dev Tracker changes nothing in Dev Project OS"; it is just a pin of the pre-#1148 entry as amended by ticket #1212.
  */
 const proto = JSON.parse(readFileSync(new URL('./fixtures/dev-tracker-prototype.json', import.meta.url), 'utf8')) as {
   name: string; summary: string; space: string; samples: number; why: string; can: string[];
