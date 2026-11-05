@@ -12,6 +12,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { apiErrorMessage } from '@/lib/api';
 import { useRunnerMutations, useRunners, useWakeSummary } from '@/lib/runners/queries';
 import { canUseRunners, GUEST_RUNNERS_MESSAGE } from '@/lib/runners/access';
+import { canEditSharing } from '@/lib/runners/sharing';
 import { confirmRemoveRunner, COPY } from '@/lib/runners/words';
 import { useWorkspace } from '@/lib/queries';
 
@@ -111,6 +112,14 @@ export default function RunnersPage() {
             key={r.id}
             runner={r}
             now={now}
+            canEditSharing={canEditSharing({ role: workspace.data?.role })}
+            onSaveSharing={async (patch) => {
+              try {
+                await m.setSharing.mutateAsync({ id: r.id, patch });
+              } catch (e) {
+                throw new Error(apiErrorMessage(e, 'Could not save that. Your earlier setting is kept.'), { cause: e });
+              }
+            }}
             removing={m.remove.isPending && m.remove.variables === r.id}
             onRemove={() => void remove(r.id, r.name, r.agents.map((a) => a.name))}
           />
