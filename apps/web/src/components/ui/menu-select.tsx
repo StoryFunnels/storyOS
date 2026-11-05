@@ -29,6 +29,7 @@ export function MenuSelect({
   className,
   contentClassName,
   disabled,
+  align = 'end',
 }: {
   label: string;
   value: string;
@@ -39,6 +40,8 @@ export function MenuSelect({
   /** #1180 — size of the OPEN list only (a list whose rows carry a description needs more than the default 12rem). */
   contentClassName?: string;
   disabled?: boolean;
+  /** #1196 — which edge of the trigger the open list lines up with. A menu that opens left-aligned under its button reads as belonging to it. */
+  align?: 'start' | 'end';
 }) {
   const current = options.find((o) => o.value === value) ?? options[0];
   return (
@@ -49,10 +52,16 @@ export function MenuSelect({
           <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className={cn('max-h-72 w-48 overflow-y-auto', contentClassName)}>
+      <DropdownMenuContent
+        align={align}
+        className={cn('max-h-72 w-48 overflow-y-auto', contentClassName)}
+        // #1196 — a long list (the hire card's 48 times) opens scrolled to the current value, not to its top.
+        ref={(el: HTMLDivElement | null) => el?.querySelector('[data-current="true"]')?.scrollIntoView({ block: 'center' })}
+      >
         {options.map((o) => (
           <DropdownMenuItem
             key={o.value}
+            data-current={o.value === value ? 'true' : undefined}
             disabled={o.disabled}
             onSelect={() => onChange(o.value)}
             className="justify-between text-label data-[disabled]:opacity-40"

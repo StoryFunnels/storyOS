@@ -1,13 +1,14 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/auth-client';
 import { useDatabases, useWorkspace } from '@/lib/queries';
 import { canUseRunners } from './access';
 import { agentSystemDatabases } from '@/lib/system-databases';
 import type { EffectiveRole } from '@/lib/access';
-import { useDatabase } from '@/components/table-view/use-table-data';
+import { databaseQuery, useDatabase } from '@/components/table-view/use-table-data';
+import type { Field } from '@/components/table-view/use-table-data';
 import { toAgentView } from './agents';
 import type { AgentRecordLike, AgentView } from './agents';
 import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, WakeDto, WakeSummary } from './types';
@@ -73,6 +74,42 @@ export function useAgentWakes(ws: string, agentId: string | undefined) {
     enabled: Boolean(agentId),
     refetchInterval: 10_000,
   });
+}
+
+/**
+ * Ticket #1196 — the list's "Last run" column: one small read per agent (its newest wakes), because the queue is paged and a
+ * workspace-wide page could miss an agent's last run and print "Never" for one that ran. Not the agent page's own query (that polls
+ * every 10 s and is 50 rows); this one is cheap and slow. Keyed by agent so the answers stay put when the list reorders.
+ */
+export function useLastRuns(ws: string, agentIds: readonly string[]): Record<string, { wakes: WakeDto[]; hasMore: boolean } | undefined> {
+  const results = useQueries({
+    queries: agentIds.map((id) => ({
+      queryKey: ['agent-last-run', ws, id] as const,
+      queryFn: async () => {
+        const body = unwrap<{ data: WakeDto[]; next_cursor: string | null }>(
+          await api.GET('/api/v1/workspaces/{ws}/agent-wakes', { params: { path: { ws }, query: { agent: id, limit: 20 } } } as never),
+        );
+        return { wakes: body.data, hasMore: Boolean(body.next_cursor) };
+      },
+      staleTime: 30_000,
+      refetchInterval: 60_000,
+    })),
+  });
+  const out: Record<string, { wakes: WakeDto[]; hasMore: boolean } | undefined> = {};
+  agentIds.forEach((id, i) => {
+    out[id] = results[i]?.data;
+  });
+  return out;
+}
+
+/** Ticket #1196 — the fields of each database the hire card needs to look inside (same cache entries as `useDatabase`). */
+export function useDatabaseFields(ws: string, ids: readonly string[]): Record<string, Field[] | undefined> {
+  const results = useQueries({ queries: ids.map((id) => ({ ...databaseQuery(ws, id), enabled: Boolean(ws && id) })) });
+  const out: Record<string, Field[] | undefined> = {};
+  ids.forEach((id, i) => {
+    out[id] = results[i]?.data?.fields as Field[] | undefined;
+  });
+  return out;
 }
 
 export function useAssignment(ws: string, agentId: string | undefined, enabled: boolean) {
