@@ -231,13 +231,20 @@ export class SearchController {
       )
       .limit(5);
 
+    // Ticket #1211 — a space result opens that space, so it must be one the caller can open: the sidebar DOOR
+    // (`visibleSpaceIds`, never `assertSpace`) plus `notOthersPersonal`. This used to be "only when every database is
+    // visible", which gave a guest (and a member in a restricted workspace) no space results at all, and let an admin's
+    // search name ANOTHER member's personal space (private from admins, #291), a row that now opens a page.
+    const visibleSpaces = await this.access.visibleSpaceIds(req.membership);
     let spaceRows: Array<{ id: string; name: string; icon: string | null }> = [];
-    if (visible === null) {
+    if (visibleSpaces === null || visibleSpaces.size > 0) {
       spaceRows = await this.db.query.spaces.findMany({
         where: and(
           eq(spaces.workspaceId, workspaceId),
           sql`${spaces.name} ILIKE ${pattern}`,
           notDeleted(spaces.deletedAt),
+          this.access.notOthersPersonal(req.membership),
+          ...(visibleSpaces !== null ? [inArray(spaces.id, [...visibleSpaces])] : []),
         ),
         columns: { id: true, name: true, icon: true },
         limit: 5,
