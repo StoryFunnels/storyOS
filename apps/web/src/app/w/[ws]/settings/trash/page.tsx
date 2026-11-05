@@ -5,7 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useWorkspace } from '@/lib/queries';
+import { canOpenAdminSettings } from '@/lib/settings-nav';
 import { TrashSection } from '@/components/entity/trash-list';
+import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
 
 interface TrashedSpace {
   id: string;
@@ -33,7 +35,7 @@ export default function WorkspaceTrashPage() {
   const qc = useQueryClient();
   const workspace = useWorkspace(ws);
   const role = (workspace.data as { role?: string } | undefined)?.role;
-  const isAdmin = role === 'admin';
+  const isAdmin = canOpenAdminSettings(role);
 
   const spacesTrash = useQuery({
     queryKey: ['trash-spaces', ws],
@@ -111,37 +113,45 @@ export default function WorkspaceTrashPage() {
     );
   }
 
-  const nothingAtAll = (spacesTrash.data ?? []).length === 0 && (databasesTrash.data ?? []).length === 0;
+  // Unloaded is not empty: a confident "Nothing in the trash" before the lists arrive would be wrong for a moment.
+  if (spacesTrash.isLoading || databasesTrash.isLoading) return <p className="p-8 text-body text-muted">Loading…</p>;
+
+  const nothingAtAll =(spacesTrash.data ?? []).length === 0 && (databasesTrash.data ?? []).length === 0;
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Trash</h1>
-      <p className="mb-6 text-body text-muted">
-        Deleted spaces and databases for the whole workspace. Deleted records and views live in
-        each database's own Trash — open the database and look for it there instead.
-      </p>
-      {nothingAtAll ? (
-        <p className="text-sm text-muted">Nothing here. Deleted spaces and databases stay restorable for 30 days.</p>
-      ) : (
-        <div className="flex flex-col gap-6">
-          <TrashSection
-            title="Spaces"
-            items={spacesTrash.data ?? []}
-            emptyText="No deleted spaces."
-            label={(s) => s.name}
-            onRestore={(s) => restoreSpace.mutate(s.id)}
-            restoringId={restoreSpace.isPending ? restoreSpace.variables : undefined}
-          />
-          <TrashSection
-            title="Databases"
-            items={databasesTrash.data ?? []}
-            emptyText="No deleted databases."
-            label={(d) => d.name}
-            onRestore={(d) => restoreDatabase.mutate(d.id)}
-            restoringId={restoreDatabase.isPending ? restoreDatabase.variables : undefined}
-          />
-        </div>
-      )}
+      <SettingsPageHeader title="Trash" lead="Deleted spaces and databases, kept for 30 days" />
+      <SettingsPageBody>
+        {nothingAtAll ? (
+          <SettingsBox>
+            <SettingsRow title="Nothing in the trash" description="Deleted spaces and databases stay restorable for 30 days." />
+          </SettingsBox>
+        ) : (
+          <>
+            <TrashSection
+              chrome="settings"
+              title="Spaces"
+              items={spacesTrash.data ?? []}
+              emptyText="No deleted spaces."
+              label={(s) => s.name}
+              onRestore={(s) => restoreSpace.mutate(s.id)}
+              restoringId={restoreSpace.isPending ? restoreSpace.variables : undefined}
+            />
+            <TrashSection
+              chrome="settings"
+              title="Databases"
+              items={databasesTrash.data ?? []}
+              emptyText="No deleted databases."
+              label={(d) => d.name}
+              onRestore={(d) => restoreDatabase.mutate(d.id)}
+              restoringId={restoreDatabase.isPending ? restoreDatabase.variables : undefined}
+            />
+          </>
+        )}
+        <p className="text-label text-muted">
+          Deleted records and views live in each database&apos;s own Trash: open the database and look for it there instead.
+        </p>
+      </SettingsPageBody>
     </div>
   );
 }
