@@ -61,6 +61,7 @@ async function setupDatabaseAndConnection(label: string) {
   const callback = await app.inject({
     method: 'GET',
     url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code-${label}`,
+    headers: { cookie: String(start.headers['set-cookie']).split(';')[0] }, // #1048: the browser that started it
   });
   expect(callback.statusCode).toBe(302);
   const connectionId = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.find(

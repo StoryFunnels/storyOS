@@ -1759,6 +1759,16 @@ export const connectionStatus = pgEnum('connection_status', [
   'error',
 ]);
 
+/**
+ * #1048 — every Connections OAuth `state` nonce that has completed a callback. The primary key IS the once-only rule: a second
+ * callback with the same state fails its insert. Rows older than the state's 10-minute life are pruned on use (an expired
+ * state is refused by its own timestamp, so nothing needs them after that).
+ */
+export const oauthStateUses = pgTable('oauth_state_uses', {
+  nonce: text('nonce').primaryKey(),
+  usedAt: timestamp('used_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const connections = pgTable(
   'connections',
   {

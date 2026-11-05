@@ -55,6 +55,14 @@ afterAll(async () => {
   await app.close();
 });
 
+
+/** #1048: the cookie `/start` set on "this browser", as a Cookie header for the callback. */
+function cookieFrom(start: { headers: Record<string, unknown> }): string {
+  const raw = start.headers['set-cookie'];
+  const first = String(Array.isArray(raw) ? raw[0] : raw);
+  return first.split(';')[0]!;
+}
+
 describe('connections registry (MN-252)', () => {
   it('lists the provider catalog', async () => {
     const res = await inject('GET', `/workspaces/${wsId}/connections/providers`);
@@ -281,9 +289,63 @@ describe('connections registry (MN-252)', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}`,
+      headers: { cookie: cookieFrom(start) },
     });
     expect(res.statusCode).toBe(302);
     expect(String(res.headers.location)).toContain('/settings/connections?error=');
+  });
+
+  it('#1048: /start sets an HttpOnly, SameSite=Lax nonce cookie scoped to the callback path', async () => {
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const cookie = String(start.headers['set-cookie']);
+    expect(cookie).toMatch(/^storyos_oauth_nonce=[A-Za-z0-9_-]+;/);
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
+    expect(cookie).toContain('Path=/api/v1/connections/oauth');
+    expect(cookie).toContain('Max-Age=600');
+  });
+
+  it('#1048: a valid state opened in ANOTHER browser (no cookie, or another connect\'s cookie) is refused before the code is exchanged', async () => {
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    const other = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    calls = [];
+    nextStatus = 200;
+    nextJson = { access_token: 'ya29.stolen', refresh_token: 'r', expires_in: 3600 };
+
+    for (const headers of [{}, { cookie: cookieFrom(other) }, { cookie: 'storyos_oauth_nonce=../../etc' }]) {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=c`, headers });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toContain('different browser');
+    }
+    expect(calls).toHaveLength(0); // never reached the token exchange
+  });
+
+  it('#1048: a state completes ONCE: replaying the same callback (same browser) is refused', async () => {
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+    const start = await inject('GET', `/workspaces/${wsId}/connections/oauth/google/start`);
+    const state = new URL(String(start.headers.location)).searchParams.get('state')!;
+    const url = `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=once-code`;
+    nextStatus = 200;
+    nextJson = { access_token: 'ya29.once', refresh_token: 'r', expires_in: 3600 };
+
+    const first = await app.inject({ method: 'GET', url, headers: { cookie: cookieFrom(start) } });
+    expect(first.statusCode).toBe(302);
+    expect(String(first.headers.location)).toContain('connected=google');
+    expect(String(first.headers['set-cookie'])).toContain('Max-Age=0'); // the browser drops it
+
+    calls = [];
+    const replay = await app.inject({ method: 'GET', url, headers: { cookie: cookieFrom(start) } });
+    expect(replay.statusCode).toBe(400);
+    expect(calls).toHaveLength(0);
+
+    const google = (await inject('GET', `/workspaces/${wsId}/connections`)).json().data.filter((c: { provider: string }) => c.provider === 'google');
+    for (const c of google) await inject('DELETE', `/workspaces/${wsId}/connections/${c.id}`);
   });
 
   it('refresh loop: a failed refresh flips status to expired and notifies the creator', async () => {
@@ -299,6 +361,7 @@ describe('connections registry (MN-252)', () => {
     const callback = await app.inject({
       method: 'GET',
       url: `/api/v1/connections/oauth/callback?state=${encodeURIComponent(state)}&code=good-code`,
+      headers: { cookie: cookieFrom(start) },
     });
     expect(callback.statusCode).toBe(302);
     expect(String(callback.headers.location)).toContain('connected=google');
