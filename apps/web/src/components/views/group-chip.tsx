@@ -17,9 +17,14 @@ export function viewGroups(viewType: string | undefined): viewType is 'board' | 
 
 /** The label of the ungrouped bucket, matched to board-view.tsx's own copy so the switch names the
  * column the user is actually looking at (#428). */
-export function noValueLabelFor(groupType: string | undefined): string {
+export function noValueLabelFor(
+  groupType: string | undefined,
+  /** A list grouped by a relation names its bucket `No <field>` (list-groups.ts); a board says Unassigned. */
+  list?: { viewType: string; fieldName: string },
+): string {
   if (groupType === 'date') return 'No date';
   if (groupType === 'select' || groupType === 'workflow') return 'No value';
+  if (groupType === 'relation' && list?.viewType === 'list') return `No ${list.fieldName}`;
   return 'Unassigned';
 }
 
@@ -67,7 +72,7 @@ export function GroupChip({
   const isDate = groupField?.type === 'date';
   const columnSort: ColumnSort = config.column_sort ?? 'natural';
   const reasonFor = viewType === 'board' ? boardGroupDisabledReason : listGroupDisabledReason;
-  const noValueLabel = noValueLabelFor(groupField?.type);
+  const noValueLabel = noValueLabelFor(groupField?.type, { viewType, fieldName: groupField?.displayName ?? '' });
 
   return (
     <Popover>

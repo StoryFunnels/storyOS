@@ -1,69 +1,27 @@
-'use client';
-
-import { usePathname, useParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { api } from '@/lib/api';
-import { SettingsNav } from '@/components/settings/settings-nav';
-import { useSettingsSignals } from '@/components/settings/use-settings-signals';
-import { settingsNavCounts } from '@/lib/settings-home';
-import { canOpenAdminSettings, settingsFlags, settingsNavGroups } from '@/lib/settings-nav';
 
 /**
- * The Settings shell (#29/#30/#31, rebuilt by ticket #1185): the nav on the left and the active page on the right.
+ * The Settings page column (ticket #1186, Dara's shell scope from ticket #1216): ONE place for where a Settings page sits.
  *
- * What the nav holds is decided in `lib/settings-nav.ts` (five groups, each page declared once with who may open it); this file only
- * gathers the facts that decision needs (the viewer's role, whether this is a cloud deployment) and the real counts shown beside
- * entries. The page itself is still refused in-page for a role that types its URL (`AdminsOnly`, #1092): the nav hiding a link is not a gate.
+ * Ticket #1216 (PR #1409) moved the Settings menu into the app sidebar and deleted this file, which had held the menu column, so every page
+ * was left centred at 768px inside the pane (136px of empty space to the left of the title). The prototype's page column is LEFT-aligned
+ * in the pane: 28px from the sidebar, 22px under the top edge (so the 18px/700 title's top is 31px in a 1270px window), a content column of at most 720px.
+ *
+ * Every Settings page still draws its own root (`mx-auto max-w-3xl p-4 sm:p-8`, and a few their own width). Rather than edit all of them
+ * (and conflict with the other Settings tickets, #1187 to #1189), this wrapper takes over the three things that decide the column
+ * (centring, padding, width) from whatever the page's root asks for. A page added later gets the column without having to know. Below
+ * the `sm` breakpoint the gutter stays 16px, as the pages had it.
+ *
+ * Consequence to know: a page that asked for more than 720px (the audit log and the integrations hub were `max-w-4xl`) is now held to 720,
+ * as the prototype draws every page. A page that truly needs room can opt out by moving out of this layout, not by overriding it.
  */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
-  const { ws } = useParams<{ ws: string }>();
-  const pathname = usePathname();
-
-  const workspace = useQuery({
-    queryKey: ['workspace', ws],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}', {
-        params: { path: { ws } },
-      } as never);
-      if (error) throw error;
-      return data as unknown as { role: string };
-    },
-  });
-  const role = workspace.data?.role;
-
-  // MN-166: `enabled` is false on self-host (no STRIPE_SECRET_KEY) — Plan & billing only makes sense on a cloud instance, so it is
-  // hidden rather than shown pointing at a section that would just 404/503 everything.
-  const billing = useQuery({
-    queryKey: ['billing-status', ws],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/billing', {
-        params: { path: { ws } },
-      } as never);
-      if (error) throw error;
-      return data as unknown as { enabled: boolean };
-    },
-    enabled: canOpenAdminSettings(role),
-  });
-
-  // #33: same cloud-only signal as billing, but user-scoped (not admin-gated) since a referral link belongs to a person, not a
-  // workspace — every member, not just admins, sees it once it's on.
-  const referrals = useQuery({
-    queryKey: ['referrals-me'],
-    queryFn: async () => {
-      const { data, error } = await api.GET('/api/v1/referrals/me');
-      if (error) throw error;
-      return data as unknown as { enabled: boolean };
-    },
-  });
-
-  const groups = settingsNavGroups(ws, role, settingsFlags(role, billing.data?.enabled, referrals.data?.enabled));
-  const counts = settingsNavCounts(role, useSettingsSignals(ws, role));
-
   return (
-    <div className="flex min-h-full flex-col md:flex-row">
-      <SettingsNav ws={ws} pathname={pathname} groups={groups} counts={counts} />
-      <div className="min-w-0 flex-1">{children}</div>
+    <div
+      data-testid="settings-column"
+      className="box-content max-w-[720px] px-4 pb-8 pt-4 sm:px-7 sm:pt-[22px] [&>*]:mx-0! [&>*]:max-w-none! [&>*]:p-0!"
+    >
+      {children}
     </div>
   );
 }

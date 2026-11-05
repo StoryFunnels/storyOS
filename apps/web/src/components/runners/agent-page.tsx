@@ -7,17 +7,24 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { apiErrorMessage } from '@/lib/api';
 import { asksBeforeLine, summaryFor, waitingLine } from '@/lib/runners/agents';
 import type { AgentView } from '@/lib/runners/agents';
-import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useWakeSummary } from '@/lib/runners/queries';
-import { canSeeRunnerDetails, canHireAgents } from '@/lib/runners/access';
+import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
+import { canSeeRunnerDetails, canHireAgents, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
+import { confirmLetItThink, runWithoutAiToast } from '@/lib/runners/let-it-think-copy';
+import { letItThinkToast, NON_AI, offersLetItThink, offersRunNow, offersRunWithoutAi, openManualWake, OWN_AI, runNowToast, soleOnlineRunner } from '@/lib/runners/let-it-think';
+import { useAgentsDatabaseAccess, useRunNow, useSetAiMode } from '@/lib/runners/use-let-it-think';
 import { useWorkspace } from '@/lib/queries';
 import { canChangeRunsOn, ownerRunners } from '@/lib/runners/runs-on';
-import { shortDate } from '@/lib/runners/words';
+import { canEditAgentSettings } from '@/lib/runners/agent-settings';
+import { limitBrand, shortDate } from '@/lib/runners/words';
 import { HireDialog } from './hire-dialog';
+import { NonAiLine, RunNowButton } from './let-it-think';
 import { FirstRunCard } from './first-run-card';
+import { AgentAdvanced } from './agent-advanced';
 import { RunList } from './run-list';
 import { RunsOnLine } from './runs-on-line';
 
@@ -32,7 +39,7 @@ import { RunsOnLine } from './runs-on-line';
 export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const router = useRouter();
   const me = useMyUserId();
-  const { agents, dbId, loading, error } = useAgents(ws);
+  const { agents, dbId, myAccess, settingsFieldsReady, loading, error } = useAgents(ws);
   const agent = agents.find((a) => a.id === agentId);
   const usesRunner = Boolean(agent?.usesRunner);
   const runners = useRunners(ws);
@@ -40,9 +47,15 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const wakes = useAgentWakes(ws, agent?.id);
   const members = useMembers(ws, true);
   const m = useRunnerMutations(ws);
+  const saveSettings = useSaveAgentSettings(ws, dbId);
   const [hireOpen, setHireOpen] = useState(false);
-  const role = useWorkspace(ws).data?.role;
+  const workspaceInfo = useWorkspace(ws).data;
+  const role = workspaceInfo?.role;
   const masked = !canSeeRunnerDetails(role);
+  const agentsAccess = useAgentsDatabaseAccess(ws);
+  const aiMode = useSetAiMode(ws, dbId);
+  const runNow = useRunNow(ws);
+  const confirm = useConfirm();
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
   if (error || !agent) {
@@ -64,7 +77,47 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const row = summaryFor(summary.data, agent.id);
   const assigned = row?.runner ?? null;
   const mine = ownerRunners(runners.data ?? [], agent.ownerId, me);
+  const assignedRunner = mine.find((r) => r.id === assigned?.id);
+  const workspaceModel = workspaceInfo?.settings?.default_agent_model ?? null;
   const goAdd = () => router.push(`/w/${ws}/settings/runners?add=1`);
+
+  // Ticket #1210: the manager (or an admin) may move a Non-AI agent to Your own AI from here, preselecting the manager's only online Runner.
+  const ownAiOptionId = agentsAccess.optionId(OWN_AI);
+  const mayLetItThink = offersLetItThink(agent) && canLetAgentThink({ role, isOwner, myAccess: agentsAccess.myAccess }) && Boolean(dbId) && Boolean(ownAiOptionId);
+  async function letItThink() {
+    if (!ownAiOptionId) return;
+    // Cost and privacy in plain words, and that no run starts by itself: one Cancel away from a slip.
+    if (!(await confirm(confirmLetItThink(agent!.name)))) return;
+    const preselect = soleOnlineRunner(mine);
+    aiMode.letItThink.mutate(
+      { agentId: agent!.id, ownAiOptionId, preselect: preselect ? { id: preselect.id, name: preselect.name } : null },
+      {
+        onSuccess: (result) => (result.assignError ? toast.warning : toast.success)(letItThinkToast(agent!.name, result, isOwner)),
+        onError: (e) => toast.error(apiErrorMessage(e, 'Could not switch this agent to your AI. Try again.')),
+      },
+    );
+  }
+  // Ticket #1210: the way back lives in Advanced, for the same people, and only for an agent that thinks with their own AI.
+  const nonAiOptionId = agentsAccess.optionId(NON_AI);
+  const mayRunWithoutAi = offersRunWithoutAi(agent) && canLetAgentThink({ role, isOwner, myAccess: agentsAccess.myAccess }) && Boolean(dbId) && Boolean(nonAiOptionId);
+  function runWithoutAi() {
+    if (!nonAiOptionId) return;
+    aiMode.switchBack.mutate(
+      { agentId: agent!.id, nonAiOptionId },
+      {
+        onSuccess: () => toast.success(runWithoutAiToast(agent!.name)),
+        onError: (e) => toast.error(apiErrorMessage(e, 'Could not switch this agent. Try again.')),
+      },
+    );
+  }
+  // Ticket #1210: "Run now" is a manual wake, for an agent a Runner serves, for an admin (the start endpoint is admin-only).
+  const mayRunNow = offersRunNow(agent, assigned, canRunAgentNow(role));
+  function runAgentNow() {
+    runNow.mutate(agent!.id, {
+      onSuccess: () => toast.success(runNowToast(agent!.name, Boolean(row?.can_run), assigned?.name ?? null)),
+      onError: (e) => toast.error(apiErrorMessage(e, 'Could not start this agent. Try again.')),
+    });
+  }
 
   function pick(runnerId: string) {
     m.assign.mutate(
@@ -92,7 +145,11 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
       {usesRunner ? (
         <>
           {/* A non-owner sees where it runs, read-only: listing or assigning someone else's Runner is not possible. */}
-          <RunsOnLine assigned={assigned} runners={mine} canChange={isOwner} masked={masked} onPick={pick} onAdd={goAdd} now={new Date()} pending={m.assign.isPending} />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <RunsOnLine assigned={assigned} runners={mine} canChange={isOwner} masked={masked} onPick={pick} onAdd={goAdd} now={new Date()} pending={m.assign.isPending} />
+            {mayRunNow && <RunNowButton onRun={runAgentNow} pending={runNow.isPending} alreadyQueued={openManualWake(wakes.data?.data ?? [])} />}
+          </div>
+          {/* HOOK, ticket #1152 (web half, not built): the one-click catch-up box for records already waiting goes HERE, under "Runs on". */}
           {!assigned &&
             (isOwner ? (
               <FirstRunCard
@@ -109,16 +166,35 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
             ))}
         </>
       ) : (
-        <p className="m-0 text-body text-muted" data-testid="no-runner-needed">
-          {!agent.enabled
-            ? 'Switched off. StoryOS will not run it.'
-            : agent.aiMode === 'StoryOS AI'
-              ? 'It thinks with StoryOS AI, so it needs no Runner.'
-              : 'It runs its steps without an AI, so it needs no Runner.'}
-        </p>
+        !agent.enabled ? (
+          <p className="m-0 text-body text-muted" data-testid="no-runner-needed">
+            Switched off. StoryOS will not run it.
+          </p>
+        ) : agent.aiMode === 'StoryOS AI' ? (
+          <p className="m-0 text-body text-muted" data-testid="no-runner-needed">
+            It thinks with StoryOS AI, so it needs no Runner.
+          </p>
+        ) : (
+          <NonAiLine onAct={mayLetItThink ? letItThink : undefined} pending={aiMode.letItThink.isPending} />
+        )
       )}
 
       <Facts agent={agent} />
+      {/* Ticket #1180 — only an agent a Runner serves has tools and a model to choose; a guest is never shown it (same gate as the machine name). */}
+      {usesRunner && !masked && (
+        <AgentAdvanced
+          savedTools={agent.tools}
+          savedModel={agent.model}
+          workspaceDefaultModel={workspaceModel}
+          canEdit={canEditAgentSettings(myAccess)}
+          ownerName={isOwner || ownerName === 'its owner' ? null : ownerName}
+          brand={assignedRunner?.chosen_tool ? limitBrand(assignedRunner.chosen_tool, assignedRunner.tools) : 'AI'}
+          chosenTool={assignedRunner?.chosen_tool}
+          saving={saveSettings.isPending}
+          onSave={(values) => saveSettings.mutateAsync({ agentId: agent.id, values, ensureFields: !settingsFieldsReady })}
+          runWithoutAi={mayRunWithoutAi ? { onSwitch: runWithoutAi, pending: aiMode.switchBack.isPending } : undefined}
+        />
+      )}
       <RunList masked={masked} ws={ws} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
       {dbId && canHireAgents(role) && <HireDialog ws={ws} agentsDbId={dbId} open={hireOpen} onOpenChange={setHireOpen} />}
     </div>

@@ -95,12 +95,12 @@ export const SETTINGS_PAGES: ReadonlyArray<SettingsPage> = [
   { id: 'general', group: 'workspace', label: 'General', access: 'admins', path: '/general' },
   { id: 'members', group: 'workspace', label: 'Members', access: 'admins', path: '/members' },
   { id: 'billing', group: 'workspace', label: 'Plan & billing', access: 'admins', path: '/billing', cloud: 'billing' },
-  // Ticket #1186 builds the real Packs page under settings; until it lands this is the existing Business packs page.
-  { id: 'packs', group: 'workspace', label: 'Packs', access: 'admins', outside: '/packs' },
+  // Ticket #1186: the installed packs live here; the marketplace (choosing and installing) stays at /w/{ws}/packs, reached by "Browse packs".
+  { id: 'packs', group: 'workspace', label: 'Packs', access: 'admins', path: '/packs' },
 
   { id: 'connect-ai', group: 'ai', label: 'Connect your AI', access: 'editors', path: '/connect-ai' },
   { id: 'runners', group: 'ai', label: 'Runners', access: 'editors', path: '/runners' },
-  { id: 'agent-rules', group: 'ai', label: 'Agent rules', access: 'admins', path: '/governance' },
+  { id: 'agent-rules', group: 'ai', label: 'Agent rules', access: 'admins', path: '/agent-rules' },
 
   { id: 'integrations', group: 'connections', label: 'Integrations', access: 'admins', path: '/integrations', alsoActiveFor: ['/connections'] },
   { id: 'api-tokens', group: 'connections', label: 'API tokens', access: 'editors', path: '/api' },
@@ -142,6 +142,16 @@ export interface SettingsNavGroup {
 
 export function settingsHomeHref(ws: string): string {
   return `/w/${ws}/settings`;
+}
+
+/**
+ * Whether `pathname` is a Settings page (the home or anything beneath it). The ONE answer to "are we in Settings?": it decides
+ * whether the app sidebar shows the settings menu instead of the space tree (ticket #1216), whether the rail gear is lit, whether
+ * the floating "+" is offered, and what Back remembers. Packs (`/w/{ws}/packs`) is NOT a settings path even though the menu links
+ * to it: the business-packs page is also reached from the sidebar's own row, so it keeps the space tree.
+ */
+export function isSettingsPath(pathname: string | null | undefined): boolean {
+  return pathname != null && /^\/w\/[^/]+\/settings(\/|$)/.test(pathname);
 }
 
 function pageHref(ws: string, page: SettingsPage): string {

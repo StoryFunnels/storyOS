@@ -1,3 +1,6 @@
+import { atLeast } from '@/lib/access';
+import type { EffectiveRole } from '@/lib/access';
+
 /**
  * Ticket #1139 — who may open the Runner screens. A Runner is a person's own computer and subscription: members and admins hold
  * them, a guest never does (the API refuses every Runner call for a guest, #1091's rule, `GUEST_RUNNER_MESSAGE`). `undefined`
@@ -19,3 +22,22 @@ export const GUEST_RUNNERS_MESSAGE = 'Guests cannot pair a Runner. Ask a workspa
  */
 export const canSeeRunnerDetails = canUseRunners;
 export const canHireAgents = canUseRunners;
+
+/**
+ * Ticket #1210 — who is offered "Let it think with your AI". The agent's MANAGER (its owner, ADR-0021 Q2) or an admin, and only
+ * when the write the action makes would be accepted: it edits the agent's record, which needs at least `contributor` on the Agents
+ * database (the server's own bar). A guest never sees it, whatever grant they hold: this is a Runner surface. `myAccess`
+ * `undefined` (the database has not loaded) is "not yet", never "allowed".
+ */
+export function canLetAgentThink(o: { role: string | undefined; isOwner: boolean; myAccess: EffectiveRole | undefined | null }): boolean {
+  if (!canUseRunners(o.role)) return false;
+  if (!(o.isOwner || o.role === 'admin')) return false;  return atLeast(o.myAccess ?? undefined, 'contributor');
+}
+
+/**
+ * Ticket #1210 — who may press "Run now". `POST /workspaces/{ws}/agents/{agent}/run` is admin-only (the Agents controller is
+ * `@MinRole('admin')`), so this is the admin role and nothing wider; widening it needs the API to move first.
+ */
+export function canRunAgentNow(role: string | undefined): boolean {
+  return role === 'admin';
+}

@@ -55,6 +55,20 @@ export function confirmRevokeInvite(email: string): SettingsConfirm {
   };
 }
 
+/**
+ * Uninstalling a pack (ticket #1186; the marketplace page asked with `window.confirm`). States what `PacksService.uninstall` does TODAY:
+ * it removes the views, automations, agents and skills the install made unless they changed since, and never touches databases, fields,
+ * relations or records. The prototype's first draft said "Your databases, records and views stay", which is wrong for the views.
+ */
+export function confirmUninstallPack(pack: string): SettingsConfirm {
+  return {
+    title: `Uninstall ${pack}?`,
+    message: `This removes the views, automations, agents and skills ${pack} added, except any you changed since: those stay. Your databases, fields and records are never removed. Updates to ${pack} stop.`,
+    confirmLabel: 'Uninstall',
+    danger: true,
+  };
+}
+
 export function confirmRemovePhoto(): SettingsConfirm {
   return {
     title: 'Remove your photo?',

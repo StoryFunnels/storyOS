@@ -133,6 +133,8 @@ export const RUN_CLASS_BY_LABEL: Record<string, RunClass> = Object.fromEntries(
  * A skill (#40) an agent loads into a run (ticket #1106). Resolved by name when the run STARTS, so it is the skill as it is now.
  */
 export interface AgentRunSkill {
+  /** The skill's id: what the Run record names it by (ticket #1203: the record never holds the text). */
+  id: string;
   name: string;
   whenToUse: string;
   instructions: string;
@@ -150,17 +152,28 @@ export function skillPromptText(skill: AgentRunSkill): string {
   return `Skill "${skill.name}"${skill.whenToUse.trim() ? ` (use when: ${skill.whenToUse.trim()})` : ''}:\n${body}`;
 }
 
-/** The run-record step that says which skills this run loaded — the same step for every runtime. */
+/** How the Run record names a loaded skill: its name and id, never its text (ticket #1203). */
+export function skillRecordText(skill: AgentRunSkill): string {
+  return `Skill "${skill.name}" (id ${skill.id})`;
+}
+
+/**
+ * The run-record step that says which skills this run loaded — the same step for every runtime.
+ *
+ * ticket #1203: it records NAMES AND IDS ONLY. A Run record is readable by people who may not read the skill (a personal skill is
+ * private even from admins, and a Runner run refuses it at claim time, after this step was written), so the instructions go to the
+ * runtime that needs them and nowhere else.
+ */
 export function skillsLoadStep(skills: AgentRunSkill[], runClass: RunClass): AgentStep {
   const how: Record<RunClass, string> = {
     storyos_ai: "added to the managed model's prompt as a Skills section",
-    your_own_ai: "included in the handoff your connected AI reads",
+    your_own_ai: 'sent to the connected Runner when it claims this run',
     non_ai: 'recorded here only: a non-AI run invokes no model, so nothing reads them',
   };
   return {
     tool: 'skills.load',
     summary: `Loaded ${skills.length} skill${skills.length === 1 ? '' : 's'} at run time: ${skills.map((k) => k.name).join(', ')}`,
-    detail: `Resolved by name when this run started (so an edit since the last run is what runs). ${how[runClass]}.\n\n${skills.map(skillPromptText).join('\n\n')}`,
+    detail: `Resolved by name when this run started (so an edit since the last run is what runs). ${how[runClass]}. The skills' instructions are not stored in this record.\n\n${skills.map(skillRecordText).join('\n')}`,
   };
 }
 
@@ -315,7 +328,7 @@ export class YourOwnAiRuntime implements AgentRuntime {
         `Goal: ${ctx.agent.goal?.trim() || '(none set — add one to the agent record)'}.` +
         (ctx.agent.instructions?.trim() ? ` Instructions: ${ctx.agent.instructions.trim()}.` : '') +
         (ctx.agent.skills?.length
-          ? ` Skills to apply (resolved when this run started):\n${ctx.agent.skills.map(skillPromptText).join('\n\n')}\n`
+          ? ` Skills to apply (resolved when this run started; their instructions are not stored in this record):\n${ctx.agent.skills.map(skillRecordText).join('\n')}\n`
           : '') +
         ' Point the connected MCP client at that goal, capped to the scope and target databases ' +
         'resolved above. Nothing runs here — a your-own-AI run is never metered by StoryOS ' +

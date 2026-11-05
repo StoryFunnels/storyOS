@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { EffectiveRole } from './access';
+import { workspaceNameCacheKeys } from './workspace-name';
 
 export interface Space {
   id: string;
@@ -81,7 +82,7 @@ export interface WorkspaceInfo {
   /** #539 — the shared jsonb `settings` bag was always on the wire (same
    *  under-typed-response pattern #293 found for `Space`); this type just
    *  didn't declare the one key the settings page needs to read/round-trip. */
-  settings?: { branding?: WorkspaceBranding; agents_may_publish_skills?: boolean };
+  settings?: { branding?: WorkspaceBranding; agents_may_publish_skills?: boolean; /** Ticket #1180 — null/absent = pass nothing (the tool's own default). */ default_agent_model?: string | null };
 }
 
 function unwrap<T>({ data, error }: { data?: unknown; error?: unknown }): T {
@@ -183,13 +184,15 @@ export function useSidebarMutations(ws: string) {
         description?: string | null;
         branding?: WorkspaceBranding;
         agents_may_publish_skills?: boolean;
+        /** Ticket #1180 — `null` clears it; admin and a signed-in person only (the API refuses a token). */
+        default_agent_model?: string | null;
       }) =>
         unwrap<WorkspaceInfo>(
           await api.PATCH('/api/v1/workspaces/{ws}', { params: { path: { ws } }, body }),
         ),
       onSuccess: () => {
-        void qc.invalidateQueries({ queryKey: ['workspace', ws] });
-        void qc.invalidateQueries({ queryKey: ['workspaces'] });
+        // #1186 — one list of the caches that hold the workspace's name, so a rename reaches every place it shows.
+        for (const queryKey of workspaceNameCacheKeys(ws)) void qc.invalidateQueries({ queryKey: [...queryKey] });
       },
     }),
     createSpace: useMutation({

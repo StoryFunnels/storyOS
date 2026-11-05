@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
   UnprocessableEntityException,
@@ -193,6 +194,8 @@ export interface DispatchRunInput {
  */
 @Injectable()
 export class AgentsService implements OnModuleInit {
+  private readonly logger = new Logger(AgentsService.name);
+
   /**
    * The dispatch-time runtime choice (#205). Swappable in tests, like
    * GithubService.fetcher — it is the seam a managed/BYO driver plugs into.
@@ -256,7 +259,7 @@ export class AgentsService implements OnModuleInit {
     if (!membership) return { loaded: [], missing: names };
     const { loaded, missing } = await this.skillsService.resolveByNames(membership, ownerUserId, names);
     return {
-      loaded: loaded.map((k) => ({ name: k.name, whenToUse: k.when_to_use, instructions: k.instructions })),
+      loaded: loaded.map((k) => ({ id: k.id, name: k.name, whenToUse: k.when_to_use, instructions: k.instructions })),
       missing,
     };
   }
@@ -1291,6 +1294,10 @@ export class AgentsService implements OnModuleInit {
     let wake: WakeRow | undefined = input.wake;
     // ticket #1175: a scheduled firing wakes a Your-own-AI agent once, with no record (ADR-0021 §1), however many records the rule selected.
     if (runtime.runClass === 'your_own_ai' && input.scheduleSlot) input = { ...input, inputRecordId: undefined, sourceKey: input.scheduleSlot };
+    // ticket #1214: ensure-on-dispatch. A trigger fires with the Runs database it found, and ensure runs only when somebody opens the
+    // Agents page or presses Run: a workspace whose Runs database predates ticket #1133 (JCM) has no `wake_reason`, `runner`, `tokens_in`
+    // ..., so the Run's create failed ("Record values validation failed") AFTER the wake was queued. One query once they all exist.
+    if (runtime.runClass === 'your_own_ai') await this.ensureRunnerRunFields(runsDb.id);
     if (runtime.runClass === 'your_own_ai' && !blockedBeforeExecution && !wake) {
       const queued = await this.enqueueOwnAiWake(input, runsDb.id);
       if ('run' in queued) return queued.run;
@@ -1301,7 +1308,9 @@ export class AgentsService implements OnModuleInit {
       wake = undefined;
     }
 
-    let run = await asAgentRuntime(() => this.recordsService.create(
+    let run: ProjectedRecord;
+    try {
+      run = await asAgentRuntime(() => this.recordsService.create(
       workspaceId,
       runsDb.id,
       {
@@ -1339,6 +1348,16 @@ export class AgentsService implements OnModuleInit {
       input.depth ?? 0,
       'agent',
     ));
+    } catch (error) {
+      // ticket #1214: a wake that was queued for this dispatch and whose Run could not be written must not stay queued with no Run: a
+      // Runner would claim it, do the work and finish it `done` with nothing on the agent page. It fails here, in words, and the
+      // error goes to the caller (the trigger logs it) instead of being the only trace.
+      if (wake) {
+        await this.wakes.failUnstarted(wake.id);
+        this.logger.error(`wake ${wake.id} for agent ${agentRecord.id} failed: its Run record could not be created: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      throw error;
+    }
     if (blockedBeforeExecution) {
       // A wake that was already made for this dispatch (a mention) has no Run that will ever be served: end it with the failed Run.
       if (wake) await this.wakes.failUnstarted(wake.id);
@@ -1666,11 +1685,20 @@ export class AgentsService implements OnModuleInit {
     note?: string,
     result?: RunResult,
   ): Promise<void> {
-    if (!wake.runId) return;
+    if (!wake.runId) {
+      // ticket #1214: this used to return without a word, which is how a wake finished `done` with no Run and no trace.
+      this.logger.error(`wake ${wake.id} (agent ${wake.agentId}) has no Run record, so "${status}" could not be written anywhere`);
+      return;
+    }
     const { agentsDb, runsDb } = await this.findPackDbs(wake.workspaceId);
     if (!agentsDb || !runsDb) return;
     const run = await this.recordsService.get(runsDb.id, wake.runId).catch(() => null);
-    if (!run) return;
+    if (!run) {
+      this.logger.error(`wake ${wake.id}: its Run ${wake.runId} cannot be read, so "${status}" could not be written`);
+      return;
+    }
+    // ticket #1214: a Run made before the Runner's fields existed is updated with them: ensure first (one query once they exist).
+    if (result) await this.ensureRunnerRunFields(runsDb.id);
     const statusIds = await this.optionIdsByLabel(runsDb.id, 'status');
     const ownerRow = await this.db.query.records.findFirst({ where: eq(recordsTable.id, wake.agentId), columns: { createdBy: true } });
     const actorId = ownerRow?.createdBy ?? wake.requestedBy;

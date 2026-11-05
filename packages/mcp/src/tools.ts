@@ -6372,7 +6372,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create agent trigger',
       description:
-        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. With human_gate:true the trigger NEVER fires by itself: a person has to start each run, so it is the right choice for anything that writes to something a customer sees (ADR-0010). A gated trigger is stored enabled but starts nothing on its own; leave human_gate off only when the agent should start by itself the moment a record reaches the state. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
+        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. By default the trigger starts the agent by itself the moment a record reaches the state, so only create one for an agent you want to run on its own (anything it writes outward still waits in the approvals queue). With human_gate:true the trigger NEVER fires by itself: it is \'ask me before each run\', a person has to start each run, and it is stored enabled but starts nothing on its own. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) A pack\'s own triggers are created for you by install_pack, switched OFF until a person turns one on in the install review. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number."),
@@ -6383,7 +6383,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         human_gate: z
           .boolean()
           .optional()
-          .describe('true = this trigger never starts a run by itself; a person starts each run (ADR-0010). Not the same as holding the agent\'s writes for approval.'),
+          .describe('true = "ask me before each run": this trigger never starts a run by itself; a person starts each run (ADR-0010). Leave it off (the default) for an agent that should wake by itself. Not the same as holding the agent\'s writes for approval.'),
         enabled: z.boolean().optional().describe('Default true.'),
       },
     },

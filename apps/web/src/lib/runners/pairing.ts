@@ -98,10 +98,13 @@ export function shouldPoll(state: PairingState): boolean {
   return state.phase === 'waiting' || state.phase === 'connected';
 }
 
-/** The server's code is 6 characters from an unambiguous alphabet. It is shown as two groups of three, like the design's "K7P 4QX". */
+/**
+ * The code as shown AND as copied: one unbroken run of characters, upper case. It used to be split "K7P 4QX" with a real space
+ * (ticket #1209): a space is something to select, type or paste wrong, and the Runner and the server both forgive one anyway, so
+ * the safest thing to show has nothing to get wrong. Visual spacing is the renderer's letter-spacing, never a character.
+ */
 export function displayCode(code: string): string {
-  const c = code.replace(/[\s-]/g, '').toUpperCase();
-  return c.length === 6 ? `${c.slice(0, 3)} ${c.slice(3)}` : c;
+  return code.replace(/[\s-]/g, '').toUpperCase();
 }
 
 /** The accessible name: each character read on its own, since "K7P" read as a word is useless to someone typing it. */
