@@ -26,6 +26,10 @@ const EVENTS = [
   { id: 'comment.created', label: 'Comment added' },
 ] as const;
 
+/** What a signing secret is for, in words on the page (it was only a tooltip on a help icon: the #974 rule is no hover-only explanations). */
+const SIGNING_SECRET_EXPLAINED =
+  'A signing secret lets the tool receiving this webhook confirm that a request really came from StoryOS and was not forged or altered on the way. Most no-code tools (n8n, Make, Zapier) do not need it; it is only for checking authenticity yourself.';
+
 interface Webhook {
   id: string;
   url: string;
@@ -172,6 +176,12 @@ export default function WebhooksSettingsPage() {
                     </span>
                   )}
                 </div>
+                {/* Why the last delivery failed: it was a hover-only tooltip on the pill (#974 rule: explanations are visible text). */}
+                {hook.last_status && hook.last_status !== 'ok' && hook.last_error && (
+                  <p className="mt-1 break-words text-label text-muted" data-testid="webhook-last-error">
+                    {hook.last_error}
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-1 sm:shrink-0">
                 <Button
@@ -229,7 +239,6 @@ function StatusPill({ hook, fmt }: { hook: Webhook; fmt: ReturnType<typeof useDa
         'rounded px-1.5 py-0.5 text-meta',
         ok ? 'border border-border-default bg-hover text-ink' : 'bg-hover text-error',
       )}
-      title={hook.last_error ?? undefined}
     >
       {ok ? `Delivered ${hook.last_status_code ?? ''}` : `Failed${hook.last_status_code ? ` ${hook.last_status_code}` : ''}`}
       {hook.last_delivered_at ? ` · ${fmt.dateTime(hook.last_delivered_at)}` : ''}
@@ -334,15 +343,9 @@ function CreateWebhookDialog({
       <DialogContent title={secret ? 'Copy your signing secret' : 'New webhook'}>
         {secret ? (
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-1.5">
-              <p className="text-body font-medium text-ink">Your signing secret</p>
-              <span
-                className="inline-flex cursor-help text-faint hover:text-ink"
-                title="A signing secret lets the tool receiving this webhook confirm the request really came from StoryOS and wasn't forged or altered in transit. StoryOS uses it to compute a signature sent with every delivery, which your endpoint can check before trusting the data. Most no-code tools (n8n, Make, Zapier) don't need it at all — it's only for verifying authenticity yourself."
-              >
-                <CircleHelp className="h-3.5 w-3.5" />
-              </span>
-            </div>
+            <p className="text-body font-medium text-ink">Your signing secret</p>
+            {/* Ticket #1190 (parity row Webhooks #12, "explanation becomes visible text"): this was a hover-only tooltip on a help icon. */}
+            <p className="text-body text-muted">{SIGNING_SECRET_EXPLAINED}</p>
             <p className="text-body text-muted">
               This is shown to you only once, right now — copy it somewhere safe. If you lose
               it, delete this webhook and create a new one instead.
