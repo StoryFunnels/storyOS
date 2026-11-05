@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // Ticket #1046: nothing renders through next/image, so the /_next/image optimizer is switched off rather than left serving.
+  images: { unoptimized: true },
   async rewrites() {
     return [
       {
