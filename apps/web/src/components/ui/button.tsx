@@ -3,7 +3,8 @@ import type { VariantProps } from 'class-variance-authority';
 import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
-const buttonVariants = cva(
+/** Exported (ticket #1186) so a link that must LOOK like a button, "Browse packs", wears the same classes instead of retyping them. */
+export const buttonVariants = cva(
   /* #628 — `text-prose` (14px) rather than Tailwind's `text-sm` (14px): same
      pixels, one scale. See ui/label.tsx for why 14px won over 13px.
 

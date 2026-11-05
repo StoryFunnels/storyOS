@@ -7,7 +7,18 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
 import { useDateFormat } from '@/lib/preferences';
+import { settingsPageHref } from '@/lib/settings-nav';
+import {
+  BILLING_COPY,
+  BILLING_UNAVAILABLE,
+  OWN_AI_COPY,
+  UPGRADE_LABEL,
+  canStartTrial,
+  upgradeTargets,
+  type BillingPlan,
+} from '@/lib/billing-view';
 
 /** MN-107 plan catalogue, mirrored for display — prices are fixed and public. */
 const PLAN_LABEL: Record<string, string> = {
@@ -24,7 +35,7 @@ const PLAN_PRICE: Record<string, string> = {
 };
 
 interface BillingStatus {
-  plan: 'free' | 'pro' | 'business' | 'enterprise';
+  plan: BillingPlan;
   status: string | null;
   seats: number;
   cancelAtPeriodEnd: boolean;
@@ -35,6 +46,11 @@ interface BillingStatus {
   limits: { automationRunsPerMonth: number | null; includedSeats: number | null };
 }
 
+/**
+ * Plan & billing. What is offered and said per plan and per deployment is decided in `lib/billing-view.ts` (ticket #1186), which has
+ * the tests: an upgrade only to a plan above yours (Enterprise sees none), the "Your own AI" card pointing at Connect your AI, and
+ * self-hosting wording only in the self-managed state.
+ */
 export default function BillingPage() {
   const fmt = useDateFormat();
   const { ws } = useParams<{ ws: string }>();
@@ -105,16 +121,14 @@ export default function BillingPage() {
   // navigation — a bookmark, a shared link. Matches referrals/page.tsx's
   // identical pattern for the identical reason, per Otto's ruling on this
   // ticket: an explicit unavailable state, not a 404 or a page that pretends
-  // this feature doesn't exist. The four CTAs below never render at all in
+  // this feature doesn't exist. The CTAs below never render at all in
   // this branch — not disabled, absent — so there is no enabled-looking
   // control that cannot work.
   if (!b.enabled) {
     return (
       <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Plan &amp; billing</h1>
-        <p className="text-body text-muted">
-          Billing is a cloud feature and isn’t available on this self-hosted instance.
-        </p>
+        <SettingsPageHeader title="Plan & billing" />
+        <p className="text-body text-muted">{BILLING_UNAVAILABLE}</p>
       </div>
     );
   }
@@ -123,114 +137,97 @@ export default function BillingPage() {
     ? Math.max(0, Math.ceil((new Date(b.trialEndsAt).getTime() - Date.now()) / 86_400_000))
     : null;
   const isTrialing = b.status === 'trialing' && trialDaysLeft !== null;
-  const neverStartedTrial = b.plan === 'free' && !b.trialEndsAt;
+  const upgrades = upgradeTargets(b.plan);
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="mb-1 text-lg font-semibold text-ink">Plan &amp; billing</h1>
-      <p className="mb-6 text-body text-muted">Plan, usage, and payment for this workspace.</p>
+      <SettingsPageHeader title="Plan & billing" lead={BILLING_COPY.lead} />
 
-      <div className="flex flex-col gap-8">
+      <SettingsPageBody>
         {isTrialing && (
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-body">
+          <div className="rounded-[var(--radius-card)] border border-border-default bg-card px-3.5 py-3 text-body">
             <p className="font-medium text-ink">
               {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} left of your Pro trial
             </p>
-            <p className="mt-1 text-muted">
-              No card required. If it ends without upgrading, this workspace moves to Free —
-              nothing is locked or deleted, and every feature stays reachable.
-            </p>
+            <p className="mt-1 text-muted">{BILLING_COPY.trial}</p>
           </div>
         )}
 
-        <Section title="Plan" description="Your current plan and price.">
-          <div className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-border-default bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-medium text-ink">{PLAN_LABEL[b.plan]}</p>
-              <p className="text-body text-muted">{PLAN_PRICE[b.plan]}</p>
-              {b.currentPeriodEnd && (
-                <p className="mt-1 text-label text-faint">
-                  {b.cancelAtPeriodEnd ? 'Cancels' : 'Renews'} {fmt.date(b.currentPeriodEnd)}
-                </p>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {neverStartedTrial && (
-                <Button variant="secondary" onClick={() => startTrial.mutate()} disabled={startTrial.isPending}>
-                  Start 30-day Pro trial
-                </Button>
-              )}
-              {b.plan !== 'pro' && b.plan !== 'business' && (
-                <Button onClick={() => checkout.mutate('pro')} disabled={checkout.isPending}>
-                  Upgrade to Pro
-                </Button>
-              )}
-              {b.plan !== 'business' && (
-                <Button onClick={() => checkout.mutate('business')} disabled={checkout.isPending}>
-                  Upgrade to Business
-                </Button>
-              )}
-              <Button variant="secondary" onClick={() => portal.mutate()} disabled={portal.isPending}>
-                Manage billing
-              </Button>
-            </div>
-          </div>
-        </Section>
-
-        <Section title="Usage this month" description="StoryOS never limits items — this is scale, not capability.">
-          <UsageRow
-            label="Non-AI automation runs"
-            used={b.usage.automationRunsThisMonth}
-            limit={b.limits.automationRunsPerMonth}
-          />
-          <UsageRow
-            label="Billable seats"
-            used={b.usage.billableSeats}
-            limit={b.limits.includedSeats}
-            suffix={
-              b.limits.includedSeats !== null && b.usage.billableSeats >= b.limits.includedSeats
-                ? '— next seat adds $12/mo'
-                : undefined
-            }
-            caption={
+        <SettingsBox title="Your plan">
+          <SettingsRow
+            title={PLAN_LABEL[b.plan]}
+            description={
               <>
-                Admins, members, and guests with edit access or higher. Viewer and commenter guests,
-                and pending invites, don&apos;t count — see{' '}
-                <Link href={`/w/${ws}/settings/members`} className="underline hover:text-ink">
-                  Members
-                </Link>{' '}
-                for everyone with access.
+                {PLAN_PRICE[b.plan]}
+                {b.currentPeriodEnd && ` · ${b.cancelAtPeriodEnd ? 'Cancels' : 'Renews'} ${fmt.date(b.currentPeriodEnd)}`}
+              </>
+            }
+          >
+            {canStartTrial(b.plan, b.trialEndsAt) && (
+              <Button variant="secondary" size="sm" onClick={() => startTrial.mutate()} disabled={startTrial.isPending}>
+                Start 30-day Pro trial
+              </Button>
+            )}
+            {upgrades.map((target) => (
+              <Button key={target} size="sm" onClick={() => checkout.mutate(target)} disabled={checkout.isPending}>
+                {UPGRADE_LABEL[target]}
+              </Button>
+            ))}
+            <Button variant="secondary" size="sm" onClick={() => portal.mutate()} disabled={portal.isPending}>
+              Manage billing
+            </Button>
+          </SettingsRow>
+        </SettingsBox>
+
+        <SettingsBox title="Usage this month" aside={BILLING_COPY.usageDescription}>
+          <div className="flex flex-col gap-3 px-3.5 py-3">
+            <UsageRow
+              label="Non-AI automation runs"
+              used={b.usage.automationRunsThisMonth}
+              limit={b.limits.automationRunsPerMonth}
+            />
+            <UsageRow
+              label="Billable seats"
+              used={b.usage.billableSeats}
+              limit={b.limits.includedSeats}
+              suffix={
+                b.limits.includedSeats !== null && b.usage.billableSeats >= b.limits.includedSeats
+                  ? '— next seat adds $12/mo'
+                  : undefined
+              }
+              caption={
+                <>
+                  {BILLING_COPY.seatsBefore}{' '}
+                  <Link href={settingsPageHref(ws, 'members')} className="underline hover:text-ink">
+                    {BILLING_COPY.seatsLink}
+                  </Link>{' '}
+                  {BILLING_COPY.seatsAfter}
+                </>
+              }
+            />
+          </div>
+        </SettingsBox>
+
+        <SettingsBox title={OWN_AI_COPY.title} aside={OWN_AI_COPY.description}>
+          <SettingsRow
+            title={OWN_AI_COPY.headline}
+            description={
+              <>
+                {OWN_AI_COPY.body} {OWN_AI_COPY.setUpPrefix}{' '}
+                <Link href={settingsPageHref(ws, 'connect-ai')} className="underline hover:text-ink">
+                  {OWN_AI_COPY.linkLabel}
+                </Link>
+                .
               </>
             }
           />
-        </Section>
-
-        <Section title="Your own AI" description="Connect your own Claude or ChatGPT over MCP.">
-          <div className="rounded-[var(--radius-control)] border border-border-default bg-card p-4 text-body">
-            <p className="font-medium text-ink">Unlimited, and never metered</p>
-            <p className="mt-1 text-muted">
-              Runs driven by your own AI provider never count against any allowance on any plan and
-              are never billed by StoryOS — on Free, Pro, or Business alike. Connect one under API
-              tokens.
-            </p>
-          </div>
-        </Section>
-      </div>
+        </SettingsBox>
+      </SettingsPageBody>
     </div>
   );
 }
 
-function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
-  return (
-    <section className="border-b border-border-default pb-8 last:border-b-0 last:pb-0">
-      <h2 className="mb-1 text-sm font-medium text-ink">{title}</h2>
-      {description && <p className="mb-3 text-body text-muted">{description}</p>}
-      {children}
-    </section>
-  );
-}
-
-/** `limit === null` means unlimited (self-host/enterprise) — no bar, just the count. */
+/** `limit === null` means unlimited — no bar, just the count. */
 function UsageRow({
   label,
   used,
@@ -250,11 +247,11 @@ function UsageRow({
   const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const over80 = limit !== null && pct >= 80;
   return (
-    <div className="mb-3 last:mb-0">
+    <div>
       <div className="flex items-baseline justify-between text-body">
         <span className="text-ink-secondary">{label}</span>
         <span className={over80 ? 'font-medium text-warning-text' : 'text-muted'}>
-          {used} {limit !== null ? `/ ${limit}` : '(unlimited)'} {suffix && <span className="text-faint">{suffix}</span>}
+          {used} {limit !== null ? `/ ${limit}` : '(unlimited)'} {suffix && <span className="text-muted">{suffix}</span>}
         </span>
       </div>
       {limit !== null && (
@@ -265,7 +262,7 @@ function UsageRow({
           />
         </div>
       )}
-      {caption && <p className="mt-1 text-label text-faint">{caption}</p>}
+      {caption && <p className="mt-1 text-label text-muted">{caption}</p>}
     </div>
   );
 }
