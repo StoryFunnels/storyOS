@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { RunnerUnknownLine } from '@/components/runners/runner-unknown-line';
 import { runsOnCell } from './agent-list';
 import { queuedRunsLine, recordsWaitingCount, recordsWaitingLine, RUNNER_LOAD_FAILED, runnerLineState } from './runner-state';
+import { GENERIC_SCOPE, scopeWords } from './catch-up';
 import type { WakeSummary } from './types';
 
 /** Ticket #1223 — the agent page states only the facts it has. */
@@ -45,8 +46,9 @@ describe('what the unknown states render', () => {
   });
   it('failed says it could not load, offers Retry, never "No Runner yet"', () => {
     const out = html(true);
-    expect(out).toContain("Couldn&#x27;t load this agent&#x27;s Runner. Try again.");
-    expect(RUNNER_LOAD_FAILED).toBe("Couldn't load this agent's Runner. Try again.");
+    expect(out).toContain("Couldn&#x27;t load this agent&#x27;s Runner.");
+    expect(out).not.toMatch(/Try again/); // the Retry button is the try again
+    expect(RUNNER_LOAD_FAILED).toBe("Couldn't load this agent's Runner.");
     expect(out).toContain('Retry');
     expect(out).not.toMatch(/No Runner yet/);
   });
@@ -68,6 +70,14 @@ describe('records waiting on the no-Runner page', () => {
     expect(recordsWaitingCount(row)).toBe(4);
     expect(recordsWaitingLine(4)).toBe('4 records are waiting for it');
     expect(recordsWaitingLine(1)).toBe('1 record is waiting for it');
+    // the trigger's noun when known (the catch-up box's own source), "record" when not
+    expect(recordsWaitingLine(4, 'client')).toBe('4 clients are waiting for it');
+    expect(recordsWaitingLine(1, 'client')).toBe('1 client is waiting for it');
+    expect(recordsWaitingLine(3, 'company')).toBe('3 companies are waiting for it');
+    expect(recordsWaitingLine(4, GENERIC_SCOPE.noun)).toBe('4 records are waiting for it');
+    // and that source really yields it: one trigger database named Clients -> "client"; no scope -> "record"
+    expect(scopeWords({ databaseId: 'd', state: null }, { name: 'Clients' }).noun).toBe('client');
+    expect(scopeWords(null, { name: 'Clients' }).noun).toBe('record');
   });
   it('null (not told), absent (older server), 0 and no row all print nothing', () => {
     expect(recordsWaitingCount({ catch_up: null })).toBeNull();
@@ -89,6 +99,7 @@ describe('the page is wired to the model (source guard)', () => {
     expect(src).toContain('<RunnerUnknownLine');
     expect(src).toContain("runnerState.kind === 'none'");
     expect(src).toContain('recordsWaiting={recordsWaitingCount(row)}');
+    expect(src).toContain('noun={catchUpWords.noun}');
     expect(src).not.toMatch(/row\?\.runner \?\? null/);
   });
 });
