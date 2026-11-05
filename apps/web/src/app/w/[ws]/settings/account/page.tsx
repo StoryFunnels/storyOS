@@ -133,9 +133,17 @@ function ProfileBox({
 
   async function remove() {
     if (!(await confirm(confirmRemovePhoto()))) return;
-    await fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' });
-    setOverride(null);
-    onChange();
+    // Ticket #1190 (parity row Account #3, "gains a confirm and a toast"): the confirm shipped, the toast did not, and a failed
+    // removal looked like a success because the response was never read.
+    try {
+      const res = await fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error();
+      setOverride(null);
+      onChange();
+      toast.success('Photo removed');
+    } catch {
+      toast.error('Could not remove the photo');
+    }
   }
 
   const [draft, setDraft] = useState(name);
