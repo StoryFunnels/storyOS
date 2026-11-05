@@ -32,6 +32,7 @@ import { agentSystemKey, isSystemOnlySpace } from '@/lib/system-databases';
 import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
 import { canManageAccess, showsLock } from '@/lib/access-model';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
+import { DatabaseGlyph } from '@/components/database-glyph';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
@@ -2817,15 +2818,8 @@ function DatabaseRow({
           onPointerDown={() => prefetchDatabase(db.id)}
           className="flex min-w-0 flex-1 items-center gap-2"
         >
-          <GlyphSlot>
-            {/* #1001 — no `text-muted` on the fallback glyph: it overrides the colour the icon's wrapper hands down, so every database drew
-                the same grey whatever colour it had. */}
-            <EntityIcon
-              icon={db.icon}
-              color={databaseColor(db.color, db.id)}
-              fallback={<Database className="h-3.5 w-3.5" />}
-            />
-          </GlyphSlot>
+          {/* Ticket #1207 — the glyph is the shared component (the home cards draw the same one). */}
+          <DatabaseGlyph icon={db.icon} color={db.color} id={db.id} />
           <span className="overflow-hidden whitespace-nowrap">{db.name}</span>
           {showsLock(db) && <RestrictedLock />}
         </Link>
