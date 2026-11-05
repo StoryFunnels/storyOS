@@ -79,7 +79,7 @@ export default function AgentsIndexPage() {
             const row = summaryFor(summary.data, a.id);
             const runner = row?.runner ? runners.data?.find((r) => r.id === row.runner!.id) : undefined;
             const status = runner ? describeRunner(runner, now) : null;
-            const placed = runsOnCell(a, row?.runner, showMachine);
+            const placed = runsOnCell(a, row?.runner, showMachine, Boolean(summary.data));
             const last = lastRuns[a.id] ?? ({ kind: 'unknown' } as const);
             return (
               <Link key={a.id} href={`/w/${ws}/agents/${a.id}`} className={`${COLS} border-t border-border-default py-2.5 text-body text-ink hover:bg-hover max-[700px]:[&:nth-child(2)]:border-t-0`} data-testid="agent-row">
@@ -90,9 +90,9 @@ export default function AgentsIndexPage() {
                     <small className="line-clamp-2 text-label text-muted">{a.job || 'No job written yet'}</small>
                   </span>
                 </span>
-                <span className={`truncate ${a.usesRunner && !row?.runner ? 'text-muted' : ''}`}>{placed}</span>
+                <span className={`truncate ${a.usesRunner && (!summary.data || !row?.runner) ? 'text-muted' : ''}`}>{placed}</span>
                 <span className="max-[700px]:hidden">
-                  {status ? <StatusMark tone={status.tone}>{status.label}</StatusMark> : a.usesRunner && !row?.runner ? <StatusMark tone="off">Waiting for a Runner</StatusMark> : null}
+                  {status ? <StatusMark tone={status.tone}>{status.label}</StatusMark> : a.usesRunner && summary.data && !row?.runner ? <StatusMark tone="off">Waiting for a Runner</StatusMark> : null}
                 </span>
                 <span className="min-w-0 leading-[1.3] text-muted max-[700px]:hidden" title={lastRunTitle(last)} data-testid="last-run">
                   {lastRunLabel(last, now)}

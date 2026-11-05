@@ -63,14 +63,42 @@ export function parseRecordParam(seg: string): { kind: 'id'; value: string } | {
 export function databaseNoun(name?: string | null): string {
   const trimmed = name?.trim();
   if (!trimmed) return 'item';
-  const lower = trimmed.toLowerCase();
-  // Strip a trailing plural "s" (but keep short words like "os" intact).
-  const singular = lower.length > 3 && lower.endsWith('s') ? lower.slice(0, -1) : lower;
+  const singular = singularize(trimmed.toLowerCase());
   return singular || 'item';
+}
+
+/** Words whose plural is their singular, or which only exist in the plural, so they must not lose a letter ("news" is not "new"). */
+const SAME_BOTH_WAYS = new Set(['news', 'series', 'species', 'analytics', 'statistics', 'logistics']);
+/** "-ies" words whose singular is "-ie", not "-y" ("movies" is not "movy"). */
+const IE_WORDS = new Set(['movies', 'cookies', 'rookies', 'zombies', 'selfies', 'calories']);
+
+function lastWord(s: string): string {
+  return s.slice(s.lastIndexOf(' ') + 1);
+}
+
+/** The singular of a lower-cased plural name ("companies" → "company", "addresses" → "address", "status" stays). */
+function singularize(lower: string): string {
+  const w = lastWord(lower);
+  if (lower.length <= 3 || SAME_BOTH_WAYS.has(w)) return lower;
+  if (IE_WORDS.has(w)) return lower.slice(0, -1);
+  if (w.length > 4 && w.endsWith('ies')) return `${lower.slice(0, -3)}y`;
+  // "-sses" (addresses), "-xes" (boxes), "-ches"/"-shes" (batches), "-zzes" (quizzes), and "-tuses"/"-nuses"/... (statuses, bonuses).
+  if (/(?:ss|x|ch|sh)es$/.test(w) || /(?:t|n|r|p)uses$/.test(w)) return lower.slice(0, -2);
+  if (/zzes$/.test(w)) return lower.slice(0, -3);
+  // Already singular: "status", "address", "analysis", "bus".
+  if (/(?:ss|us|is)$/.test(w)) return lower;
+  return lower.endsWith('s') ? lower.slice(0, -1) : lower;
 }
 
 /** #149 — plural form for counts ("3 tasks"). Naive by design; the noun is a
  * display nicety, not data, so an odd plural is a cosmetic issue, never a bug. */
 export function pluralNoun(noun: string, count: number): string {
-  return count === 1 ? noun : `${noun}s`;
+  if (count === 1) return noun;
+  const w = lastWord(noun);
+  if (SAME_BOTH_WAYS.has(w)) return noun;
+  if (IE_WORDS.has(`${w}s`)) return `${noun}s`;
+  if (/[^aeiou]y$/.test(w)) return `${noun.slice(0, -1)}ies`;
+  if (/(?:s|x|ch|sh)$/.test(w)) return `${noun}es`;
+  if (w.endsWith('z')) return `${noun}zes`;
+  return `${noun}s`;
 }
