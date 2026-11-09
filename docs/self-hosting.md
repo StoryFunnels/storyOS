@@ -161,7 +161,8 @@ data-subject requests — see [Data-subject requests](security/data-subject-requ
 
 ```bash
 docker compose --profile minio up -d
-# once: open http://localhost:9001 (storyos / storyos-minio) → create bucket "storyos-attachments"
+# once: open http://localhost:9001 (storyos / storyos-minio). The console listens on the
+# server's loopback only; from your laptop: ssh -L 9001:127.0.0.1:9001 you@server → create bucket "storyos-attachments"
 # then set STORAGE_DRIVER=s3 in .env and restart the api
 ```
 
