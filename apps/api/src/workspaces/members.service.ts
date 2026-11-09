@@ -6,10 +6,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { accessGrants, favorites, memberships, recordWatchers, spaces, user, views, viewerState } from '../db/schema';
+import { accessGrants, apiTokens, databases, favorites, memberships, recordWatchers, spaces, user, views, viewerState } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -132,6 +132,13 @@ export class MembersService {
     // #945 — grants are keyed by user id, not membership: without this a removed member's grants survived, and a re-invited
     // person silently got the old access back (a restricted database they had been taken off, for instance).
     await this.db.delete(accessGrants).where(and(eq(accessGrants.workspaceId, workspaceId), eq(accessGrants.userId, target.userId)));
+    // #1052 — the same for their tokens on this workspace (PATs, agent tokens, run credentials). A removed member's request is
+    // refused at the membership check anyway, but the rows stayed live, so re-inviting the person brought every old token back.
+    // Revoked, not deleted: revoked rows are kept so a past action's token stays readable (#543).
+    await this.db
+      .update(apiTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(apiTokens.workspaceId, workspaceId), eq(apiTokens.userId, target.userId), isNull(apiTokens.revokedAt)));
 
     // #973 / ADR-0019 — a removed member's per-viewer state in THIS workspace goes with the membership: their overrides (personal
     // filters, collection views, pinned tabs), favourites and watched records. Before, all of it outlived the membership and came
@@ -154,9 +161,19 @@ export class MembersService {
      * query over SHARED data, so deleting it must not touch a single record that a
      * private board happened to point at.
      */
+    // #1051 — THIS workspace's personal views only. A view carries no workspace id of its own (it hangs off a database, or a
+    // space for a dashboard), and filtering on the owner alone deleted the person's personal views in EVERY workspace.
     await this.db
       .delete(views)
-      .where(eq(views.ownerUserId, target.userId));
+      .where(
+        and(
+          eq(views.ownerUserId, target.userId),
+          or(
+            inArray(views.databaseId, this.db.select({ id: databases.id }).from(databases).where(eq(databases.workspaceId, workspaceId))),
+            inArray(views.spaceId, this.db.select({ id: spaces.id }).from(spaces).where(eq(spaces.workspaceId, workspaceId))),
+          ),
+        ),
+      );
     await this.db
       .delete(spaces)
       .where(

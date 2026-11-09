@@ -466,6 +466,32 @@ describe('the queue is readable, with ONE derived run_state and honest waiting c
     expect((await as(null, 'GET', `/workspaces/${ws}/agent-wakes`)).statusCode).toBe(401);
   });
 
+  it("ticket #1215: a guest is told THAT a Runner serves the agent, never whose machine or which tool; the owner still sees it", async () => {
+    const agent = await mkAgent(owner, 'Masked runner bot');
+    const runner = await pairRunner(owner, [agent]);
+    const shown = await mkTicket('Seen by the guest');
+    expect((await wakes.enqueue({ workspaceId: ws, agentId: agent, reason: 'manual', recordId: shown, requestedBy: null })).outcome).toBe('created');
+    const rowFor = (body: { agents: Array<{ agent_id: string }> }) => body.agents.find((a) => a.agent_id === agent) as { runner: unknown; can_run: boolean; waiting: number };
+
+    const ownerSummary = rowFor((await as(owner.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`)).json());
+    expect(ownerSummary.runner).toEqual({ id: runner.id, name: "Owner's MacBook" });
+    const ownerWake = (await as(owner.token, 'GET', `/workspaces/${ws}/agent-wakes?agent=${agent}`)).json().data[0];
+    expect(ownerWake.run_state.runner_name).toBe("Owner's MacBook");
+
+    const guestRes = await as(guestFull.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`);
+    const guestSummary = rowFor(guestRes.json());
+    expect(guestSummary).toMatchObject({ runner: { id: null, name: 'a Runner' }, can_run: true, waiting: 1 });
+    const guestWakes = await as(guestFull.token, 'GET', `/workspaces/${ws}/agent-wakes?agent=${agent}`);
+    expect(guestWakes.json().data).toHaveLength(1);
+    expect(guestWakes.json().data[0].run_state).toMatchObject({ runner_name: 'a Runner' });
+    expect(guestWakes.json().data[0].run_state.tool).toBeUndefined();
+    // Nothing that names the machine or the Runner reaches the guest, in either answer.
+    for (const body of [guestRes.body, guestWakes.body]) {
+      expect(body).not.toContain("Owner's MacBook");
+      expect(body).not.toContain(runner.id);
+    }
+  });
+
   it('paginates with a cursor', async () => {
     const agent = await mkAgent(owner, 'Paging bot');
     for (let i = 0; i < 3; i++) await wakes.enqueue({ workspaceId: ws, agentId: agent, reason: 'manual', recordId: await mkTicket(`Page ${i}`), requestedBy: null });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markdownToHtml } from './send-email.action';
+import { markdownToHtml, SendEmailActionService } from './send-email.action';
 
 /**
  * MN-256 — the dependency-free markdown-lite renderer's own snapshot-style
@@ -36,5 +36,45 @@ describe('markdownToHtml (MN-256)', () => {
   it('a single newline within one block becomes <br>, not a new paragraph', () => {
     const html = markdownToHtml('Line one\nLine two');
     expect(html).toBe('<p style="margin: 0 0 12px;">Line one<br>Line two</p>');
+  });
+});
+
+/**
+ * #1044 — the SMTP SEND path holds a stored connection to the same host/port rule as the connection check, so a connection saved
+ * before the rule (or a name re-pointed since) cannot reach an internal address, and a failure never echoes the library's error.
+ */
+describe('send via SMTP (#1044)', () => {
+  type SendFn = (auth: Record<string, unknown>, to: string[], cc: string[], action: Record<string, unknown>, html: string, text: string) => Promise<string>;
+  function service(sendMail: () => Promise<{ messageId?: string }>) {
+    const built: Array<Record<string, unknown>> = [];
+    const svc = Object.create(SendEmailActionService.prototype) as SendEmailActionService;
+    svc.buildTransport = ((opts: Record<string, unknown>) => {
+      built.push(opts);
+      return { sendMail, close: () => undefined };
+    }) as unknown as SendEmailActionService['buildTransport'];
+    const send = (svc as unknown as { sendViaSmtp: SendFn }).sendViaSmtp.bind(svc);
+    return { send: (auth: Record<string, unknown>) => send(auth, ['x@y.z'], [], { subject: 's' }, '<p>h</p>', 'h'), built };
+  }
+
+  it('refuses a private host or a non-SMTP port without connecting, and does not retry', async () => {
+    const { send, built } = service(async () => ({ messageId: 'm' }));
+    for (const auth of [{ host: '10.0.0.5', port: 587 }, { host: '8.8.8.8', port: 6379 }]) {
+      const err = (await send({ ...auth, from_address: 'a@b.c' }).then(
+        () => null,
+        (e: unknown) => e,
+      )) as { message: string; retryable?: boolean };
+      expect(err.message).toMatch(/^SMTP send refused: /);
+      expect(err.retryable).toBe(false);
+    }
+    expect(built).toHaveLength(0);
+  });
+
+  it('a send failure says one generic sentence, never the server banner', async () => {
+    const { send } = service(async () => {
+      throw new Error('Invalid greeting from server: "220 internal-banner ESMTP"');
+    });
+    await expect(send({ host: '8.8.8.8', port: 587, from_address: 'a@b.c' })).rejects.toThrow(
+      'SMTP send failed: could not connect to the mail server with these settings',
+    );
   });
 });

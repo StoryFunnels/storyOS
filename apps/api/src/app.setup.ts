@@ -55,6 +55,7 @@ export type RawBodyRequest = FastifyRequest & { rawBody?: Buffer };
  */
 export function configureApp(app: NestFastifyApplication) {
   app.setGlobalPrefix('api/v1', { exclude: ['/', 'healthz', 'api/docs'] });
+  registerSecurityHeaders(app);
   registerRawBodyJsonParser(app);
   void app
     .getHttpAdapter()
@@ -66,6 +67,33 @@ export function configureApp(app: NestFastifyApplication) {
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   });
   mountAuthHandler(app);
+}
+
+/**
+ * Ticket #1042: the API's share of the security headers (the web app sets its own in next.config.mjs). Nothing the API
+ * serves is meant to be framed, so every response refuses it. An `onSend` hook rather than helmet: five fixed headers do
+ * not need a dependency, and the hook also covers better-auth's raw Fastify route and error responses. A header a
+ * route already set is left alone.
+ */
+export const API_SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'content-security-policy': "frame-ancestors 'none'",
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  // Ignored by browsers on plain-HTTP responses, so a self-host on :80 is unaffected.
+  'strict-transport-security': 'max-age=31536000',
+};
+
+function registerSecurityHeaders(app: NestFastifyApplication) {
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .addHook('onSend', async (_request, reply, payload) => {
+      for (const [name, value] of Object.entries(API_SECURITY_HEADERS)) {
+        if (!reply.hasHeader(name)) reply.header(name, value);
+      }
+      return payload;
+    });
 }
 
 /**

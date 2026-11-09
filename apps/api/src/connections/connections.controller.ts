@@ -8,6 +8,7 @@ import { RequiresScope } from '../auth/token-scope.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { ConnectionsService } from './connections.service';
+import { nonceCookie } from './oauth-nonce-cookie';
 
 class CreateConnectionDto extends createZodDto(createConnectionSchema) {}
 class UpdateConnectionDto extends createZodDto(updateConnectionSchema) {}
@@ -90,6 +91,9 @@ export class ConnectionsController {
   @RequiresScope('admin')
   @ApiOperation({ summary: 'Begin an OAuth2 connect (redirects to the provider)' })
   start(@Req() req: WorkspaceRequest, @Param('provider') provider: string, @Res() reply: FastifyReply) {
-    redirect(reply, this.connections.authorizeUrl(req.membership.workspaceId, provider, req.user.id));
+    // #1048: the state's nonce rides in a cookie on THIS browser; the callback refuses the state from any other.
+    const { url, nonce } = this.connections.startOAuth(req.membership.workspaceId, provider, req.user.id);
+    void reply.header('set-cookie', nonceCookie(nonce));
+    redirect(reply, url);
   }
 }

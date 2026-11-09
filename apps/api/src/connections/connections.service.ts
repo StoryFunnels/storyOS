@@ -9,11 +9,11 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { ProviderDescriptorSummary } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automationJobs, automations, connections, databases } from '../db/schema';
+import { automationJobs, automations, connections, databases, oauthStateUses } from '../db/schema';
 import { env } from '../config/env';
 import { open, seal } from '../common/secretbox';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -25,7 +25,7 @@ type ConnectionRow = typeof connections.$inferSelect;
 
 /** The CSRF-signed state carried through the OAuth round-trip (mirrors
  * GithubAppService.signState/verifyState in integrations/github-app.service.ts). */
-interface OAuthState {
+export interface OAuthState {
   ws: string;
   provider: string;
   /** The admin who started the connect — becomes the connection's createdBy,
@@ -35,7 +35,7 @@ interface OAuthState {
   t: number;
 }
 
-const STATE_MAX_AGE_MS = 10 * 60 * 1000;
+export const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 /** Refresh an OAuth2 connection's token once it's within this long of expiry. */
 const REFRESH_WINDOW_MS = 15 * 60 * 1000;
 const REFRESH_TICK_MS = 5 * 60 * 1000;
@@ -383,10 +383,20 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
   /** 302 target for "Connect" on an oauth2 provider. Throws 404 if the
    * provider is unknown, isn't oauth2, or the server has no client id/secret. */
   authorizeUrl(workspaceId: string, provider: string, userId: string): string {
+    return this.startOAuth(workspaceId, provider, userId).url;
+  }
+
+  /**
+   * #1048 — the authorize URL AND the nonce inside its state. The start route puts the nonce in a short-lived cookie on the
+   * browser that pressed Connect; the callback accepts the state only from that browser (`consumeOAuthState`), so an authorize
+   * link opened anywhere else cannot finish a connect into the workspace that made it.
+   */
+  startOAuth(workspaceId: string, provider: string, userId: string): { url: string; nonce: string } {
     const descriptor = this.requireOAuthProvider(provider);
     const clientId = this.requireEnv(descriptor.oauth!.clientIdEnv);
     this.requireEnv(descriptor.oauth!.clientSecretEnv); // fail fast if only half-configured
-    const state = this.signState({ ws: workspaceId, provider, uid: userId, n: randomBytes(9).toString('base64url'), t: Date.now() });
+    const nonce = randomBytes(18).toString('base64url');
+    const state = this.signState({ ws: workspaceId, provider, uid: userId, n: nonce, t: Date.now() });
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: this.callbackUrl(),
@@ -395,7 +405,23 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
       state,
       ...(descriptor.oauth!.extraAuthParams ?? {}),
     });
-    return `${descriptor.oauth!.authUrl}?${params.toString()}`;
+    return { url: `${descriptor.oauth!.authUrl}?${params.toString()}`, nonce };
+  }
+
+  /**
+   * #1048 — the two checks a verified state still has to pass at the callback:
+   *  1. it comes back to the browser that started it: `cookieNonce` (the start route's cookie) equals the state's nonce;
+   *  2. it is used ONCE: its nonce is recorded, and a second callback with it fails the insert.
+   * False on either. Recorded only after the cookie matched, so a stranger replaying a link cannot burn the real one.
+   */
+  async consumeOAuthState(state: OAuthState, cookieNonce: string | undefined): Promise<boolean> {
+    if (!cookieNonce || !state.n) return false;
+    const a = Buffer.from(cookieNonce, 'utf8');
+    const b = Buffer.from(state.n, 'utf8');
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+    await this.db.delete(oauthStateUses).where(lt(oauthStateUses.usedAt, new Date(Date.now() - 2 * STATE_MAX_AGE_MS)));
+    const inserted = await this.db.insert(oauthStateUses).values({ nonce: state.n }).onConflictDoNothing().returning({ nonce: oauthStateUses.nonce });
+    return inserted.length === 1;
   }
 
   /** A tamper-proof, time-boxed `state` (HMAC-SHA256, BETTER_AUTH_SECRET) —

@@ -47,7 +47,7 @@ export interface RunsOnLine {
 }
 
 /** "Ievgen's MacBook Pro · Claude Code", or "No Runner yet". The tool comes from the Runner's own chosen tool, not a default. */
-export function runsOnLine(assigned: { id: string; name: string } | null | undefined, runners: readonly RunnerDto[], masked = false): RunsOnLine {
+export function runsOnLine(assigned: { id: string | null; name: string } | null | undefined, runners: readonly RunnerDto[], masked = false): RunsOnLine {
   if (!assigned) return { kind: 'none', machine: null, tool: null, masked: false };
   if (masked) return { kind: 'runner', machine: null, tool: null, masked: true };
   const r = runners.find((x) => x.id === assigned.id);

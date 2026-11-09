@@ -15,7 +15,7 @@ import type { SQL } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { automationJobs, automationRuns, automations, databases, fields, records, relations, workspaces } from '../db/schema';
+import { automationJobs, automationRuns, automations, databases, fields, memberships, records, relations, workspaces } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import { compileFilter } from '../records/query-compiler';
 import type { FilterNode } from '@storyos/schemas';
@@ -216,6 +216,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       await this.assertConditionCompiles(await this.conditionDbFor(databaseId, input.trigger), input.condition, actorId);
     }
     this.assertScheduleValid(input.trigger);
+    if (input.approverId) await this.assertApprover(workspaceId, input.approverId);
     this.assertTopNAllowed(input.trigger.type, input.sort, input.limit);
     if (input.sort) validateSorts(input.sort, await this.sortableDefsFor(databaseId));
     const [rule] = await this.db
@@ -236,6 +237,19 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       })
       .returning();
     return this.present(rule!);
+  }
+
+  /**
+   * #1050 — a rule's approver decides its approvals (ApprovalsController lets the approver or an admin through), so it must be
+   * an active member of THIS workspace. An unchecked id could name someone outside it, or a removed member, and leave every
+   * approval the rule raises with nobody but an admin able to decide it.
+   */
+  private async assertApprover(workspaceId: string, approverId: string): Promise<void> {
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.userId, approverId), eq(memberships.status, 'active')),
+      columns: { id: true },
+    });
+    if (!membership) throw new UnprocessableEntityException('approver_id must be an active member of this workspace');
   }
 
   async update(
@@ -259,6 +273,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     const rule = await this.getRule(databaseId, ruleId);
     const trigger = (patch.trigger ?? rule.trigger) as Trigger;
     if (patch.trigger) this.assertScheduleValid(patch.trigger); // #1194: only a trigger the caller is writing now; a stored one is not re-judged
+    if (patch.approverId) await this.assertApprover(workspaceId, patch.approverId);
     // Resolve write-only header presence flags against the stored actions so editing
     // an unrelated part of the rule can't clobber a secret webhook header (#249).
     const actions = patch.actions ? restoreActionHeaders(patch.actions, rule.actions) : undefined;

@@ -1,6 +1,22 @@
+import { securityHeaders } from './src/lib/security-headers.mjs';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // Ticket #1046: nothing renders through next/image, so the /_next/image optimizer is switched off rather than left serving.
+  images: { unoptimized: true },
+  // Ticket #1046: next 16.4's build type-checks everything tsconfig.json includes, test files too. One unit test imports the API's
+  // own schema from apps/api, which the web Docker image does not contain, so the build checks the app without its tests;
+  // `pnpm typecheck` (tsconfig.json) still checks the tests.
+  typescript: { tsconfigPath: 'tsconfig.build.json' },
+  // Ticket #1042: anti-framing, nosniff, HSTS and a report-only CSP; see src/lib/security-headers.mjs.
+  async headers() {
+    return securityHeaders({
+      // Same fallback as src/lib/api.ts, so dev's localhost:3001 API is allowed too.
+      apiUrl: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
+      posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    });
+  },
   async rewrites() {
     return [
       {
