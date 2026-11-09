@@ -9,6 +9,9 @@ import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { AutomationsService } from './automations.service';
+import { AutomationActionsService } from './actions.service';
+import { assertCanWriteTargets } from './write-targets';
+import type { AutomationAction } from '@storyos/schemas';
 
 class CreateAutomationDto extends createZodDto(createAutomationSchema) {}
 class UpdateAutomationDto extends createZodDto(updateAutomationSchema) {}
@@ -30,10 +33,17 @@ export class AutomationsController {
   constructor(
     private readonly automationsService: AutomationsService,
     private readonly databases: DatabasesService,
+    private readonly actions: AutomationActionsService,
   ) {}
 
   private creator(req: WorkspaceRequest, databaseId: string) {
     return this.databases.assertAccess(req.membership, databaseId, 'creator');
+  }
+
+  /** #1050 — creator on THIS database lets a person build rules here, not write into every other database the rule names. */
+  private async assertTargets(req: WorkspaceRequest, databaseId: string, actions: AutomationAction[] | undefined) {
+    if (!actions) return;
+    await assertCanWriteTargets(this.databases, req.membership, await this.actions.writeTargets(databaseId, actions));
   }
 
   @Get()
@@ -51,6 +61,7 @@ export class AutomationsController {
     @Body() body: CreateAutomationDto,
   ) {
     await this.creator(req, databaseId);
+    await this.assertTargets(req, databaseId, (body as { actions: AutomationAction[] }).actions);
     return this.automationsService.create(
       req.membership.workspaceId,
       databaseId,
@@ -70,6 +81,7 @@ export class AutomationsController {
     @Body() body: UpdateAutomationDto,
   ) {
     await this.creator(req, databaseId);
+    await this.assertTargets(req, databaseId, (body as { actions?: AutomationAction[] }).actions);
     return this.automationsService.update(
       req.membership.workspaceId,
       databaseId,
