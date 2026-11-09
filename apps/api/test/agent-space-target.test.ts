@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
-import { call, joinAs, setRestricted } from './helpers/members';
+import { call, grant, joinAs, setRestricted } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
 
@@ -183,5 +183,16 @@ describe('#1195 MUST KEEP: a database-only agent is unchanged', () => {
     expect(res.statusCode, res.body).toBeGreaterThanOrEqual(400);
     const row = await pool.query("select values from records where id = $1", [agent]);
     expect(JSON.stringify(row.rows[0].values)).not.toContain('Work');
+  });
+});
+
+describe('#1195 the scope API is admin-only', () => {
+  it('a non-admin is refused and the body names no database', async () => {
+    const closed = (await as(admin.token, 'POST', `/workspaces/${ws}/spaces`, { name: 'Closed' })).json().id as string;
+    await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: closed, name: 'Vault' });
+    const agent = await mkAgent('Vault worker', { target_spaces: 'Closed' });
+    const res = await as(manager.token, 'GET', `/workspaces/${ws}/agents/${agent}/scope`);
+    expect(res.statusCode, res.body).toBe(403);
+    expect(res.body).not.toContain('Vault');
   });
 });
