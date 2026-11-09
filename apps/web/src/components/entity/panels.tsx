@@ -15,6 +15,7 @@ import { api, API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
+import { isAiSource } from '@/lib/governance';
 import { Button } from '@/components/ui/button';
 import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
@@ -331,7 +332,7 @@ export function CommentsPanel({
                   below), so an agent/automation/MCP-authored comment reads
                   differently from a human one at a glance instead of the two
                   rendering byte-identical. */}
-              <SourceBadge source={comment.source} />
+              <SourceBadge source={comment.source} agentName={comment.agent_name} />
             </span>
             <span className="flex items-center gap-2 text-meta text-muted">
               {fmt.dateTime(comment.created_at)}
@@ -389,6 +390,11 @@ interface ActivityEntry {
   // into 'human'. That silent fold is the single most likely way to get this
   // wrong, per #481's own acceptance criteria.
   source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  /**
+   * The agent's name, when the API says which agent made the write (ticket #1206's tooltip: "Made by Triage Bot, an agent..."). A COMMENT
+   * carries it today; the activity-events endpoint does not return it yet, so an event badge falls back to the general sentence until it does.
+   */
+  agent_name?: string | null;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -402,6 +408,13 @@ const EVENT_LABELS: Record<string, string> = {
   'attachment.added': 'added an attachment',
 };
 
+/** The badge's tooltip: with the agent's name when it is known, so the gold says WHO the agent is, not only that one was there. */
+export function sourceBadgeTitle(source: 'agent' | 'automation' | 'mcp', agentName?: string | null): string {
+  const name = typeof agentName === 'string' ? agentName.trim() : '';
+  if (source === 'agent' && name) return `Made by ${name}, an agent, not typed by a person`;
+  return `This event was made by ${source === 'mcp' ? 'an MCP client' : `an ${source}`}, not typed by a person`;
+}
+
 /**
  * #496 — a badge distinguishing WHAT made a write, next to the actor name.
  * 'human' renders nothing: it is the default the reader already assumes, and
@@ -410,7 +423,7 @@ const EVENT_LABELS: Record<string, string> = {
  * faint, explicitly-labelled badge, so a row with genuinely missing source
  * data reads as "not recorded", not as an unmarked human edit.
  */
-function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
+function SourceBadge({ source, agentName }: { source: ActivityEntry['source']; agentName?: string | null }) {
   if (source === 'human') return null;
   if (source === null) {
     return (
@@ -431,8 +444,12 @@ function SourceBadge({ source }: { source: ActivityEntry['source'] }) {
   const { icon: Icon, label } = config[source];
   return (
     <span
-      title={`This event was made by ${label === 'MCP' ? 'an MCP client' : `an ${label}`}, not typed by a person`}
-      className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-micro font-medium text-primary-text"
+      title={sourceBadgeTitle(source, agentName)}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-micro font-medium',
+        // Gold marks an AI acting (agent, MCP): the one shared rule `isAiSource`. An automation is a rule a person configured, so it stays neutral.
+        isAiSource(source) ? 'bg-accent-soft text-accent-text' : 'bg-hover text-primary-text',
+      )}
     >
       <Icon className="h-3 w-3" />
       {label}
@@ -480,7 +497,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
           </span>
           <span className="text-ink-secondary">
             <span className="font-medium text-ink">{event.actor?.name ?? 'Someone'}</span>{' '}
-            <SourceBadge source={event.source} />{' '}
+            <SourceBadge source={event.source} agentName={event.agent_name} />{' '}
             {event.type === 'record.updated' && event.changes ? (
               <>
                 changed{' '}

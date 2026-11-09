@@ -261,9 +261,19 @@ export function describeAction(row: Pick<AuditEventRow, 'type' | 'payload'>): st
   return title ? `${verb} “${title}”` : `${verb} a record`;
 }
 
+/**
+ * Whether a write's `source` is an AI acting: an agent, or an MCP client acting as the member. This is the ONE rule for "gold means an
+ * AI acted" on a source badge (ticket #831/#1163): the Activity panel's badge, the record history's badge and this page's own list all
+ * read it, so they cannot decide separately and drift. An automation is a rule a person configured that fired deterministically, so it
+ * is NOT an AI source (Dara, ticket #1206); a person and an unrecorded source are not either.
+ */
+export function isAiSource(source: string | null | undefined): boolean {
+  return source === 'agent' || source === 'mcp';
+}
+
 /** Only the rows an agent or a token made: the page lists those, never a person's own edits. */
 export function isAgentAction(row: Pick<AuditEventRow, 'kind' | 'source'>): boolean {
-  return row.kind === 'event' && (row.source === 'agent' || row.source === 'mcp');
+  return row.kind === 'event' && isAiSource(row.source);
 }
 
 /**
