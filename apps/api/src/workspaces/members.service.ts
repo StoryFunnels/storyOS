@@ -6,10 +6,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { accessGrants, databases, favorites, memberships, recordWatchers, spaces, user, views, viewerState } from '../db/schema';
+import { accessGrants, apiTokens, databases, favorites, memberships, recordWatchers, spaces, user, views, viewerState } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -132,6 +132,13 @@ export class MembersService {
     // #945 — grants are keyed by user id, not membership: without this a removed member's grants survived, and a re-invited
     // person silently got the old access back (a restricted database they had been taken off, for instance).
     await this.db.delete(accessGrants).where(and(eq(accessGrants.workspaceId, workspaceId), eq(accessGrants.userId, target.userId)));
+    // #1052 — the same for their tokens on this workspace (PATs, agent tokens, run credentials). A removed member's request is
+    // refused at the membership check anyway, but the rows stayed live, so re-inviting the person brought every old token back.
+    // Revoked, not deleted: revoked rows are kept so a past action's token stays readable (#543).
+    await this.db
+      .update(apiTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(apiTokens.workspaceId, workspaceId), eq(apiTokens.userId, target.userId), isNull(apiTokens.revokedAt)));
 
     // #973 / ADR-0019 — a removed member's per-viewer state in THIS workspace goes with the membership: their overrides (personal
     // filters, collection views, pinned tabs), favourites and watched records. Before, all of it outlived the membership and came
