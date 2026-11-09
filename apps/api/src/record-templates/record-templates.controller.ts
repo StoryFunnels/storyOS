@@ -7,6 +7,7 @@ import {
   saveRecordAsTemplateSchema,
   updateRecordTemplateSchema,
 } from '@storyos/schemas';
+import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
 import { AuthGuard } from '../auth/auth.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
@@ -74,11 +75,12 @@ export class RecordTemplatesController {
   }
 
   @Delete(':template')
+  @HoldsAgentDeletes('record_template')
   @HttpCode(204)
   @ApiOperation({ summary: 'Delete a record template. Records already made from it are untouched.' })
   async remove(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('template') templateId: string) {
     await this.databases.assertAccess(req.membership, databaseId, 'editor');
-    await this.templates.remove(databaseId, templateId);
+    await this.templates.remove(databaseId, templateId, req.membership.userId);
   }
 
   @Post(':template/records')

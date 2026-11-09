@@ -1,4 +1,6 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import type { OnModuleInit } from '@nestjs/common';
+import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { and, asc, eq } from 'drizzle-orm';
 import {
   blocksToMarkdown,
@@ -53,12 +55,23 @@ export const publicRecordTemplate = (row: Row): RecordTemplate => ({
  * straight into this table; nothing here knows about packs.
  */
 @Injectable()
-export class RecordTemplatesService {
+export class RecordTemplatesService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly records: RecordsService,
     private readonly documents: DocumentsService,
+    /** #1178 - the agent's own `delete` approval_policy, applied to a run credential's template delete. */
+    private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  onModuleInit(): void {
+    // #1178 - an approved template delete runs through the same remove(); the editor role on the database is re-checked by applyApproved.
+    this.agentDeletes.registerApplier('record_template', async ({ databaseId, actorId, params }) => {
+      const templateId = params['template_id'] as string | undefined;
+      if (!databaseId || !templateId) throw new UnprocessableEntityException('This held delete names no template; nothing was deleted');
+      await this.remove(databaseId, templateId, actorId);
+    });
+  }
 
   async list(databaseId: string): Promise<RecordTemplate[]> {
     const rows = await this.db.query.recordTemplates.findMany({
@@ -125,8 +138,18 @@ export class RecordTemplatesService {
     return publicRecordTemplate(row!);
   }
 
-  async remove(databaseId: string, templateId: string): Promise<void> {
-    await this.row(databaseId, templateId);
+  async remove(databaseId: string, templateId: string, actorId: string): Promise<void> {
+    const row = await this.row(databaseId, templateId);
+    // #1178 - after the access check and the existence check, before the (hard) delete: the agent's own `delete` policy holds a run
+    // credential's delete (202). Records already made from the template are untouched either way.
+    await this.agentDeletes.holdIfAgentPolicy({
+      workspaceId: row.workspaceId,
+      kind: 'record_template',
+      actorId,
+      databaseId,
+      label: `the record template "${row.name}"`,
+      params: { template_id: templateId },
+    });
     await this.db.delete(recordTemplates).where(eq(recordTemplates.id, templateId));
   }
 
