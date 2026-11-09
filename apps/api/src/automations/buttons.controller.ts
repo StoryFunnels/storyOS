@@ -14,6 +14,7 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from '../records/records.service';
 import { AutomationActionsService } from './actions.service';
+import { assertCanWriteTargets } from './write-targets';
 
 /** Button press (MN-046): runs the field's action list as the presser. */
 @ApiTags('buttons')
@@ -54,6 +55,9 @@ export class ButtonsController {
 
     const source = req.auth?.source ?? 'human';
     const config = field.config as { actions: AutomationAction[] };
+    // #1050 — the actions run as the presser, so the presser must be able to add records wherever they write: editor on this
+    // database says nothing about the database a create_record names.
+    await assertCanWriteTargets(this.databases, req.membership, await this.actions.writeTargets(databaseId, config.actions));
     // #481 — "actions run as the presser": the button's OWN provenance is
     // whoever/whatever pressed it, not 'automation' just because it's config-
     // driven like a rule. Threaded into ActionContext so every action this

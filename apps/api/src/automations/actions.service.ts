@@ -254,6 +254,32 @@ export class AutomationActionsService implements OnModuleInit {
     relationFieldId: string,
     record: ProjectedRecord,
   ): Promise<{ targetDbId: string; linkedIds: string[] } | null> {
+    const target = await this.relationTarget(databaseId, relationFieldId);
+    if (!target) return null;
+    const chips = (record.values[target.field.apiName] as Array<{ id: string }> | undefined) ?? [];
+    return { targetDbId: target.targetDbId, linkedIds: chips.map((c) => c.id) };
+  }
+
+  /**
+   * Ticket #1050 — the OTHER databases these actions write records into: `create_record`/`create_records` name theirs, and
+   * `update_linked` writes into whatever its relation field points at. Callers check the saving (or pressing) person can add
+   * records there; holding a role on the rule's own database says nothing about any other one.
+   */
+  async writeTargets(databaseId: string, actions: AutomationAction[]): Promise<string[]> {
+    const out = new Set<string>();
+    for (const action of actions) {
+      if (action.type === 'create_record' || action.type === 'create_records') out.add(action.database_id);
+      else if (action.type === 'update_linked') {
+        const target = await this.relationTarget(databaseId, action.relation_field_id);
+        if (target) out.add(target.targetDbId);
+      }
+    }
+    out.delete(databaseId);
+    return [...out];
+  }
+
+  /** The database on the far side of a live relation field on `databaseId`, or null. */
+  private async relationTarget(databaseId: string, relationFieldId: string) {
     const field = await this.db.query.fields.findFirst({
       where: and(
         eq(fields.id, relationFieldId),
@@ -267,9 +293,7 @@ export class AutomationActionsService implements OnModuleInit {
       where: eq(relations.id, cfg.relation_id),
     });
     if (!relation) return null;
-    const targetDbId = cfg.side === 'a' ? relation.databaseBId : relation.databaseAId;
-    const chips = (record.values[field.apiName] as Array<{ id: string }> | undefined) ?? [];
-    return { targetDbId, linkedIds: chips.map((c) => c.id) };
+    return { field, targetDbId: cfg.side === 'a' ? relation.databaseBId : relation.databaseAId };
   }
 
   /**
