@@ -508,6 +508,50 @@ describe('Resend bounce/complaint webhook degrades the connection (MN-256)', () 
     expect(unchanged!.errorStreak).toBe(0);
   });
 
+  it('#1052: a correctly signed delivery older than 5 minutes is refused (replay)', async () => {
+    const webhookSecret = 'whsec_' + Buffer.from('stale-secret-32-bytes-long-value').toString('base64');
+    const scenario = await setupScenario({ webhookSecret });
+    const svixTimestamp = String(Math.floor(Date.now() / 1000) - 6 * 60);
+    const bodyStr = JSON.stringify({ type: 'email.bounced' });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/providers/resend/webhook/${scenario.connectionId}`,
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': 'msg_stale',
+        'svix-timestamp': svixTimestamp,
+        'svix-signature': signSvix(webhookSecret, 'msg_stale', svixTimestamp, bodyStr),
+      },
+      payload: bodyStr,
+    });
+    expect(res.statusCode).toBe(401);
+    const unchanged = await db.query.connections.findFirst({ where: eq(connections.id, scenario.connectionId) });
+    expect(unchanged!.errorStreak).toBe(0);
+  });
+
+  it('#1052: the same delivery sent twice counts once; the repeat is refused', async () => {
+    const webhookSecret = 'whsec_' + Buffer.from('replay-secret-32-bytes-long-valu').toString('base64');
+    const scenario = await setupScenario({ webhookSecret });
+    const svixTimestamp = String(Math.floor(Date.now() / 1000));
+    const bodyStr = JSON.stringify({ type: 'email.bounced' });
+    const send = () =>
+      app.inject({
+        method: 'POST',
+        url: `/api/v1/providers/resend/webhook/${scenario.connectionId}`,
+        headers: {
+          'content-type': 'application/json',
+          'svix-id': 'msg_replayed',
+          'svix-timestamp': svixTimestamp,
+          'svix-signature': signSvix(webhookSecret, 'msg_replayed', svixTimestamp, bodyStr),
+        },
+        payload: bodyStr,
+      });
+    expect((await send()).statusCode).toBe(200);
+    expect((await send()).statusCode).toBe(401);
+    const row = await db.query.connections.findFirst({ where: eq(connections.id, scenario.connectionId) });
+    expect(row!.errorStreak).toBe(1);
+  });
+
   it('a connection with no webhook_secret configured 401s every delivery', async () => {
     const scenario = await setupScenario(); // no webhookSecret
     const res = await app.inject({
