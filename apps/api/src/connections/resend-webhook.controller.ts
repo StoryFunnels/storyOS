@@ -20,6 +20,35 @@ export const RESEND_WEBHOOK_PATH_PREFIX = '/api/v1/providers/resend/webhook/';
 
 const BOUNCE_STREAK_THRESHOLD = 5;
 
+/** Ticket #1052 — Svix's own default: a delivery signed more than 5 minutes from now (either way) is refused. */
+export const SVIX_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
+
+/**
+ * Ticket #1052 — `svix-id`s already accepted, kept for the tolerance window. With the timestamp check, a captured delivery
+ * can only be replayed inside those 5 minutes, and this refuses that too. Per process: enough for one API instance; with
+ * several, a replay could land once per instance inside the window, and each one only bumps a bounce counter.
+ */
+const seenSvixIds = new Map<string, number>();
+const SEEN_SVIX_IDS_MAX = 10_000;
+
+/** True the first time an id is seen inside the window; false for a repeat. Exported for tests. */
+export function firstDelivery(svixId: string, nowMs: number = Date.now()): boolean {
+  const windowMs = SVIX_TIMESTAMP_TOLERANCE_SECONDS * 2 * 1000;
+  for (const [id, at] of seenSvixIds) {
+    if (nowMs - at <= windowMs && seenSvixIds.size < SEEN_SVIX_IDS_MAX) break; // Map keeps insertion order: oldest first
+    seenSvixIds.delete(id);
+  }
+  if (seenSvixIds.has(svixId)) return false;
+  seenSvixIds.set(svixId, nowMs);
+  return true;
+}
+
+/** Whether `svix-timestamp` (seconds) is a number within the tolerance of now. */
+export function svixTimestampFresh(svixTimestamp: string, nowMs: number = Date.now()): boolean {
+  const ts = Number(svixTimestamp);
+  return Number.isFinite(ts) && Math.abs(nowMs / 1000 - ts) <= SVIX_TIMESTAMP_TOLERANCE_SECONDS;
+}
+
 /**
  * Resend's Svix-signed webhook format: `svix-id`/`svix-timestamp` sign the
  * content `${id}.${timestamp}.${rawBody}`, HMAC-SHA256'd with the base64
@@ -107,6 +136,9 @@ export class ResendWebhookController {
     if (!auth.webhook_secret || !verifySvixSignature(auth.webhook_secret, svixId, svixTimestamp, req.rawBody, svixSignature)) {
       throw new UnauthorizedException();
     }
+    // #1052 — a valid signature on an OLD or REPEATED delivery is a replay. Checked after the signature, so only the
+    // signer's own deliveries ever reach the seen-id cache.
+    if (!svixTimestampFresh(svixTimestamp) || !firstDelivery(`${connectionId}:${svixId}`)) throw new UnauthorizedException();
 
     let event: { type?: string };
     try {

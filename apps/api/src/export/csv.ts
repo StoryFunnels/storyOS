@@ -26,8 +26,22 @@ export interface ExportRecord {
 /** Types that carry no data of their own — never exported. */
 const SKIP = new Set(['button']);
 
-/** RFC 4180: quote when the cell holds a delimiter, quote or newline; "" escapes a quote. */
-export function csvCell(value: string): string {
+/** A plain number, which a spreadsheet reads as a number even with a leading sign: `-5`, `+3.2`, `1e3`. */
+const PLAIN_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+/**
+ * Ticket #1052 — formula injection (OWASP "CSV Injection"). Excel, Sheets and LibreOffice run a cell that starts with
+ * `=`, `+`, `-` or `@` (and tab/CR variants) as a formula, and anyone can put text in a record: a public form submitter,
+ * an import, a webhook. A leading `'` makes the spreadsheet show the text as text. Plain numbers keep their sign: `-5`
+ * is data, not a formula.
+ */
+export function neutralizeFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) && !PLAIN_NUMBER.test(value) ? `'${value}` : value;
+}
+
+/** RFC 4180: quote when the cell holds a delimiter, quote or newline; "" escapes a quote. Formula-looking text is defused first. */
+export function csvCell(raw: string): string {
+  const value = neutralizeFormula(raw);
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 

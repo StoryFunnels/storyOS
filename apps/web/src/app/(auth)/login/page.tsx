@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { safeNextPath } from '@/lib/safe-next';
 import { Suspense, useEffect, useState } from 'react';
 import posthog from 'posthog-js';
 import { useQuery } from '@tanstack/react-query';
@@ -16,7 +17,7 @@ import { Label } from '@/components/ui/label';
 
 function LoginForm() {
   const router = useRouter();
-  const nextUrl = useSearchParams().get('next') ?? '/';
+  const nextUrl = safeNextPath(useSearchParams().get('next')); // #1052: same-site paths only
   const { data: session } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
