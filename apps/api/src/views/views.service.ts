@@ -9,7 +9,7 @@ import {
 import { recordStructuralEvent } from '../activity/structural-events';
 import { resolveFormSharing, stripPublicSharing } from './view-sharing';
 import { randomBytes } from 'node:crypto';
-import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import type { ViewConfig, ViewType } from '@storyos/schemas';
 import { SYSTEM_FIELD_BY_API_NAME, SYSTEM_FIELDS, systemFieldId } from '@storyos/schemas';
 import { filterMeReference } from '../records/query-compiler';
@@ -851,6 +851,8 @@ export class ViewsService {
         position: target,
         isDefault: false, // a copy is never the default
         createdBy: source.createdBy,
+        // #1051 — a copy of a personal view stays personal; publishing it is the separate, deliberate publish route.
+        ownerUserId: source.ownerUserId,
       })
       .returning();
     return copy!;
@@ -862,6 +864,8 @@ export class ViewsService {
       where: and(eq(views.id, viewId), eq(views.databaseId, databaseId), isNull(views.deletedAt)),
     });
     if (!view) throw new NotFoundException('View not found');
+    // #1051 — the default is what EVERYONE opens the database with; a personal view is visible to its owner only.
+    if (view.ownerUserId) throw new UnprocessableEntityException("A personal view can't be the database's default view.");
 
     return this.db.transaction(async (tx) => {
       await tx
@@ -915,6 +919,20 @@ export class ViewsService {
       ownerUserId,
       ownerUserId,
     );
+  }
+
+  /**
+   * #1051 — another member's personal view does not exist as far as the caller is concerned (ADR-0017: private from admins
+   * too). Every by-id route on a database's views asks this first, so update/duplicate/default/delete/restore/share answer
+   * "View not found" for it, the same as for an id that does not exist. Trashed views count: a personal view's trash entry is
+   * as private as the view was.
+   */
+  async assertNotOthersPersonal(databaseId: string, viewId: string, callerId: string): Promise<void> {
+    const view = await this.db.query.views.findFirst({
+      where: and(eq(views.id, viewId), eq(views.databaseId, databaseId)),
+      columns: { ownerUserId: true },
+    });
+    if (view?.ownerUserId && view.ownerUserId !== callerId) throw new NotFoundException('View not found');
   }
 
   /**
@@ -984,9 +1002,14 @@ export class ViewsService {
    *  to the DATABASE's/SPACE's own restore, not here — this database's own
    *  `assertDb` access check already 404s before reaching this method if the
    *  database itself is currently deleted, so that case never surfaces here. */
-  async listTrash(databaseId: string) {
+  async listTrash(databaseId: string, callerId: string) {
     const rows = await this.db.query.views.findMany({
-      where: and(eq(views.databaseId, databaseId), isNotNull(views.deletedAt)),
+      // #1051 — another member's deleted personal view is as invisible as their live one.
+      where: and(
+        eq(views.databaseId, databaseId),
+        isNotNull(views.deletedAt),
+        or(isNull(views.ownerUserId), eq(views.ownerUserId, callerId)),
+      ),
       orderBy: [desc(views.deletedAt)],
     });
     return rows.map((v) => ({ id: v.id, name: v.name, type: v.type, deleted_at: v.deletedAt }));

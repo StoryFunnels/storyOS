@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { csvCell, csvFilename, serializeCell, serializeCsv, type ExportField } from '../src/export/csv';
+import { csvCell, csvFilename, neutralizeFormula, serializeCell, serializeCsv, type ExportField } from '../src/export/csv';
 import { splitTargets } from '../src/import/import.service';
 
 const field = (over: Partial<ExportField> & { type: string }): ExportField => ({
@@ -104,5 +104,24 @@ describe('filename', () => {
       'Client-Work-Tasks-2026-07-16.csv',
     );
     expect(csvFilename('   ', new Date('2026-07-16T10:00:00Z'))).toBe('export-2026-07-16.csv');
+  });
+});
+
+describe('#1052 formula injection', () => {
+  it.each(['=HYPERLINK("https://x.example","click")', '+1+cmd', '-2+3', '@SUM(A1)', '\t=1', '\r=1', '=1'])('%j is defused with a leading apostrophe', (v) => {
+    expect(neutralizeFormula(v)).toBe(`'${v}`);
+  });
+
+  it.each(['-5', '+3.2', '-0.5', '1e3', '-.5', 'plain', '', 'a=b', ' =1'])('%j is left alone', (v) => {
+    expect(neutralizeFormula(v)).toBe(v);
+  });
+
+  it('applies inside a quoted cell too', () => {
+    expect(csvCell('=A1,B1')).toBe('"\'=A1,B1"');
+  });
+
+  it('a header (field name) is defused as well', () => {
+    const csv = serializeCsv([{ id: 'f', displayName: '=cmd', apiName: 'x', type: 'text' }], [], new Map());
+    expect(csv.split('\r\n')[0]).toBe("'=cmd");
   });
 });

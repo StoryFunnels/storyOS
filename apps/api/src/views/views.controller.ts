@@ -46,6 +46,12 @@ export class ViewsController {
     await this.databases.assertAccess(req.membership, databaseId, 'editor');
   }
 
+  /** #1051 — editor on the database, AND the view is not someone else's personal view (that one is a 404). */
+  private async assertView(req: WorkspaceRequest, databaseId: string, viewId: string) {
+    await this.assertDb(req, databaseId);
+    await this.viewsService.assertNotOthersPersonal(databaseId, viewId, req.user.id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a saved view (config validated against live fields)' })
   async create(
@@ -83,7 +89,7 @@ export class ViewsController {
     @Param('view') viewId: string,
     @Body() body: UpdateViewDto,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertView(req, databaseId, viewId);
     return this.viewsService.update(databaseId, viewId, body, req.membership);
   }
 
@@ -94,7 +100,7 @@ export class ViewsController {
     @Param('db') databaseId: string,
     @Param('view') viewId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertView(req, databaseId, viewId);
     return this.viewsService.duplicate(databaseId, viewId);
   }
 
@@ -105,7 +111,7 @@ export class ViewsController {
     @Param('db') databaseId: string,
     @Param('view') viewId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertView(req, databaseId, viewId);
     return this.viewsService.setDefault(databaseId, viewId);
   }
 
@@ -122,7 +128,7 @@ export class ViewsController {
     @Param('db') databaseId: string,
     @Param('view') viewId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertView(req, databaseId, viewId);
     return this.viewsService.publish(databaseId, viewId, req.user.id);
   }
 
@@ -153,6 +159,7 @@ export class ViewsController {
     // #567 — unlike every other mutation here, delete's required access level
     // depends on WHICH view: the owner deleting their own personal view needs
     // only viewer (matching createPersonal), everything else still needs editor.
+    await this.viewsService.assertNotOthersPersonal(databaseId, viewId, req.user.id); // #1051
     const level = await this.viewsService.deleteAccessLevel(databaseId, viewId, req.user.id);
     try {
       await this.databases.assertAccess(req.membership, databaseId, level);
@@ -173,7 +180,7 @@ export class ViewsController {
   @ApiOperation({ summary: 'Deleted views on this database (editor+)' })
   async listTrash(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
     await this.assertDb(req, databaseId);
-    return this.viewsService.listTrash(databaseId);
+    return this.viewsService.listTrash(databaseId, req.user.id);
   }
 
   @Post(':view/restore')
@@ -183,7 +190,7 @@ export class ViewsController {
     @Param('db') databaseId: string,
     @Param('view') viewId: string,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertView(req, databaseId, viewId);
     return this.viewsService.restore(databaseId, viewId);
   }
 
@@ -195,7 +202,7 @@ export class ViewsController {
     @Param('view') viewId: string,
     @Body() body: ShareViewDto,
   ) {
-    await this.assertDb(req, databaseId);
+    await this.assertView(req, databaseId, viewId);
     return this.viewsService.share(databaseId, viewId, body, req.membership);
   }
 
@@ -206,6 +213,8 @@ export class ViewsController {
     @Param('db') databaseId: string,
     @Param('view') viewId: string,
   ) {
+    // #554/#1051 — deliberately NOT behind assertView: revoking a public link only removes exposure, and an admin must be able
+    // to pull one that a personal view somehow carries.
     await this.assertDb(req, databaseId);
     return this.viewsService.unshare(databaseId, viewId);
   }

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { safeNextPath } from '@/lib/safe-next';
 import { Suspense, useState } from 'react';
 import posthog from 'posthog-js';
 import { authClient } from '@/lib/auth-client';
@@ -14,7 +15,7 @@ import { Label } from '@/components/ui/label';
 
 function SignupForm() {
   const router = useRouter();
-  const nextUrl = useSearchParams().get('next') ?? '/';
+  const nextUrl = safeNextPath(useSearchParams().get('next')); // #1052: same-site paths only
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
