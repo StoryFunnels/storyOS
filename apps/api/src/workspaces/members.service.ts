@@ -6,10 +6,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { accessGrants, favorites, memberships, recordWatchers, spaces, user, views, viewerState } from '../db/schema';
+import { accessGrants, databases, favorites, memberships, recordWatchers, spaces, user, views, viewerState } from '../db/schema';
 import type { MembershipRole } from '@storyos/schemas';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
@@ -154,9 +154,19 @@ export class MembersService {
      * query over SHARED data, so deleting it must not touch a single record that a
      * private board happened to point at.
      */
+    // #1051 — THIS workspace's personal views only. A view carries no workspace id of its own (it hangs off a database, or a
+    // space for a dashboard), and filtering on the owner alone deleted the person's personal views in EVERY workspace.
     await this.db
       .delete(views)
-      .where(eq(views.ownerUserId, target.userId));
+      .where(
+        and(
+          eq(views.ownerUserId, target.userId),
+          or(
+            inArray(views.databaseId, this.db.select({ id: databases.id }).from(databases).where(eq(databases.workspaceId, workspaceId))),
+            inArray(views.spaceId, this.db.select({ id: spaces.id }).from(spaces).where(eq(spaces.workspaceId, workspaceId))),
+          ),
+        ),
+      );
     await this.db
       .delete(spaces)
       .where(
