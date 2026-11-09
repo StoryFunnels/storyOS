@@ -42,6 +42,8 @@ RUN pnpm install --frozen-lockfile --prod --filter @storyos/mcp... \
   && rm -rf /pnpm/store
 
 WORKDIR /app/packages/mcp
+# Ticket #1052 — run as the image's unprivileged `node` user, not root. The MCP server is stateless: it writes no files.
+USER node
 ENV PORT=3002
 EXPOSE 3002
 CMD ["node", "dist/http.js"]
