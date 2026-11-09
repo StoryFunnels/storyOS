@@ -15,7 +15,7 @@ import { api } from '@/lib/api';
 import { aiFieldState, aiStateSpeaks } from '@/lib/ai-field-state';
 import { useShortcut, useWithShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
-import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
+import { CellDisplay, CellEditor, EmptyFieldAffordance, OpenRecordButton, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
 import { SelectionReadout } from './selection-readout';
@@ -1124,6 +1124,14 @@ export function TableView({
             memberNames={memberNames}
             memberImages={memberImages}
             ws={ws}
+          />
+        )}
+        {field.type === 'title' && !isCellEditing && (
+          <OpenRecordButton
+            title={row.title}
+            active={isCursor}
+            selected={selected.has(row.id)}
+            onOpen={(e) => openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e)}
           />
         )}
       </div>
