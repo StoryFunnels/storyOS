@@ -41,6 +41,7 @@ import { RunnersModule } from './runners/runners.module';
 import { SkillsModule } from './skills/skills.module';
 import { TemplatesModule } from './templates/templates.module';
 import { PacksModule } from './packs/packs.module';
+import { RecordTemplatesModule } from './record-templates/record-templates.module';
 import { AccessModule } from './access/access.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { MentionsModule } from './mentions/mentions.module';
@@ -116,6 +117,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     SkillsModule,
     TemplatesModule,
     PacksModule,
+    RecordTemplatesModule,
     AccessModule,
     FavoritesModule,
     MentionsModule,

@@ -4828,6 +4828,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a database's record templates (name, preset values, body) */
+        get: operations["RecordTemplatesController_list"];
+        put?: never;
+        /** Create a record template: name, preset values keyed by field api_name, and a Markdown body */
+        post: operations["RecordTemplatesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One record template */
+        get: operations["RecordTemplatesController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a record template. Records already made from it are untouched. */
+        delete: operations["RecordTemplatesController_remove"];
+        options?: never;
+        head?: never;
+        /** Edit a record template (a pack-installed one too: it is then kept on uninstall as changed) */
+        patch: operations["RecordTemplatesController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save an existing record as a template: its values and description (not its title, links or computed fields) */
+        post: operations["RecordTemplatesController_saveFromRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a record from a template: preset values and the body are filled in; `values` overrides a preset. Presets that no longer fit the schema are dropped and listed in `skipped`. */
+        post: operations["RecordTemplatesController_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/favorites": {
         parameters: {
             query?: never;
@@ -7307,6 +7378,34 @@ export interface components {
             name?: string;
             /** @default false */
             include_records: boolean;
+        };
+        CreateRecordTemplateDto: {
+            name: string;
+            description?: string;
+            /** @default {} */
+            values: {
+                [key: string]: unknown;
+            };
+            body?: string;
+        };
+        SaveRecordAsTemplateDto: {
+            record_id: string;
+            name: string;
+            description?: string;
+        };
+        UpdateRecordTemplateDto: {
+            name?: string;
+            description?: string | null;
+            values?: {
+                [key: string]: unknown;
+            };
+            body?: string | null;
+        };
+        ApplyRecordTemplateDto: {
+            /** @default {} */
+            values: {
+                [key: string]: unknown;
+            };
         };
         FavoriteDto: {
             /** @enum {string} */
@@ -14741,6 +14840,159 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DuplicateDatabaseDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRecordTemplateDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRecordTemplateDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_saveFromRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveRecordAsTemplateDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyRecordTemplateDto"];
             };
         };
         responses: {

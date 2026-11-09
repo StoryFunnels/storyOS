@@ -11603,6 +11603,275 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates": {
+      "get": {
+        "operationId": "RecordTemplatesController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a database's record templates (name, preset values, body)",
+        "tags": [
+          "record-templates"
+        ]
+      },
+      "post": {
+        "operationId": "RecordTemplatesController_create",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRecordTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a record template: name, preset values keyed by field api_name, and a Markdown body",
+        "tags": [
+          "record-templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}": {
+      "get": {
+        "operationId": "RecordTemplatesController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One record template",
+        "tags": [
+          "record-templates"
+        ]
+      },
+      "patch": {
+        "operationId": "RecordTemplatesController_update",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRecordTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Edit a record template (a pack-installed one too: it is then kept on uninstall as changed)",
+        "tags": [
+          "record-templates"
+        ]
+      },
+      "delete": {
+        "operationId": "RecordTemplatesController_remove",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a record template. Records already made from it are untouched.",
+        "tags": [
+          "record-templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record": {
+      "post": {
+        "operationId": "RecordTemplatesController_saveFromRecord",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveRecordAsTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Save an existing record as a template: its values and description (not its title, links or computed fields)",
+        "tags": [
+          "record-templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records": {
+      "post": {
+        "operationId": "RecordTemplatesController_apply",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRecordTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a record from a template: preset values and the body are filled in; `values` overrides a preset. Presets that no longer fit the schema are dropped and listed in `skipped`.",
+        "tags": [
+          "record-templates"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/favorites": {
       "get": {
         "operationId": "FavoritesController_list",
@@ -20804,6 +21073,88 @@
           "include_records": {
             "default": false,
             "type": "boolean"
+          }
+        }
+      },
+      "CreateRecordTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "values": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "SaveRecordAsTemplateDto": {
+        "type": "object",
+        "properties": {
+          "record_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "record_id",
+          "name"
+        ]
+      },
+      "UpdateRecordTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 20000,
+            "nullable": true
+          }
+        }
+      },
+      "ApplyRecordTemplateDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
           }
         }
       },

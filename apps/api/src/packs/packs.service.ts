@@ -54,6 +54,7 @@ import {
   fields as fieldsTable,
   packInstallItems,
   packInstalls,
+  recordTemplates,
   records as recordsTable,
   selectOptions,
   sources,
@@ -86,6 +87,14 @@ import { deref, findRawUuids, refify } from './pack-refs';
 const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
+
+/** ticket #1218 - the content of a record template that uninstall compares: what a person can edit, not its ids or timestamps. */
+const templateProjection = (t: { name: string; description: string | null; values: unknown; body: string | null }) => ({
+  name: t.name,
+  description: t.description ?? null,
+  values: t.values ?? {},
+  body: t.body ?? null,
+});
 
 /**
  * #1199 — a scheduled rule's top-N selection as the keys a pack manifest and the install hash carry: present ONLY when the rule has one.
@@ -1985,6 +1994,7 @@ export class PacksService {
         views: [],
         automations: [],
         sample_records: [],
+        record_templates: [],
         skills: [],
         skipped_sample_field_values: [],
       };
@@ -2018,6 +2028,8 @@ export class PacksService {
       );
       step = 'adding the sample records';
       await this.installSampleRecords(membership, working, dbIds, refToId, result);
+      step = 'adding the record templates';
+      await this.installRecordTemplates(membership, working, dbIds, refToId, result, hashes);
       step = 'adding the skills';
       await this.installSkills(membership, working, result, hashes);
 
@@ -2110,6 +2122,10 @@ export class PacksService {
     for (const id of created(result?.skills).reverse()) {
       await attempt(`skill ${id}`, () => this.skills.remove(membership, membership.userId, id));
     }
+
+    // 1b. Record templates this install created (a created database takes its own with it).
+    const templateIds = created(result?.record_templates);
+    if (templateIds.length > 0) await attempt('record templates', () => this.db.delete(recordTemplates).where(inArray(recordTemplates.id, templateIds)));
 
     // 2. Sample records, and their entries in the sample-data registry.
     const sampleIds = created(result?.sample_records);
@@ -2422,7 +2438,7 @@ export class PacksService {
 
       type Kind =
         | 'database' | 'field' | 'relation' | 'state' | 'agent' | 'trigger'
-        | 'derived_field' | 'view' | 'automation' | 'sample_record' | 'skill';
+        | 'derived_field' | 'view' | 'automation' | 'sample_record' | 'skill' | 'record_template';
       const rows: Array<{
         packInstallId: string;
         kind: Kind;
@@ -2457,6 +2473,7 @@ export class PacksService {
       add('view', result.views);
       add('automation', result.automations);
       add('sample_record', result.sample_records);
+      add('record_template', result.record_templates);
       add('skill', result.skills);
 
       if (rows.length > 0) await tx.insert(packInstallItems).values(rows);
@@ -2608,6 +2625,22 @@ export class PacksService {
         }
         await this.records.softDelete(membership.workspaceId, agentsDb.id, item.entityId, membership.userId);
         removed.push({ kind: 'agent', name: item.name, id: item.entityId });
+      } else if (item.kind === 'record_template') {
+        // ticket #1218 - a template the person edited (or one the install merely reused) is theirs now: kept, with the reason.
+        const live = await this.db.query.recordTemplates.findFirst({
+          where: and(eq(recordTemplates.id, item.entityId), eq(recordTemplates.workspaceId, membership.workspaceId)),
+        });
+        if (!live) continue;
+        if (item.action === 'reused') {
+          kept.push({ kind: 'record_template', name: item.name, id: item.entityId, reason: 'Existed before the install.' });
+          continue;
+        }
+        if (this.hashOf(templateProjection(live)) !== item.contentHash) {
+          kept.push({ kind: 'record_template', name: item.name, id: item.entityId, reason: 'Changed since install.' });
+          continue;
+        }
+        await this.db.delete(recordTemplates).where(eq(recordTemplates.id, item.entityId));
+        removed.push({ kind: 'record_template', name: item.name, id: item.entityId });
       } else if (item.kind === 'skill') {
         let skill;
         try {
@@ -3082,6 +3115,57 @@ export class PacksService {
       createdIds.push(created.id);
     }
     await trackSampleRecords(this.db, membership.workspaceId, createdIds);
+  }
+
+  /**
+   * ticket #1218 - the pack's record templates, matched by (database, name). One that already exists is REUSED and left exactly as the
+   * person has it, so a re-install never overwrites an edit. Option refs resolve like a sample record's, per field when the database
+   * was reused (a dropped one is reported in `skipped_sample_field_values`); `$me` and `$date:` tokens are kept as they are, because
+   * they are decided when a record is made from the template, not now.
+   */
+  private async installRecordTemplates(
+    membership: Membership,
+    manifest: PackManifest,
+    dbIds: Map<string, string>,
+    refToId: Map<string, string>,
+    result: PackInstallResult,
+    hashes: Map<string, string>,
+  ): Promise<void> {
+    for (const planned of manifest.record_templates ?? []) {
+      const dbId = this.resolveDb(dbIds, planned.database, 'A record template');
+      const label = `${planned.database}: ${planned.name}`;
+      const existing = await this.db.query.recordTemplates.findMany({ where: eq(recordTemplates.databaseId, dbId) });
+      const match = existing.find((t) => norm(t.name) === norm(planned.name));
+      if (match) {
+        result.record_templates.push({ name: label, action: 'reused', id: match.id });
+        continue;
+      }
+      const isReused = result.databases.find((d) => norm(d.name) === norm(planned.database))?.action === 'reused';
+      const values: Record<string, unknown> = {};
+      for (const [field, rawValue] of Object.entries(planned.values)) {
+        try {
+          values[field] = deref(rawValue, refToId, `A record template of "${planned.database}"`);
+        } catch (err) {
+          if (!isReused) throw err;
+          result.skipped_sample_field_values.push({ record: label, field, reason: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      const [row] = await this.db
+        .insert(recordTemplates)
+        .values({
+          workspaceId: membership.workspaceId,
+          databaseId: dbId,
+          name: planned.name,
+          description: planned.description ?? null,
+          values,
+          body: planned.body?.trim() ? planned.body : null,
+          origin: 'pack',
+          createdBy: membership.userId,
+        })
+        .returning();
+      result.record_templates.push({ name: label, action: 'created', id: row!.id });
+      hashes.set(`record_template:${row!.id}`, this.hashOf(templateProjection(row!)));
+    }
   }
 
   /**
