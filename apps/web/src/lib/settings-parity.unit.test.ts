@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -22,8 +23,24 @@ import { describe, expect, it } from 'vitest';
  *   2. NAMED ROWS: for each of the 245 rows of the #974 table, the file that is its home today and the text that identifies the
  *      control there. A row can only leave this list by being named in `REMOVED_ON_PURPOSE` with the decision that removed it.
  *
+ *   3. HANDLERS: every Button, menu item, switch and select must carry its own onClick/onSelect/onCheckedChange/onChange (or submit,
+ *      or be wrapped by the trigger, link or form that acts for it). A control that is drawn but dead (a Revoke with its onClick gone)
+ *      passes a presence check, so this is checked separately; exceptions go in NO_HANDLER_BY_DESIGN with a reason.
+ *
+ * WHAT EACH CHECK DOES AND DOES NOT PROTECT (be honest about the weak parts):
+ *   - PINS count elements by kind per file. They catch a control dropped or added, but not one control swapped for another of the
+ *     same kind in the same file.
+ *   - NAMED ROWS: a needle that is the label of interactive elements is checked as "at least N ELEMENTS carry this label in this
+ *     file" (the 4th field), so losing one of two Cancel buttons fails its row. About 80 rows have a needle that is code (an
+ *     identifier such as confirmRevokeInvite, or a conditional label expression); those are a plain substring check, which proves
+ *     the text is in the file, not that it is on a control. Those rows are really held by the PINS and the HANDLERS check.
+ *   - FIXED rows ("the 16 the table marked Fixed") are held only where an assertion names the fix (FIXED_ROWS_DELIVERED, and the
+ *     behavioural test in remove-photo.unit.test.ts). The rest of Settings' behaviour is NOT executed here: this repo has no DOM test
+ *     setup, so these are source checks plus one pure function driven with a failing request.
+ *
  * To change a pin on purpose: run `PRINT_SETTINGS_INVENTORY=/tmp/inv.json pnpm --filter @storyos/web exec vitest run settings-parity`
- * (it writes the current inventory to that file), edit PINS, and say in the PR which control was added or removed and why.
+ * (it writes the current inventory to that file), edit PINS, and say in the PR which control was added or removed and why. For a
+ * changed row needle: `PRINT_ROW_MINS=/tmp/mins.json` writes the element counts to put in the 4th field of PARITY_ROWS.
  */
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -147,6 +164,55 @@ export function hoverOnlyTitles(file: string): number {
   return n;
 }
 
+
+const ACTION_TAGS: Record<string, string[]> = {
+  Button: ['onClick'], button: ['onClick'], DropdownMenuItem: ['onSelect'], Switch: ['onCheckedChange'],
+  MenuSelect: ['onChange', 'onValueChange'], Segmented: ['onChange', 'onValueChange'], SelectField: ['onChange'], select: ['onChange'],
+};
+/** An element whose handler is supplied by an ancestor (a trigger or a link wraps it), by a form (submit), or by a spread. */
+const HANDLER_FROM_ANCESTOR = new Set(['DialogClose', 'DialogTrigger', 'DropdownMenuTrigger', 'PopoverTrigger', 'Link', 'a', 'form']);
+
+/**
+ * Controls that are drawn but carry no handler of their own: `<Button>`, `<button>`, a menu item, a switch or a select with no `onClick`/
+ * `onSelect`/`onCheckedChange`/`onChange`. Such an element is a dead control: it looks present, so a presence check passes (that is how
+ * "Revoke with its onClick removed" slipped past a count-and-label guard). An element is fine when it submits (`type="submit"`), is
+ * wrapped by a trigger/link/form that acts for it, spreads props, or is named in NO_HANDLER_BY_DESIGN with a reason.
+ */
+export function handlerless(file: string): string[] {
+  const text = readFileSync(file, 'utf8');
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const out: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const tag = node.tagName.getText(sf);
+      const needs = ACTION_TAGS[tag];
+      if (needs) {
+        const attrs = node.attributes.properties;
+        const has = (n: string) => attrs.some((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === n);
+        const submits = attrs.some((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === 'type' && a.initializer?.getText(sf).includes('submit'));
+        const spreads = attrs.some((a) => ts.isJsxSpreadAttribute(a));
+        let wrapped = false;
+        for (let p: ts.Node | undefined = node.parent?.parent; p && !ts.isSourceFile(p); p = p.parent) {
+          if (ts.isJsxElement(p) && HANDLER_FROM_ANCESTOR.has(p.openingElement.tagName.getText(sf))) { wrapped = true; break; }
+          if (ts.isJsxElement(p) && p.openingElement.tagName.getText(sf) === tag) break;
+        }
+        const own = needs.some(has) || has('asChild') || submits || spreads || has('href');
+        if (!own && !wrapped) {
+          const el = ts.isJsxOpeningElement(node) ? node.parent : node;
+          const label = el.getText(sf).replace(/\s+/g, ' ').replace(/<[^>]*>/g, ' ').trim().slice(0, 40);
+          out.push(`${tag} "${label}"`);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/** Drawn controls with no handler on purpose, each with its reason. Empty today: every action control in Settings acts. */
+const NO_HANDLER_BY_DESIGN: Record<string, string> = {};
+
 /** The only `title=` tooltips left on Settings, each one a NAME for an icon-only control that also has an aria-label, never an explanation. */
 const ALLOWED_TITLE_TOOLTIPS: Record<string, string> = {
   'components/free-guest-tip.tsx': 'the icon-only Dismiss button',
@@ -161,6 +227,43 @@ function currentInventory(): Record<string, Counts> {
   }
   return out;
 }
+
+
+/**
+ * The visible labels of each interactive element in a file: its text (including string literals inside `{...}`), and its `aria-label`,
+ * `label`, `placeholder`, `id` and `title` attributes. One entry per element, so "how many Cancel buttons are in this file" is a count
+ * of ELEMENTS, not of occurrences of the word.
+ */
+export function elementLabels(file: string): string[][] {
+  const text = readFileSync(file, 'utf8');
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const out: string[][] = [];
+  const strings = (n: ts.Node, acc: string[]) => {
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) acc.push(n.text);
+    else if (ts.isJsxText(n)) { const t = n.getText(sf).replace(/\s+/g, ' ').trim(); if (t) acc.push(t); }
+    else ts.forEachChild(n, (c) => strings(c, acc));
+  };
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const opening = ts.isJsxElement(node) ? node.openingElement : node;
+      const tag = opening.tagName.getText(sf);
+      if (KIND_OF_TAG[tag]) {
+        const labels: string[] = [];
+        for (const a of opening.attributes.properties) {
+          if (ts.isJsxAttribute(a) && ['aria-label', 'label', 'placeholder', 'id', 'title'].includes(a.name.getText(sf)) && a.initializer) strings(a.initializer, labels);
+        }
+        if (ts.isJsxElement(node)) for (const c of node.children) if (!(ts.isJsxElement(c) && KIND_OF_TAG[c.openingElement.tagName.getText(sf)])) strings(c, labels);
+        out.push(labels);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/** How many interactive elements in `file` carry a label containing `needle`. */
+export const elementsLabelled = (file: string, needle: string): number => elementLabels(file).filter((ls) => ls.some((l) => l.includes(needle))).length;
 
 /** Pinned per-file counts at ticket #1190 (main 86fb95d1). See the header for how to change one on purpose. */
 const PINS: Record<string, Counts> = {
@@ -215,252 +318,252 @@ const PINS: Record<string, Counts> = {
  * lives TODAY and the text that identifies the control in that file. Key = "table page#row number". A "merged" row names its KEPT copy
  * (the file listed is the copy that stays); a "moved" row names its new home. Checked against main 86fb95d1 by ticket #1190.
  */
-const PARITY_ROWS: ReadonlyArray<readonly [string, string, string]> = [
-  ["Rail bottom gear#1", "lib/settings-nav.ts", "label: 'General'"],
-  ["Rail bottom gear#2", "lib/settings-nav.ts", "label: 'Integrations'"],
-  ["Rail bottom gear#3", "components/settings/provider-card.tsx", "testLabel"],
-  ["Rail bottom gear#4", "lib/settings-nav.ts", "label: 'Webhooks'"],
-  ["Rail bottom gear#5", "lib/settings-nav.ts", "label: 'API tokens'"],
-  ["Rail bottom gear#6", "components/account-menu.tsx", "Keyboard shortcuts"],
-  ["Rail bottom gear#7", "components/account-menu.tsx", "Sign out"],
-  ["Rail avatar#1", "components/account-menu.tsx", "Profile"],
-  ["Rail avatar#2", "components/account-menu.tsx", "Preferences"],
-  ["Rail avatar#3", "components/account-menu.tsx", "imageUrl ? 'Change photo' : 'Set photo'"],
-  ["Rail avatar#4", "components/account-menu.tsx", "Remove photo"],
-  ["Rail avatar#5", "components/account-menu.tsx", "Sign out"],
-  ["Account#1", "app/w/[ws]/settings/account/page.tsx", "imageUrl ? 'Change' : 'Upload'"],
-  ["Account#2", "app/w/[ws]/settings/account/page.tsx", "input"],
-  ["Account#3", "app/w/[ws]/settings/account/page.tsx", "confirmRemovePhoto"],
-  ["Account#4", "app/w/[ws]/settings/account/page.tsx", "display-name"],
-  ["Account#5", "app/w/[ws]/settings/account/page.tsx", "save.isPending ? 'Saving\u2026' : 'Save'"],
-  ["Account#6", "app/w/[ws]/settings/account/page.tsx", "cur-pw"],
-  ["Account#7", "app/w/[ws]/settings/account/page.tsx", "new-pw"],
-  ["Account#8", "app/w/[ws]/settings/account/page.tsx", "Change password"],
-  ["Account#9", "app/w/[ws]/settings/account/page.tsx", "confirmRevokeSession"],
-  ["Account#10", "app/w/[ws]/settings/account/page.tsx", "Delete my account\u2026"],
-  ["Account#11", "app/w/[ws]/settings/account/page.tsx", "delete-account-confirm"],
-  ["Account#12", "app/w/[ws]/settings/account/page.tsx", "Cancel"],
-  ["Account#13", "app/w/[ws]/settings/account/page.tsx", "erase.isPending ? 'Deleting\u2026' : 'Delete my account permanently'"],
-  ["Preferences#1", "app/w/[ws]/settings/preferences/page.tsx", "Theme"],
-  ["Preferences#2", "app/w/[ws]/settings/preferences/page.tsx", "Date format"],
-  ["Preferences#3", "app/w/[ws]/settings/preferences/page.tsx", "Time format"],
-  ["Preferences#4", "app/w/[ws]/settings/preferences/page.tsx", "Week starts on"],
-  ["Notifications#1", "app/w/[ws]/settings/notifications/page.tsx", "label"],
-  ["Notifications#2", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Mentions'"],
-  ["Notifications#3", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Comments'"],
-  ["Notifications#4", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Status changes'"],
-  ["Notifications#5", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Record changes'"],
-  ["Referrals#1", "app/w/[ws]/settings/referrals/page.tsx", "Your referral link"],
-  ["Referrals#2", "app/w/[ws]/settings/referrals/page.tsx", "Copy"],
-  ["General#1", "app/w/[ws]/settings/general/page.tsx", "What is this workspace for? One line. Agents read it to understand what lives h"],
-  ["General#2", "app/w/[ws]/settings/general/page.tsx", "updateWorkspace.isPending ? 'Saving\u2026' : 'Save'"],
-  ["General#3", "app/w/[ws]/settings/agent-rules/page.tsx", "Let AI share skills with the whole workspace"],
-  ["General#4", "app/w/[ws]/settings/general/page.tsx", "https://your-domain.com/logo.png"],
-  ["General#5", "app/w/[ws]/settings/general/page.tsx", "Pick an accent colour"],
-  ["General#6", "app/w/[ws]/settings/general/page.tsx", "#3366ff"],
-  ["General#7", "app/w/[ws]/settings/general/page.tsx", "Save branding"],
-  ["Members#1", "app/w/[ws]/settings/members/page.tsx", "Invite"],
-  ["Members#2", "components/free-guest-tip.tsx", "Dismiss"],
-  ["Members#3", "app/w/[ws]/settings/members/page.tsx", "invite-email"],
-  ["Members#4", "app/w/[ws]/settings/members/page.tsx", "Role"],
-  ["Members#5", "app/w/[ws]/settings/members/page.tsx", "Access level"],
-  ["Members#6", "app/w/[ws]/settings/members/page.tsx", "input"],
-  ["Members#7", "app/w/[ws]/settings/members/page.tsx", "initialOpen ? 'Skip for now' : 'Cancel'"],
-  ["Members#8", "app/w/[ws]/settings/members/page.tsx", "Send invite"],
-  ["Members#9", "app/w/[ws]/settings/members/page.tsx", "Input"],
-  ["Members#10", "app/w/[ws]/settings/members/page.tsx", "Copy"],
-  ["Members#11", "app/w/[ws]/settings/members/page.tsx", "Done"],
-  ["Members#12", "app/w/[ws]/settings/members/page.tsx", "confirmRoleChange"],
-  ["Members#13", "app/w/[ws]/settings/members/page.tsx", "MEMBERS_COPY.choosePerson"],
-  ["Members#14", "app/w/[ws]/settings/members/page.tsx", "removeMember.mutate"],
-  ["Members#15", "app/w/[ws]/settings/members/page.tsx", "EraseMemberDialog"],
-  ["Members#16", "app/w/[ws]/settings/members/page.tsx", "Type ${target} to confirm"],
-  ["Members#17", "app/w/[ws]/settings/members/page.tsx", "Cancel"],
-  ["Members#18", "app/w/[ws]/settings/members/page.tsx", "Erase from this workspace"],
-  ["Members#19", "app/w/[ws]/settings/members/page.tsx", "Copy link"],
-  ["Members#20", "app/w/[ws]/settings/members/page.tsx", "model.resendLabel"],
-  ["Members#21", "app/w/[ws]/settings/members/page.tsx", "confirmRevokeInvite"],
-  ["Connect your AI#1", "app/w/[ws]/settings/connect-ai/page.tsx", "CONNECT_CLIENTS[id].label"],
-  ["Connect your AI#2", "app/w/[ws]/settings/connect-ai/page.tsx", "connector name"],
-  ["Connect your AI#3", "app/w/[ws]/settings/connect-ai/page.tsx", "server address"],
-  ["Connect your AI#4", "app/w/[ws]/settings/connect-ai/page.tsx", "I\u2019ve done it \u2014 check the connection"],
-  ["Connect your AI#5", "app/w/[ws]/settings/connect-ai/page.tsx", "Connect another AI \u2192"],
-  ["Connect your AI#6", "components/settings/ai-connections-list.tsx", "busy ? 'Disconnecting\u2026' : 'Disconnect'"],
-  ["Connect your AI#7", "app/w/[ws]/settings/connect-ai/page.tsx", "Advanced \u2014 tokens and self-managed StoryOS"],
-  ["Connect your AI#8", "app/w/[ws]/settings/connect-ai/page.tsx", "Manage API tokens \u2192"],
-  ["Connect your AI#9", "app/w/[ws]/settings/connect-ai/page.tsx", "Troubleshooting"],
-  ["Connect your AI#10", "app/w/[ws]/settings/connect-ai/page.tsx", "Claude client ID"],
-  ["Connect your AI#11", "app/w/[ws]/settings/connect-ai/page.tsx", "Check hosted service"],
-  ["Connect your AI#12", "app/w/[ws]/settings/connect-ai/page.tsx", "{selected.label} connector reference"],
-  ["Billing#1", "app/w/[ws]/settings/billing/page.tsx", "Start 30-day Pro trial"],
-  ["Billing#2", "app/w/[ws]/settings/billing/page.tsx", "UPGRADE_LABEL[target]"],
-  ["Billing#3", "lib/billing-view.ts", "business: 'Upgrade to Business'"],
-  ["Billing#4", "app/w/[ws]/settings/billing/page.tsx", "Manage billing"],
-  ["Billing#5", "app/w/[ws]/settings/billing/page.tsx", "BILLING_COPY.seatsLink"],
-  ["Integrations (hub)#1", "app/w/[ws]/settings/integrations/page.tsx", "Connect your AI"],
-  ["Integrations (hub)#2", "app/w/[ws]/settings/connect-ai/page.tsx", "server address"],
-  ["Integrations (hub)#3", "app/w/[ws]/settings/integrations/page.tsx", "Link"],
-  ["Integrations (hub)#4", "components/settings/provider-card.tsx", "Disconnect"],
-  ["Integrations (hub)#5", "app/w/[ws]/settings/integrations/page.tsx", "Link"],
-  ["API tokens#1", "app/w/[ws]/settings/api/page.tsx", "New token"],
-  ["API tokens#2", "app/w/[ws]/settings/api/page.tsx", "Advanced / Developer"],
-  ["API tokens#3", "app/w/[ws]/settings/api/page.tsx", "the API"],
-  ["API tokens#4", "app/w/[ws]/settings/api/page.tsx", "input"],
-  ["API tokens#5", "app/w/[ws]/settings/api/page.tsx", "confirmRevokeToken"],
-  ["API tokens#6", "app/w/[ws]/settings/api/page.tsx", "e.g. slack-digest"],
-  ["API tokens#7", "app/w/[ws]/settings/api/page.tsx", "Cancel"],
-  ["API tokens#8", "app/w/[ws]/settings/api/page.tsx", "Create"],
-  ["API tokens#9", "app/w/[ws]/settings/api/page.tsx", "Input"],
-  ["API tokens#10", "app/w/[ws]/settings/api/page.tsx", "Copy"],
-  ["API tokens#11", "app/w/[ws]/settings/api/page.tsx", "Done"],
-  ["Export#1", "app/w/[ws]/settings/export/page.tsx", "Export"],
-  ["Trash#1", "components/entity/trash-list.tsx", "Restore"],
-  ["Trash#2", "components/entity/trash-list.tsx", "Restore"],
-  ["Audit log#1", "app/w/[ws]/settings/audit-log/page.tsx", "Actor"],
-  ["Audit log#2", "app/w/[ws]/settings/audit-log/page.tsx", "Type"],
-  ["Audit log#3", "app/w/[ws]/settings/audit-log/page.tsx", "One record, space, database or view\u2026"],
-  ["Audit log#4", "app/w/[ws]/settings/audit-log/page.tsx", "2026-10-27, jul 15, yesterday\u2026"],
-  ["Audit log#5", "app/w/[ws]/settings/audit-log/page.tsx", "2026-10-27, jul 15, today\u2026"],
-  ["Audit log#6", "app/w/[ws]/settings/audit-log/page.tsx", "log.isFetchingNextPage ? 'Loading\u2026' : 'Load more'"],
-  ["Governance#1", "components/governance/agent-actions.tsx", "button"],
-  ["Governance#2", "components/governance/agent-actions.tsx", "log.isFetchingNextPage ? 'Loading\u2026' : 'Show older actions'"],
-  ["Connections#1", "components/settings/provider-card.tsx", "Advanced"],
-  ["Connections#2", "components/settings/provider-card.tsx", "Resume"],
-  ["Connections#3", "components/settings/provider-card.tsx", "testLabel"],
-  ["Connections#4", "components/connections/base-url-dialog.tsx", "needs ? 'Set base URL' : 'Base URL'"],
-  ["Connections#5", "components/connections/base-url-dialog.tsx", "https://api.example.com/v1"],
-  ["Connections#6", "components/connections/base-url-dialog.tsx", "Cancel"],
-  ["Connections#7", "components/connections/base-url-dialog.tsx", "save.isPending ? 'Saving\u2026' : 'Save'"],
-  ["Connections#8", "app/w/[ws]/settings/integrations/page.tsx", "Link"],
-  ["Connections#9", "components/settings/provider-card.tsx", "Reconnect"],
-  ["Connections#10", "components/settings/provider-card.tsx", "confirmDisconnectProvider"],
-  ["Connections#11", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'"],
-  ["Connections#12", "components/connections/connect-dialogs.tsx", "trigger.label"],
-  ["Connections#13", "components/connections/connect-dialogs.tsx", "conn-name"],
-  ["Connections#14", "components/connections/connect-dialogs.tsx", "conn-key"],
-  ["Connections#15", "components/connections/connect-dialogs.tsx", "automations@yourdomain.com"],
-  ["Connections#16", "components/connections/connect-dialogs.tsx", "Why do I need a verified domain?"],
-  ["Connections#17", "components/connections/connect-dialogs.tsx", "Advanced / IT settings"],
-  ["Connections#18", "components/connections/connect-dialogs.tsx", "whsec_\u2026"],
-  ["Connections#19", "components/connections/connect-dialogs.tsx", "my-store.myshopify.com"],
-  ["Connections#20", "components/connections/connect-dialogs.tsx", "shpat_\u2026"],
-  ["Connections#21", "components/connections/connect-dialogs.tsx", "automations@yourdomain.com"],
-  ["Connections#22", "components/connections/connect-dialogs.tsx", "Advanced / IT settings"],
-  ["Connections#23", "components/connections/connect-dialogs.tsx", "smtp-host"],
-  ["Connections#24", "components/connections/connect-dialogs.tsx", "smtp-port"],
-  ["Connections#25", "components/connections/connect-dialogs.tsx", "smtp-user"],
-  ["Connections#26", "components/connections/connect-dialogs.tsx", "smtp-pass"],
-  ["Connections#27", "components/connections/connect-dialogs.tsx", "Cancel"],
-  ["Connections#28", "components/connections/connect-dialogs.tsx", "create.isPending ? 'Connecting\u2026' : 'Connect'"],
-  ["Connections#29", "components/connections/connect-dialogs.tsx", "trigger.label"],
-  ["Connections#30", "components/connections/connect-dialogs.tsx", "http-conn-name"],
-  ["Connections#31", "components/connections/connect-dialogs.tsx", "https://api.example.com/v1"],
-  ["Connections#32", "components/connections/connect-dialogs.tsx", "Auth style"],
-  ["Connections#33", "components/connections/connect-dialogs.tsx", "http-conn-token"],
-  ["Connections#34", "components/connections/connect-dialogs.tsx", "http-conn-user"],
-  ["Connections#35", "components/connections/connect-dialogs.tsx", "http-conn-pass"],
-  ["Connections#36", "components/connections/connect-dialogs.tsx", "http-conn-hname"],
-  ["Connections#37", "components/connections/connect-dialogs.tsx", "http-conn-hvalue"],
-  ["Connections#38", "components/connections/connect-dialogs.tsx", "Cancel"],
-  ["Connections#39", "components/connections/connect-dialogs.tsx", "create.isPending ? 'Connecting\u2026' : 'Connect'"],
-  ["Webhooks#1", "app/w/[ws]/settings/webhooks/page.tsx", "Add webhook"],
-  ["Webhooks#2", "app/w/[ws]/settings/webhooks/page.tsx", "Advanced \u2014 for developers"],
-  ["Webhooks#3", "app/w/[ws]/settings/webhooks/page.tsx", "Full signing docs"],
-  ["Webhooks#4", "app/w/[ws]/settings/webhooks/page.tsx", "expanded === hook.id ? 'Hide' : 'Deliveries'"],
-  ["Webhooks#5", "app/w/[ws]/settings/webhooks/page.tsx", "confirmToggleWebhook"],
-  ["Webhooks#6", "app/w/[ws]/settings/webhooks/page.tsx", "Delete"],
-  ["Webhooks#7", "app/w/[ws]/settings/webhooks/page.tsx", "https://hooks.example.com/storyos"],
-  ["Webhooks#8", "app/w/[ws]/settings/webhooks/page.tsx", "All databases"],
-  ["Webhooks#9", "app/w/[ws]/settings/webhooks/page.tsx", "input"],
-  ["Webhooks#10", "app/w/[ws]/settings/webhooks/page.tsx", "Cancel"],
-  ["Webhooks#11", "app/w/[ws]/settings/webhooks/page.tsx", "create.isPending ? 'Creating\u2026' : 'Create webhook'"],
-  ["Webhooks#12", "app/w/[ws]/settings/webhooks/page.tsx", "Copy"],
-  ["Webhooks#13", "app/w/[ws]/settings/webhooks/page.tsx", "Done"],
-  ["GitHub#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["GitHub#2", "components/settings/provider-card.tsx", "Connect GitHub"],
-  ["GitHub#3", "app/w/[ws]/settings/integrations/github/page.tsx", "input"],
-  ["GitHub#4", "app/w/[ws]/settings/integrations/github/page.tsx", "saving ? 'Saving\u2026' : 'Save watched repositories'"],
-  ["GitHub#5", "app/w/[ws]/settings/integrations/github/page.tsx", "Reconnect / change installation"],
-  ["GitHub#6", "app/w/[ws]/settings/integrations/github/page.tsx", "ghp_\u2026 (repo read scope)"],
-  ["GitHub#7", "app/w/[ws]/settings/integrations/github/page.tsx", "acme/website\\nacme/api"],
-  ["GitHub#8", "app/w/[ws]/settings/integrations/github/page.tsx", "Save"],
-  ["GitHub#9", "app/w/[ws]/settings/integrations/github/page.tsx", "sync.isPending ? 'Syncing\u2026' : 'Sync now'"],
-  ["GitHub#10", "app/w/[ws]/settings/integrations/github/page.tsx", "See the GitHub space \u2192"],
-  ["GitHub#11", "app/w/[ws]/settings/integrations/github/page.tsx", "Enable Code & reviews"],
-  ["GitHub#12", "app/w/[ws]/settings/integrations/github/page.tsx", "Auto-convert draft PRs"],
-  ["GitHub#13", "app/w/[ws]/settings/integrations/github/page.tsx", "Squash and merge"],
-  ["GitHub#14", "app/w/[ws]/settings/integrations/github/page.tsx", "Match system"],
-  ["GitHub#15", "app/w/[ws]/settings/integrations/github/page.tsx", "Monospace (ligatures)"],
-  ["GitHub#16", "app/w/[ws]/settings/integrations/github/page.tsx", "Notify on comments and mentions"],
-  ["GitHub#17", "app/w/[ws]/settings/integrations/github/page.tsx", "Notify on review requests"],
-  ["Google Calendar#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["Google Calendar#2", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'"],
-  ["Google Calendar#3", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Create Calendar database"],
-  ["Google Calendar#4", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Google connection"],
-  ["Google Calendar#5", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Database"],
-  ["Google Calendar#6", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Calendar"],
-  ["Google Calendar#7", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Start date"],
-  ["Google Calendar#8", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "End date (optional)"],
-  ["Google Calendar#9", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Description (optional)"],
-  ["Google Calendar#10", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Sync direction"],
-  ["Google Calendar#11", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "createBinding.isPending ? 'Saving and syncing\u2026' : 'Save mapping & sync'"],
-  ["Google Calendar#12", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Open mapped database \u2192"],
-  ["Google Calendar#13", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Sync"],
-  ["Google Calendar#14", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "confirmRemoveCalendarMapping"],
-  ["Google Calendar#15", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "calendar-new-field-name"],
-  ["Google Calendar#16", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Cancel"],
-  ["Google Calendar#17", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "createFieldInline.isPending ? 'Creating\u2026' : 'Create and select'"],
-  ["Google Calendar#18", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Space"],
-  ["Google Calendar#19", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "calendar-database-name"],
-  ["Google Calendar#20", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Cancel"],
-  ["Google Calendar#21", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "createCalendarDatabase.isPending ? 'Creating\u2026' : 'Create and map'"],
-  ["Linear#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["Linear#2", "app/w/[ws]/settings/integrations/linear/page.tsx", "dryRun.isPending ? 'Checking\u2026' : 'Preview import \u2192'"],
-  ["Linear#3", "app/w/[ws]/settings/integrations/linear/page.tsx", "lin_api_\u2026 (Settings \u2192 API in Linear)"],
-  ["Linear#4", "app/w/[ws]/settings/integrations/linear/page.tsx", "ENG, OPS"],
-  ["Linear#5", "app/w/[ws]/settings/integrations/linear/page.tsx", "Save"],
-  ["Linear#6", "app/w/[ws]/settings/integrations/linear/page.tsx", "dryRun.isPending ? 'Checking\u2026' : 'Preview import'"],
-  ["Linear#7", "app/w/[ws]/settings/integrations/linear/page.tsx", "run.isPending ? 'Importing\u2026' : 'Import'"],
-  ["Linear#8", "app/w/[ws]/settings/integrations/linear/page.tsx", "Keep the mirror up to date automatically"],
-  ["Linear#9", "app/w/[ws]/settings/integrations/linear/page.tsx", "How often"],
-  ["Linear#10", "app/w/[ws]/settings/integrations/linear/page.tsx", "Post StoryOS comments to Linear"],
-  ["Slack#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["Slack#2", "app/w/[ws]/settings/integrations/slack/page.tsx", "Slack connection method"],
-  ["Slack#3", "app/w/[ws]/settings/integrations/slack/page.tsx", "Full setup guide with screenshots \u2192"],
-  ["Slack#4", "app/w/[ws]/settings/integrations/slack/page.tsx", "xoxb-\u2026"],
-  ["Slack#5", "app/w/[ws]/settings/integrations/slack/page.tsx", "https://hooks.slack.com/services/\u2026"],
-  ["Slack#6", "app/w/[ws]/settings/integrations/slack/page.tsx", "#general or C0123456789"],
-  ["Slack#7", "app/w/[ws]/settings/integrations/slack/page.tsx", "save.isPending ? 'Saving\u2026' : 'Save'"],
-  ["Slack#8", "components/settings/provider-card.tsx", "testLabel"],
-  ["Shopify#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["Shopify#2", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'"],
-  ["Shopify#3", "components/settings/provider-card.tsx", "testLabel"],
-  ["Shopify#4", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Create Product Catalogue"],
-  ["Shopify#5", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Open Products"],
-  ["Shopify#6", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Open Variants"],
-  ["Shopify#7", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Open Collections"],
-  ["Shopify#8", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Choose space"],
-  ["Shopify#9", "app/w/[ws]/settings/integrations/shopify/page.tsx", "e.g. Shopify"],
-  ["Shopify#10", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Cancel"],
-  ["Shopify#11", "app/w/[ws]/settings/integrations/shopify/page.tsx", "createCatalogue.isPending ? 'Creating\u2026' : 'Create catalogue'"],
-  ["YouTube#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["YouTube#2", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'"],
-  ["YouTube#3", "components/settings/provider-card.tsx", "testLabel"],
-  ["YouTube#4", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Create database"],
-  ["YouTube#5", "app/w/[ws]/settings/integrations/youtube/page.tsx", "name: 'YouTube Comments'"],
-  ["YouTube#6", "app/w/[ws]/settings/integrations/youtube/page.tsx", "name: 'YouTube Metrics'"],
-  ["YouTube#7", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Open database"],
-  ["YouTube#8", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Choose space"],
-  ["YouTube#9", "app/w/[ws]/settings/integrations/youtube/page.tsx", "youtube-database-name"],
-  ["YouTube#10", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Cancel"],
-  ["YouTube#11", "app/w/[ws]/settings/integrations/youtube/page.tsx", "createDatabase.isPending ? 'Creating\u2026' : 'Create database'"],
-  ["Delegate to agent#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["Delegate to agent#2", "app/w/[ws]/settings/integrations/delegate-agent/page.tsx", "enable.isPending ? 'Enabling\u2026' : 'Enable'"],
-  ["Delegate to agent#3", "app/w/[ws]/settings/integrations/delegate-agent/page.tsx", "Open Agents \u2192"],
-  ["Meta / X / LinkedIn#1", "components/settings/provider-card.tsx", "\u2190 Integrations"],
-  ["Meta / X / LinkedIn#2", "components/connections/connect-dialogs.tsx", "trigger.label"],
-  ["Meta / X / LinkedIn#3", "components/settings/provider-card.tsx", "testLabel"],
-  ["Meta / X / LinkedIn#4", "components/social-ingest-setup.tsx", "Go to workspace"],
+const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, number]> = [
+  ["Rail bottom gear#1", "lib/settings-nav.ts", "label: 'General'", 0],
+  ["Rail bottom gear#2", "lib/settings-nav.ts", "label: 'Integrations'", 0],
+  ["Rail bottom gear#3", "components/settings/provider-card.tsx", "has('test')", 0],
+  ["Rail bottom gear#4", "lib/settings-nav.ts", "label: 'Webhooks'", 0],
+  ["Rail bottom gear#5", "lib/settings-nav.ts", "label: 'API tokens'", 0],
+  ["Rail bottom gear#6", "components/account-menu.tsx", "Keyboard shortcuts", 1],
+  ["Rail bottom gear#7", "components/account-menu.tsx", "Sign out", 1],
+  ["Rail avatar#1", "components/account-menu.tsx", "Profile", 1],
+  ["Rail avatar#2", "components/account-menu.tsx", "Preferences", 1],
+  ["Rail avatar#3", "components/account-menu.tsx", "imageUrl ? 'Change photo' : 'Set photo'", 0],
+  ["Rail avatar#4", "components/account-menu.tsx", "Remove photo", 1],
+  ["Rail avatar#5", "components/account-menu.tsx", "Sign out", 1],
+  ["Account#1", "app/w/[ws]/settings/account/page.tsx", "imageUrl ? 'Change' : 'Upload'", 0],
+  ["Account#2", "app/w/[ws]/settings/account/page.tsx", "type=\"file\"", 0],
+  ["Account#3", "app/w/[ws]/settings/account/page.tsx", "confirmRemovePhoto", 0],
+  ["Account#4", "app/w/[ws]/settings/account/page.tsx", "display-name", 1],
+  ["Account#5", "app/w/[ws]/settings/account/page.tsx", "save.isPending ? 'Saving\u2026' : 'Save'", 0],
+  ["Account#6", "app/w/[ws]/settings/account/page.tsx", "cur-pw", 1],
+  ["Account#7", "app/w/[ws]/settings/account/page.tsx", "new-pw", 1],
+  ["Account#8", "app/w/[ws]/settings/account/page.tsx", "Change password", 1],
+  ["Account#9", "app/w/[ws]/settings/account/page.tsx", "confirmRevokeSession", 0],
+  ["Account#10", "app/w/[ws]/settings/account/page.tsx", "Delete my account\u2026", 1],
+  ["Account#11", "app/w/[ws]/settings/account/page.tsx", "delete-account-confirm", 1],
+  ["Account#12", "app/w/[ws]/settings/account/page.tsx", "Cancel", 1],
+  ["Account#13", "app/w/[ws]/settings/account/page.tsx", "erase.isPending ? 'Deleting\u2026' : 'Delete my account permanently'", 0],
+  ["Preferences#1", "app/w/[ws]/settings/preferences/page.tsx", "Theme", 1],
+  ["Preferences#2", "app/w/[ws]/settings/preferences/page.tsx", "Date format", 1],
+  ["Preferences#3", "app/w/[ws]/settings/preferences/page.tsx", "Time format", 1],
+  ["Preferences#4", "app/w/[ws]/settings/preferences/page.tsx", "Week starts on", 1],
+  ["Notifications#1", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Assigned to me'", 0],
+  ["Notifications#2", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Mentions'", 0],
+  ["Notifications#3", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Comments'", 0],
+  ["Notifications#4", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Status changes'", 0],
+  ["Notifications#5", "app/w/[ws]/settings/notifications/page.tsx", "label: 'Record changes'", 0],
+  ["Referrals#1", "app/w/[ws]/settings/referrals/page.tsx", "Your referral link", 1],
+  ["Referrals#2", "app/w/[ws]/settings/referrals/page.tsx", "Copy", 1],
+  ["General#1", "app/w/[ws]/settings/general/page.tsx", "What is this workspace for? One line. Agents read it to understand what lives h", 1],
+  ["General#2", "app/w/[ws]/settings/general/page.tsx", "updateWorkspace.isPending ? 'Saving\u2026' : 'Save'", 0],
+  ["General#3", "app/w/[ws]/settings/agent-rules/page.tsx", "Let AI share skills with the whole workspace", 1],
+  ["General#4", "app/w/[ws]/settings/general/page.tsx", "https://your-domain.com/logo.png", 2],
+  ["General#5", "app/w/[ws]/settings/general/page.tsx", "Pick an accent colour", 2],
+  ["General#6", "app/w/[ws]/settings/general/page.tsx", "#3366ff", 2],
+  ["General#7", "app/w/[ws]/settings/general/page.tsx", "Save branding", 2],
+  ["Members#1", "app/w/[ws]/settings/members/page.tsx", "Invite", 1],
+  ["Members#2", "components/free-guest-tip.tsx", "Dismiss", 1],
+  ["Members#3", "app/w/[ws]/settings/members/page.tsx", "invite-email", 1],
+  ["Members#4", "app/w/[ws]/settings/members/page.tsx", "Role", 1],
+  ["Members#5", "app/w/[ws]/settings/members/page.tsx", "Access level", 1],
+  ["Members#6", "app/w/[ws]/settings/members/page.tsx", "type=\"checkbox\"", 0],
+  ["Members#7", "app/w/[ws]/settings/members/page.tsx", "initialOpen ? 'Skip for now' : 'Cancel'", 0],
+  ["Members#8", "app/w/[ws]/settings/members/page.tsx", "Send invite", 1],
+  ["Members#9", "app/w/[ws]/settings/members/page.tsx", "value={acceptUrl}", 0],
+  ["Members#10", "app/w/[ws]/settings/members/page.tsx", "Copy", 2],
+  ["Members#11", "app/w/[ws]/settings/members/page.tsx", "Done", 1],
+  ["Members#12", "app/w/[ws]/settings/members/page.tsx", "confirmRoleChange", 0],
+  ["Members#13", "app/w/[ws]/settings/members/page.tsx", "MEMBERS_COPY.choosePerson", 0],
+  ["Members#14", "app/w/[ws]/settings/members/page.tsx", "removeMember.mutate", 0],
+  ["Members#15", "app/w/[ws]/settings/members/page.tsx", "EraseMemberDialog", 0],
+  ["Members#16", "app/w/[ws]/settings/members/page.tsx", "Type ${target} to confirm", 0],
+  ["Members#17", "app/w/[ws]/settings/members/page.tsx", "Cancel", 2],
+  ["Members#18", "app/w/[ws]/settings/members/page.tsx", "Erase from this workspace", 1],
+  ["Members#19", "app/w/[ws]/settings/members/page.tsx", "Copy link", 1],
+  ["Members#20", "app/w/[ws]/settings/members/page.tsx", "model.resendLabel", 0],
+  ["Members#21", "app/w/[ws]/settings/members/page.tsx", "confirmRevokeInvite", 0],
+  ["Connect your AI#1", "app/w/[ws]/settings/connect-ai/page.tsx", "CONNECT_CLIENTS[id].label", 0],
+  ["Connect your AI#2", "app/w/[ws]/settings/connect-ai/page.tsx", "connector name", 2],
+  ["Connect your AI#3", "app/w/[ws]/settings/connect-ai/page.tsx", "server address", 2],
+  ["Connect your AI#4", "app/w/[ws]/settings/connect-ai/page.tsx", "I\u2019ve done it \u2014 check the connection", 1],
+  ["Connect your AI#5", "app/w/[ws]/settings/connect-ai/page.tsx", "Connect another AI \u2192", 1],
+  ["Connect your AI#6", "components/settings/ai-connections-list.tsx", "busy ? 'Disconnecting\u2026' : 'Disconnect'", 0],
+  ["Connect your AI#7", "app/w/[ws]/settings/connect-ai/page.tsx", "Advanced \u2014 tokens and self-managed StoryOS", 1],
+  ["Connect your AI#8", "app/w/[ws]/settings/connect-ai/page.tsx", "Manage API tokens \u2192", 1],
+  ["Connect your AI#9", "app/w/[ws]/settings/connect-ai/page.tsx", "Troubleshooting", 1],
+  ["Connect your AI#10", "app/w/[ws]/settings/connect-ai/page.tsx", "Claude client ID", 1],
+  ["Connect your AI#11", "app/w/[ws]/settings/connect-ai/page.tsx", "Check hosted service", 1],
+  ["Connect your AI#12", "app/w/[ws]/settings/connect-ai/page.tsx", "{selected.label} connector reference", 0],
+  ["Billing#1", "app/w/[ws]/settings/billing/page.tsx", "Start 30-day Pro trial", 1],
+  ["Billing#2", "app/w/[ws]/settings/billing/page.tsx", "UPGRADE_LABEL[target]", 0],
+  ["Billing#3", "lib/billing-view.ts", "business: 'Upgrade to Business'", 0],
+  ["Billing#4", "app/w/[ws]/settings/billing/page.tsx", "Manage billing", 1],
+  ["Billing#5", "app/w/[ws]/settings/billing/page.tsx", "BILLING_COPY.seatsLink", 0],
+  ["Integrations (hub)#1", "app/w/[ws]/settings/integrations/page.tsx", "Connect your AI", 1],
+  ["Integrations (hub)#2", "app/w/[ws]/settings/connect-ai/page.tsx", "server address", 2],
+  ["Integrations (hub)#3", "app/w/[ws]/settings/integrations/page.tsx", "providerPageHref(ws, s.def.id)", 0],
+  ["Integrations (hub)#4", "components/settings/provider-card.tsx", "Disconnect", 1],
+  ["Integrations (hub)#5", "app/w/[ws]/settings/integrations/page.tsx", "providerPageHref(ws, s.def.id)", 0],
+  ["API tokens#1", "app/w/[ws]/settings/api/page.tsx", "New token", 1],
+  ["API tokens#2", "app/w/[ws]/settings/api/page.tsx", "Advanced / Developer", 1],
+  ["API tokens#3", "app/w/[ws]/settings/api/page.tsx", "the API", 1],
+  ["API tokens#4", "app/w/[ws]/settings/api/page.tsx", "type=\"checkbox\"", 0],
+  ["API tokens#5", "app/w/[ws]/settings/api/page.tsx", "confirmRevokeToken", 0],
+  ["API tokens#6", "app/w/[ws]/settings/api/page.tsx", "e.g. slack-digest", 1],
+  ["API tokens#7", "app/w/[ws]/settings/api/page.tsx", "Cancel", 1],
+  ["API tokens#8", "app/w/[ws]/settings/api/page.tsx", "Create", 1],
+  ["API tokens#9", "app/w/[ws]/settings/api/page.tsx", "value={created}", 0],
+  ["API tokens#10", "app/w/[ws]/settings/api/page.tsx", "Copy", 1],
+  ["API tokens#11", "app/w/[ws]/settings/api/page.tsx", "Done", 1],
+  ["Export#1", "app/w/[ws]/settings/export/page.tsx", "Export", 1],
+  ["Trash#1", "components/entity/trash-list.tsx", "Restore", 2],
+  ["Trash#2", "components/entity/trash-list.tsx", "Restore", 2],
+  ["Audit log#1", "app/w/[ws]/settings/audit-log/page.tsx", "Actor", 2],
+  ["Audit log#2", "app/w/[ws]/settings/audit-log/page.tsx", "Type", 2],
+  ["Audit log#3", "app/w/[ws]/settings/audit-log/page.tsx", "One record, space, database or view\u2026", 2],
+  ["Audit log#4", "app/w/[ws]/settings/audit-log/page.tsx", "2026-10-27, jul 15, yesterday\u2026", 2],
+  ["Audit log#5", "app/w/[ws]/settings/audit-log/page.tsx", "2026-10-27, jul 15, today\u2026", 2],
+  ["Audit log#6", "app/w/[ws]/settings/audit-log/page.tsx", "log.isFetchingNextPage ? 'Loading\u2026' : 'Load more'", 0],
+  ["Governance#1", "components/governance/agent-actions.tsx", "onClick={() => setOpen(r)}", 0],
+  ["Governance#2", "components/governance/agent-actions.tsx", "log.isFetchingNextPage ? 'Loading\u2026' : 'Show older actions'", 0],
+  ["Connections#1", "components/settings/provider-card.tsx", "Advanced", 1],
+  ["Connections#2", "components/settings/provider-card.tsx", "Resume", 1],
+  ["Connections#3", "components/settings/provider-card.tsx", "has('test')", 0],
+  ["Connections#4", "components/connections/base-url-dialog.tsx", "needs ? 'Set base URL' : 'Base URL'", 0],
+  ["Connections#5", "components/connections/base-url-dialog.tsx", "https://api.example.com/v1", 1],
+  ["Connections#6", "components/connections/base-url-dialog.tsx", "Cancel", 1],
+  ["Connections#7", "components/connections/base-url-dialog.tsx", "save.isPending ? 'Saving\u2026' : 'Save'", 0],
+  ["Connections#8", "app/w/[ws]/settings/integrations/page.tsx", "providerPageHref(ws, s.def.id)", 0],
+  ["Connections#9", "components/settings/provider-card.tsx", "Reconnect", 1],
+  ["Connections#10", "components/settings/provider-card.tsx", "confirmDisconnectProvider", 0],
+  ["Connections#11", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'", 0],
+  ["Connections#12", "components/connections/connect-dialogs.tsx", "trigger.label", 0],
+  ["Connections#13", "components/connections/connect-dialogs.tsx", "conn-name", 2],
+  ["Connections#14", "components/connections/connect-dialogs.tsx", "conn-key", 1],
+  ["Connections#15", "components/connections/connect-dialogs.tsx", "automations@yourdomain.com", 2],
+  ["Connections#16", "components/connections/connect-dialogs.tsx", "Why do I need a verified domain?", 1],
+  ["Connections#17", "components/connections/connect-dialogs.tsx", "Advanced / IT settings", 2],
+  ["Connections#18", "components/connections/connect-dialogs.tsx", "whsec_\u2026", 1],
+  ["Connections#19", "components/connections/connect-dialogs.tsx", "my-store.myshopify.com", 1],
+  ["Connections#20", "components/connections/connect-dialogs.tsx", "shpat_\u2026", 1],
+  ["Connections#21", "components/connections/connect-dialogs.tsx", "automations@yourdomain.com", 2],
+  ["Connections#22", "components/connections/connect-dialogs.tsx", "Advanced / IT settings", 2],
+  ["Connections#23", "components/connections/connect-dialogs.tsx", "smtp-host", 1],
+  ["Connections#24", "components/connections/connect-dialogs.tsx", "smtp-port", 1],
+  ["Connections#25", "components/connections/connect-dialogs.tsx", "smtp-user", 1],
+  ["Connections#26", "components/connections/connect-dialogs.tsx", "smtp-pass", 1],
+  ["Connections#27", "components/connections/connect-dialogs.tsx", "Cancel", 2],
+  ["Connections#28", "components/connections/connect-dialogs.tsx", "create.isPending ? 'Connecting\u2026' : 'Connect'", 0],
+  ["Connections#29", "components/connections/connect-dialogs.tsx", "trigger.label", 0],
+  ["Connections#30", "components/connections/connect-dialogs.tsx", "http-conn-name", 1],
+  ["Connections#31", "components/connections/connect-dialogs.tsx", "https://api.example.com/v1", 1],
+  ["Connections#32", "components/connections/connect-dialogs.tsx", "Auth style", 1],
+  ["Connections#33", "components/connections/connect-dialogs.tsx", "http-conn-token", 1],
+  ["Connections#34", "components/connections/connect-dialogs.tsx", "http-conn-user", 1],
+  ["Connections#35", "components/connections/connect-dialogs.tsx", "http-conn-pass", 1],
+  ["Connections#36", "components/connections/connect-dialogs.tsx", "http-conn-hname", 1],
+  ["Connections#37", "components/connections/connect-dialogs.tsx", "http-conn-hvalue", 1],
+  ["Connections#38", "components/connections/connect-dialogs.tsx", "Cancel", 2],
+  ["Connections#39", "components/connections/connect-dialogs.tsx", "create.isPending ? 'Connecting\u2026' : 'Connect'", 0],
+  ["Webhooks#1", "app/w/[ws]/settings/webhooks/page.tsx", "Add webhook", 1],
+  ["Webhooks#2", "app/w/[ws]/settings/webhooks/page.tsx", "Advanced \u2014 for developers", 1],
+  ["Webhooks#3", "app/w/[ws]/settings/webhooks/page.tsx", "Full signing docs", 1],
+  ["Webhooks#4", "app/w/[ws]/settings/webhooks/page.tsx", "expanded === hook.id ? 'Hide' : 'Deliveries'", 0],
+  ["Webhooks#5", "app/w/[ws]/settings/webhooks/page.tsx", "confirmToggleWebhook", 0],
+  ["Webhooks#6", "app/w/[ws]/settings/webhooks/page.tsx", "Delete", 1],
+  ["Webhooks#7", "app/w/[ws]/settings/webhooks/page.tsx", "https://hooks.example.com/storyos", 1],
+  ["Webhooks#8", "app/w/[ws]/settings/webhooks/page.tsx", "All databases", 1],
+  ["Webhooks#9", "app/w/[ws]/settings/webhooks/page.tsx", "type=\"checkbox\"", 0],
+  ["Webhooks#10", "app/w/[ws]/settings/webhooks/page.tsx", "Cancel", 1],
+  ["Webhooks#11", "app/w/[ws]/settings/webhooks/page.tsx", "create.isPending ? 'Creating\u2026' : 'Create webhook'", 0],
+  ["Webhooks#12", "app/w/[ws]/settings/webhooks/page.tsx", "Copy", 1],
+  ["Webhooks#13", "app/w/[ws]/settings/webhooks/page.tsx", "Done", 1],
+  ["GitHub#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["GitHub#2", "components/settings/provider-card.tsx", "Connect GitHub", 1],
+  ["GitHub#3", "app/w/[ws]/settings/integrations/github/page.tsx", "type=\"checkbox\"", 0],
+  ["GitHub#4", "app/w/[ws]/settings/integrations/github/page.tsx", "saving ? 'Saving\u2026' : 'Save watched repositories'", 0],
+  ["GitHub#5", "app/w/[ws]/settings/integrations/github/page.tsx", "Reconnect / change installation", 1],
+  ["GitHub#6", "app/w/[ws]/settings/integrations/github/page.tsx", "ghp_\u2026 (repo read scope)", 1],
+  ["GitHub#7", "app/w/[ws]/settings/integrations/github/page.tsx", "acme/website\\nacme/api", 0],
+  ["GitHub#8", "app/w/[ws]/settings/integrations/github/page.tsx", "Save", 2],
+  ["GitHub#9", "app/w/[ws]/settings/integrations/github/page.tsx", "sync.isPending ? 'Syncing\u2026' : 'Sync now'", 0],
+  ["GitHub#10", "app/w/[ws]/settings/integrations/github/page.tsx", "See the GitHub space \u2192", 1],
+  ["GitHub#11", "app/w/[ws]/settings/integrations/github/page.tsx", "Enable Code & reviews", 1],
+  ["GitHub#12", "app/w/[ws]/settings/integrations/github/page.tsx", "Auto-convert draft PRs", 1],
+  ["GitHub#13", "app/w/[ws]/settings/integrations/github/page.tsx", "Squash and merge", 1],
+  ["GitHub#14", "app/w/[ws]/settings/integrations/github/page.tsx", "Match system", 1],
+  ["GitHub#15", "app/w/[ws]/settings/integrations/github/page.tsx", "Monospace (ligatures)", 1],
+  ["GitHub#16", "app/w/[ws]/settings/integrations/github/page.tsx", "Notify on comments and mentions", 1],
+  ["GitHub#17", "app/w/[ws]/settings/integrations/github/page.tsx", "Notify on review requests", 1],
+  ["Google Calendar#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["Google Calendar#2", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'", 0],
+  ["Google Calendar#3", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Create Calendar database", 1],
+  ["Google Calendar#4", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Google connection", 1],
+  ["Google Calendar#5", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Database", 1],
+  ["Google Calendar#6", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Calendar", 2],
+  ["Google Calendar#7", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Start date", 1],
+  ["Google Calendar#8", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "End date (optional)", 1],
+  ["Google Calendar#9", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Description (optional)", 1],
+  ["Google Calendar#10", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Sync direction", 1],
+  ["Google Calendar#11", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "createBinding.isPending ? 'Saving and syncing\u2026' : 'Save mapping & sync'", 0],
+  ["Google Calendar#12", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Open mapped database \u2192", 1],
+  ["Google Calendar#13", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Sync", 2],
+  ["Google Calendar#14", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "confirmRemoveCalendarMapping", 0],
+  ["Google Calendar#15", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "calendar-new-field-name", 1],
+  ["Google Calendar#16", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Cancel", 2],
+  ["Google Calendar#17", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "createFieldInline.isPending ? 'Creating\u2026' : 'Create and select'", 0],
+  ["Google Calendar#18", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Space", 1],
+  ["Google Calendar#19", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "calendar-database-name", 1],
+  ["Google Calendar#20", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "Cancel", 2],
+  ["Google Calendar#21", "app/w/[ws]/settings/integrations/google-calendar/page.tsx", "createCalendarDatabase.isPending ? 'Creating\u2026' : 'Create and map'", 0],
+  ["Linear#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["Linear#2", "app/w/[ws]/settings/integrations/linear/page.tsx", "dryRun.isPending ? 'Checking\u2026' : 'Preview import \u2192'", 0],
+  ["Linear#3", "app/w/[ws]/settings/integrations/linear/page.tsx", "lin_api_\u2026 (Settings \u2192 API in Linear)", 1],
+  ["Linear#4", "app/w/[ws]/settings/integrations/linear/page.tsx", "ENG, OPS", 1],
+  ["Linear#5", "app/w/[ws]/settings/integrations/linear/page.tsx", "Save", 1],
+  ["Linear#6", "app/w/[ws]/settings/integrations/linear/page.tsx", "dryRun.isPending ? 'Checking\u2026' : 'Preview import'", 0],
+  ["Linear#7", "app/w/[ws]/settings/integrations/linear/page.tsx", "run.isPending ? 'Importing\u2026' : 'Import'", 0],
+  ["Linear#8", "app/w/[ws]/settings/integrations/linear/page.tsx", "Keep the mirror up to date automatically", 1],
+  ["Linear#9", "app/w/[ws]/settings/integrations/linear/page.tsx", "How often", 1],
+  ["Linear#10", "app/w/[ws]/settings/integrations/linear/page.tsx", "Post StoryOS comments to Linear", 1],
+  ["Slack#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["Slack#2", "app/w/[ws]/settings/integrations/slack/page.tsx", "Slack connection method", 1],
+  ["Slack#3", "app/w/[ws]/settings/integrations/slack/page.tsx", "Full setup guide with screenshots \u2192", 1],
+  ["Slack#4", "app/w/[ws]/settings/integrations/slack/page.tsx", "xoxb-\u2026", 1],
+  ["Slack#5", "app/w/[ws]/settings/integrations/slack/page.tsx", "https://hooks.slack.com/services/\u2026", 1],
+  ["Slack#6", "app/w/[ws]/settings/integrations/slack/page.tsx", "#general or C0123456789", 1],
+  ["Slack#7", "app/w/[ws]/settings/integrations/slack/page.tsx", "save.isPending ? 'Saving\u2026' : 'Save'", 0],
+  ["Slack#8", "components/settings/provider-card.tsx", "has('test')", 0],
+  ["Shopify#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["Shopify#2", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'", 0],
+  ["Shopify#3", "components/settings/provider-card.tsx", "has('test')", 0],
+  ["Shopify#4", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Create Product Catalogue", 1],
+  ["Shopify#5", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Open Products", 1],
+  ["Shopify#6", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Open Variants", 1],
+  ["Shopify#7", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Open Collections", 1],
+  ["Shopify#8", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Choose space", 1],
+  ["Shopify#9", "app/w/[ws]/settings/integrations/shopify/page.tsx", "e.g. Shopify", 1],
+  ["Shopify#10", "app/w/[ws]/settings/integrations/shopify/page.tsx", "Cancel", 1],
+  ["Shopify#11", "app/w/[ws]/settings/integrations/shopify/page.tsx", "createCatalogue.isPending ? 'Creating\u2026' : 'Create catalogue'", 0],
+  ["YouTube#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["YouTube#2", "components/settings/provider-card.tsx", "o.info?.oauth?.configured ? o.label : 'Not configured'", 0],
+  ["YouTube#3", "components/settings/provider-card.tsx", "has('test')", 0],
+  ["YouTube#4", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Create database", 2],
+  ["YouTube#5", "app/w/[ws]/settings/integrations/youtube/page.tsx", "name: 'YouTube Comments'", 0],
+  ["YouTube#6", "app/w/[ws]/settings/integrations/youtube/page.tsx", "name: 'YouTube Metrics'", 0],
+  ["YouTube#7", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Open database", 1],
+  ["YouTube#8", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Choose space", 1],
+  ["YouTube#9", "app/w/[ws]/settings/integrations/youtube/page.tsx", "youtube-database-name", 1],
+  ["YouTube#10", "app/w/[ws]/settings/integrations/youtube/page.tsx", "Cancel", 1],
+  ["YouTube#11", "app/w/[ws]/settings/integrations/youtube/page.tsx", "createDatabase.isPending ? 'Creating\u2026' : 'Create database'", 0],
+  ["Delegate to agent#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["Delegate to agent#2", "app/w/[ws]/settings/integrations/delegate-agent/page.tsx", "enable.isPending ? 'Enabling\u2026' : 'Enable'", 0],
+  ["Delegate to agent#3", "app/w/[ws]/settings/integrations/delegate-agent/page.tsx", "Open Agents \u2192", 1],
+  ["Meta / X / LinkedIn#1", "components/settings/provider-card.tsx", "\u2190 Integrations", 1],
+  ["Meta / X / LinkedIn#2", "components/connections/connect-dialogs.tsx", "trigger.label", 0],
+  ["Meta / X / LinkedIn#3", "components/settings/provider-card.tsx", "has('test')", 0],
+  ["Meta / X / LinkedIn#4", "components/social-ingest-setup.tsx", "Go to workspace", 1],
 ];
 
 /**
@@ -517,6 +620,10 @@ describe('Settings control inventory (derived from the source tree)', () => {
   it('prints the inventory when asked', () => {
     // PRINT_SETTINGS_INVENTORY=/some/file writes the current inventory there, as the PINS below would hold it.
     if (process.env.PRINT_SETTINGS_INVENTORY) writeFileSync(process.env.PRINT_SETTINGS_INVENTORY, JSON.stringify(inv, null, 1));
+    // PRINT_ROW_MINS=/some/file writes, for each table row, how many elements carry its needle today (the 4th field of PARITY_ROWS).
+    if (process.env.PRINT_ROW_MINS) {
+      writeFileSync(process.env.PRINT_ROW_MINS, JSON.stringify(Object.fromEntries(PARITY_ROWS.map(([key, file, needle]) => [key, elementsLabelled(join(SRC, file), needle)]))));
+    }
     expect(Object.keys(inv).length).toBeGreaterThan(30);
   });
 
@@ -552,7 +659,12 @@ describe('the 245 rows of the #974 parity table', () => {
   });
 
   it('every row still has its control in the file that is its home (a lost row fails here, naming the row)', () => {
-    const lost = PARITY_ROWS.filter(([key]) => !(key in REMOVED_ON_PURPOSE)).filter(([, file, needle]) => !existsSync(join(SRC, file)) || !text(file).includes(needle));
+    // A row whose needle is the label of interactive elements (min > 0) must still have AT LEAST that many elements with that label in its
+    // file, so losing one of two Cancel buttons fails its row. A needle that is code (an identifier, an expression) has min 0 and is a
+    // plain substring check.
+    const held = (file: string, needle: string, min: number) =>
+      existsSync(join(SRC, file)) && (min > 0 ? elementsLabelled(join(SRC, file), needle) >= min : text(file).includes(needle));
+    const lost = PARITY_ROWS.filter(([key]) => !(key in REMOVED_ON_PURPOSE)).filter(([, file, needle, min]) => !held(file, needle, min));
     expect(lost.map(([key, file, needle]) => `${key}: ${JSON.stringify(needle)} not found in ${file}`)).toEqual([]);
   });
 
@@ -603,8 +715,10 @@ describe('no explanation lives only in a tooltip (ticket #974 rule 5)', () => {
  */
 const FIXED_ROWS_DELIVERED: ReadonlyArray<readonly [string, string, string]> = [
   ['Account#3 confirm', 'app/w/[ws]/settings/account/page.tsx', 'confirmRemovePhoto()'],
-  ['Account#3 toast on success', 'app/w/[ws]/settings/account/page.tsx', "toast.success('Photo removed')"],
-  ['Account#3 toast on failure', 'app/w/[ws]/settings/account/page.tsx', "toast.error('Could not remove the photo')"],
+  ['Account#3 the page removes through removeProfilePhoto, passing the toaster', 'app/w/[ws]/settings/account/page.tsx', ', toast);'],
+  ['Account#3 the page only clears the photo when the removal succeeded', 'app/w/[ws]/settings/account/page.tsx', 'if (removed) {'],
+  ['Account#3 a failed response throws (also driven by remove-photo.unit.test.ts)', 'lib/remove-photo.ts', 'if (!res.ok) throw new Error('],
+  ['Account#3 success and failure are told apart', 'lib/remove-photo.ts', 'notify.error(PHOTO_NOT_REMOVED)'],
   ['Account#9 confirm', 'app/w/[ws]/settings/account/page.tsx', 'confirmRevokeSession('],
   ['Members#4 shared Select', 'app/w/[ws]/settings/members/page.tsx', 'label="Role"'],
   ['Members#5 shared Select', 'app/w/[ws]/settings/members/page.tsx', 'label="Access level"'],
@@ -625,5 +739,19 @@ const FIXED_ROWS_DELIVERED: ReadonlyArray<readonly [string, string, string]> = [
 describe('the rows marked Fixed in the table are fixed, not just present', () => {
   it.each(FIXED_ROWS_DELIVERED)('%s', (_name, file, needle) => {
     expect(readFileSync(join(SRC, file), 'utf8')).toContain(needle);
+  });
+});
+
+describe('no Settings control is drawn without a handler (a dead Revoke must not pass)', () => {
+  it('every Button, menu item, switch and select acts, or is named with a reason', () => {
+    const dead: string[] = [];
+    for (const f of settingsFiles()) for (const d of handlerless(f)) if (!(`${rel(f)} :: ${d}` in NO_HANDLER_BY_DESIGN)) dead.push(`${rel(f)} :: ${d}`);
+    expect(dead).toEqual([]);
+  });
+  it('the scanner sees a Revoke whose onClick was removed (self-test)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'parity-'));
+    const f = join(dir, 'x.tsx');
+    writeFileSync(f, 'export const A = () => (<div><Button size="sm">Revoke</Button><Button onClick={go}>Ok</Button><form><Button type="submit">Save</Button></form><DialogClose asChild><Button>Close</Button></DialogClose></div>);');
+    expect(handlerless(f)).toEqual(['Button "Revoke"']);
   });
 });

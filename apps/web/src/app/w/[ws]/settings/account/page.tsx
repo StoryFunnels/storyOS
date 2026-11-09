@@ -13,6 +13,7 @@ import { DELETE_ACCOUNT_BLOCKER, DELETE_ACCOUNT_CONSEQUENCES, ERASE_ME_BODY, ema
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRemovePhoto, confirmRevokeSession } from '@/lib/settings-confirmations';
+import { removeProfilePhoto } from '@/lib/remove-photo';
 import { Label } from '@/components/ui/label';
 import {
   AdvancedSection,
@@ -133,16 +134,11 @@ function ProfileBox({
 
   async function remove() {
     if (!(await confirm(confirmRemovePhoto()))) return;
-    // Ticket #1190 (parity row Account #3, "gains a confirm and a toast"): the confirm shipped, the toast did not, and a failed
-    // removal looked like a success because the response was never read.
-    try {
-      const res = await fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) throw new Error();
+    // Ticket #1190 (parity row Account #3): a failed removal must say so. The logic is in lib/remove-photo.ts so a test can fail it.
+    const removed = await removeProfilePhoto(() => fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' }), toast);
+    if (removed) {
       setOverride(null);
       onChange();
-      toast.success('Photo removed');
-    } catch {
-      toast.error('Could not remove the photo');
     }
   }
 
