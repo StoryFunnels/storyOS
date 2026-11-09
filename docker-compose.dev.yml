@@ -9,8 +9,9 @@ services:
       POSTGRES_USER: storyos
       POSTGRES_PASSWORD: storyos
       POSTGRES_DB: storyos
+    # Ticket #1052 — loopback only: a dev database with a well-known password must not be reachable from the LAN.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - storyos_pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,8 +25,8 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
   # PDF renderer for local development (#874) — OFF unless asked for:
   #   docker compose -f docker-compose.dev.yml --profile pdf up -d

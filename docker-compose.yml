@@ -215,9 +215,12 @@ services:
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-storyos-minio}
     volumes:
       - storyos_minio:/data
+    # Ticket #1052 — loopback only. The API reaches MinIO over the compose network (S3_ENDPOINT=http://minio:9000) and
+    # proxies every attachment, so nothing outside this host needs these ports; with the default credentials above, a
+    # public 9000/9001 was an open bucket and console. Reach the console with an SSH tunnel to 127.0.0.1:9001.
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
 
   # PDF renderer (#874): Gotenberg, a headless Chromium in its own container.
   #
