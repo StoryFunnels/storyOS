@@ -367,10 +367,13 @@ export class AgentsService implements OnModuleInit {
    */
   private async ensureAgentSettingsFields(agentsDbId: string): Promise<void> {
     const have = new Set(
-      (await this.db.select({ apiName: fieldsTable.apiName }).from(fieldsTable).where(and(eq(fieldsTable.databaseId, agentsDbId), inArray(fieldsTable.apiName, ['tools', 'model', ...BUDGET_FIELD_NAMES])))).map((r) => r.apiName),
+      (await this.db.select({ apiName: fieldsTable.apiName }).from(fieldsTable).where(and(eq(fieldsTable.databaseId, agentsDbId), inArray(fieldsTable.apiName, ['tools', 'model', 'target_spaces', ...BUDGET_FIELD_NAMES])))).map((r) => r.apiName),
     );
     if (!have.has('tools')) await this.fields.create(agentsDbId, { display_name: 'Tools', type: 'text', config: { multiline: true } });
     if (!have.has('model')) await this.fields.create(agentsDbId, { display_name: 'Model', type: 'text', config: {} });
+    // ticket #1195: the spaces an agent works in (names or ids, comma-separated). Resolved to the space's databases AT CALL TIME
+    // (agents/agent-scope.ts), never expanded at hire. Back-filled like Tools and Model: a field is a row, no migration.
+    if (!have.has('target_spaces')) await this.fields.create(agentsDbId, { display_name: 'Target spaces', type: 'text', config: {} });
     // ticket #1138: the monthly budget, in tokens and in runs. Empty = no limit. Whole numbers; the write guard (records.service.ts) refuses anything else.
     if (!have.has('monthly_token_budget')) await this.fields.create(agentsDbId, { display_name: 'Monthly token budget', type: 'number', config: {} });
     if (!have.has('monthly_run_cap')) await this.fields.create(agentsDbId, { display_name: 'Monthly run cap', type: 'number', config: {} });
@@ -1040,6 +1043,12 @@ export class AgentsService implements OnModuleInit {
         created_at: e.createdAt,
       })),
     };
+  }
+
+  /** Ticket #1195: the agent's record id from a uuid or public number, or a 404. The scope endpoint resolves through here, like activity. */
+  async resolveAgentId(membership: Membership, agentRef: string): Promise<string> {
+    const { agentsDb } = await this.ensurePackForExisting(membership);
+    return (await this.resolveAgent(agentsDb.id, agentRef)).id;
   }
 
   /** Resolve an agent record by uuid or public number (MN-087 pretty handles). */

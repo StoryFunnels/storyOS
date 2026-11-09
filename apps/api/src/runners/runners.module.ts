@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { AgentScopeService } from '../agents/agent-scope';
 import { RecordsModule } from '../records/records.module';
 import { AgentWakesController } from './agent-wakes.controller';
 import { AgentWakesService } from './agent-wakes.service';
@@ -19,7 +20,7 @@ import { RunnersService } from './runners.service';
 @Module({
   imports: [RecordsModule, SkillsModule],
   controllers: [RunnersController, RunnerApiController, AgentWakesController],
-  providers: [RunnersService, AgentWakesService, AgentCatchUpService, AgentBudgetService, RunnerAuthGuard, RunnerSweeperService],
+  providers: [AgentScopeService, RunnersService, AgentWakesService, AgentCatchUpService, AgentBudgetService, RunnerAuthGuard, RunnerSweeperService],
   exports: [RunnersService, AgentWakesService, AgentBudgetService],
 })
 export class RunnersModule {}
