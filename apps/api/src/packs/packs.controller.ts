@@ -15,6 +15,7 @@ import {
   packExportRequestSchema,
   packInstallResolutionsSchema,
   packListingMetaSchema,
+  packRequiredChoiceSchema,
 } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
@@ -65,6 +66,13 @@ const installSchema = z.object({
    * trigger is ignored. Human-gated triggers need no entry: they never fire by themselves.
    */
   enable_agent_triggers: z.array(z.string().min(1).max(400)).max(200).optional(),
+  /**
+   * #1197 - for a manifest with `requires.packs` whose required pack is NOT installed here: `{ "<pack slug>": "also_install" | "create_here" }`
+   * (the choices preview lists under `required_packs`). `also_install` installs that built-in pack first and links to it; `create_here`
+   * (the default) makes the linked databases inside this pack. For a required pack that IS installed the databases are linked unless this
+   * says `create_here`. A slug the manifest does not require is refused.
+   */
+  required_packs: z.record(z.string().min(1).max(80), packRequiredChoiceSchema).optional(),
 });
 class InstallDto extends createZodDto(installSchema) {}
 
@@ -167,7 +175,7 @@ export class PacksController {
   @Post('install')
   @ApiOperation({ summary: 'Install a pack manifest; idempotent' })
   install(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.install(req.membership, body.manifest, body.resolutions, body.target_space_id, body.enable_automations, body.enable_agent_triggers);
+    return this.packs.install(req.membership, body.manifest, body.resolutions, body.target_space_id, body.enable_automations, body.enable_agent_triggers, body.required_packs);
   }
 
   /**
@@ -180,7 +188,7 @@ export class PacksController {
   @Post('preview')
   @ApiOperation({ summary: 'Preview what installing a manifest would do; creates nothing' })
   preview(@Req() req: WorkspaceRequest, @Body() body: InstallDto) {
-    return this.packs.preview(req.membership, body.manifest, body.target_space_id, body.enable_automations, body.resolutions, body.enable_agent_triggers);
+    return this.packs.preview(req.membership, body.manifest, body.target_space_id, body.enable_automations, body.resolutions, body.enable_agent_triggers, body.required_packs);
   }
 
   /** Every pack tracked as installed in this workspace (MN-219 / #161). */

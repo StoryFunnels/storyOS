@@ -7295,6 +7295,9 @@ export interface components {
             target_space_id?: string;
             enable_automations?: string[];
             enable_agent_triggers?: string[];
+            required_packs?: {
+                [key: string]: "also_install" | "create_here";
+            };
         };
         SubmitDto: {
             /** @enum {string} */
