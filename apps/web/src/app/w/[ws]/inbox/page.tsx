@@ -11,6 +11,7 @@ import { notificationWho } from '@/components/approvals/caused-by';
 import { WhoAvatar } from '@/components/approvals/who';
 import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { Textarea } from '@/components/ui/textarea';
+import { MyWorkEmailOffer } from '@/components/my-work/my-work-email-offer';
 import { cn } from '@/lib/utils';
 import {
   NOTIFICATION_VERBS,
@@ -172,6 +173,8 @@ export default function InboxPage() {
             mobileShowDetail && 'hidden md:block',
           )}
         >
+          {/* Ticket #1252: the one-time "email me my work" offer; renders nothing unless every condition is known and true. */}
+          <MyWorkEmailOffer ws={ws} />
           {rows.length === 0 && !list.isLoading && (
             <p className="p-6 text-center text-body text-muted">
               {archived ? 'Nothing archived.' : "You're all caught up 🎉"}
