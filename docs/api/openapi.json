@@ -3083,6 +3083,58 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/branch-name": {
+      "get": {
+        "operationId": "RecordsController_branchName",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lane",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "docs",
+                "mcp",
+                "api",
+                "web",
+                "fix"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The git branch name for this record, derived (never stored): [lane/]<number>-<title-slug> (ticket #1219)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate": {
       "post": {
         "operationId": "RecordsController_duplicate",

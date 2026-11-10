@@ -111,6 +111,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'DELETE /workspaces/:ws/databases/:db/record-templates/:template': { verdict: 'internal', why: 'deletes a template and leaves every record made from it; nothing leaves StoryOS. Held by the agent\'s delete policy (HELD_DELETE_ROUTES, ticket #1178)' },
   'POST /workspaces/:ws/databases/:db/record-templates/:template/records': { verdict: 'gated', why: `an ordinary record create through RecordsService.create, so the same fan-out as POST .../records: ${FANOUT_WHY}` },
   'DELETE /workspaces/:ws/databases/:db/records/:rec/watch': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
+  'GET /workspaces/:ws/databases/:db/records/:rec/branch-name': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec/watchers': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'POST /workspaces/:ws/databases/:db/records/:rec/move': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/databases/:db/records/:rec/restore': { verdict: 'gated', why: FANOUT_WHY },

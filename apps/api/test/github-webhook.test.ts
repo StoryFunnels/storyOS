@@ -282,6 +282,58 @@ describe('linking (AC 2)', () => {
     expect(res.json().linked_record_id).toBe(ticket.id);
   });
 
+  // ticket #1219 — the repo's own convention: `<lane>/<n>-slug`, "ticket #<n>".
+  it('links a PR whose branch is the derived <lane>/<n>-slug name (ticket #1219)', async () => {
+    const ticket = await createTicket('Lane branch');
+    const res = await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', number: 60, branch: `api/${ticket.number}-lane-branch` }),
+    );
+    expect(res.json().linked_record_id).toBe(ticket.id);
+  });
+
+  it('links a PR whose title or body says "ticket #<n>" (ticket #1219)', async () => {
+    const a = await createTicket('Title mention');
+    const b = await createTicket('Body mention');
+    const r1 = await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', number: 61, branch: 'chore/x', title: `fix thing (ticket #${a.number})` }),
+    );
+    expect(r1.json().linked_record_id).toBe(a.id);
+    const r2 = await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', number: 62, branch: 'chore/x', body: `Closes ticket #${b.number}.` }),
+    );
+    expect(r2.json().linked_record_id).toBe(b.id);
+  });
+
+  it('a bare #<n> is ambiguous and never links, even when <n> is a real record (ticket #1219)', async () => {
+    const ticket = await createTicket('Bare number');
+    const res = await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', number: 63, branch: 'chore/x', title: `see #${ticket.number}`, body: `PR #${ticket.number}` }),
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().linked_record_id).toBe(null);
+  });
+
+  it('a mention of a number with no record is a 200 no-op, not an error (ticket #1219)', async () => {
+    const res = await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', number: 64, branch: 'chore/x', title: 'ticket #987654' }),
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().linked_record_id).toBe(null);
+  });
+
+  it('a redelivery of a text-linked PR leaves one PR row for (repo, number) (ticket #1219)', async () => {
+    const ticket = await createTicket('Redelivered');
+    const payload = prPayload({ action: 'opened', number: 65, branch: 'chore/x', title: `ticket #${ticket.number}` });
+    expect((await deliver('pull_request', payload)).json().linked_record_id).toBe(ticket.id);
+    expect((await deliver('pull_request', payload)).json().linked_record_id).toBe(ticket.id);
+    expect((await pullRecords()).filter((p) => p.values.number === 65)).toHaveLength(1);
+  });
+
   it('is a 200 no-op when the branch matches nothing', async () => {
     const res = await deliver(
       'pull_request',
@@ -289,6 +341,32 @@ describe('linking (AC 2)', () => {
     );
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json().linked_record_id).toBe(null);
+  });
+});
+
+describe('copy branch name (ticket #1219)', () => {
+  it('derives [lane/]<number>-<slug> from the record, and it round-trips through the matcher', async () => {
+    const ticket = await createTicket('Copy Branch Name!');
+    const base = `/workspaces/${wsId}/databases/${ticketsDbId}/records/${ticket.id}/branch-name`;
+    const plain = await as('GET', base);
+    expect(plain.statusCode, plain.body).toBe(200);
+    expect(plain.json().branch_name).toBe(`${ticket.number}-copy-branch-name`);
+    const laned = await as('GET', `${base}?lane=web`);
+    expect(laned.json().branch_name).toBe(`web/${ticket.number}-copy-branch-name`);
+    const res = await deliver(
+      'pull_request',
+      prPayload({ action: 'opened', number: 70, branch: laned.json().branch_name }),
+    );
+    expect(res.json().linked_record_id).toBe(ticket.id);
+  });
+
+  it('rejects an unknown lane with 400 and an unknown record with 404', async () => {
+    const ticket = await createTicket('Bad lane');
+    const base = `/workspaces/${wsId}/databases/${ticketsDbId}/records`;
+    expect((await as('GET', `${base}/${ticket.id}/branch-name?lane=chore`)).statusCode).toBe(400);
+    expect(
+      (await as('GET', `${base}/00000000-0000-4000-8000-000000000000/branch-name`)).statusCode,
+    ).toBe(404);
   });
 });
 
