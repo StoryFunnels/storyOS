@@ -47,6 +47,41 @@ export function resolveAuthSecret(
   return value && value.length > 0 ? value : randomBytes(32).toString('hex');
 }
 
+/**
+ * Ticket #1045: the bundled MinIO used to ship `storyos` / `storyos-minio` as its
+ * root credentials, so an operator who enabled the profile without overriding them
+ * ran an object store with a published, guessable login. With STORAGE_DRIVER=s3 the
+ * API now refuses to boot unless S3_ACCESS_KEY and S3_SECRET_KEY are set to values
+ * that are not those old defaults. The local-disk driver reads neither variable.
+ */
+export const LEGACY_S3_ACCESS_KEY = 'storyos';
+export const LEGACY_S3_SECRET_KEY = 'storyos-minio';
+
+export function assertS3Credentials(
+  driver: 'local' | 's3',
+  accessKey: string | undefined,
+  secretKey: string | undefined,
+): void {
+  if (driver !== 's3') return;
+  const missing = [
+    ...(accessKey?.trim() ? [] : ['S3_ACCESS_KEY']),
+    ...(secretKey?.trim() ? [] : ['S3_SECRET_KEY']),
+  ];
+  const legacy =
+    accessKey?.trim() === LEGACY_S3_ACCESS_KEY || secretKey?.trim() === LEGACY_S3_SECRET_KEY;
+  if (missing.length === 0 && !legacy) return;
+  throw new Error(
+    [
+      'FATAL: refusing to boot with STORAGE_DRIVER=s3 and unsafe object-store credentials.',
+      missing.length
+        ? `${missing.join(' and ')} ${missing.length > 1 ? 'are' : 'is'} not set.`
+        : 'S3_ACCESS_KEY / S3_SECRET_KEY still hold the old built-in defaults (storyos / storyos-minio), which are public.',
+      'Set S3_ACCESS_KEY and S3_SECRET_KEY in .env to your own values (for the bundled MinIO,',
+      'e.g. S3_SECRET_KEY=$(openssl rand -hex 24)), or use STORAGE_DRIVER=local.',
+    ].join('\n'),
+  );
+}
+
 const HEX_64_RE = /^[0-9a-f]{64}$/i;
 
 /**
@@ -435,6 +470,7 @@ let cached: Env | undefined;
 export function env(): Env {
   if (!cached) {
     const parsed = envSchema.parse(process.env);
+    assertS3Credentials(parsed.STORAGE_DRIVER, parsed.S3_ACCESS_KEY, parsed.S3_SECRET_KEY);
     const authSecret = resolveAuthSecret(parsed.NODE_ENV, parsed.BETTER_AUTH_SECRET);
     cached = {
       ...parsed,
