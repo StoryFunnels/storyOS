@@ -7511,14 +7511,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What I am working on',
       description:
-        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = records they made (assigned_by is null there); kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'The surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = open records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = open records they made (assigned_by is null there); kind:"assigned_by_me" = open records whose current assignee THEY set to someone else, with `assigned_at` (what they are waiting on from others); kind:"waiting" = what waits on THEM: `approvals` they can decide (pending, not expired) and `mentions` of them they have neither replied to nor read, each list with its own exact `total`; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'Finished records (a completed or canceled state) are never returned. Record lists come per database, ordered overdue, due within a week, in progress, then the rest, each by most recently changed, at most 50 rows per database; every group and the top level carry the exact `total`, and `truncated: true` when rows were cut, so a count is never the size of one page. ' +
         'Worth calling at the START of a session: list_databases tells you what exists, this tells you what matters, and the two answer different questions. Reads YOUR surfaces only — there is no argument for another person.',
       inputSchema: {
         workspace: z.string(),
-        kind: z.enum(['assigned', 'created', 'recent', 'favorites']).optional().describe('Default "assigned".'),
+        kind: z.enum(['assigned', 'created', 'assigned_by_me', 'waiting', 'recent', 'favorites']).optional().describe('Default "assigned".'),
       },
     },
-    handle<{ workspace: string; kind?: 'assigned' | 'created' | 'recent' | 'favorites' }>(
+    handle<{ workspace: string; kind?: 'assigned' | 'created' | 'assigned_by_me' | 'waiting' | 'recent' | 'favorites' }>(
       async ({ workspace, kind }) => {
         const ws = await resolveWorkspace(client, workspace);
         const which = kind ?? 'assigned';
