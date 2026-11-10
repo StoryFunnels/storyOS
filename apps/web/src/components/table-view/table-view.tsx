@@ -15,7 +15,7 @@ import { api } from '@/lib/api';
 import { aiFieldState, aiStateSpeaks } from '@/lib/ai-field-state';
 import { useShortcut, useWithShortcut } from '@/lib/shortcuts';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
-import { CellDisplay, CellEditor, EmptyFieldAffordance, PressButton, cellToText, fieldValue } from './cells';
+import { CellDisplay, CellEditor, EmptyFieldAffordance, OpenRecordButton, PressButton, cellToText, fieldValue } from './cells';
 import { AddFieldDialog } from './add-field-dialog';
 import { BatchBar } from './batch-bar';
 import { SelectionReadout } from './selection-readout';
@@ -414,6 +414,13 @@ export function TableView({
     estimateSize: () => rowHeight,
     overscan: 20,
   });
+  // #1230 — TanStack Virtual caches each row's size the first time it is
+  // asked, and never re-asks when `estimateSize` changes. Without this, the
+  // row boxes take the new height (:1297) but `item.start` keeps the old
+  // pitch, leaving gaps (28) or overlaps (40) until a reload.
+  useEffect(() => {
+    virtualizer.measure();
+  }, [rowHeight, virtualizer]);
 
   // Infinite scroll: fetch the next page as the tail approaches.
   const virtualItems = virtualizer.getVirtualItems();
@@ -1124,6 +1131,14 @@ export function TableView({
             memberNames={memberNames}
             memberImages={memberImages}
             ws={ws}
+          />
+        )}
+        {field.type === 'title' && !isCellEditing && (
+          <OpenRecordButton
+            title={row.title}
+            active={isCursor}
+            selected={selected.has(row.id)}
+            onOpen={(e) => openRecord({ db, rec: recordSegment(row), title: row.title, number: row.number }, e)}
           />
         )}
       </div>

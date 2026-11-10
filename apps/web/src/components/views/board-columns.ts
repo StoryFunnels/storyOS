@@ -96,6 +96,86 @@ export function showBoardColumn(
 }
 
 /**
+ * #1162 — what "Hide column" writes: the live hidden ids plus this column. Stale ids (matching no live column) are
+ * dropped on the way, for the same reason `showBoardColumn` drops them: the API refuses an id that is not an option of
+ * the group-by field. The no-value bucket has no option id and cannot be hidden, so asking for it changes nothing.
+ * Hiding the last visible column is allowed (the all-hidden state exists; Display lists every hidden column).
+ */
+export function hideBoardColumn(
+  columns: readonly { id: string }[],
+  hiddenOptionIds: readonly string[] | undefined,
+  columnId: string,
+): string[] | undefined {
+  const live = hiddenBoardColumns(columns, hiddenOptionIds).map((c) => c.id);
+  if (columnId === NO_VALUE || !columns.some((c) => c.id === columnId)) return live.length > 0 ? live : undefined;
+  return live.includes(columnId) ? live : [...live, columnId];
+}
+
+/**
+ * #1162 — may this column offer "Hide column"? Mirrors the server, which accepts `hidden_option_ids` only on a board
+ * grouped by a select or workflow field (a user/relation/date column is not an option) and never for the no-value
+ * bucket; and only for someone who may edit the view (the page's `readOnly`, the same gate the Display menu uses).
+ */
+export function canHideBoardColumn(opts: { columnId: string; groupType: string | undefined; readOnly: boolean }): boolean {
+  if (opts.readOnly || opts.columnId === NO_VALUE) return false;
+  return opts.groupType === 'select' || opts.groupType === 'workflow';
+}
+
+/** Marks the all-hidden notice's link, the last-resort focus target after a Hide (see `focusTargetAfterHide`). */
+export const ALL_HIDDEN_LINK_TARGET = 'all-hidden-link';
+
+/**
+ * #1162 (design review) — the number of option columns when EVERY one of them is hidden, else 0. Only that case gets
+ * the notice: a board with some columns hidden (Dev Tracker's Active hides four on purpose) is left as it is, and
+ * Display's Hidden columns list is where those are found. The no-value bucket is not an option and is not counted.
+ */
+export function allOptionColumnsHidden(
+  columns: readonly { id: string }[],
+  hiddenOptionIds: readonly string[] | undefined,
+): number {
+  const options = columns.filter((c) => c.id !== NO_VALUE);
+  if (options.length === 0) return 0;
+  return hiddenBoardColumns(options, hiddenOptionIds).length === options.length ? options.length : 0;
+}
+
+/**
+ * The notice's sentence and the words of its Display link, from the data (N and the group-by field's name).
+ * A read-only viewer cannot show a column again (the PATCH is refused), so for them there is NO link: the sentence says
+ * who hid them instead (`link` is null). An editor gets the link.
+ */
+export function allHiddenNotice(
+  count: number,
+  fieldName: string,
+  readOnly = false,
+): { text: string; link: string | null } {
+  if (readOnly) {
+    return {
+      text:
+        count === 1
+          ? `The 1 ${fieldName} column is hidden by this view's editors.`
+          : `All ${count} ${fieldName} columns are hidden by this view's editors.`,
+      link: null,
+    };
+  }
+  return count === 1
+    ? { text: `The 1 ${fieldName} column is hidden.`, link: 'Show it in Display' }
+    : { text: `All ${count} ${fieldName} columns are hidden.`, link: 'Show them in Display' };
+}
+
+/**
+ * #1162 (design review) — where keyboard focus goes after "Hide column" removes the focused column's `⋯`: the next
+ * visible option column's, else the previous one's (the hidden one was last), else the notice's link (none left).
+ * `visibleOptionIds` is the drawn option columns in order, BEFORE the hide, the no-value bucket excluded.
+ */
+export function focusTargetAfterHide(visibleOptionIds: readonly string[], hiddenId: string): string {
+  const i = visibleOptionIds.indexOf(hiddenId);
+  const rest = visibleOptionIds.filter((id) => id !== hiddenId);
+  if (rest.length === 0) return ALL_HIDDEN_LINK_TARGET;
+  if (i < 0) return rest[0]!;
+  return i < rest.length ? rest[i]! : rest[rest.length - 1]!;
+}
+
+/**
  * A board grouped by DATE is exempt from ordering: its columns are chronological
  * periods, and any other order is meaningless. It is also already immune to the
  * empty-column problem — bucketColumnsFor derives columns from the data, so

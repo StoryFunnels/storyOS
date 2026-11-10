@@ -11,6 +11,7 @@ import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { SkillsModule } from '../skills/skills.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
+import { AgentScopeService } from './agent-scope';
 import { AgentsController } from './agents.controller';
 import { AgentsService } from './agents.service';
 import { ArchitectController } from './architect.controller';
@@ -76,6 +77,7 @@ import { TyronChatClientResolver } from './tyron/tyron-chat-client-resolver';
   controllers: [AgentsController, ArchitectController, TyronThreadsController],
   providers: [
     AgentsService,
+    AgentScopeService,
     ArchitectService,
     AgentTriggerSubscriber,
     TyronThreadsService,
@@ -83,6 +85,6 @@ import { TyronChatClientResolver } from './tyron/tyron-chat-client-resolver';
     TyronSpendGuardService,
     TyronChatClientResolver,
   ],
-  exports: [AgentsService, ArchitectService, TyronThreadsService, TyronService, TyronSpendGuardService],
+  exports: [AgentsService, AgentScopeService, ArchitectService, TyronThreadsService, TyronService, TyronSpendGuardService],
 })
 export class AgentsModule {}

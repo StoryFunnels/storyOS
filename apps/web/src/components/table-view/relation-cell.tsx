@@ -446,6 +446,7 @@ export function RelationEditor({
         )}
         <input
           autoFocus
+          data-picker-search
           placeholder={`Search or create ${relation.target_database_name ?? 'records'}…`}
           className="w-full border-b border-border-default bg-card px-3 py-2 text-body text-ink outline-none placeholder:text-muted"
           value={search}

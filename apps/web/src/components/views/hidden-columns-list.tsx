@@ -19,12 +19,15 @@ export function HiddenColumnsList({
   hiddenOptionIds,
   onChange,
   sectionClass,
+  readOnly = false,
 }: {
   /** The group-by field's options, in the field's own order. */
   options: SelectOption[];
   hiddenOptionIds: string[] | undefined;
   onChange: (next: string[] | undefined) => void;
   sectionClass: string;
+  /** A viewer cannot save the view, so Show would look live and not stick: the list stays as information only. */
+  readOnly?: boolean;
 }) {
   const hidden = hiddenBoardColumns(options, hiddenOptionIds);
   if (hidden.length === 0) return null;
@@ -37,6 +40,7 @@ export function HiddenColumnsList({
             <span className="min-w-0 truncate">
               <OptionChip option={option} />
             </span>
+            {!readOnly && (
             <button
               type="button"
               aria-label={`Show ${option.label}`}
@@ -46,6 +50,7 @@ export function HiddenColumnsList({
               <Eye className="h-3.5 w-3.5" />
               Show
             </button>
+            )}
           </li>
         ))}
       </ul>

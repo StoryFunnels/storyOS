@@ -466,6 +466,7 @@ function DatabasePageInner() {
             config={config}
             readOnly={readOnly}
             personalFilter={personalFilter}
+            onPatch={patch}
           />
         ) : activeView?.type === 'calendar' ? (
           <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />

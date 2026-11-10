@@ -398,6 +398,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'PATCH /api/v1/workspaces/:ws/runners/:id': workspaceLevel('the owner\'s own Runner only, admins included (userId = the caller); touches no workspace content'),
   // #1130 / ADR-0021 §1-2, §11 — the wake queue: the read is filtered per viewer, the Runner routes are the Runner's own.
   'GET /api/v1/workspaces/:ws/agent-wakes': scoped('effectiveForDatabase + effectiveForRecords', 'runners/agent-wakes.controller.ts'),
+  'GET /api/v1/workspaces/:ws/agents/:agent/scope': adminOnly(), // class-level @MinRole('admin'); lists database names, narrowed to what the agent's manager can open
   'GET /api/v1/workspaces/:ws/agents/:agent/budget': scoped('effectiveForDatabase', 'runners/agent-wakes.service.ts'), // budgetFor: the Agents database AND (mayReadRuns) the Runs database; anything else is the same 404 as an unknown agent
   'GET /api/v1/workspaces/:ws/agent-wakes/summary': scoped('effectiveForDatabase + effectiveForRecords', 'runners/agent-wakes.controller.ts'),
   'POST /api/v1/runner/v1/claim': publicRoute('no AuthGuard on purpose: it authenticates with a Runner token (RunnerAuthGuard), which no other route accepts; it hands out only wakes for agents assigned to THAT Runner (ids, a reason and counts, never record text)'),
