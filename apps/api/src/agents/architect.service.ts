@@ -257,7 +257,7 @@ export class ArchitectService {
 
   /** Live fields of a database, read through the ordinary introspection route. */
   private async liveFields(membership: Membership, databaseId: string): Promise<LiveField[]> {
-    const detail = await this.databases.get(membership, databaseId);
+    const detail = await this.databases.get(membership, databaseId, { inheritRollupFormats: false });
     return detail.fields as unknown as LiveField[];
   }
 

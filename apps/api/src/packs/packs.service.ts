@@ -880,7 +880,7 @@ export class PacksService {
       // #317: by flag, not by name — a user's own database called "Runs" is
       // theirs and belongs in the pack they are exporting.
       if (db.isSystem) continue;
-      const detail = await this.databases.get(membership, db.id);
+      const detail = await this.databases.get(membership, db.id, { inheritRollupFormats: false });
       slice.push({
         id: db.id,
         name: db.name,
@@ -1003,7 +1003,7 @@ export class PacksService {
     const byId = new Map(slice.map((d) => [d.id, d]));
     const agentRows = await this.records.list(agentsDbId, { limit: MAX_SCAN });
     const agentById = new Map(agentRows.data.map((r) => [r.id, r]));
-    const agentFields = (await this.databases.get(membership, agentsDbId))
+    const agentFields = (await this.databases.get(membership, agentsDbId, { inheritRollupFormats: false }))
       .fields as unknown as LiveField[];
 
     /** Option ids on the Agents database → their labels (scopes, approval_policy). */
@@ -1423,7 +1423,7 @@ export class PacksService {
 
   /** #1156 — why the pack's version of `dbName` cannot use the live database `liveId` as it is, in plain language; undefined when it can. */
   private async incompatibility(membership: Membership, manifest: PackManifest, dbName: string, liveId: string): Promise<string | undefined> {
-    const detail = await this.databases.get(membership, liveId);
+    const detail = await this.databases.get(membership, liveId, { inheritRollupFormats: false });
     const fields = ((detail as unknown as { fields: LiveField[] }).fields ?? []).map((f) => ({ displayName: f.displayName, type: f.type, options: f.options }));
     const planned = manifest.databases.find((x) => norm(x.name) === norm(dbName));
     const problems: string[] = [];
@@ -1638,7 +1638,7 @@ export class PacksService {
       }
       let names = viewNamesByDb.get(live.id);
       if (!names) {
-        const detail = await this.databases.get(membership, live.id);
+        const detail = await this.databases.get(membership, live.id, { inheritRollupFormats: false });
         names = new Map(
           ((detail as unknown as { views: LiveView[] }).views ?? []).map(
             (v) => [norm(v.name), Boolean(v.isDefault)] as const,
@@ -1703,7 +1703,7 @@ export class PacksService {
         const agentId = agentIdByTitle.get(norm(planned.agent));
         let exists = false;
         if (live && agentId && bindings.length > 0) {
-          const fields = ((await this.databases.get(membership, live.id)) as unknown as { fields: LiveField[] }).fields ?? [];
+          const fields = ((await this.databases.get(membership, live.id, { inheritRollupFormats: false })) as unknown as { fields: LiveField[] }).fields ?? [];
           const field = fields.find((f) => norm(f.displayName) === norm(planned.state_field));
           const option = field?.options?.find((o) => norm(o.label) === norm(planned.state_option));
           exists =
@@ -1819,7 +1819,7 @@ export class PacksService {
       // The mode, as a choice with both values stated.
       let withoutModeHash: string | undefined;
       if (declaredFull.aiMode) {
-        const modeField = ((await this.databases.get(membership, agentsDbId)).fields as unknown as LiveField[]).find((f) => f.apiName === 'ai_mode');
+        const modeField = ((await this.databases.get(membership, agentsDbId, { inheritRollupFormats: false })).fields as unknown as LiveField[]).find((f) => f.apiName === 'ai_mode');
         const labels = new Map((modeField?.options ?? []).map((o) => [o.id, o.label] as const));
         const liveId = typeof record.values['ai_mode'] === 'string' ? (record.values['ai_mode'] as string) : null;
         if (liveId !== (values['ai_mode'] as string)) {
@@ -1923,7 +1923,7 @@ export class PacksService {
     for (const d of manifest.databases) {
       const live = liveByName.get(norm(d.name));
       if (!live) continue;
-      const detail = await this.databases.get(membership, live.id);
+      const detail = await this.databases.get(membership, live.id, { inheritRollupFormats: false });
       sim.set(norm(d.name), ((detail as unknown as { fields: LiveField[] }).fields ?? []).map((f) => ({ displayName: f.displayName, type: f.type, options: f.options })));
       gains.set(norm(d.name), { fields: [], options: [], views: [], not_applied: [] });
     }
@@ -2977,7 +2977,7 @@ export class PacksService {
     dbId: string,
     viewId: string,
   ): Promise<LiveView | undefined> {
-    const detail = await this.databases.get(membership, dbId);
+    const detail = await this.databases.get(membership, dbId, { inheritRollupFormats: false });
     return ((detail as unknown as { views: LiveView[] }).views ?? []).find((v) => v.id === viewId);
   }
 
@@ -3092,7 +3092,7 @@ export class PacksService {
       if (!dbId) continue;
       refToId.set(dbRef(planned.name), dbId);
 
-      const detail = await this.databases.get(membership, dbId);
+      const detail = await this.databases.get(membership, dbId, { inheritRollupFormats: false });
       for (const field of detail.fields as unknown as LiveField[]) {
         refToId.set(fieldRef(planned.name, field.displayName), field.id);
         for (const option of field.options ?? []) {
@@ -3114,7 +3114,7 @@ export class PacksService {
   }
 
   private async liveFields(membership: Membership, databaseId: string): Promise<LiveField[]> {
-    const detail = await this.databases.get(membership, databaseId);
+    const detail = await this.databases.get(membership, databaseId, { inheritRollupFormats: false });
     return detail.fields as unknown as LiveField[];
   }
 
@@ -3167,7 +3167,7 @@ export class PacksService {
       const targetName = resolution?.action === 'rename' ? resolution.rename_to! : planned.name;
 
       const dbId = this.resolveDb(dbIds, planned.database, `The view "${label}"`);
-      const detail = await this.databases.get(membership, dbId);
+      const detail = await this.databases.get(membership, dbId, { inheritRollupFormats: false });
       const existing = ((detail as unknown as { views: LiveView[] }).views ?? []).find(
         (v) => norm(v.name) === norm(targetName),
       );

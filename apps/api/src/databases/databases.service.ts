@@ -24,6 +24,7 @@ import type { ChangeSource } from '../db/schema';
 import type { PendingApprovalResult } from '../records/records.service';
 import { SalesSignalService } from '../billing/sales-signal.service';
 import { OPTION_ORDER } from '../fields/option-order';
+import { inheritRollupFormats } from '../fields/rollup-format';
 
 /** The transaction type `db.transaction(async (tx) => ...)` hands its callback. */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -239,7 +240,7 @@ export class DatabasesService {
   }
 
   /** Full introspection payload: database + live fields + views + my_access (E4, ADR-0007). */
-  async get(membership: Membership, databaseId: string) {
+  async get(membership: Membership, databaseId: string, opts: { inheritRollupFormats?: boolean } = {}) {
     const { database, my_access } = await this.assertAccess(membership, databaseId, 'viewer');
 
     const [fieldRows, viewRows] = await Promise.all([
@@ -293,6 +294,9 @@ export class DatabasesService {
     const fieldsWithOptions = fieldRows.map((f) =>
       optionsByField.has(f.id) ? { ...f, options: optionsByField.get(f.id) } : f,
     );
+    // ticket #1256 — before the far-side reduction below, which wipes a rollup's config to its relation id when the
+    // caller cannot read the far database, so an inherited format can never leak what that reduction hides.
+    if (opts.inheritRollupFormats !== false) await inheritRollupFormats(this.db, fieldsWithOptions);
 
     // Relation fields carry enough metadata for generic clients to traverse
     // the graph (E4): target database, cardinality, inverse field.
