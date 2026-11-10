@@ -4158,6 +4158,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agents/{agent}/scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where this agent works, resolved NOW: its named databases plus every database in its target spaces (a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list. */
+        get: operations["AgentsController_getAgentScope"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
         parameters: {
             query?: never;
@@ -13819,6 +13836,26 @@ export interface operations {
             path: {
                 /** @description The run record's uuid or public number */
                 run: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AgentsController_getAgentScope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent record's uuid or public number */
+                agent: string;
             };
             cookie?: never;
         };

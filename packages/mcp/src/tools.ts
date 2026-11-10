@@ -829,6 +829,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * approve call next to it.
    */
   get_agents: 'read',
+  // #1195 — GET /agents/{agent}/scope: where an agent works, resolved now. Read-only; the targets are fields a person edits.
+  get_agent_scope: 'read',
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
@@ -6267,13 +6269,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get agents setup',
       description:
-        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
+        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record. Where an agent works is two text fields on its record: `target_databases` (database names) and `target_spaces` (space names or ids). A space target is LIVE: it includes every database in that space on each call, including ones created after the agent was hired. Read the resolved list with get_agent_scope. Only a person sets these; an agent cannot change its own.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/agents', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_agent_scope',
+    {
+      title: 'Where an agent works',
+      description:
+        "Ticket #1195 — the databases an agent can work in, resolved NOW: the databases named in its `target_databases` plus every database in the spaces named in its `target_spaces` (a database added to a target space later is included on the next call, nothing is expanded at hire), narrowed to what the agent's manager can open. `databases[].via` says whether each came from a named database or a space. `enforced` is true when the agent targets at least one space: its Runner credential is then bound to exactly this set and a call outside it is refused (a database-only agent's `target_databases` stays its brief, not a boundary). A personal space is never included; entries that matched nothing (or a personal space) come back in `unresolved`, and `withheld_count` is how many databases the manager's access removed (their names are not listed).",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+      },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/scope', { params: { path: { ws: ws.id, agent } } } as never),
       );
       return text(res);
     }),

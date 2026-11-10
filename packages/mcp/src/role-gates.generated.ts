@@ -19,6 +19,7 @@ export const TOOL_MIN_ROLE: Record<string, 'member' | 'admin'> = {
   delete_webhook: 'admin',
   export_pack: 'admin',
   get_activity_event: 'admin',
+  get_agent_scope: 'admin',
   get_agents: 'admin',
   get_credential: 'admin',
   get_staged_action: 'admin',
