@@ -2277,8 +2277,11 @@ export class PacksService {
       };
       ledger.result = result;
       if (requiredPlan.length > 0) {
+        // #1257 - "linked" is what the build DID: the database it reused. Reading `adopt` instead missed a database that sits in the space being
+        // installed into, which the build finds by name and so never needs adopting - it was reported `created_here` while nothing was created.
+        const reused = new Set(built.databases.filter((d) => d.action === 'reused').map((d) => norm(d.name)));
         result.required_packs = requiredPlan.map((r) => {
-          const linked = r.req.databases.filter((n) => adopt.has(norm(n)));
+          const linked = r.req.databases.filter((n) => reused.has(norm(n)));
           return {
             pack: r.req.pack,
             outcome: linked.length === 0 ? ('created_here' as const) : alsoInstalled.has(r.req.pack) ? ('installed_and_linked' as const) : ('linked' as const),
