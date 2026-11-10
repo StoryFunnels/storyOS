@@ -148,6 +148,35 @@ short-lived credential made for that one run. There is no MCP setup to do.
   fails visibly and its owner is told.
 - `ANTHROPIC_API_KEY` is not passed to the session, so it uses your subscription.
 
+### Where an agent works: databases and whole spaces
+
+An agent's record in the Agents database has two text fields that say where it works:
+
+- **Target databases**: database names, one per entry.
+- **Target spaces**: space names or ids. A space stands for every database in it.
+
+Entries are separated by commas or new lines; names are matched ignoring case. A space target is
+**resolved each time it is used**, not copied when the agent is hired, so a database created in that
+space later is in the agent's scope on its next call. A personal space is never included, and neither
+is a database the agent's manager cannot open: the agent's credential is never wider than its manager.
+An entry that matches nothing, or matches a personal space, is reported as `unresolved` rather than
+dropped silently.
+
+- **`enforced`.** An agent with at least one target space has its scope enforced on its credential: it
+  works in the databases of those spaces plus any it names. An agent with only target databases keeps
+  the behaviour it always had: its Target databases text is its brief, not a boundary.
+- **Who sets it.** A person edits these fields. An agent that tries to change an agent's Target spaces is
+  refused with a 403, like its Tools, Model and budget. The hire card's **Works in** picker lists
+  databases only (see [Hiring an agent](/guides/hiring-an-agent/)), so to target a space, edit the
+  **Target spaces** field on the agent's record.
+- **Reading the resolved scope.** `GET /workspaces/{ws}/agents/{agent}/scope` (the agent's uuid or public
+  number) returns `agent_id`, `enforced`, `spaces` (`id`, `name`), `databases` (`id`, `name`, `space_id`,
+  `via`: `database` or `space`), `unresolved`, and `withheld_count`, the number of databases left out
+  because the manager cannot open them. Over MCP this is `get_agent_scope`. **Workspace admins only**:
+  anyone else gets a 403.
+- **On the Runner claim.** When a Runner claims a wake, the agent block carries `scope` with `enforced`,
+  `spaces`, `databases` and `unresolved`, resolved at that claim and narrowed to what the manager can open.
+
 ### Which tools it is offered, and what that costs
 
 A Runner run is **offered a short list of StoryOS tools**, not all of them. With nothing saved on the

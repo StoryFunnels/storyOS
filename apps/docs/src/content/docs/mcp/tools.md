@@ -310,6 +310,47 @@ switch chosen ones on; the web install review shows each rule that installs off 
 on**, with why and a switch. The preview and the install result say which rules are off and why. Details:
 [Writing a pack manifest](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
 
+### Packs that build on other packs
+
+A manifest can declare that some of its databases really belong to another pack, in `requires.packs`:
+each entry names the other pack by `pack` (its slug), the `databases` of **this** manifest that are that
+pack's, and an optional `note` shown in the review. Deal Desk, for example, builds on Agency OS's Clients,
+Contacts and Projects. A database named there must be in the manifest's own `databases`, and a pack cannot
+name itself; both are refused with a 422. Details: [Writing a pack manifest](/guides/pack-manifest/#packs-that-build-on-other-packs).
+
+`preview` lists each required pack under `required_packs`: whether it is installed here, which of this
+pack's databases would be linked to it, the fields this pack adds to them, the `choices` on offer and the
+`chosen` one. `install_pack` takes `required_packs` as `{"<pack slug>": "also_install" | "create_here"}`
+(REST: `required_packs` on `packs/install` and `packs/preview`):
+
+- **The required pack is installed here:** its databases are linked, not copied, unless you pass
+  `create_here`. A database you cannot edit is not linked.
+- **It is not installed:** `also_install` installs that built-in pack first, then links to it.
+  `create_here`, the default, makes the linked databases inside this pack. Nothing is installed unless you
+  choose `also_install`. Naming a pack StoryOS does not ship in `also_install` is refused with a 422.
+- **A slug the manifest does not require** is refused with a 422.
+- **One request is one install.** If the dependent install fails after `also_install` installed the other
+  pack, everything that request created is rolled back, including the pack it installed first and its
+  databases, and the error says what was rolled back. A required pack that was installed before the
+  request is not touched. If the rollback itself fails, the error names what to delete by hand.
+- **The install result** reports each required pack as `linked`, `installed_and_linked` or `created_here`.
+
+### A pack that schedules its own agent
+
+A pack automation whose trigger is a `schedule` can run one of the pack's own agents. In its `run_agent`
+action, name the agent by reference instead of by id: `{"type": "run_agent", "agent": "$agent:deal-coach"}`.
+The reference is the agent's name in lower case with every run of other characters turned into one dash,
+so **Deal Coach** is `$agent:deal-coach`. Install replaces it with the id of the agent it created or
+reused. Details: [Writing a pack manifest](/guides/pack-manifest/#a-pack-can-schedule-its-own-agent).
+
+- **The rule installs switched off**, like every rule that runs an agent. Name its label in
+  `enable_automations` to switch it on.
+- **A reference to an agent the manifest does not declare**, a reference that two of its agents share,
+  or a schedule trigger the rule engine would refuse are each a 422 before anything is built; `preview`
+  refuses them too.
+- **`export_pack`** includes an agent that a rule runs even when no trigger wakes it, and writes the rule
+  with the `$agent:` reference, never an id.
+
 ### Space-level views and groups
 
 | Tool | What it does |
@@ -341,6 +382,7 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 | `get_agents` / `setup_agents` | Whether the Agentic OS space exists (with a summary), and provisioning it (idempotent). |
 | `run_agent` / `delegate_to_agent` | Run an agent by hand and get its Run back; hand one record to an agent, which posts its outcome back on the record as a comment linking to the Run. |
 | `create_agent_trigger` | Fire an agent when a record reaches a given state; it starts by itself by default. `human_gate: true` ("ask me before each run") means it never starts a run by itself: a person starts each run. |
+| `get_agent_scope` | Where an agent works, resolved now: its Target databases plus every database in its Target spaces, narrowed to what its manager can open, with `enforced`, `unresolved` and `withheld_count`. Workspace admins only. See [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). |
 | `get_agent_budget` | One agent's monthly token and run budget against what it has used this UTC month, with each metric's state (unlimited, ok, warning, paused or not_measured). See [the Runner guide](/guides/runner/). |
 | `get_run` / `get_staged_action` / `rerun_action` / `get_run_quota` | One run in full (each action's attempts and artifacts); what a parked run is waiting to do (read-only — approving is human-only); retry one failed action with its original inputs; this month's run usage against your plan. |
 | `create_automation` / `update_automation` | Author or edit a rule (admin-scoped). In an automation's set, create and update-linked actions, a select, workflow or multi-select value can be an option label (any case) or id; an unknown label fails the run and names the valid ones. See [Setting a select field by its label](/concepts/automations/#setting-a-select-workflow-or-multi-select-field-by-its-label). |
