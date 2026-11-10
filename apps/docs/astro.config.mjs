@@ -177,6 +177,16 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Settings',
+          items: [
+            { label: 'Settings', slug: 'settings/overview' },
+            { label: 'Workspace', slug: 'settings/workspace' },
+            { label: 'AI', slug: 'settings/ai' },
+            { label: 'Connections', slug: 'settings/connections' },
+            { label: 'Data & security, and You', slug: 'settings/data-and-you' },
+          ],
+        },
+        {
           label: 'Use with AI (MCP)',
           items: [
             { label: 'Overview', slug: 'mcp/overview' },

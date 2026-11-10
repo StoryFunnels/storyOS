@@ -97,15 +97,12 @@ A database's views are hidden until you expand it, and StoryOS remembers which o
 Otherwise the sidebar opens at full height every time and you scroll past everything you were not
 looking for.
 
-## Account and workspace admin actions live behind one icon
+## Settings is one click on the gear
 
-Settings & members, Integrations, Connections, Webhooks, API tokens, and Keyboard shortcuts — plus
-Sign out — sit in a menu behind the gear icon next to the workspace switcher, at the top of the
-sidebar. None of it is a fixed row competing with the Spaces tree below it; each is still exactly
-one click away, just via that menu instead of a permanent block between the tree and the bottom of
-the sidebar. Settings & members, Integrations, Connections, and Webhooks only appear there for an
-admin; API tokens needs at least contributor access; Keyboard shortcuts and Sign out show for
-everyone.
+The **gear** in the rail opens Settings directly. While you are in Settings the sidebar shows the
+Settings menu in place of the Spaces tree, and **Back to {workspace}** returns you to where you were.
+Keyboard shortcuts and Sign out are in the account menu (your avatar). Which Settings pages you see
+depends on your role; see [Settings](/settings/overview/).
 
 ## Who sees what
 

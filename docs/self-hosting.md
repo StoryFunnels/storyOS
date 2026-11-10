@@ -102,7 +102,7 @@ The approval is enforced on every request. A connection limited to one workspace
 Registration is open (RFC 7591) but only for redirect URIs real AI clients use: `claude.ai`, `claude.com`, `chatgpt.com`, `chat.openai.com`, `platform.openai.com`, loopback addresses (`127.0.0.1`, `localhost`, `[::1]`, any port) and native-app schemes such as `cursor://` and `vscode://`. Anything else is refused with `invalid_redirect_uri`. At authorize time the request's `redirect_uri` must be byte-for-byte one the client registered, except that a loopback address (`127.0.0.1`, `[::1]`, `localhost`) may use a different port than the one registered (RFC 8252 §7.3), as command-line clients pick a random one; scheme, host, path and query must still match, and the list is capped at 20 URIs per client. To allow another https host, set `MCP_OAUTH_REDIRECT_HOSTS` (for example `example.com`).
 
 Leaving `MCP_OAUTH` unset (the default) keeps the endpoint PAT-only, which is the
-right choice for most self-hosted setups: mint a PAT under **Settings → API** and paste
+right choice for most self-hosted setups: mint a PAT under **Settings → API tokens** and paste
 it into the connector.
 
 ### Writes started failing after a deploy? Reconnect the client
@@ -133,7 +133,7 @@ one, a changed type, or a changed meaning — never for wording or for a brand-n
 
 ## Connections (MN-252)
 
-**Connections** (per-workspace, under **Settings → Connections**) is a registry of external-provider
+**Connections** (per-workspace, under **Settings → Integrations**, one page per provider) is a registry of external-provider
 credentials shared by every automation action and source. Each provider declares a **tier** by who owns
 the credential, and that tier — not the auth mechanism — decides what, if anything, you configure:
 
