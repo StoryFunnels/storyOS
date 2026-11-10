@@ -7,6 +7,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { agentWakes, comments, databases, fields, memberships, records, runnerAgents, runners, selectOptions, spaces, workspaces } from '../db/schema';
 import { codedException } from '../common/coded-exception';
+import { AgentScopeService } from '../agents/agent-scope';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SkillsService } from '../skills/skills.service';
@@ -135,7 +136,7 @@ export interface ClaimedWake {
   reasons: WakeReasonEntry[];
   depth: number;
   run_id: string | null;
-  agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; skill_instructions: ClaimedSkill[]; target_databases: string | null; model: string | null; tools: string[] };
+  agent: { id: string; name: string; goal: string | null; instructions: string | null; skills: string | null; skill_instructions: ClaimedSkill[]; target_databases: string | null; scope: { enforced: boolean; spaces: Array<{ id: string; name: string }>; databases: Array<{ id: string; name: string; space_id: string; via: 'database' | 'space' }>; unresolved: string[] }; model: string | null; tools: string[] };
   record: { id: string; database_id: string; number: number | null } | null;
   context: unknown;
   /**
@@ -196,6 +197,8 @@ export class AgentWakesService {
     private readonly skillsService: SkillsService,
     /** ticket #1138: the agent's monthly budget. A paused agent is not given a wake; a run's usage may owe its manager a notice. */
     private readonly budgets: AgentBudgetService,
+    /** ticket #1195: the ONE resolver of where an agent works (its databases plus its spaces' databases, read now). */
+    private readonly agentScope: AgentScopeService,
   ) {}
 
   registerRunHooks(hooks: WakeRunHooks): void {
@@ -212,7 +215,7 @@ export class AgentWakesService {
     });
     if (!db) return null;
     const fieldRows = await this.db.query.fields.findMany({
-      where: and(eq(fields.databaseId, db.id), inArray(fields.apiName, ['enabled', 'ai_mode', 'goal', 'instructions', 'skills', 'target_databases', 'tools', 'model'])),
+      where: and(eq(fields.databaseId, db.id), inArray(fields.apiName, ['enabled', 'ai_mode', 'goal', 'instructions', 'skills', 'target_databases', 'target_spaces', 'tools', 'model'])),
       columns: { id: true, apiName: true },
     });
     const byName = new Map(fieldRows.map((f) => [f.apiName, f.id]));
@@ -221,6 +224,11 @@ export class AgentWakesService {
       ? await this.db.query.selectOptions.findFirst({ where: and(eq(selectOptions.fieldId, aiModeFieldId), eq(selectOptions.label, 'Your own AI')), columns: { id: true } })
       : null;
     return { id: db.id, spaceId: db.spaceId, fieldIds: byName, ownAiOptionId: ownAiOption?.id ?? null };
+  }
+
+  private async claimScope(workspaceId: string, agentId: string): Promise<ClaimedWake['agent']['scope']> {
+    const d = await this.agentScope.describe(workspaceId, agentId);
+    return d ? { enforced: d.enforced, spaces: d.spaces, databases: d.databases, unresolved: d.unresolved } : { enforced: false, spaces: [], databases: [], unresolved: [] };
   }
 
   /** The agent's `model` setting as the claim sends it: text that passes the write-time rule, else null (= the customer's own default). */
@@ -702,6 +710,9 @@ export class AgentWakesService {
         skills: typeof text('skills') === 'string' ? (text('skills') as string) : null,
         skill_instructions: skills,
         target_databases: typeof text('target_databases') === 'string' ? (text('target_databases') as string) : null,
+        // ticket #1195: where the agent works, resolved at THIS claim (a space target includes databases added since the hire). When
+        // `enforced`, the credential minted above is bound to exactly this set; the list is what the manager can open.
+        scope: await this.claimScope(wake.workspaceId, wake.agentId),
         // ticket #1180: the manager's settings. MODEL: the agent's own, else the workspace default, else null (= send nothing: the
         // customer's own tool default); a stored value that no longer passes the write-time rule is skipped, never sent.
         model: this.agentModel(text('model')) ?? this.agentModel(await this.workspaceDefaultModel(wake.workspaceId)),
