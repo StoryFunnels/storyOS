@@ -85,6 +85,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'get_agents',
   'get_automation',
   'get_automation_last_payload',
+  'get_branch_name',
   'get_bulk_record_job',
   'get_credential',
   'get_dismissed_hints',
