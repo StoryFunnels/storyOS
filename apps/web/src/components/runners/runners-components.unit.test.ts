@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { canHireAgents, canSeeRunnerDetails } from '@/lib/runners/access';
+import { RUN_STATE_NAMES } from '@/lib/runners/types';
 import type { RunnerDto, RunStateName, WakeDto } from '@/lib/runners/types';
 import { FirstRunCard } from './first-run-card';
 import { RunList } from './run-list';
@@ -44,7 +45,8 @@ const wake = (state: RunStateName, over: Partial<WakeDto> = {}): WakeDto => ({
   finished_at: '2026-10-12T10:00:00Z',
   ...over,
 });
-const ALL: RunStateName[] = ['needs_approval', 'running', 'done', 'failed', 'canceled', 'waiting_for_runner', 'runner_offline', 'waiting_for_limit', 'waiting_for_turn', 'waiting_for_hours', 'waiting_for_reserve'];
+// Every state the API emits, from the one list (ticket #1248): a hand-typed prefix passed for exactly the states it left out.
+const ALL: readonly RunStateName[] = RUN_STATE_NAMES;
 const runList = (wakes: WakeDto[], extra: Record<string, unknown> = {}) => renderToStaticMarkup(createElement(RunList, { ws: 'w1', wakes, more: false, tz, ...extra }));
 
 describe('the status mark: gold only on running and approval', () => {
@@ -66,7 +68,7 @@ describe('the status mark: gold only on running and approval', () => {
 });
 
 describe('the run list renders every state as drawn', () => {
-  it('all eleven states render, each with its own words (the two ticket #1137 holds are pinned in sharing.unit.test.ts)', () => {
+  it('every state renders, each with its own words (the two ticket #1137 holds are pinned in sharing.unit.test.ts)', () => {
     const out = runList(ALL.map((s) => wake(s, { run_state: { state: s, runner_name: 'MacBook', since: '2026-10-29T18:40:00Z', until: '2026-10-30T14:00:00Z', tool: 'claude-code' } })));
     for (const text of [
       'Needs your approval',
