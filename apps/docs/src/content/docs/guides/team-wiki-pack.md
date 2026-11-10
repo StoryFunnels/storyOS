@@ -67,6 +67,9 @@ text is the record's body. All four start as **Draft**, owned by the person who 
 - **Tools & accounts**: a table of tools, who gives access, and a warning not to put a password, API key
   or shared login on any page.
 
+The four pages are sample data. **Remove sample data** deletes them but keeps the **Everyone** team, which
+the pages are grouped under, so the Teams database still has it.
+
 Text in [square brackets] is a placeholder your team replaces. The pages are a starting point: change
 anything that does not fit, then mark the page Verified. Home says search finds a page by its title.
 

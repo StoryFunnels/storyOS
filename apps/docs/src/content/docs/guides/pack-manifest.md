@@ -218,6 +218,12 @@ open it). It is optional, so manifests without it still validate.
   one, converted to Markdown.
 - The built-in Team Wiki pack uses it for the text of its four starter pages.
 
+### Structure that is not sample: `sample: false`
+
+A sample record may carry `"sample": false`. It is created with the rest, but is not registered as sample
+data, so **Remove sample data** leaves it. Use it for a record that other records point at. Omitted means
+sample, so existing manifests keep their meaning. Team Wiki marks its **Everyone** team this way.
+
 ## Record templates
 
 A manifest may carry `record_templates`: named starting points for a new record in one of the pack's
@@ -307,6 +313,72 @@ pack itself ships off, *The pack ships it switched off.* Each has a switch. Turn
 to **On once installed** and sends that rule's label as `enable_automations`; with no switch turned on,
 nothing is sent and every one of them stays off. The review checks your choice with a second preview, and
 shows a rule as on only when that preview says it would be.
+
+## Packs that build on other packs
+
+`requires.packs` says that some of this manifest's databases are really another pack's. Each entry has:
+
+- **`pack`**: the other pack's slug, lower case (for example `agency-os`).
+- **`databases`**: one to 20 names of databases **in this manifest** that belong to that pack. A name this
+  manifest does not have is refused with a 422, and so is a pack that names itself.
+- **`note`** (optional, up to 300 characters): why, shown in the review.
+
+At most 10 packs can be listed. What an install does depends on whether the other pack is installed in the
+workspace:
+
+| The other pack is | Default | The person can choose |
+|---|---|---|
+| Installed | Its databases are linked, not copied. This pack's databases of those names are not created; it adds only its own fields and links to them. | `create_here`: make this pack's own databases instead. |
+| Not installed | `create_here`: this pack creates the databases inside itself. Nothing else is installed. | `also_install`: install that built-in pack first, then link. |
+
+A database is linked only if the person can edit it; otherwise it is treated as absent. The choice is
+never made for the person: a required pack is installed only when `also_install` is sent. Over MCP and REST
+it is `required_packs`, `{"<pack slug>": "also_install" | "create_here"}` on `install_pack` and on
+`packs/install` and `packs/preview`; a slug the manifest does not require is a 422, and so is
+`also_install` for a pack StoryOS does not ship. A same-named database picked in the review's
+**Reuse** choice (see [Choosing Reuse](/mcp/tools/#choosing-reuse)) wins over the link.
+
+- **Preview.** `required_packs` lists each required pack with `installed`, `linked` (this pack's
+  databases that would be the other pack's), `fields_added`, `choices` and `chosen`.
+- **Install result.** `required_packs` reports each as `linked`, `installed_and_linked` or `created_here`.
+- **A failed install undoes `also_install`.** The request is one install. If the dependent pack fails
+  after the required pack was installed for it, everything that request created is rolled back, the first
+  pack and its databases included, and the error says what was rolled back. A pack that was already
+  installed is not touched. If a rollback step fails, the error names what to delete by hand.
+- **Uninstalling the dependent pack** leaves the required pack, its databases and its views as they were.
+- **The web install dialog does not offer the `also_install` choice.** At the time of writing the web
+  app does not send `required_packs`; use the API or MCP for it.
+
+The built-in Deal Desk pack uses this to build on Agency OS.
+
+## A pack can schedule its own agent
+
+A scheduled automation can run one of the pack's own agents. The manifest cannot know the id an agent
+will get, so the `run_agent` action names it by reference:
+
+```json
+{
+  "database": "Deals",
+  "name": "Monday pipeline review",
+  "trigger": { "type": "schedule", "every": "week", "weekday": 1, "at": "08:00" },
+  "actions": [{ "type": "run_agent", "agent": "$agent:deal-coach" }]
+}
+```
+
+The reference is `$agent:` followed by the agent's name in lower case, with each run of characters other
+than letters and digits turned into one dash: **Deal Coach** is `$agent:deal-coach`.
+
+- **Install** replaces the reference with the id of the agent it created or reused.
+- **The rule installs switched off**, as every rule that runs an agent does (see
+  [above](#automations-that-send-things-out-install-switched-off)). Switch it on in the install review or
+  with `enable_automations`.
+- **Refused before anything is built (422):** a reference to an agent the manifest does not declare (the
+  message lists the agents it does), a reference two agents share, and a schedule trigger the rule engine
+  would refuse. `preview` refuses the same way.
+- **Renaming or skipping the agent.** If the install renames the agent to avoid a collision, the rule
+  follows it. If the person skips the agent, the rule is skipped with it.
+- **Export.** `export_pack` includes an agent that a rule runs even when no trigger wakes it, and writes
+  the rule with the `$agent:` reference rather than an id.
 
 ## Scheduled automations: sort and limit
 

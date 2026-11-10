@@ -58,7 +58,9 @@ a name, a job, a weekday-morning schedule and every "Asks before" box ticked.
    names (for example Europe/Madrid (UTC+1)), so "09:00" is your 09:00 and not the server's.
 4. **Works in.** The databases the agent works in. Search and add them; a field or new-record rule
    can only watch a database listed here, and removing a database moves or drops the rules that
-   watched it. The picker lists databases only. A schedule does not need one: with none chosen it is
+   watched it. The picker lists databases only: it cannot add a whole space. An agent can work in a
+   whole space, but you set that after hiring, in the **Target spaces** field on the agent's record; see
+   [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). A schedule does not need one: with none chosen it is
    kept on the Agents database.
 5. **Asks before.** Four boxes, all ticked to begin with, so an agent starts careful and you untick
    what you trust it to do alone:
