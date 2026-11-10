@@ -10,12 +10,13 @@ import { AUTOMATION_FIXTURE, EMAIL_FIXTURES } from './email-fixtures';
  * Ticket #1267: every branded email must fit a 375px phone without scrolling
  * sideways (it measured scrollWidth 512 there).
  *
- * HOW THIS IS CHECKED, and why it is not a browser: the test-api CI image has no
- * headless browser and CI must not depend on one, so this is a deterministic
- * STATIC check of the rendered HTML for the specific constructs that cause
- * horizontal overflow. The real measurement (a 375px iframe in headless Chrome,
- * `documentElement.scrollWidth`) is how the PR evidence was gathered; to repeat
- * it, run this file with EMAIL_DUMP_DIR=<dir> and load the files written there.
+ * HOW THIS IS CHECKED: two layers. (1) A deterministic STATIC check of the rendered HTML for the
+ * specific constructs that cause horizontal overflow (runs everywhere, no browser needed). (2) A real
+ * measurement in headless Chrome (a 375px iframe, `documentElement.scrollWidth`), which RUNS IN CI too:
+ * the GitHub-hosted ubuntu runners ship google-chrome at /usr/bin/google-chrome, and a developer machine
+ * is covered by the macOS path or CHROME_BIN. The browser assertion is `scrollWidth <= 375` (the AC is
+ * "does not overflow", not "is exactly 375": a scrollbar in the frame can make it narrower, e.g. 360).
+ * To repeat the measurement by hand, run this file with EMAIL_DUMP_DIR=<dir> and load the files written there.
  */
 const VIEWPORT = 375;
 const KINDS = [...readFileSync(join(__dirname, 'email.types.ts'), 'utf8').matchAll(/kind: '([a-z-]+)'/g)].map((m) => m[1] as EmailKind);
@@ -80,17 +81,17 @@ describe('email layout fits a 375px phone (ticket #1267)', () => {
 });
 
 /**
- * OPTIONAL real measurement: only where a Chrome binary exists (a developer
- * machine; CI has none, see the header). It is NOT silently green elsewhere: the
- * skipped test's title carries the reason, and vitest lists it as skipped.
+ * Real measurement: runs wherever a Chrome binary exists (the CI ubuntu runners, a developer machine).
+ * It is NOT silently green elsewhere: the skipped test's title carries the reason, and vitest lists it
+ * as skipped.
  */
 const CHROME = [process.env.CHROME_BIN, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(
   (p): p is string => !!p && existsSync(p),
 );
 
-describe('real browser measurement at 375px (optional)', () => {
+describe('real browser measurement at 375px', () => {
   it.skipIf(!CHROME)(
-    CHROME ? 'scrollWidth is 375 for every kind (headless Chrome)' : 'SKIPPED: no Chrome binary found (set CHROME_BIN); the static checks above still ran',
+    CHROME ? 'scrollWidth is at most 375 for every kind (headless Chrome)' : 'SKIPPED: no Chrome binary found (set CHROME_BIN); the static checks above still ran',
     () => {
       const dir = mkdtempSync(join(tmpdir(), 'email-375-'));
       const all = [...KINDS.map((k) => [k, EMAIL_FIXTURES[k]().html] as const), ['automation', AUTOMATION_FIXTURE().html] as const];
@@ -103,7 +104,9 @@ describe('real browser measurement at 375px (optional)', () => {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
         });
-        expect({ name, scrollWidth: Number(/<title>SW=(\d+)/.exec(out)?.[1]) }).toEqual({ name, scrollWidth: VIEWPORT });
+        const scrollWidth = Number(/<title>SW=(\d+)/.exec(out)?.[1]);
+        expect(Number.isFinite(scrollWidth), `${name}: no measurement came back`).toBe(true);
+        expect(scrollWidth, `${name}: scrollWidth must not exceed the ${VIEWPORT}px viewport`).toBeLessThanOrEqual(VIEWPORT);
       }
     },
     120_000,
