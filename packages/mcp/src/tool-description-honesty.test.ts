@@ -70,8 +70,11 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
     }
     // And run_skill keeps the BYO-AI contract unmissable (#832 AC4).
     const run = skill.find((d) => d.tool === 'run_skill')!.text;
-    expect(run).toMatch(/YOU are the model/);
-    expect(run).toMatch(/StoryOS executes nothing/);
+    // #1260: the old wording ("no managed AI runtime yet … StoryOS executes nothing") was stale — a managed model exists for agents set
+    // to "StoryOS AI". What is still true, and pinned here, is that THIS call invokes no model and the caller carries the skill out.
+    expect(run).toMatch(/invokes NO model/);
+    expect(run).toMatch(/YOU — the connected AI/);
+    expect(run).not.toMatch(/no managed AI runtime/i);
   });
 
   it('#868 AC5: create_skill / update_skill descriptions match the visibility SCHEMA exactly (every accepted tier named, no tier claimed unavailable that the schema accepts)', () => {
@@ -97,6 +100,20 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
       // And the argument that carries the people exists exactly when `members` is accepted.
       expect(Boolean((schema.shape ?? schema)['members']), `${tool} has a members argument iff the tier is accepted`).toBe(accepted.includes('members'));
     }
+  });
+
+  it('#1260: the corrected descriptions stay corrected (reverting any one turns this red)', () => {
+    const by = new Map(descriptions().map((d) => [d.tool, d.text]));
+    // (a) The Runner serves Claude Code only; no description may name the Cursor editor.
+    for (const [tool, text] of by) expect(text, `${tool} must not mention Cursor`).not.toMatch(/\bCursor\b/); // lower-case `cursor` is pagination / a sync cursor, not the editor
+    expect(by.get('list_runners')).toMatch(/Claude Code/);
+    // (b) A wake with no Runner queues, and is cancelled after 7 days (runners/run-state.ts, wake.constants.ts).
+    expect(by.get('create_automation')).toContain('a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled)');
+    // (1) A personal access token carries an enforced scope (api_tokens.scope, auth.guard.ts:139); only OAuth has none.
+    expect(by.get('list_ai_connections')).toContain('A personal access token (connected: token) DOES carry a scope, read, write or admin');
+    expect(by.get('list_ai_connections')).not.toMatch(/^.*\. A connection has no access level of its own/);
+    // (2) A member-only send_email is the one outward step an agent's write does not stage (action-classes.ts:101-104).
+    expect(by.get('create_agent_trigger')).toContain("a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email");
   });
 
   it('the guard can fail: it flags the exact sentence that misled the agent', () => {
