@@ -102,6 +102,20 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
     }
   });
 
+  it('#1260: the corrected descriptions stay corrected (reverting any one turns this red)', () => {
+    const by = new Map(descriptions().map((d) => [d.tool, d.text]));
+    // (a) The Runner serves Claude Code only; no description may name the Cursor editor.
+    for (const [tool, text] of by) expect(text, `${tool} must not mention Cursor`).not.toMatch(/\bCursor\b/); // lower-case `cursor` is pagination / a sync cursor, not the editor
+    expect(by.get('list_runners')).toMatch(/Claude Code/);
+    // (b) A wake with no Runner queues, and is cancelled after 7 days (runners/run-state.ts, wake.constants.ts).
+    expect(by.get('create_automation')).toContain('a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled)');
+    // (1) A personal access token carries an enforced scope (api_tokens.scope, auth.guard.ts:139); only OAuth has none.
+    expect(by.get('list_ai_connections')).toContain('A personal access token (connected: token) DOES carry a scope, read, write or admin');
+    expect(by.get('list_ai_connections')).not.toMatch(/^.*\. A connection has no access level of its own/);
+    // (2) A member-only send_email is the one outward step an agent's write does not stage (action-classes.ts:101-104).
+    expect(by.get('create_agent_trigger')).toContain("a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email");
+  });
+
   it('the guard can fail: it flags the exact sentence that misled the agent', () => {
     const bad = 'the same visibility rule the in-app Skills list enforces';
     expect([...bad.matchAll(CLAIM)].map((m) => m[0])).toEqual(['in-app']);
