@@ -18,6 +18,10 @@ as the tooltip on that row, at the top of the **Personal page** (click the name 
 the dialog for a new personal view. Nobody else can see into your Personal space, **including admins**, and
 there is no restore path once your account is gone.
 
+Removal is per workspace. If an admin removes you from one workspace, your Personal space and
+personal views **in that workspace** are deleted; your personal content in any other workspace you
+belong to is untouched.
+
 ## What it can hold
 
 **Documents and views only.** There is no private database — a personal view is always a lens on a
