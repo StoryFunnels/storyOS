@@ -5342,12 +5342,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     handle<{ workspace: string; database: string; template: string }>(async ({ workspace, database, template }) => {
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
-      await unwrap<unknown>(
+      const res = await unwrap<unknown>(
         client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
           params: { path: { ws: ws.id, db: db.id, template } },
         }),
       );
-      return text({ deleted: template });
+      return heldDelete(res) ?? text({ deleted: template });
     }),
   );
 
