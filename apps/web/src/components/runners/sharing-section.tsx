@@ -26,7 +26,7 @@ import type { RunnerDto, RunnerSharingPatch } from '@/lib/runners/types';
 import { cn } from '@/lib/utils';
 
 /**
- * Ticket #1137 — "Sharing your subscription", the part of a Runner row that lets a person keep their own Claude or Cursor time.
+ * Ticket #1137 — "Sharing your subscription", the part of a Runner row that lets a person keep their own Claude time.
  * Two rules, each saved the moment it is changed (the Runners page's own pattern: the tool menu and Remove act at once):
  *
  *  - Working hours: the window agents may START in. Built from the product's own menus, never a native time input.

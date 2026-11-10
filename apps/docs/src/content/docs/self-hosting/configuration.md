@@ -33,7 +33,7 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 ## Integrations: what's available self-hosted
 
 One codebase, no crippled edition — but a handful of integrations genuinely can't work the same
-way on your own instance as on StoryOS Cloud, and the Connections/Integrations gallery says so
+way on your own instance as on StoryOS Cloud, and the Integrations gallery (Settings → Integrations) says so
 plainly rather than showing a Connect button that fails. Every provider falls into one of three
 tiers:
 

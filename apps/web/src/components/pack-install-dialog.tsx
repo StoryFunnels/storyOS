@@ -43,9 +43,9 @@ import {
 } from '@/lib/pack-review';
 import { restoreFocusAfterRefusal } from '@/lib/pack-reuse-focus';
 import { InstallList } from '@/components/pack-install-list';
-import { AutomationStateLine, InstalledAutomationLine } from '@/components/pack-automation-state';
-import type { AutomationPreviewItem } from '@/lib/pack-automation-state';
-import { automationItems, enableRequestBody, switchId, type SwitchableItem } from '@/lib/pack-switchable';
+import { AutomationStateLine, InstalledAutomationLine, SwitchableRow } from '@/components/pack-automation-state';
+import type { AutomationPreviewItem, SwitchedOffBecause } from '@/lib/pack-automation-state';
+import { automationItems, enableRequestBody, switchId, triggerItems, triggersOfAgent, type SwitchableItem } from '@/lib/pack-switchable';
 import {
   buildInstallRows,
   notNew,
@@ -116,7 +116,7 @@ interface PreviewItem {
   existing_elsewhere?: ExistingElsewhere;
   /** #1172 — automations only, when the install would create the rule: on or off, and why off (see lib/pack-automation-state.ts). */
   enabled_on_install?: boolean;
-  switched_off_because?: 'outward' | 'agent';
+  switched_off_because?: SwitchedOffBecause;
 }
 interface UnmetRequirement {
   kind: 'connection' | 'ai';
@@ -132,6 +132,8 @@ interface PreviewResult {
   views: PreviewItem[];
   automations: PreviewItem[];
   agents: PreviewItem[];
+  /** #1192 / #1254 — state-bound pack agent triggers, labelled "Agent ← Database.Field = State". Absent on an older API. */
+  triggers?: PreviewItem[];
 }
 interface InstalledEntity {
   name: string;
@@ -140,7 +142,7 @@ interface InstalledEntity {
   id: string;
   /** #1172 — automations only: the state the rule was created in, and why off (see lib/pack-automation-state.ts). */
   enabled?: boolean;
-  switched_off_because?: 'outward' | 'agent';
+  switched_off_because?: SwitchedOffBecause;
 }
 interface InstallResult {
   slug: string;
@@ -287,6 +289,28 @@ interface AutomationControls {
   chosen: Record<string, boolean>;
   confirmed: Map<string, AutomationPreviewItem>;
   onChoose: (label: string, on: boolean) => void;
+  /** #1254 — the agent triggers: the preview's list, the server's confirming answer by label, and the setter. */
+  triggers: PreviewItem[];
+  confirmedTriggers: Map<string, AutomationPreviewItem>;
+  onChooseTrigger: (label: string, on: boolean) => void;
+}
+
+/** #1254 — "Wake it automatically" under the agent a pack trigger wakes: the same shared row, kind `agent_trigger`. */
+function AgentTriggerLines({ agent, controls }: { agent: string; controls: AutomationControls }) {
+  return (
+    <>
+      {triggersOfAgent(controls.triggers, agent).map((t) => (
+        <SwitchableRow
+          key={t.name}
+          kind="agent_trigger"
+          item={t}
+          chosen={controls.chosen[switchId('agent_trigger', t.name)] === true}
+          confirmed={controls.confirmedTriggers.get(t.name)}
+          onChoose={controls.onChooseTrigger}
+        />
+      ))}
+    </>
+  );
 }
 
 function AutomationLine({ item, controls }: { item: AutomationPreviewItem; controls: AutomationControls }) {
@@ -348,6 +372,7 @@ function PreviewSection({
                   />
                 )}
                 {kind === 'automation' && automations && <AutomationLine item={item} controls={automations} />}
+                {kind === 'agent' && automations && <AgentTriggerLines agent={item.name} controls={automations} />}
               </span>
               <ActionBadge action={item.action} />
             </div>
@@ -743,9 +768,11 @@ export function InstallDialog({
   // #1172 — the automations a person switched ON in this review ("Database.Rule name" → true). Default: none, so every rule that
   // installs off stays off. Sent as `enable_automations` on the confirming preview AND the install, so they cannot disagree.
   const [turnedOn, setTurnedOn] = useState<Record<string, boolean>>({});
-  // Everything the review can switch, as one list of kinds (lib/pack-switchable.ts). Automations only today; ticket #1192's agent
-  // triggers join here, with their own kind, when the API returns them. The request is built from this list by kind.
-  const switchables: SwitchableItem[] = preview.data ? automationItems(preview.data.automations) : [];
+  // Everything the review can switch, as one list of kinds (lib/pack-switchable.ts): automations and (ticket #1254) the agent triggers
+  // under "Wake it automatically". The request is built from this list by kind.
+  const switchables: SwitchableItem[] = preview.data
+    ? [...automationItems(preview.data.automations), ...triggerItems(preview.data.triggers ?? [])]
+    : [];
   const enableBody = enableRequestBody(switchables, turnedOn);
   const enableKey = JSON.stringify(enableBody);
   // The SAME preview, asked with the person's choice: the row only says "On once installed" if the server's own answer agrees.
@@ -776,6 +803,11 @@ export function InstallDialog({
       (withChoice.isFetching || !withChoice.data ? [] : withChoice.data.automations).map((a) => [a.name, a]),
     ),
     onChoose: (label, on) => setTurnedOn((prev) => ({ ...prev, [switchId('automation', label)]: on })),
+    triggers: preview.data?.triggers ?? [],
+    confirmedTriggers: new Map(
+      (withChoice.isFetching || !withChoice.data ? [] : (withChoice.data.triggers ?? [])).map((t) => [t.name, t]),
+    ),
+    onChooseTrigger: (label, on) => setTurnedOn((prev) => ({ ...prev, [switchId('agent_trigger', label)]: on })),
   };
 
   const install = useMutation({
@@ -1143,6 +1175,7 @@ export function InstallDialog({
                     return (
                       <>
                         {automation && <AutomationLine item={automation} controls={automationControls} />}
+                        {row.kind === 'agent' && <AgentTriggerLines agent={row.key} controls={automationControls} />}
                         {agent && (
                           <>
                             <span className="mt-0.5 text-label text-ink-secondary">{agent.headline}</span>
@@ -1311,6 +1344,7 @@ export function InstallDialog({
                     title="Agents"
                     kind="agent"
                     items={preview.data.agents}
+                    automations={automationControls}
                     choices={agentChoices}
                     onChoice={(name, choice) =>
                       setAgentChoices((prev) => ({ ...prev, [name]: choice }))

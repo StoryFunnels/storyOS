@@ -91,6 +91,29 @@ like. It has read and write scope, and its target database is Issues.
 Uninstalling removes the agent along with the pack's views and automations. See
 [Uninstalling a pack](/mcp/tools/#uninstalling-a-pack).
 
+## The issue templates
+
+The pack installs three record templates on Issues: **Bug**, **Feature** and **Improvement**. Each one
+pre-fills the same four fields and a body of sections to write into. Issues has no Type field here, so the
+type is the **Labels** value.
+
+| Template | Title starts with | Labels | Body sections |
+|---|---|---|---|
+| **Bug** | `Bug: ` | Bug | Steps to reproduce, Expected, Actual, Environment |
+| **Feature** | `Feature: ` | Feature | Problem, Proposal, Acceptance criteria |
+| **Improvement** | `Improvement: ` | Improvement | Today, Change, Acceptance criteria |
+
+All three also set **Priority** to Medium and **State** to Triage, so a new issue lands where the Triage view
+and the Triage agent look. Feature and Improvement end with an empty checklist item under Acceptance criteria.
+
+- **Title.** The template supplies only the prefix; the title you give when you create a record from it
+  replaces it.
+- **Editable.** Change a template's values or body, or add your own; they are ordinary templates of Issues.
+  See [Record templates](/guides/pack-manifest/#record-templates) for how installing again, uninstalling and
+  export treat them.
+- **Where.** Over MCP, `list_record_templates` shows them and `create_record_from_template` makes an issue
+  from one.
+
 ## Sample issues
 
 The install adds four issues so the views are not empty:
@@ -126,5 +149,5 @@ somewhere else.
 - **After an install in the web app** you land on Active, with the space open in the sidebar. See
   [The install review, and where you land](/guides/creating-a-workspace/#the-install-review-and-where-you-land).
 - **Installing again** into the same space creates nothing new, and Active stays the one default view.
-- **Uninstalling** removes the automations. It does not delete the four databases or the issues in them.
+- **Uninstalling** removes the automations and any of the three issue templates you have not edited. It does not delete the four databases or the issues in them.
   See [Uninstalling a pack](/mcp/tools/#uninstalling-a-pack).

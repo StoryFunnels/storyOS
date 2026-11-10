@@ -26,10 +26,10 @@ only the people added to it can. **Space scoping** lets you invite a guest into 
 
 ## Admin-only Settings pages
 
-**Members**, **Billing**, **Integrations**, **Connections** and **Webhooks** are for workspace
+**Members**, **Plan & billing**, **Integrations** and **Webhooks** are for workspace
 admins. The Settings menu leaves them out for a member or a guest, and a member or guest who opens
 one by its address, from a bookmark or a link someone sent, gets a short notice in place of the
-page: *"Billing is for workspace admins"*, with a line saying their role and to ask an admin. The
+page: *"Plan & billing is for workspace admins"*, with a line saying their role and to ask an admin. The
 page's own controls and data requests are not loaded, so nothing on it looks usable and then fails.
 
 ## Settings asks before the consequential actions
@@ -39,7 +39,7 @@ leaves everything as it was.
 
 - **Settings → Members:** changing a member's role (moving someone off admin, or onto it, is stated
   first), removing a member, and revoking a pending invite.
-- **Settings → Account:** removing your photo, and signing out one of your other devices.
+- **Settings → Profile:** removing your photo, and signing out one of your other devices.
 - **Settings → API tokens:** revoking a token.
 - **Settings → Webhooks:** enabling or disabling a webhook.
 - **Settings → Integrations → Google Calendar:** removing a database's calendar mapping.
@@ -178,17 +178,18 @@ while every other client's work stays invisible.
 
 ## Who counts toward billing
 
-**Settings → Billing** shows **Billable seats** — admins and members always count; a guest counts
+**Settings → Plan & billing** shows **Billable seats** — admins and members always count; a guest counts
 only once their grant reaches `contributor` or higher. **A viewer or commenter guest is free**,
 whatever the total member count on the Members page looks like — pending invites don't count
-either, whether they resolve to a paid role or not. The billing page names exactly this rule in
+either, whether they resolve to a paid role or not. The Plan & billing page names exactly this rule in
 its own caption, with a link to Members, precisely so the two numbers can be reconciled rather
 than left to look like a discrepancy.
 
 ## Pending invitations
 
-An invite that hasn't been accepted shows a **Pending** badge on Settings → Members, with
-**Resend invitation** and **Revoke**. Revoke asks first, naming the email address.
+An invite that hasn't been accepted is listed in the **Invitations** box on Settings → Members, as
+**Pending** (with its expiry date) or **Expired**, with a **Send again** button and **Revoke**.
+Revoke asks first, naming the email address.
 
 **Resending mints a fresh link — the old one stops working.** It's not a reminder email pointing
 at the same URL; the invite's token and its 7-day expiry both reset, so a stale copy of the

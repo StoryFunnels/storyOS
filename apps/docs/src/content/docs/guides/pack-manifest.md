@@ -218,6 +218,59 @@ open it). It is optional, so manifests without it still validate.
   one, converted to Markdown.
 - The built-in Team Wiki pack uses it for the text of its four starter pages.
 
+## Record templates
+
+A manifest may carry `record_templates`: named starting points for a new record in one of the pack's
+databases. The key is optional, so a manifest without it validates as before and parses to the same thing.
+Each entry has this shape:
+
+```json
+{
+  "database": "Issues",
+  "name": "Bug",
+  "description": "Something is broken.",
+  "values": { "name": "Bug: ", "priority": "$option:Issues.Priority.Medium" },
+  "body": "## Steps to reproduce\n\n1. \n"
+}
+```
+
+- **`database`** names a database the manifest declares. One it does not declare fails the install with a 422
+  ("belongs to a database ... that the manifest does not declare").
+- **`name`** is required: 1 to 120 characters after trimming. A template is matched by database and name,
+  ignoring case.
+- **`description`** is optional, up to 500 characters: the template's one-line label.
+- **`values`** is optional and keyed by field API name, like a sample record's values. Option ids are written
+  as `$option:` references, which install turns into the real option ids.
+- **`body`** is optional Markdown, up to 20,000 characters: the description document of a record made from the
+  template, so a template can carry sections.
+
+`$me` (the person making the record) and `$date:+Nd` or `$date:-Nd` (a date relative to that day) may appear
+in `values`. Install leaves them as written; they are decided when a record is made from the template.
+
+### What a template does
+
+- **Install creates it** as a template of that database, marked as coming from the pack. It is a template of
+  the database, not a record, and it can be edited afterwards.
+- **Making a record from it** presets the template's values and writes its body as the new record's
+  description. Values you pass at that moment replace the template's value for the same field, typically the
+  title. A preset that names a field the database no longer has, or an option that no longer exists, is
+  skipped and listed in a `skipped` list on the response; the record is still created. Over MCP the tools are
+  `list_record_templates`, `create_record_template`, `update_record_template`, `delete_record_template` and
+  `create_record_from_template`.
+- **A re-install keeps your edits.** A template whose name already exists in that database is reused and left
+  exactly as it is, so installing again changes nothing and adds no duplicate. (The tests cover re-installing;
+  an update installs through the same step.)
+- **If a database was reused**, a preset value that names an option or field it does not have is dropped and
+  listed in the install result's `skipped_sample_field_values`, rather than failing the install.
+- **Uninstall** removes a template the install created and you have not changed. One whose name, description,
+  values or body you edited is kept, reported as "Changed since install.", and one the install only reused is
+  kept as "Existed before the install."
+- **Export includes them.** `export_pack` writes each database's templates into `record_templates`, with option
+  ids rewritten to `$option:` references. Only portable field types travel, so a preset for a person or an
+  attachment field is left out, unless its value is a `$` token such as `$me`. Duplicating a database copies
+  its templates, with option ids pointing at the copy; the copies are your own templates, not the pack's.
+- The built-in [Dev Tracker pack](/guides/dev-tracker-pack/#the-issue-templates) ships three.
+
 ## Automations that send things out install switched off
 
 An automation whose actions leave the workspace or start an agent installs **switched off**, whatever

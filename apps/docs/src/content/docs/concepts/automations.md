@@ -68,6 +68,21 @@ A step the agent proposes that needs a person's approval still stops and waits f
 > subscription** — Settings → Webhooks, its own signing secret and delivery log — is a separate,
 > workspace-wide feature with no rule involved. See the [webhooks guide](/guides/webhooks/).
 
+### Schedule settings
+
+A schedule trigger takes `every` (`minutes`, `hour`, `day` or `week`), and with `every: "minutes"` a
+`minutes` value from **10** to 1440; below 10 is refused with a `422`, not rounded up. It can also carry
+`weekdays`, a `between` window and a `timezone`, and a rule's response carries `schedule.runs_per_day`, an
+estimate for a typical day. When a scheduled rule runs an agent on **Your own AI**, a firing wakes the agent
+**once, with no record**, instead of once per matching record. The settings, the window and the wake rule are
+in [the Runner guide](/guides/runner/#schedules).
+
+### Who a rule runs for, and where it may write
+
+A rule's approver must be an active member of the workspace (a `422` otherwise). A rule whose actions
+create records in, or update linked records in, another database needs at least `contributor` access on
+that database to be saved. See [access and roles](/concepts/access-and-roles/) for the exact wording.
+
 ## Computing a number
 
 Setting a **number** field, a token expression is **evaluated, not substituted**. So
@@ -91,7 +106,7 @@ fail validation.
 
 - Triggers: *record created* · *record changes* (optionally scoped to one field — "when State
   changes") · *record linked or unlinked* through a relation · *schedule* (hourly / daily /
-  weekly at HH:mm, server time) · *webhook received* (an inbound URL the outside world POSTs to).
+  weekly at HH:mm, server time, or every N minutes) · *webhook received* (an inbound URL the outside world POSTs to).
 - Condition: any filter the [views](/concepts/views/) support; for scheduled rules the condition
   **is the selection** — the rule runs over every matching record, or the top/bottom N of them
   when the rule also carries a sort (below).
