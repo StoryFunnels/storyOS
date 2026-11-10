@@ -17,7 +17,7 @@ keeps running.
 Database `⋯` menu → **Sync from…**.
 
 1. **Pick a provider.** Each names the connection it needs (Google, Shopify, a bearer token, an
-   Apify actor…) — connect that first under **Settings → Connections** if you haven't.
+   Apify actor…) — connect that first on its page under **Settings → Integrations** if you haven't.
 2. **Configure it.** Provider-specific: a YouTube channel, an Apify actor's input, a Shopify
    shop's scope. The dialog validates each field as you go.
 3. **Map fields.** Every field the provider returns gets pointed at a field in your database —
@@ -131,7 +131,7 @@ for you to see rather than guessing one blind.
 
 **The connection itself is created in the app, not over MCP.** `create_source` takes a
 `connection_id` — never a secret — so no credential can land in a tool argument or a transcript.
-Connect the provider under Settings → Connections first; a source only ever references it by id.
+Connect the provider on its page under Settings → Integrations first; a source only ever references it by id.
 
 Two read-only tools answer the two questions an agent needs before it can name a `connection_id`:
 `list_connections` (what's **already** connected in this workspace, and its id) and

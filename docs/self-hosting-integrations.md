@@ -3,7 +3,7 @@
 Which external integrations work on a self-managed StoryOS box, and what — if
 anything — you as the operator have to configure to enable each one.
 
-Every provider under **Settings → Connections** declares a **tier** by *who owns
+Every provider under **Settings → Integrations** declares a **tier** by *who owns
 the credential*. The tier (not the auth mechanism) decides whether an integration
 works out of the box, needs one-time operator setup, or is genuinely cloud-only.
 The full model, truth table, and contributor checklist live in
@@ -19,7 +19,7 @@ is the operator-facing recipe.
 ## Works out of the box (Tier A — user brings their own key)
 
 These need **no operator setup at all**. Each user adds their own API key (or
-SMTP/HTTP credential) under **Settings → Connections**; StoryOS verifies it and
+SMTP/HTTP credential) on its page under **Settings → Integrations**; StoryOS verifies it and
 stores it encrypted at rest. They are `connectable` on every deployment, hosted
 or self-managed.
 
@@ -44,7 +44,7 @@ StoryOS-owned OAuth app, so it works identically on hosted and self-managed with
    and, for inventory totals, **`read_inventory`**.
 3. **Install** the app, then copy the **Admin API access token** (`shpat_…`) —
    Shopify shows it once.
-4. In StoryOS, **Settings → Connections → Shopify**, paste the store domain
+4. In StoryOS, **Settings → Integrations → Shopify**, paste the store domain
    (`your-store.myshopify.com`) and the access token. StoryOS verifies the token
    against the Admin API (a `{ shop { name } }` probe) and stores it encrypted at
    rest. The token is only ever sent to the validated `*.myshopify.com` host.
@@ -122,7 +122,7 @@ no separate "YouTube" OAuth app to register.)
 1. In the Google Cloud console, create (or reuse) a project and an **OAuth 2.0
    Client ID** of type *Web application*.
 2. Register these **authorized redirect URIs** (substitute your public
-   `API_URL`). Both the login button and every Connections OAuth provider share
+   `API_URL`). Both the login button and every OAuth provider under Integrations share
    the same two callbacks — you do **not** register a separate URI per provider:
 
    | Purpose | Redirect URI |
