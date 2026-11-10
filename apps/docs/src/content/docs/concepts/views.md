@@ -80,6 +80,12 @@ grouping is one click away.
 - **A dynamic "Me"** value on any user field (including `created_by`/`updated_by`) — pick **Me**
   instead of naming yourself, and the same shared view resolves to "assigned to whoever is
   looking" for every person who opens it, per-viewer, at the backend.
+- **Relative dates** — on a date field, **before** and **after** take either an exact date or a
+  number of days or weeks **ago** or **from now**, picked in the same row. The filter keeps meaning
+  "that many days from today" as time passes, and reads in words: "Last reviewed more than 90 days
+  ago", not the stored `$date:-90d` (see [Querying](/api/querying/)). Only days and weeks are
+  offered, up to 9,999 days; an amount of zero or a blank one is flagged rather than saved.
+  **on** and **is not** take a single day, never a relative one.
 - **Rich value pickers** — select/multi-select/user fields get searchable, removable chips instead
   of a raw list; dates get the same calendar picker as everywhere else in the app, with **Today**
   and **Clear**.

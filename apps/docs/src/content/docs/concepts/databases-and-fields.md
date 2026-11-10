@@ -288,7 +288,9 @@ Converting it to **select**, **multi-select** or **workflow** turns the values i
   message that names the count: that many values is free text or an ID column, not a list of choices.
   Exactly 200 is allowed.
 - **The dry run lists the options it would create**, with how many records each covers and how many
-  records are empty. In the app, the Change type dialog shows that list before you confirm.
+  records are empty. In the app, **Check impact** in the Change type dialog shows that list before you
+  confirm, with each option as the coloured chip it will become. If the API refuses the conversion
+  (too many distinct values, a second workflow in the database), the dialog shows the reason.
 - **A workflow target keeps the one-workflow-per-database rule**: if the database already has a
   workflow field, converting to workflow is refused with a `409`.
 - Over MCP this is `change_field_type`. It needs the same access as any other field change.
