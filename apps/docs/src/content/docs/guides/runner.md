@@ -14,8 +14,8 @@ It is open source (Apache-2.0) and it only ever makes **outbound** connections. 
 so it works behind a home router or a company proxy.
 
 :::caution[Status, as of 10 November 2026]
-- **Claude Code works.** Cursor is **coming** and is not usable yet: a Runner whose chosen tool is
-  Cursor claims nothing, and its agents' wakes wait in StoryOS.
+- **The Runner drives Claude Code.** It is the only tool that runs agents today. A Runner set to
+  any other tool claims nothing, and its agents' wakes wait in StoryOS.
 - **Agent budgets have no screen yet.** You set them as two fields on the agent's record, and they
   work (see [Budgets](#budgets)). The web app does not yet show a budget or a budget pause by name.
 - **The `@storyos/runner` package was not yet on the npm registry** when this was written, so
@@ -341,7 +341,7 @@ running, how many wakes are in flight, the log path and whether the server is re
 | `The Runner is already running on this computer` | Only one runs per computer. Run `storyos-runner stop`, or leave it. |
 | `This Runner was removed in StoryOS.` | It was removed. The local pairing is cleared; pair again. If autostart is installed, run `storyos-runner uninstall-autostart` first, or it keeps restarting and failing. |
 | `NOT signed in: open it once and sign in` | Claude Code is installed but not signed in. Run `claude`, sign in, and test with `claude -p "say hi"`. |
-| The log says there is no adapter for the tool you chose | You chose Cursor. It is not supported yet; choose Claude Code. |
+| The log says there is no adapter for the tool you chose | Only Claude Code can run agents today; choose Claude Code. |
 | A run ends with no comment and the log shows `mcp storyos=pending` | The undocumented setting above. Check your Claude Code version. |
 | Wakes wait while the laptop is closed | A sleeping computer is offline. Use an always-on machine. |
 | A run says **Outside working hours** | The Runner's working hours are closed. It resumes at the time shown, or switch working hours off in **Sharing your subscription**. |

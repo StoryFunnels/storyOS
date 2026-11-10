@@ -30,7 +30,7 @@ it, StoryOS puts a job in a queue (a **wake**) and a **Runner** picks it up. The
 open-source program that runs on the agent owner's own computer and drives the owner's own AI tool,
 on the owner's own subscription. StoryOS decides *when* the agent should look at a record; the
 tool does the work, through StoryOS's tools, as that agent. At the time of writing, Claude Code is
-the tool the Runner can drive. A Runner set to use Cursor claims nothing, and its jobs wait.
+the tool the Runner can drive. A Runner set to any other tool claims nothing, and its jobs wait.
 
 ### What wakes an agent
 

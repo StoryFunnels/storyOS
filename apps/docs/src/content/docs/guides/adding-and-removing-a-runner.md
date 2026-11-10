@@ -106,7 +106,7 @@ Runners are not listed. The MCP tool `list_runners` returns the same, read only.
 `PATCH /api/v1/workspaces/{ws}/runners/{id}` with `{ "tool": "..." }` changes which detected tool
 your agents use on that Runner. The same call takes `working_hours` and `reserve_percent`.
 
-Only Claude Code can run agents today. A Runner whose chosen tool is Cursor claims nothing, and its
+Only Claude Code can run agents today. A Runner set to any other tool claims nothing, and its
 agents' wakes wait.
 
 ## Offline
