@@ -114,6 +114,8 @@ export interface ProjectedRecord {
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
+  /** #1204 — latest change made by an agent, automation or MCP write; null = only ever changed by a person. */
+  last_ai_change_at: Date | null;
   /**
    * #571 — carried through ONLY so attachAiFields can read a field's
    * persisted value without a second per-record fetch. Unlike rollup/
@@ -125,6 +127,9 @@ export interface ProjectedRecord {
    */
   computed_values?: Record<string, unknown>;
 }
+
+/** #1204 — provenance that counts as agency. Mirrors the backfill in migration 0129: everything but a person at a keyboard. */
+const isAiSource = (source: ChangeSource): boolean => source !== 'human';
 
 const TRASH_RETENTION_DAYS = 30;
 
@@ -392,6 +397,8 @@ export class RecordsService implements OnModuleInit {
       created_by: row.createdBy,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
+      // #1204 — a stored column, so a list carries it with no extra query.
+      last_ai_change_at: row.lastAiChangeAt,
       // #925: a stale `<field>:pending_at` marker (a worker that died mid-job) reads as not pending.
       computed_values: withoutStalePending(row.computedValues as Record<string, unknown>),
     };
@@ -3162,6 +3169,7 @@ export class RecordsService implements OnModuleInit {
                 position: positions[i]!,
                 createdBy: actorId,
                 updatedBy: actorId,
+                ...(isAiSource(source) ? { lastAiChangeAt: sql`now()` } : {}), // #1204
               };
             }),
           )
@@ -3526,7 +3534,14 @@ export class RecordsService implements OnModuleInit {
       updated = await this.db.transaction(async (tx) => {
         const [next] = await tx
           .update(records)
-          .set({ values: merged, title: nextTitle, titleLocal: nextTitleLocal, updatedBy: actorId })
+          .set({
+            values: merged,
+            title: nextTitle,
+            titleLocal: nextTitleLocal,
+            updatedBy: actorId,
+            // #1204 — stamped from the write's stored provenance, in this transaction; a no-op write (empty diff) stamps nothing.
+            ...(Object.keys(diff).length > 0 && isAiSource(source) ? { lastAiChangeAt: sql`now()` } : {}),
+          })
           .where(eq(records.id, recordId))
           .returning();
         if (Object.keys(diff).length > 0) {
@@ -4194,7 +4209,13 @@ export class RecordsService implements OnModuleInit {
       });
       const [next] = await tx
         .update(records)
-        .set({ values: target.values, title: target.title, titleLocal: target.titleLocal, updatedBy: actorId })
+        .set({
+          values: target.values,
+          title: target.title,
+          titleLocal: target.titleLocal,
+          updatedBy: actorId,
+          ...(isAiSource(source) ? { lastAiChangeAt: sql`now()` } : {}), // #1204 (diff is non-empty here)
+        })
         .where(eq(records.id, recordId))
         .returning();
       await tx.insert(activityEvents).values({

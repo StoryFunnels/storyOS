@@ -192,6 +192,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'POST /workspaces/:ws/skills/:id/run': { verdict: 'internal', why: 'returns a step log, no model is invoked (skills.service.ts run)' },
   'GET /public/skills/:token': { verdict: 'public', why: 'public skill link (read)' },
   'POST /workspaces/:ws/databases/:db/views/personal': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
+  'POST /workspaces/:ws/databases/:db/views/:view/seen': { verdict: 'internal', why: 'changes only the caller\'s own last-seen time; nothing leaves StoryOS' },
   'POST /workspaces/:ws/databases/:db/views/:view/copy-to-personal': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/databases/:db/views/:view/personal-filter': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'PUT /workspaces/:ws/databases/:db/views/:view/personal-filter': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },

@@ -8929,6 +8929,43 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/seen": {
+      "post": {
+        "operationId": "ViewSeenController_markSeen",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mark this view as seen by me now; returns when I last had seen it before this call (null the first time)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/dismissed-hints": {
       "get": {
         "operationId": "DismissedHintsController_get",
