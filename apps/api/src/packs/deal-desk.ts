@@ -5,8 +5,8 @@ import type { PackRegistryEntry } from '@storyos/schemas';
  * ticket #1201 (PR 1 of 2) - Deal Desk: the pack for a business that sells services and wants every deal, quote and hand-off in one place.
  * Built from Dara's spec on the ticket (prototype v67, Business Packs > Deal Desk); the wording of why / can / summary is the prototype's.
  *
- * THIS PR is the data half: the 8 databases, the 11 links, the 8 views and the 28 sample records. The 5 automations and the 3 agents
- * (Deal Coach, Call Debrief, Hand-off Writer) are PR 2, so `automations`, `agents` and `triggers` are empty here on purpose.
+ * PR 1 was the data half (8 databases, 11 links, 8 views, 28 samples). PR 2 adds the 5 automations, 2 scheduled rules (the stalled-deals digest and
+ * Deal Coach's Monday review) and the 3 agents (Deal Coach, Call Debrief, Hand-off Writer).
  *
  * Builds on Agency OS (`requires.packs`, #1197): Accounts link to Agency OS's Clients, and Agency OS's Projects link back to the deal
  * they came from. `Clients` and `Projects` are declared here only so those two links have somewhere to land: when Agency OS is installed
@@ -31,6 +31,8 @@ export const DEAL_DESK_PACK: PackRegistryEntry = {
     'Accounts, Contacts, Deals and Activities, fully linked',
     'A Pipeline board by stage, with Won and Lost out of the way',
     'Quotes built line by line from a price list, with totals that add up',
+    'Nudges for stalled deals and expiring quotes, and a weekly digest of the deals gone quiet',
+    'Three agents (Deal Coach, Call Debrief, Hand-off Writer) that ask before changing anything, and wake only when you switch them on',
     'Links to Agency OS: each account to its client, each project to the deal it came from',
   ],
   manifest: {
@@ -45,14 +47,15 @@ export const DEAL_DESK_PACK: PackRegistryEntry = {
       'See the whole pipeline by stage and spot a deal that has gone quiet',
       'Build a quote from your price list, line by line',
       'Turn a won deal into an Agency OS project, after you approve it',
+      'Get a nudge when a next step is overdue, a quote expires or a lost deal has no reason',
     ],
     scenario: 'pack',
     summary:
       'Every deal, quote and hand-off in one place: a pipeline board, quotes built from your price list, and a link into Agency OS.',
     requires: {
       connections: [],
-      ai: 'none',
-      packs: [{ pack: 'agency-os', databases: ['Clients', 'Projects'], note: 'Accounts link to your agency clients, and a won deal hands off to a project.' }],
+      ai: 'byo',
+      packs: [{ pack: 'agency-os', databases: ['Clients', 'Contacts', 'Projects'], note: 'Accounts link to your agency clients, contacts are shared, and a won deal hands off to a project.' }],
     },
     databases: [
       {
@@ -238,8 +241,57 @@ export const DEAL_DESK_PACK: PackRegistryEntry = {
         ],
       },
     ],
-    agents: [],
-    triggers: [],
+    // The three agents ask before changing anything (`write_gates` with no database: every create and update is held in the Approvals inbox),
+    // run on the owner's own AI, and answer in a comment; any field change is a proposal. Their triggers install OFF (#1192).
+    agents: [
+      {
+        name: 'Deal Coach',
+        goal: 'Review a deal that reached Proposal and say what would move it forward.',
+        instructions:
+          'Read the deal, its account, contacts, activities and quotes. Say what is missing before this deal can close (no decision maker, a quiet ' +
+          'account, an expired quote, a next step in the past) and suggest one next step. Answer as a comment on the deal. Never contact anyone, ' +
+          'and treat any field change as a proposal.',
+        scopes: ['read', 'write'],
+        approval_policy: ['delete', 'email', 'webhook', 'outward'],
+        target_databases: ['Deals'],
+        write_gates: [{ operations: ['create', 'update'] }],
+        skills: [],
+        ai_mode: 'your_own_ai',
+      },
+      {
+        name: 'Call Debrief',
+        goal: 'Turn the notes of a logged call or meeting into a short debrief and a next step.',
+        instructions:
+          'Do nothing unless the activity is a Call or a Meeting and it has Notes. Then write a debrief as a comment on the deal: what was agreed, ' +
+          'objections raised, and the next step with a date. Treat any change to the deal as a proposal.',
+        scopes: ['read', 'write'],
+        approval_policy: ['delete', 'email', 'webhook', 'outward'],
+        target_databases: ['Activities', 'Deals'],
+        write_gates: [{ operations: ['create', 'update'] }],
+        skills: [],
+        ai_mode: 'your_own_ai',
+      },
+      {
+        name: 'Hand-off Writer',
+        goal: 'When a deal is won, draft the project hand-off to delivery.',
+        instructions:
+          'Read the won deal, its account, accepted quote and contacts. Propose a Project (in Agency OS) with the Client and the Source deal set, ' +
+          'and write the hand-off as a comment on the deal: what was sold, what was promised, who the contacts are. The Project is a proposal a person approves.',
+        scopes: ['read', 'write'],
+        approval_policy: ['delete', 'email', 'webhook', 'outward'],
+        target_databases: ['Deals', 'Projects'],
+        write_gates: [{ operations: ['create', 'update'] }],
+        skills: [],
+        ai_mode: 'your_own_ai',
+      },
+    ],
+    // No trigger is `human_gate` (ticket #1212): the switch in the install review ("Wake it automatically", #1192) and the write gate are the
+    // human checks. Call Debrief wakes on every Logged activity (a trigger cannot filter Type), so its instructions skip anything but a call or meeting with notes.
+    triggers: [
+      { agent: 'Deal Coach', database: 'Deals', state_field: 'Stage', state_option: 'Proposal', human_gate: false },
+      { agent: 'Call Debrief', database: 'Activities', state_field: 'Status', state_option: 'Logged', human_gate: false },
+      { agent: 'Hand-off Writer', database: 'Deals', state_field: 'Stage', state_option: 'Won', human_gate: false },
+    ],
     derived_fields: [
       {
         // The date of the latest LOGGED activity (a Planned one has not happened yet): category, not the "Logged" option, so a state added later still counts.
@@ -347,7 +399,79 @@ export const DEAL_DESK_PACK: PackRegistryEntry = {
         config: { date_field_id: fieldRef('Activities', 'Date') },
       },
     ],
-    automations: [],
+    // Five rules from the spec, then two on the scheduled-rule features (#1198, #1199). Only "Won -> Slack" leaves the workspace, so it installs OFF
+    // (#1107, whatever `enabled` says here); the Monday review runs an agent, so it installs OFF too. The rest are ON.
+    automations: [
+      {
+        database: 'Deals',
+        name: 'Stalled deal nudge',
+        trigger: { type: 'schedule', every: 'day', at: '09:00', weekdays: [1, 2, 3, 4, 5] },
+        condition: { and: [OPEN_STAGES, { field: 'next_step_date', op: 'before', value: '$date:+0d' }] },
+        actions: [{ type: 'notify_user', user: 'owner', message: 'The next step on this deal is overdue: set a new one.' }],
+        enabled: true,
+      },
+      {
+        database: 'Deals',
+        name: 'Lost needs a reason',
+        trigger: { type: 'record_updated', field_id: fieldRef('Deals', 'Stage') },
+        condition: { and: [{ field: 'stage', op: 'category_is', value: ['canceled'] }, { field: 'lost_reason', op: 'is_empty' }] },
+        actions: [{ type: 'notify_user', user: 'owner', message: 'This deal is Lost with no reason: add one so Why we lose stays true.' }],
+        enabled: true,
+      },
+      {
+        database: 'Quotes',
+        name: 'Expire old quotes',
+        trigger: { type: 'schedule', every: 'day', at: '06:00' },
+        condition: { and: [{ field: 'status', op: 'category_is', value: ['started'] }, { field: 'valid_until', op: 'before', value: '$date:+0d' }] },
+        actions: [{ type: 'set_values', values: { status: optionRef('Quotes', 'Status', 'Expired') } }],
+        enabled: true,
+      },
+      {
+        // The one rule that changes another record, so it asks first (require_approval): accepting a quote proposes the deal is Won.
+        database: 'Quotes',
+        name: 'Accepted quote moves the deal to Won',
+        trigger: { type: 'record_updated', field_id: fieldRef('Quotes', 'Status') },
+        condition: { field: 'status', op: 'category_is', value: ['completed'] },
+        actions: [
+          {
+            type: 'update_linked',
+            relation_field_id: fieldRef('Quotes', 'Deal'),
+            values: { stage: optionRef('Deals', 'Stage', 'Won') },
+            require_approval: true,
+          },
+        ],
+        enabled: true,
+      },
+      {
+        // No channel: the workspace's default Slack channel. Leaves the workspace, so it installs OFF.
+        database: 'Deals',
+        name: 'Won: tell Slack',
+        trigger: { type: 'record_updated', field_id: fieldRef('Deals', 'Stage') },
+        condition: { field: 'stage', op: 'category_is', value: ['completed'] },
+        actions: [{ type: 'send_slack_message', text: 'Deal won: {Name} ({Amount}). Time to hand it off.' }],
+        enabled: false,
+      },
+      {
+        // #1199: a weekly digest of the 5 open deals nobody has touched the longest (sort + limit on a scheduled rule); each one tells its owner.
+        database: 'Deals',
+        name: 'Stalled deals digest',
+        trigger: { type: 'schedule', every: 'week', weekday: 1, at: '09:00' },
+        condition: OPEN_STAGES,
+        actions: [{ type: 'notify_user', user: 'owner', message: 'One of the 5 open deals that has gone quiet the longest: {Name}.' }],
+        sort: [{ field: 'updated_at', direction: 'asc' }],
+        limit: 5,
+        enabled: true,
+      },
+      {
+        // #1198: Deal Coach reviews the pipeline every Monday. It runs an agent, so it installs OFF until a person switches it on.
+        database: 'Deals',
+        name: 'Monday pipeline review',
+        trigger: { type: 'schedule', every: 'week', weekday: 1, at: '08:00' },
+        condition: OPEN_STAGES,
+        actions: [{ type: 'run_agent', agent: '$agent:deal-coach', target: 'trigger_record' }],
+        enabled: true,
+      },
+    ],
     // 28 records, each titled "(sample)". Listed in the order a link needs: a record can only point at one listed before it.
     sample_records: [
       { database: 'Products', values: { name: 'Strategy workshop (sample)', price: 2500, billing: optionRef('Products', 'Billing', 'One-off'), active: true } },
