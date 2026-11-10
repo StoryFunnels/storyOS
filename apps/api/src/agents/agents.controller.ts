@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -6,6 +6,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { assertHumanSource } from '../auth/assert-human-source';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
+import { AgentScopeService } from './agent-scope';
 import { AgentsService } from './agents.service';
 
 /**
@@ -56,7 +57,10 @@ class RejectRunDto extends createZodDto(z.object({ reason: z.string().max(2000).
 @MinRole('admin')
 @Controller('workspaces/:ws/agents')
 export class AgentsController {
-  constructor(private readonly agents: AgentsService) {}
+  constructor(
+    private readonly agents: AgentsService,
+    private readonly scope: AgentScopeService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Agents database summary, or { exists: false } if not provisioned' })
@@ -160,6 +164,19 @@ export class AgentsController {
    * #541 — "which agent did this, at what time" for a date range, in bulk.
    * `from`/`to` are ISO datetimes; both optional (default: last 30 days).
    */
+  @Get(':agent/scope')
+  @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
+  @ApiOperation({
+    summary:
+      "Where this agent works, resolved NOW: its named databases plus every database in its target spaces (a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
+  })
+  async getAgentScope(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
+    const id = await this.agents.resolveAgentId(req.membership, agent);
+    const described = await this.scope.describe(req.membership.workspaceId, id);
+    if (!described) throw new NotFoundException('Agent not found');
+    return { agent_id: id, ...described };
+  }
+
   @Get(':agent/activity')
   @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
   @ApiOperation({ summary: 'Field changes + activity events attributed to this agent, in a date range' })

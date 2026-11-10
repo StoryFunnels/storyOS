@@ -25,6 +25,7 @@ import { TokensService } from '../tokens/tokens.service';
 import { NO_RUN_CREDENTIAL_KEY, RUN_BUTTON_KEY, SCOPE_KEY, SESSION_ONLY_KEY } from './token-scope.guard';
 import { MIN_ROLE_KEY } from '../workspaces/workspace-access.guard';
 import { resolveAgentIdentity } from '../agents/agent-identity';
+import { resolveAgentScope, toResourceScope } from '../agents/agent-scope';
 import { RUNNER_TOKEN_PREFIX } from '../runners/runner.constants';
 
 /**
@@ -209,10 +210,19 @@ export class AuthGuard implements CanActivate {
         effectiveUserId = identity.ownerId;
       }
 
+      // #1195 — an agent that targets a SPACE is bound to it, resolved live on every request (a database added to the space
+      // later is in scope on the next call; the manager's own reach and personal spaces are applied by the #543 binding itself).
+      // A token that already carries its own minted binding keeps it. A database-only agent resolves to `enforced: false`: unchanged.
+      let resourceScope = resolved.resourceScope;
+      if (resolved.agentId && !resourceScope) {
+        const live = await resolveAgentScope(this.db, resolved.workspaceId, resolved.agentId);
+        if (live?.enforced) resourceScope = toResourceScope(live);
+      }
+
       const account = await this.db.query.user.findFirst({ where: eq(user.id, effectiveUserId) });
       if (!account) throw new UnauthorizedException('Token owner no longer exists');
       this.enforceTokenScope(context, resolved);
-      this.enforceResourceBinding(context, resolved.resourceScope);
+      this.enforceResourceBinding(context, resourceScope ?? null);
       // #1135 — a per-run credential is refused the routes marked @NoRunCredential() (outward effects with no staging path, and
       // anything that would mint a wider credential than the caller's). Only a run credential carries `run`.
       if (resolved.run && this.reflector.getAllAndOverride<boolean>(NO_RUN_CREDENTIAL_KEY, [context.getHandler(), context.getClass()])) {
@@ -249,7 +259,7 @@ export class AuthGuard implements CanActivate {
         workspaceId: resolved.workspaceId,
         tokenScope: resolved.scope,
         allowRunButton: resolved.allowRunButton,
-        ...(resolved.resourceScope ? { resourceScope: resolved.resourceScope } : {}),
+        ...(resourceScope ? { resourceScope } : {}),
         // Unset origin = an ordinary PAT = `mcp`, exactly the pre-#357 behaviour.
         source: resolved.origin ?? 'mcp',
         // #541 — undefined (not present) for every non-agent-scoped token, so

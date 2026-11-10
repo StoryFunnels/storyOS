@@ -3036,11 +3036,15 @@ export class RecordsService implements OnModuleInit {
   private async assertAgentSettingsWritable(databaseId: string, keys: string[], source: ChangeSource, values?: Record<string, unknown>): Promise<void> {
     // ticket #1138: the monthly budget is the same kind of setting. An agent that could raise its own budget would have no budget.
     const budgetKeys = BUDGET_FIELD_NAMES.filter((k) => keys.includes(k));
-    if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0) return;
+    // ticket #1195: the spaces an agent works in are the same kind of setting. An agent that could widen its own spaces would have no scope.
+    // Only target_spaces: target_databases is the agent's brief and is written with source 'agent' by pack/architect builds, so guarding it
+    // here refused every pack install that has an agent (the four test-api shard failures on PR #1442).
+    const scopeKeys = ['target_spaces'].filter((k) => keys.includes(k));
+    if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0 && scopeKeys.length === 0) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
     if (source === 'agent') {
-      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model or budget setting: they are set by the person who manages the agent.');
+      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model, budget or target spaces: they are set by the person who manages the agent.');
     }
     const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });
     if (problems.length > 0) throw new UnprocessableEntityException(problems.map((p) => p.message).join(' '));

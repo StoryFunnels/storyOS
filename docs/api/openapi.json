@@ -10308,6 +10308,32 @@
         "x-min-role": "admin"
       }
     },
+    "/api/v1/workspaces/{ws}/agents/{agent}/scope": {
+      "get": {
+        "operationId": "AgentsController_getAgentScope",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "description": "The agent record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Where this agent works, resolved NOW: its named databases plus every database in its target spaces (a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
+        "tags": [
+          "agents"
+        ],
+        "x-min-role": "admin"
+      }
+    },
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
       "get": {
         "operationId": "AgentsController_getAgentActivity",
@@ -20804,6 +20830,16 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 400
+            }
+          },
+          "required_packs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "also_install",
+                "create_here"
+              ]
             }
           }
         }
