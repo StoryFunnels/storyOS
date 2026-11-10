@@ -73,7 +73,7 @@ const nameSchema = z.string().min(1).max(200);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 /** Matches a symbolic ref anywhere a string is allowed. */
-export const PACK_REF_PATTERN = /^\$(db|field|option):[a-z0-9-]+(\.[a-z0-9-]+){0,2}$/;
+export const PACK_REF_PATTERN = /^\$(db|field|option|agent):[a-z0-9-]+(\.[a-z0-9-]+){0,2}$/;
 
 export const packRefSchema = z.string().regex(PACK_REF_PATTERN, 'not a symbolic pack ref');
 
@@ -98,6 +98,25 @@ export const dbRef = (db: string) => `$db:${packSlug(db)}`;
 export const fieldRef = (db: string, field: string) => `$field:${packSlug(db)}.${packSlug(field)}`;
 export const optionRef = (db: string, field: string, option: string) =>
   `$option:${packSlug(db)}.${packSlug(field)}.${packSlug(option)}`;
+/**
+ * #1198 — a pack's OWN agent, by manifest name: `{ type: 'run_agent', agent: '$agent:deal-coach' }` on a (scheduled) automation. A manifest
+ * cannot know the id the agent will get, so install resolves the ref to it. A ref naming an agent the manifest does not declare is
+ * refused up front (`unknownAgentRefs`), never installed pointing at nothing.
+ */
+export const agentRef = (name: string) => `$agent:${packSlug(name)}`;
+
+/** Every `$agent:` ref anywhere in a value (an automation's trigger/condition/actions), in first-seen order and without repeats. */
+export function collectAgentRefs(value: unknown): string[] {
+  const found = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (typeof node === 'string') {
+      if (node.startsWith('$agent:') && PACK_REF_PATTERN.test(node)) found.add(node);
+    } else if (Array.isArray(node)) node.forEach(walk);
+    else if (node && typeof node === 'object') Object.values(node).forEach(walk);
+  };
+  walk(value);
+  return [...found];
+}
 
 /**
  * The connections a pack can require.
