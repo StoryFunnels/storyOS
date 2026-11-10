@@ -84,6 +84,11 @@ export function adminAskLine(members: ReadonlyArray<{ role: string; user: { name
   return `Only admins can add packs. Ask ${who} to add one.`;
 }
 
+/** The border a pack card wears: featured packs get the stronger one. Shared by New space and the signup picker so the two cannot drift. */
+export function packCardBorder(slug: string): 'border-border-strong' | 'border-border-default' {
+  return FEATURED_SPACE_PACKS.includes(slug) ? 'border-border-strong' : 'border-border-default';
+}
+
 const isFeatured =(slug: string) => FEATURED_SPACE_PACKS.includes(slug);
 
 /**

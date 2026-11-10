@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Fragment, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import posthog from 'posthog-js';
 import {
@@ -21,6 +21,7 @@ import { setPendingShare } from '@/lib/pending-share';
 import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
 import { orderSignupPacks, signupPackLine } from '@/lib/signup-packs';
+import { packCardBorder } from '@/lib/space-start';
 
 interface PackCard {
   slug: string;
@@ -94,8 +95,8 @@ function PackChoice({
            be a multiple of them: the grid always cut a card in half, which reads
            as a rendering bug rather than "scroll for more". Fixed height + the
            line-clamp below makes the cut land between rows by construction. */
-        'flex h-[196px] flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border p-2 text-left transition-colors',
-        selected ? 'border-primary-text bg-active' : 'border-border-default hover:bg-hover',
+        'flex h-[224px] flex-col sm:h-[196px] gap-2 overflow-hidden rounded-[var(--radius-card)] border p-2 text-left transition-colors',
+        selected ? 'border-primary-text bg-active' : cn(packCardBorder(pack.slug), 'hover:bg-hover'),
       )}
       onClick={onClick}
     >
@@ -114,7 +115,7 @@ function PackChoice({
             cascade, so the clamp silently never applied. Support Inbox's
             six-line summary then ate the card and squeezed the preview above
             from 112px to 43px. The class was present and doing nothing. */}
-        <span className="line-clamp-2 text-label text-muted">{signupPackLine(pack)}</span>
+        <span className="line-clamp-3 text-label text-muted sm:line-clamp-2">{signupPackLine(pack)}</span>
       </span>
     </button>
   );
@@ -129,11 +130,11 @@ export default function NewWorkspacePage() {
   const router = useRouter();
   const [name, setName] = useState('');
   /**
-   * #217 — Otto's ruling: the AI-build step (#363) is the DEFAULT path, not the
-   * pack picker. "template" is what "template" used to be as the only screen;
-   * it is still reachable, one link away, never removed.
+   * #1150 — Otto's ruling 1 supersedes #217's default: the "What are you working on?"
+   * step ("template") is the first screen, so the three ready-to-work packs are offered
+   * before anything is typed. The AI-build step ("describe", #363) is one link away.
    */
-  const [mode, setMode] = useState<'describe' | 'template'>('describe');
+  const [mode, setMode] = useState<'describe' | 'template'>('template');
   const [description, setDescription] = useState('');
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
   /**
@@ -165,6 +166,7 @@ export default function NewWorkspacePage() {
 
   const packs = registry.data ?? [];
   const { featured, rest } = orderSignupPacks(packs);
+  const ordered = [...featured, ...rest];
   const packBySlug = new Map(packs.map((pack) => [pack.slug, pack]));
   const selectedSlug = choice?.startsWith('pack:') ? choice.slice(5) : null;
   const selectedQuickPick = QUICK_PICKS.find((pick) => pick.slug === selectedSlug);
@@ -403,7 +405,7 @@ export default function NewWorkspacePage() {
           onClick={() => setMode('describe')}
           className="self-start text-label text-muted underline-offset-2 hover:text-ink hover:underline"
         >
-          ← Back
+          Or describe what you do and let me build it
         </button>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="name">Workspace name</Label>
@@ -446,8 +448,8 @@ export default function NewWorkspacePage() {
           {/* #351 — a GRID of every pack, not three in one column with the rest
               behind grey text. Eight packs exist and the one screen guaranteed to
               be seen was showing a third of them. */}
-          {/* Exactly two rows: 2 × 196 + one 8px gap. */}
-          <div className="grid max-h-[400px] grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+          {/* Exactly two rows: 2 × 196 + one 8px gap (224 on a phone, where the why wraps to three lines). */}
+          <div className="grid max-h-[456px] grid-cols-1 sm:max-h-[400px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
             {registry.isError ? (
               <div className="flex flex-col items-start gap-2 rounded-[var(--radius-card)] border border-border-default bg-card p-4 text-body text-error">
                 <span>{apiErrorMessage(registry.error, 'Could not load packs')}</span>
@@ -466,15 +468,9 @@ export default function NewWorkspacePage() {
                 {registry.isLoading && (
                   <p className="col-span-full text-label text-muted">Loading starting points…</p>
                 )}
-                {featured.length > 0 && (
-                  <p className="col-span-full text-label font-medium text-ink">Start ready to work</p>
-                )}
-                {[...featured, ...rest].map((pack, i) => (
-                  <Fragment key={pack.slug}>
-                    {featured.length > 0 && i === featured.length && (
-                      <p className="col-span-full mt-1 text-label font-medium text-ink">More starting points</p>
-                    )}
-                    <PackChoice
+                {ordered.map((pack) => (
+                  <PackChoice
+                      key={pack.slug}
                       /* The quick-pick LABEL ("Running an agency") is the reader's
                          words for the same thing, so it wins over the product name. */
                       label={QUICK_PICKS.find((q) => q.slug === pack.slug)?.label}
@@ -482,7 +478,6 @@ export default function NewWorkspacePage() {
                       selected={choice === `pack:${pack.slug}`}
                       onClick={() => setChoice(`pack:${pack.slug}`)}
                     />
-                  </Fragment>
                 ))}
               </>
             )}
