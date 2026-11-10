@@ -64,6 +64,33 @@ const CHIP: Record<ChipTone, { bg: string; border: string; fg: string }> = {
   attention: { bg: '#fbf0d4', border: '#fbf0d4', fg: '#7a5a00' },
 };
 
+/**
+ * Dark mode. Dara's values: page #0a0d12, text #f3efe7, muted #9a9488, links #a9b9e6 (card and rule are the pair the page sat on).
+ * Email clients differ, so the LIGHT colours stay inline (they are the default everywhere, including clients that ignore <style>), and
+ * the dark values are overrides keyed on classes. `!important` is required because an inline style otherwise wins. Every element that
+ * carries an inline colour also carries one of these classes; digest-render.test.ts walks the output and fails on one that does not.
+ * `[data-ogsc]` / `[data-ogsb]` are Outlook.com's dark-mode hooks (text / background), listed from the same table so they cannot drift.
+ */
+export const DARK = { page: '#0a0d12', card: '#171c26', rule: '#262d39', text: '#f3efe7', muted: '#9a9488', link: '#a9b9e6' } as const;
+const DARK_RULES: Array<{ cls: string; fg?: string; bg?: string; border?: string }> = [
+  { cls: 'd-page', bg: DARK.page },
+  { cls: 'd-card', bg: DARK.card, border: DARK.rule },
+  { cls: 'd-rule', border: DARK.rule },
+  { cls: 'd-ink', fg: DARK.text },
+  { cls: 'd-mute', fg: DARK.muted },
+  { cls: 'd-link', fg: DARK.link },
+  { cls: 'd-btn', fg: DARK.page, bg: DARK.link },
+  { cls: 'd-mono', fg: DARK.page, bg: DARK.link },
+  { cls: 'd-chip-neutral', fg: DARK.text, bg: DARK.rule, border: DARK.rule },
+  { cls: 'd-chip-progress', fg: DARK.link, bg: '#1f2a4a', border: '#1f2a4a' },
+  { cls: 'd-chip-attention', fg: '#f0cf7a', bg: '#3a2f10', border: '#3a2f10' },
+];
+export const DARK_CSS =
+  `:root{color-scheme:light dark;supported-color-schemes:light dark}` +
+  `@media (prefers-color-scheme: dark){${DARK_RULES.map((r) => `.${r.cls}{${[r.bg && `background:${r.bg}!important`, r.fg && `color:${r.fg}!important`, r.border && `border-color:${r.border}!important`].filter(Boolean).join(';')}}`).join('')}}` +
+  DARK_RULES.filter((r) => r.fg).map((r) => `[data-ogsc] .${r.cls}{color:${r.fg}!important}`).join('') +
+  DARK_RULES.filter((r) => r.bg).map((r) => `[data-ogsb] .${r.cls}{background-color:${r.bg}!important}`).join('');
+
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 function summaryParts(sections: DigestSection[]): { waiting: number; open: number; byMe: number } {
@@ -100,14 +127,14 @@ function rowHtml(row: DigestRow): string {
   const chip = row.chip
     ? (() => {
         const c = CHIP[row.chip.tone];
-        return `<span style="display:inline-block;padding:2px 8px;border:1px solid ${c.border};border-radius:4px;background:${c.bg};color:${c.fg};font-size:12px;line-height:16px;font-weight:600;white-space:nowrap">${escapeHtml(row.chip.label)}</span>`;
+        return `<span class="d-chip-${row.chip.tone}" style="display:inline-block;padding:2px 8px;border:1px solid ${c.border};border-radius:4px;background:${c.bg};color:${c.fg};font-size:12px;line-height:16px;font-weight:600;white-space:nowrap">${escapeHtml(row.chip.label)}</span>`;
       })()
     : '';
   return (
-    `<tr><td style="padding:12px 0;border-top:1px solid #e8e5df;vertical-align:top"><a href="${escapeHtml(row.url)}" style="color:#0f1729;text-decoration:none;font-size:15px;line-height:21px;font-weight:600">${escapeHtml(row.title)}</a><br>` +
-    `<span style="color:#6b6658;font-size:12px;line-height:18px">${escapeHtml(row.meta)}</span></td>` +
+    `<tr><td class="d-rule" style="padding:12px 0;border-top:1px solid #e8e5df;vertical-align:top"><a class="d-ink" href="${escapeHtml(row.url)}" style="color:#0f1729;text-decoration:none;font-size:15px;line-height:21px;font-weight:600">${escapeHtml(row.title)}</a><br>` +
+    `<span class="d-mute" style="color:#6b6658;font-size:12px;line-height:18px">${escapeHtml(row.meta)}</span></td>` +
     `<td width="8" style="width:8px"></td>` +
-    `<td align="right" style="padding:13px 0 0;border-top:1px solid #e8e5df;vertical-align:top;white-space:nowrap">${chip}</td></tr>`
+    `<td align="right" class="d-rule" style="padding:13px 0 0;border-top:1px solid #e8e5df;vertical-align:top;white-space:nowrap">${chip}</td></tr>`
   );
 }
 
@@ -117,12 +144,12 @@ function sectionHtml(section: DigestSection, myWorkUrl: string): string {
   const more = section.total - shown.length;
   const moreRow =
     more > 0
-      ? `<tr><td colspan="3" style="padding:12px 0 0;border-top:1px solid #e8e5df;font-size:13px;line-height:20px;color:#6b6658">and ${more} more &middot; <a href="${escapeHtml(myWorkUrl)}" style="color:#2f3b63;font-weight:600;text-decoration:underline">see them all in My Work</a></td></tr>`
+      ? `<tr><td colspan="3" class="d-rule d-mute" style="padding:12px 0 0;border-top:1px solid #e8e5df;font-size:13px;line-height:20px;color:#6b6658">and ${more} more &middot; <a class="d-link" href="${escapeHtml(myWorkUrl)}" style="color:#2f3b63;font-weight:600;text-decoration:underline">see them all in My Work</a></td></tr>`
       : '';
   return (
     `<tr><td style="padding:40px 24px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">` +
-    `<tr><td colspan="3" style="padding:14px 0 6px;border-top:2px solid #d9d4c8;font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:#6b6658">${copy.heading} <span style="color:#8f8a7e">&middot;</span> <span style="color:#0f1729">${copy.countLabel(section.total)}</span></td></tr>` +
-    `<tr><td colspan="3" style="padding:0 0 10px;font-size:13px;line-height:19px;color:#6b6658">${copy.blurb}</td></tr>` +
+    `<tr><td colspan="3" class="d-rule d-mute" style="padding:14px 0 6px;border-top:2px solid #d9d4c8;font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:#6b6658">${copy.heading} <span class="d-mute" style="color:#8f8a7e">&middot;</span> <span class="d-ink" style="color:#0f1729">${copy.countLabel(section.total)}</span></td></tr>` +
+    `<tr><td colspan="3" class="d-mute" style="padding:0 0 10px;font-size:13px;line-height:19px;color:#6b6658">${copy.blurb}</td></tr>` +
     shown.map(rowHtml).join('') +
     moreRow +
     `</table></td></tr>`
@@ -144,22 +171,22 @@ export function renderDigest(input: DigestInput): { subject: string; html: strin
 
   const html =
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(subject)}</title>` +
-    `<style>@media (prefers-color-scheme: dark){.d-page{background:#0f131b!important}.d-card{background:#171c26!important;border-color:#262d39!important}.d-ink,.d-ink a{color:#f3efe7!important}.d-mute,.d-mute a{color:#9a9488!important}}</style></head>\n` +
+    `<style>${DARK_CSS}</style></head>\n` +
     `<body class="d-page" style="margin:0;padding:0;background:#f4efe5;font-family:Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%">\n` +
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(preheader)}.</div>\n` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4efe5" class="d-page"><tr><td align="center" style="padding:24px 12px">\n` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="d-card" style="max-width:600px;background:#ffffff;border:1px solid #e8e5df;border-radius:8px">\n` +
     `<tr><td style="padding:22px 24px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
-    `<td class="d-ink" style="font-size:13px;line-height:18px;font-weight:700;color:#0f1729"><span style="display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:4px;background:#2f3b63;color:#fff;font-size:10px;font-weight:700;vertical-align:-4px;margin-right:6px">${escapeHtml(initials(input.workspaceName))}</span>${escapeHtml(input.workspaceName)}</td>` +
+    `<td class="d-ink" style="font-size:13px;line-height:18px;font-weight:700;color:#0f1729"><span class="d-mono" style="display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:4px;background:#2f3b63;color:#fff;font-size:10px;font-weight:700;vertical-align:-4px;margin-right:6px">${escapeHtml(initials(input.workspaceName))}</span>${escapeHtml(input.workspaceName)}</td>` +
     `<td align="right" class="d-mute" style="font-size:12px;line-height:18px;color:#6b6658;white-space:nowrap">${escapeHtml(input.dateLabel)}</td></tr></table></td></tr>\n` +
     `<tr><td style="padding:18px 24px 0"><h1 class="d-ink" style="margin:0;font-size:22px;line-height:28px;font-weight:700;color:#0f1729">Your work today</h1>` +
     `<p class="d-mute" style="margin:6px 0 0;font-size:14px;line-height:21px;color:#6b6658">${escapeHtml(lead)}</p>` +
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px"><tr><td style="border-radius:6px;background:#2f3b63"><a href="${escapeHtml(input.myWorkUrl)}" style="display:inline-block;padding:9px 16px;font-size:14px;line-height:18px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px">Open My Work</a></td></tr></table></td></tr>\n` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px"><tr><td class="d-btn" style="border-radius:6px;background:#2f3b63"><a class="d-btn" href="${escapeHtml(input.myWorkUrl)}" style="display:inline-block;padding:9px 16px;font-size:14px;line-height:18px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px">Open My Work</a></td></tr></table></td></tr>\n` +
     sections.map((s) => sectionHtml(s, input.myWorkUrl)).join('') +
     `\n<tr><td style="padding:28px 24px 22px">` +
-    `<p class="d-mute" style="margin:0;padding-top:16px;border-top:1px solid #e8e5df;font-size:12px;line-height:18px;color:#6b6658">You get this ${escapeHtml(input.cadenceText)}, your time, because you turned it on in Settings &rsaquo; Notifications. It lists only records you can open, the same list as My Work.</p>` +
-    `<p style="margin:8px 0 0;font-size:12px;line-height:18px"><a href="${escapeHtml(input.customizeUrl)}" style="color:#2f3b63;text-decoration:underline">Customize these emails</a> <span style="color:#8f8a7e">&middot;</span> <a href="${escapeHtml(input.stopUrl)}" style="color:#2f3b63;text-decoration:underline">Stop these emails</a></p>` +
-    `<p style="margin:8px 0 0;font-size:12px;line-height:18px;color:#8f8a7e">StoryOS &middot; sent to ${escapeHtml(input.recipientEmail)}</p>` +
+    `<p class="d-mute d-rule" style="margin:0;padding-top:16px;border-top:1px solid #e8e5df;font-size:12px;line-height:18px;color:#6b6658">You get this ${escapeHtml(input.cadenceText)}, your time, because you turned it on in Settings &rsaquo; Notifications. It lists only records you can open, the same list as My Work.</p>` +
+    `<p style="margin:8px 0 0;font-size:12px;line-height:18px"><a class="d-link" href="${escapeHtml(input.customizeUrl)}" style="color:#2f3b63;text-decoration:underline">Customize these emails</a> <span class="d-mute" style="color:#8f8a7e">&middot;</span> <a class="d-link" href="${escapeHtml(input.stopUrl)}" style="color:#2f3b63;text-decoration:underline">Stop these emails</a></p>` +
+    `<p class="d-mute" style="margin:8px 0 0;font-size:12px;line-height:18px;color:#8f8a7e">StoryOS &middot; sent to ${escapeHtml(input.recipientEmail)}</p>` +
     `</td></tr>\n</table></td></tr></table></body></html>`;
 
   const textLines: string[] = [`Your work today — ${input.workspaceName}, ${input.dateLabel}`, '', lead, ''];

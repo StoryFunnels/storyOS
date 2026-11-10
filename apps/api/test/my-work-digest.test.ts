@@ -197,3 +197,101 @@ describe('#1251 AC3: the unsubscribe link turns it off without signing in', () =
     expect(verifyUnsubscribeToken(good)).toBe(me.id);
   });
 });
+
+/**
+ * #1251 — ACCESS. A digest is mail: once sent it cannot be taken back, so what it NAMES and COUNTS must be exactly what the recipient can
+ * open, computed for the RECIPIENT's membership. Only a guest (a grant on one database) and a member facing a restricted database can
+ * have partial access, so this block carries both; a fixture of owners proves nothing. Each case has a control (what they CAN open must
+ * appear), so the tests fail when the filter is dropped in either direction: an escalation leaks the hidden titles, an over-eager filter
+ * loses the control rows. (Personal-space content is not reachable here: personal space holds documents and views, never records, and
+ * the mention-in-personal-content case lives in my-work-waiting.test.ts.)
+ */
+describe('#1251 access: the digest names and counts only what the recipient can open', () => {
+  let guest: { token: string; id: string };
+  let limited: { token: string; id: string };
+  let openDb: string, vault: string, noGrant: string, revocable: string;
+  let revocableGrant: string;
+  const field: Record<string, string> = {};
+  const mkDb = async (name: string, restricted = false) => {
+    const space = (await as(owner.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+    const id = (await as(owner.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space, name })).json().id as string;
+    field[id] = (await as(owner.token, 'POST', `/workspaces/${ws}/databases/${id}/fields`, { display_name: 'Owner', type: 'user' })).json().apiName;
+    if (restricted) await as(owner.token, 'PATCH', `/workspaces/${ws}/databases/${id}`, { restricted: true });
+    return id;
+  };
+  const give = async (db: string, title: string, to: string) => {
+    const rec = (await as(owner.token, 'POST', `/workspaces/${ws}/databases/${db}/records`, { values: { name: title } })).json().id as string;
+    const res = await as(owner.token, 'PATCH', `/workspaces/${ws}/databases/${db}/records/${rec}`, { values: { [field[db]!]: to } });
+    expect(res.statusCode, `assign ${title}`).toBe(200);
+  };
+  const digestFor = async (who: { id: string; token: string }, iso: string) => {
+    expect((await prefs(who.token, { frequency: 'daily', time: '08:00', timezone: 'Europe/Madrid' })).statusCode).toBe(200);
+    const before = sent.length;
+    await sweep(who, iso);
+    expect(sent.length - before, `a digest was sent for ${iso}`).toBe(1);
+    return sent.at(-1)!;
+  };
+
+  beforeAll(async () => {
+    openDb = await mkDb('DGOpenRoom');
+    vault = await mkDb('DGVault', true);
+    noGrant = await mkDb('DGNoGrantRoom');
+    revocable = await mkDb('DGRevocable');
+    guest = await joinAs(app, owner.token, ws, 'DG Guest', 'guest', [{ database_id: openDb, role: 'viewer' }, { database_id: revocable, role: 'viewer' }]);
+    limited = await joinAs(app, owner.token, ws, 'DG Limited', 'member');
+    const grants = (await as(owner.token, 'GET', `/workspaces/${ws}/grants?user_id=${guest.id}`)).json().data as Array<{ id: string; database_id: string | null }>;
+    revocableGrant = grants.find((g) => g.database_id === revocable)!.id;
+    // The guest: 2 in the database they hold a grant on, 1 in a second granted database, 3 in a RESTRICTED one, 2 in one they have no grant on.
+    await give(openDb, 'DGG open 1', guest.id);
+    await give(openDb, 'DGG open 2', guest.id);
+    await give(revocable, 'DGG revocable 1', guest.id);
+    for (const i of [1, 2, 3]) await give(vault, `DGG vault ${i}`, guest.id);
+    for (const i of [1, 2]) await give(noGrant, `DGG nogrant ${i}`, guest.id);
+    // The member: 1 in an open database, 2 in the restricted one they hold no grant on.
+    await give(openDb, 'DGL open 1', limited.id);
+    for (const i of [1, 2]) await give(vault, `DGL vault ${i}`, limited.id);
+  }, 120_000);
+
+  it('a GUEST with a grant on one database: "N open" counts only the databases they can open, and no title or name from any other appears', async () => {
+    const mail = await digestFor(guest, '2027-01-05T07:00:00Z');
+    expect(mail.subject, 'the count is of what the guest can open: 2 + 1, never 8').toBe('Your work in DG WS: 3 open');
+    // the control: what they CAN open is in the email
+    for (const t of ['DGG open 1', 'DGG open 2', 'DGG revocable 1']) expect(mail.html, t).toContain(t);
+    // everything they cannot open: not in the html, not in the plain-text part, not as a database name, not in the subject
+    for (const leak of ['DGG vault', 'DGG nogrant', 'DGVault', 'DGNoGrantRoom', 'DGL ']) {
+      expect(mail.html, `html leaks ${leak}`).not.toContain(leak);
+      expect(mail.text ?? '', `text leaks ${leak}`).not.toContain(leak);
+      expect(mail.subject).not.toContain(leak);
+    }
+  });
+
+  it('a MEMBER facing a restricted database: counts and names only the open one, never the restricted records assigned to them', async () => {
+    const mail = await digestFor(limited, '2027-01-05T07:00:00Z');
+    expect(mail.subject, '1 open, never 3').toBe('Your work in DG WS: 1 open');
+    expect(mail.html).toContain('DGL open 1');
+    for (const leak of ['DGL vault', 'DGVault', 'DGG ']) {
+      expect(mail.html, `html leaks ${leak}`).not.toContain(leak);
+      expect(mail.text ?? '').not.toContain(leak);
+    }
+  });
+
+  it('a record the guest LOSES access to drops out of the next digest, and the control rows stay', async () => {
+    expect((await as(owner.token, 'DELETE', `/workspaces/${ws}/grants/${revocableGrant}`)).statusCode).toBeLessThan(300);
+    const mail = await digestFor(guest, '2027-01-06T07:00:00Z');
+    expect(mail.subject).toBe('Your work in DG WS: 2 open');
+    expect(mail.html).not.toContain('DGG revocable');
+    expect(mail.html).not.toContain('DGRevocable');
+    expect(mail.html).toContain('DGG open 1');
+    expect(mail.html).toContain('DGG open 2');
+  });
+
+  it('a guest whose only assignments are in databases they cannot open gets NO email (nothing to say), not an empty-looking one', async () => {
+    const stranger = await joinAs(app, owner.token, ws, 'DG Stranger', 'guest', [{ database_id: openDb, role: 'viewer' }]);
+    await give(vault, 'DGS vault 1', stranger.id);
+    await give(noGrant, 'DGS nogrant 1', stranger.id);
+    expect((await prefs(stranger.token, { frequency: 'daily', time: '08:00', timezone: 'Europe/Madrid' })).statusCode).toBe(200);
+    expect(await sweep(stranger, '2027-01-07T07:00:00Z')).toBe(0);
+    const rows = await raw.select().from(myWorkDigestSends).where(eq(myWorkDigestSends.userId, stranger.id));
+    expect(rows.map((r) => r.outcome)).toEqual(['empty']);
+  });
+});

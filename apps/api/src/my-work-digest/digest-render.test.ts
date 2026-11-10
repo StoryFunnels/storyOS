@@ -55,6 +55,59 @@ describe('#1251 renderDigest', () => {
   });
 });
 
+describe('#1251 dark mode', () => {
+  const out = renderDigest({
+    ...base,
+    sections: [
+      { key: 'waiting', total: 2, rows: [row(1, { chip: { label: 'Approval', tone: 'neutral' } })] },
+      { key: 'assigned', total: 20, rows: [row(2, { chip: { label: 'In Progress', tone: 'progress' } }), row(3, { chip: { label: 'Blocked', tone: 'attention' } }), row(4)] },
+      { key: 'assigned_by_me', total: 1, rows: [row(5)] },
+    ],
+  })!;
+  const css = out.html.match(/<style>([\s\S]*?)<\/style>/)![1]!;
+
+  it('declares both schemes and carries a prefers-color-scheme dark block with each of Dara\'s four values', () => {
+    expect(out.html).toContain('<meta name="color-scheme" content="light dark">');
+    expect(out.html).toContain('<meta name="supported-color-schemes" content="light dark">');
+    expect(css).toContain('@media (prefers-color-scheme: dark)');
+    const dark = css.slice(css.indexOf('@media (prefers-color-scheme: dark)'));
+    for (const v of ['#0a0d12', '#f3efe7', '#9a9488', '#a9b9e6']) expect(dark, v).toContain(v);
+    expect(dark.match(/!important/g)!.length, 'inline styles win without !important').toBeGreaterThan(10);
+  });
+
+  it('keeps the light colours inline as the default', () => {
+    expect(out.html).toContain('style="margin:0;padding:0;background:#f4efe5');
+    expect(out.html).toContain('color:#0f1729');
+  });
+
+  it('every element with an inline colour, background or border colour has a d-* class, and that class is defined in the dark block', () => {
+    const defined = new Set([...css.matchAll(/\.(d-[a-z-]+)\{/g)].map((m) => m[1]));
+    const tags = [...out.html.matchAll(/<([a-z0-9]+)\b([^>]*)>/g)].filter(([, tag]) => tag !== 'meta' && tag !== 'title');
+    let coloured = 0;
+    for (const [whole, , attrs] of tags) {
+      const style = attrs!.match(/style="([^"]*)"/)?.[1] ?? '';
+      if (!/(^|;)\s*(color|background|border[a-z-]*)\s*:[^;]*#/i.test(style)) continue;
+      coloured++;
+      const classes = (attrs!.match(/class="([^"]*)"/)?.[1] ?? '').split(/\s+/).filter((c) => c.startsWith('d-'));
+      expect(classes.length, `no dark override class on: ${whole.slice(0, 120)}`).toBeGreaterThan(0);
+      for (const c of classes) expect(defined.has(c), `${c} is not defined in the dark block`).toBe(true);
+    }
+    expect(coloured, 'the walk actually found the coloured elements').toBeGreaterThan(30);
+  });
+
+  it('the three chip tones each have their own dark override', () => {
+    for (const tone of ['neutral', 'progress', 'attention']) {
+      expect(out.html).toContain(`d-chip-${tone}`);
+      expect(css).toContain(`.d-chip-${tone}{`);
+    }
+  });
+
+  it('has the Outlook.com [data-ogsc]/[data-ogsb] fallbacks', () => {
+    expect(css).toContain('[data-ogsc] .d-ink{color:#f3efe7!important}');
+    expect(css).toContain('[data-ogsb] .d-page{background-color:#0a0d12!important}');
+  });
+});
+
 describe('#1251 digestSlot', () => {
   const daily = { ...DEFAULT_MY_WORK_EMAIL, frequency: 'daily' as const, time: '08:00', timezone: 'Europe/Madrid' };
   it('follows the person\'s own clock across DST: 08:00 Madrid is 06:00Z in summer and 07:00Z in winter', () => {
