@@ -7,6 +7,8 @@ import {
   blocksToMarkdown,
   compareSemver,
   creatableFieldTypeSchema,
+  agentRef,
+  collectAgentRefs,
   dbRef,
   fieldRef,
   lineDiff,
@@ -17,6 +19,8 @@ import {
   describeManifestIssues,
   packManifestSchema,
   resolveSampleDate,
+  scheduleTriggerSchema,
+  packSlug,
   installedEnabledState,
   installedTriggerState,
   SAMPLE_ME,
@@ -80,7 +84,7 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { trackSampleRecords, untrackSampleRecords } from '../workspaces/sample-records';
 import { MarketplaceService } from './marketplace.service';
-import { deref, findRawUuids, refify } from './pack-refs';
+import { deref, findRawUuids, refify, renameRef } from './pack-refs';
 
 /** How many records a scan of a system database reads. Mirrors ArchitectService. */
 const MAX_SCAN = 200;
@@ -440,11 +444,13 @@ export class PacksService {
     }
 
     const relations = await this.exportRelations(slice);
-    const { agents, triggers } = agentsDb
-      ? await this.exportAgents(membership, slice, agentsDb.id, bindings.data)
-      : { agents: [], triggers: [] };
+    // #1198 — an agent a rule RUNS travels with the pack even when no state trigger binds it, and the rule exports it by `$agent:` ref.
+    const runAgentKeys = agentsDb ? await this.runAgentKeys(slice) : new Set<string>();
+    const { agents, triggers, agentRefByKey } = agentsDb
+      ? await this.exportAgents(membership, slice, agentsDb.id, bindings.data, runAgentKeys)
+      : { agents: [], triggers: [], agentRefByKey: new Map<string, string>() };
     const views = this.exportViews(slice, idToRef);
-    const automations = await this.exportAutomations(slice, idToRef);
+    const automations = await this.exportAutomations(slice, idToRef, agentRefByKey);
     const sampleRecords = request.include_sample_records
       ? await this.exportSampleRecords(slice, idToRef, request.sample_limit)
       : [];
@@ -948,7 +954,9 @@ export class PacksService {
     slice: SliceDb[],
     agentsDbId: string,
     bindings: Array<{ id: string; values: Record<string, unknown> }>,
-  ): Promise<{ agents: PackAgent[]; triggers: PlanTrigger[] }> {
+    /** #1198 — the `agent` strings of the exported rules' `run_agent` actions (a uuid or a public number). */
+    runAgentKeys: ReadonlySet<string> = new Set(),
+  ): Promise<{ agents: PackAgent[]; triggers: PlanTrigger[]; agentRefByKey: Map<string, string> }> {
     const byId = new Map(slice.map((d) => [d.id, d]));
     const agentRows = await this.records.list(agentsDbId, { limit: MAX_SCAN });
     const agentById = new Map(agentRows.data.map((r) => [r.id, r]));
@@ -984,6 +992,15 @@ export class PacksService {
         state_option: option.label,
         human_gate: binding.values['human_gate'] === true,
       });
+    }
+
+    // #1198 — which agent each `run_agent` key names; the agent is exported and the key becomes its `$agent:` ref.
+    const agentRefByKey = new Map<string, string>();
+    for (const key of runAgentKeys) {
+      const row = agentById.get(key) ?? agentRows.data.find((r) => String((r as { number?: unknown }).number) === key);
+      if (!row) continue; // not an agent of this workspace: left as it is, and an id outside the pack is refused by the exporter as before
+      wantedAgentIds.add(row.id);
+      agentRefByKey.set(key, agentRef(row.title));
     }
 
     // #1104 — the per-agent write gates, by database/field NAME. Absent for an agent with none, so an ungated agent exports exactly as before.
@@ -1028,7 +1045,22 @@ export class PacksService {
         ...this.exportedAiMode(labelOf('ai_mode', row.values['ai_mode'])),
       });
     }
-    return { agents, triggers };
+    return { agents, triggers, agentRefByKey };
+  }
+
+  /** #1198 — every `agent` a `run_agent` action of the slice's rules names. */
+  private async runAgentKeys(slice: SliceDb[]): Promise<Set<string>> {
+    const keys = new Set<string>();
+    for (const db of slice) {
+      const { data } = await this.automations.list(db.id);
+      for (const rule of data) {
+        for (const action of (rule.actions as unknown[]) ?? []) {
+          const a = action as { type?: unknown; agent?: unknown };
+          if (a.type === 'run_agent' && typeof a.agent === 'string') keys.add(a.agent);
+        }
+      }
+    }
+    return keys;
   }
 
   /** Flatten a BlockNote document to text — `goal`/`instructions` are rich_text. */
@@ -1063,7 +1095,7 @@ export class PacksService {
     );
   }
 
-  private async exportAutomations(slice: SliceDb[], idToRef: Map<string, string>) {
+  private async exportAutomations(slice: SliceDb[], idToRef: Map<string, string>, agentRefByKey: ReadonlyMap<string, string> = new Map()) {
     const out = [];
     for (const db of slice) {
       const { data } = await this.automations.list(db.id);
@@ -1076,9 +1108,12 @@ export class PacksService {
           condition: rule.condition ? refify(rule.condition, idToRef, where) : undefined,
           // Same as the button configs: a `send_webhook` action's headers/URL are
           // credentials, and a pack is published.
-          actions: ((rule.actions as unknown[]) ?? []).map(
-            (a) => refify(redactSecrets(a), idToRef, where) as Record<string, unknown>,
-          ),
+          actions: ((rule.actions as unknown[]) ?? []).map((a) => {
+            // #1198 — a `run_agent` action names its agent by the pack's own ref, never by an id the receiving workspace does not have.
+            const action = a as { type?: unknown; agent?: unknown };
+            const ref = action.type === 'run_agent' && typeof action.agent === 'string' ? agentRefByKey.get(action.agent) : undefined;
+            return refify(redactSecrets(ref ? { ...action, agent: ref } : a), idToRef, where) as Record<string, unknown>;
+          }),
           enabled: rule.enabled,
           // #1199 — a scheduled rule's top-N selection travels with the pack; a rule without one gets neither key.
           ...topNOf(rule),
@@ -1349,6 +1384,8 @@ export class PacksService {
     enableAgentTriggers: string[] = [],
   ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
+    // #1198 — the same up-front refusals install makes, so a preview never promises an install that then fails.
+    this.validateAutomationAgentRefs(manifest);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
@@ -1943,6 +1980,7 @@ export class PacksService {
     // is, and the same rule applies — a broken promise about the manifest's
     // own contents is a 422, not a partial install.
     this.validateAgentSkillNames(manifest);
+    this.validateAutomationAgentRefs(manifest);
     const unmet = await this.checkRequirements(membership, manifest);
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
@@ -1998,6 +2036,8 @@ export class PacksService {
       await this.installDerivedFields(membership, working, dbIds, result);
 
       const refToId = await this.readInstallRefs(membership, working, dbIds);
+      // #1198 — the pack's own agents, by manifest name, so a rule can run one by `$agent:<name>`. An agent the person skipped has no id here.
+      for (const agent of result.agents) if (agent.id && agent.action !== 'skipped') refToId.set(agentRef(agent.name), agent.id);
       const hashes = new Map<string, string>();
       // Entity ids never worth a `pack_install_items` row — currently just a
       // database's default view (see `installViews`'s doc). `recordInstall`
@@ -2331,6 +2371,8 @@ export class PacksService {
       triggers: manifest.triggers.map((t) =>
         norm(t.agent) === norm(oldName) ? { ...t, agent: newName } : t,
       ),
+      // #1198 — a rule that runs the agent follows it to its new name (its ref is derived from the name).
+      automations: renameRef(manifest.automations, agentRef(oldName), agentRef(newName)) as PackManifest['automations'],
     };
   }
 
@@ -2915,6 +2957,12 @@ export class PacksService {
         result.automations.push({ name: label, action: 'skipped', id: '' });
         continue;
       }
+      // #1198 — a rule that runs an agent the person chose to SKIP has nothing to run: it is skipped with it, not installed pointing at nothing.
+      // (A ref naming an agent the manifest never declared was refused before the build; reaching here unresolved means the agent was skipped.)
+      if (collectAgentRefs([planned.trigger, planned.condition, planned.actions]).some((ref) => !refToId.has(ref))) {
+        result.automations.push({ name: label, action: 'skipped', id: '' });
+        continue;
+      }
       const targetName = resolution?.action === 'rename' ? resolution.rename_to! : planned.name;
 
       const dbId = this.resolveDb(dbIds, planned.database, `The automation "${label}"`);
@@ -3140,6 +3188,40 @@ export class PacksService {
             `Agent "${agent.name}" declares skill "${name}", which this pack does not bundle. ` +
               `Every name in an agent's \`skills\` must match a \`skills[].name\` in the same manifest.`,
           );
+        }
+      }
+    }
+  }
+
+  /**
+   * Ticket #1198 — a pack automation may run (and so SCHEDULE) one of the pack's own agents: `{ type: 'run_agent', agent: '$agent:<name>' }`.
+   * Checked before anything is built, like `validateAgentSkillNames`: a ref naming an agent this manifest does not declare is the
+   * manifest lying about its own contents, and so is a schedule the rule engine would refuse (a bad cadence would otherwise fail halfway
+   * through the install). The schedule shape is `scheduleTriggerSchema` itself — the pack has no cadence grammar of its own.
+   */
+  private validateAutomationAgentRefs(manifest: PackManifest): void {
+    const bySlug = new Map<string, string[]>();
+    for (const agent of manifest.agents) bySlug.set(packSlug(agent.name), [...(bySlug.get(packSlug(agent.name)) ?? []), agent.name]);
+    for (const rule of manifest.automations) {
+      const where = `The automation "${rule.database}.${rule.name}"`;
+      for (const ref of collectAgentRefs([rule.trigger, rule.condition, rule.actions])) {
+        const named = bySlug.get(ref.slice('$agent:'.length));
+        if (!named) {
+          const known = manifest.agents.map((a) => `"${a.name}" (${agentRef(a.name)})`);
+          throw new UnprocessableEntityException(
+            `${where} references the agent "${ref}", which this pack does not declare. A pack automation can only run an agent listed in ` +
+              `the manifest's \`agents\`, by its ref (the name lowercased, runs of other characters as "-").` +
+              (known.length > 0 ? ` This pack declares: ${known.join(', ')}.` : ' This pack declares no agents.'),
+          );
+        }
+        if (named.length > 1) {
+          throw new UnprocessableEntityException(`${where} references "${ref}", which names more than one agent of this pack (${named.map((n) => `"${n}"`).join(', ')}). Rename one so each agent has its own ref.`);
+        }
+      }
+      if (rule.trigger.type === 'schedule') {
+        const parsed = scheduleTriggerSchema.safeParse(rule.trigger);
+        if (!parsed.success) {
+          throw new UnprocessableEntityException(`${where} has a schedule trigger the rule engine would refuse: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
         }
       }
     }

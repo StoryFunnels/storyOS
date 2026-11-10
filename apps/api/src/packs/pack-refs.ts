@@ -161,3 +161,13 @@ export function findRawUuids(value: unknown): string[] {
   walk(value);
   return found;
 }
+
+/** A copy of `value` with every string equal to `from` replaced by `to` (#1198: a renamed agent's `$agent:` ref in the rules that run it). */
+export function renameRef(value: unknown, from: string, to: string): unknown {
+  if (typeof value === 'string') return value === from ? to : value;
+  if (Array.isArray(value)) return value.map((v) => renameRef(v, from, to));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, renameRef(v, from, to)]));
+  }
+  return value;
+}
