@@ -74,8 +74,8 @@ export class RecordTemplatesController {
     return this.templates.update(databaseId, templateId, body);
   }
 
-  @Delete(':template')
   @HoldsAgentDeletes('record_template')
+  @Delete(':template')
   @HttpCode(204)
   @ApiOperation({ summary: 'Delete a record template. Records already made from it are untouched.' })
   async remove(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('template') templateId: string) {
