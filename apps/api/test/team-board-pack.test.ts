@@ -149,6 +149,36 @@ describe('#1146 a real install creates everything the prototype shows', () => {
     expect(projects.views.find((v) => v.name === 'All projects')!.type).toBe('table');
   });
 
+  it('ticket #1244 AC1+AC2: a fresh install\'s boards hide the empty "No value" group (every sample card has a Status, so the column would be empty)', async () => {
+    const d = await detail(ws, 'Tasks');
+    const status = d.fields.find((f) => f.displayName === 'Status')!;
+    for (const name of ['Board', 'Assigned to me']) {
+      const v = d.views.find((x) => x.name === name)!;
+      expect(v.config.group_by_field_id, name).toBe(status.id);
+      expect(v.config.hide_empty_no_value_group, `${name} hides the empty No value group`).toBe(true);
+    }
+    // the cause is the view config, not a sample card: every sample card has a Status
+    const cards = await rows(ws, d.id);
+    expect(cards.length).toBe(proto.samples);
+    for (const c of cards) expect(c.values.status ?? null, c.title).not.toBeNull();
+  });
+
+  it('ticket #1244 AC3: the flag hides by EMPTINESS, not by choice: no option is hidden, and a card cleared of its Status is still a record the board gets (so the column returns when needed)', async () => {
+    // its own workspace: clearing a card's Status must not leak into the install assertions that read the teaching cards
+    const ws = await newWs();
+    expect((await as('POST', `/workspaces/${ws}/packs/install`, { manifest: entry.manifest })).statusCode).toBe(201);
+    const d = await detail(ws, 'Tasks');
+    const board = d.views.find((x) => x.name === 'Board')!;
+    // hide_empty_groups would also hide an empty To Do; hidden_option_ids would hide a column even when it holds cards. Neither is set.
+    expect(board.config.hide_empty_groups ?? false).toBe(false);
+    expect((board.config.hidden_option_ids as unknown[] | undefined) ?? []).toEqual([]);
+    const card = (await rows(ws, d.id))[0];
+    expect((await as('PATCH', `/workspaces/${ws}/databases/${d.id}/records/${card.id}`, { values: { status: null } })).statusCode).toBe(200);
+    const after = await rows(ws, d.id);
+    expect(after.length).toBe(proto.samples);
+    expect(after.find((c) => c.id === card.id)!.values.status ?? null).toBeNull();
+  });
+
   it('Labels has the four prototype options with their colours', async () => {
     const labels = (await detail(ws, 'Tasks')).fields.find((f) => f.displayName === 'Labels') as Fld & { options: Array<Opt & { color?: string }> };
     expect(labels.options.map((o) => ({ label: o.label, color: o.color }))).toEqual(proto.labels);

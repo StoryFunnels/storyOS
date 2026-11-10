@@ -112,6 +112,10 @@ export const TEAM_BOARD_PACK: PackRegistryEntry = {
         config: {
           group_by_field_id: fieldRef('Tasks', 'Status'),
           card_field_ids: [fieldRef('Tasks', 'Assignee'), fieldRef('Tasks', 'Due date'), fieldRef('Tasks', 'Labels')],
+          // Ticket #1244: every sample card has a Status, so the "No value" group is empty on a fresh install. Hide it WHILE it is empty
+          // (not `hide_empty_groups`, which would also hide an empty To Do, and not `hidden_option_ids`, which hides by choice): a card
+          // later cleared of its Status brings the column back.
+          hide_empty_no_value_group: true,
         },
       },
       {
@@ -122,6 +126,7 @@ export const TEAM_BOARD_PACK: PackRegistryEntry = {
         config: {
           group_by_field_id: fieldRef('Tasks', 'Status'),
           card_field_ids: [fieldRef('Tasks', 'Due date'), fieldRef('Tasks', 'Labels')],
+          hide_empty_no_value_group: true, // ticket #1244, same reason as Board
           filters: { field: 'assignee', op: 'has', value: ['me'] },
         },
       },
