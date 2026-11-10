@@ -242,6 +242,14 @@ interface SliceDb {
 }
 
 /** #1112 — everything an install has created so far; `result` exists once the architect walk has returned. */
+/** #1246 - a pack one install request installed first (`also_install`), recorded so a later failure can uninstall exactly it. */
+interface AlsoInstalledPack {
+  slug: string;
+  name: string;
+  installId: string;
+}
+type InstallArgs = Parameters<PacksService['installInner']> extends [unknown, ...infer R] ? R : never;
+
 interface InstallLedger {
   built: ArchitectBuildProgress;
   result?: PackInstallResult;
@@ -2012,8 +2020,58 @@ export class PacksService {
    * showed. Anything still unresolved is a 409, not a guess: installing on a
    * genuine name collision without an explicit decision is exactly the
    * silent-adoption bug `preview` exists to let a person catch first.
+   *
+   * #1246 — a pack this same request installed first (`required_packs: also_install`) is uninstalled again when this install then fails;
+   * see `rollbackAlsoInstalled`. A required pack that was already installed is never touched.
    */
-  async install(
+  async install(...args: InstallArgs): Promise<PackInstallResult> {
+    const alsoInstalled: AlsoInstalledPack[] = [];
+    try {
+      return await this.installInner(alsoInstalled, ...args);
+    } catch (error) {
+      if (alsoInstalled.length === 0) throw error;
+      throw await this.rollbackAlsoInstalled(args[0], alsoInstalled, error);
+    }
+  }
+
+  /**
+   * #1246 — compensate: uninstall exactly the packs THIS request installed (newest first), through the ordinary uninstall, so its
+   * data-preserving rules hold (anything changed since install is kept and named). Never swallows: a failed rollback is reported
+   * alongside the original failure.
+   */
+  private async rollbackAlsoInstalled(membership: Membership, packs: AlsoInstalledPack[], cause: unknown): Promise<HttpException> {
+    const rolledBack: string[] = [];
+    const notes: string[] = [];
+    for (const p of [...packs].reverse()) {
+      try {
+        const res = await this.uninstall(membership, p.installId);
+        rolledBack.push(`"${p.name}"`);
+        if (res.kept.length > 0) notes.push(`"${p.name}": kept ${res.kept.map((k) => `${k.kind} "${k.name}" (${k.reason})`).join(', ')}`);
+      } catch (e) {
+        const why = e instanceof Error ? e.message : String(e);
+        notes.push(`rolling back "${p.name}" FAILED (${why}) - it is still installed; uninstall it by hand if you do not want it`);
+      }
+    }
+    const status = cause instanceof HttpException && cause.getStatus() >= 400 ? cause.getStatus() : 500;
+    const reason = cause instanceof HttpException ? this.reasonOf(cause) : cause instanceof Error ? cause.message : String(cause);
+    const said =
+      rolledBack.length > 0
+        ? `Rolled back the pack this request had installed first: ${rolledBack.join(', ')} is uninstalled again. Uninstalling never removes databases or records, so its databases (and any records in them) stay in the workspace; installing it again asks you to reuse them.`
+        : 'No pack could be rolled back.';
+    const extra = notes.length > 0 ? ` ${notes.join('; ')}.` : '';
+    return new HttpException(`${reason} ${said}${extra}`, status);
+  }
+
+  private reasonOf(error: HttpException): string {
+    const response = error.getResponse();
+    if (typeof response === 'string') return response;
+    const m = (response as { message?: string | string[] }).message;
+    return Array.isArray(m) ? m.join('; ') : (m ?? error.message);
+  }
+
+  /** Not private only so `InstallArgs` can name its parameters; call `install`. */
+  async installInner(
+    alsoInstalledLog: AlsoInstalledPack[],
     membership: Membership,
     rawManifest: unknown,
     resolutions: PackInstallResolutions = {},
@@ -2033,7 +2091,7 @@ export class PacksService {
     /**
      * #1197 - `{ "<pack slug>": "also_install" | "create_here" }` for each pack `requires.packs` names. A required pack that is installed
      * here is linked (databases reused) unless `create_here`; one that is not is installed first on `also_install` (its own all-or-nothing
-     * install, which stays if this pack's install then fails: it is a whole pack in its own right) and otherwise its databases are created
+     * install, which is uninstalled again if this pack's install then fails, #1246) and otherwise its databases are created
      * inside this pack, as before.
      */
     requiredChoices: Record<string, PackRequiredChoice> = {},
@@ -2056,6 +2114,8 @@ export class PacksService {
         throw new UnprocessableEntityException(`StoryOS has no built-in pack "${r.req.pack}" to install; choose create_here to make the linked databases inside "${manifest.name}".`);
       }
       await this.install(membership, entry.manifest);
+      const row = await this.findExistingInstall(membership.workspaceId, entry.manifest.slug);
+      if (row) alsoInstalledLog.push({ slug: entry.manifest.slug, name: entry.manifest.name, installId: row.id });
       alsoInstalled.add(r.req.pack);
     }
     if (alsoInstalled.size > 0) requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);

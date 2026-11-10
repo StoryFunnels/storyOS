@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { PacksService } from '../src/packs/packs.service';
 
 /**
  * Ticket #1197 - a manifest says which pack it builds on (`requires.packs`): the required pack's databases are LINKED when it is installed,
@@ -164,5 +165,62 @@ describe('refusals (#1197)', () => {
   it('a pack cannot require itself', async () => {
     const m = dealDesk({ requires: { connections: [], ai: 'none', packs: [{ pack: 'deal-desk', databases: ['Clients'] }] } });
     expect((await install(await newWs('Self'), {}, m)).statusCode).toBe(422);
+  });
+});
+
+describe('also_install rolls back when the dependent install fails (#1246)', () => {
+  const failDealDesk = () => {
+    const service = app.get(PacksService, { strict: false }) as unknown as { recordInstall: (...a: unknown[]) => Promise<unknown> };
+    const real = service.recordInstall.bind(service);
+    // Fail only the dependent pack's own install; Agency OS (the also_install pack) records normally.
+    return vi.spyOn(service as never, 'recordInstall' as never).mockImplementation(((m: unknown, manifest: { slug: string }, ...rest: unknown[]) =>
+      manifest.slug === 'deal-desk' ? Promise.reject(new Error('injected failure in recordInstall')) : real(m, manifest, ...rest)) as never);
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it('leaves no trace of the pack this request installed, and the error names what was rolled back', async () => {
+    const ws = await newWs('Rollback');
+    failDealDesk();
+    const res = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
+    expect(res.statusCode).toBe(500);
+    const msg = res.json().error.message as string;
+    expect(msg).toMatch(/Rolled back the pack this request had installed first: "Agency OS"/);
+    expect(msg).toMatch(/Nothing was installed/);
+    expect(await installed(ws), 'no pack left installed').toEqual([]);
+    expect(msg).toMatch(/its databases \(and any records in them\) stay/);
+    // Uninstall's own rule (#1112/#1153): databases are never removed. Agency OS's Clients is still ONE database, so the retry below links to it.
+    expect((await dbs(ws)).filter((d) => d.name === 'Clients'), 'the Agency OS Clients database stays, once').toHaveLength(1);
+    expect((await dbs(ws)).filter((d) => d.name === 'Deals'), 'nothing of Deal Desk was built').toHaveLength(0);
+    vi.restoreAllMocks();
+    const again = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
+    expect(again.statusCode, 'the kept databases are a collision the person decides, not a silent adoption').toBe(409);
+  });
+
+  it('a required pack installed BEFORE the request is untouched by the failure', async () => {
+    const ws = await newWs('Rollback keeps');
+    await install(ws, {}, await agencyOs());
+    const before = (await dbs(ws)).map((d) => d.id).sort();
+    failDealDesk();
+    const res = await install(ws, { required_packs: { 'agency-os': 'create_here' } });
+    expect(res.statusCode).toBe(500);
+    expect(res.body, 'nothing of this request was a separate pack install').not.toMatch(/Rolled back the pack/);
+    expect((await installed(ws)).map((i) => i.slug)).toEqual(['agency-os']);
+    expect((await dbs(ws)).map((d) => d.id).sort()).toEqual(before);
+    // the default (linked) path too
+    const linked = await install(ws);
+    expect(linked.statusCode).toBe(500);
+    expect((await installed(ws)).map((i) => i.slug)).toEqual(['agency-os']);
+    expect((await dbs(ws)).map((d) => d.id).sort()).toEqual(before);
+  });
+
+  it('a rollback that itself fails is reported next to the original error, not swallowed', async () => {
+    const ws = await newWs('Rollback fails');
+    failDealDesk();
+    vi.spyOn(app.get(PacksService, { strict: false }) as never, 'uninstall' as never).mockRejectedValue(new Error('injected failure in uninstall') as never);
+    const res = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
+    expect(res.statusCode).toBe(500);
+    const msg = res.json().error.message as string;
+    expect(msg).toMatch(/Installing "Deal Desk" failed/);
+    expect(msg).toMatch(/rolling back "Agency OS" FAILED \(injected failure in uninstall\)/);
   });
 });
