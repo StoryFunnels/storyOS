@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from './auth.guard';
 import type { AuthedRequest } from './auth.guard';
 import { enabledProviders } from './auth';
+import { env } from '../config/env';
+import { parseMailFrom } from '../mail/mail-from';
 import { ResourceScopable } from '../access/resource-scope';
 
 @ApiTags('auth')
@@ -23,6 +25,9 @@ export class MeController {
       name,
       image: image ?? null,
       email_verified: emailVerified,
+      // #1266 — who our email comes from (MAIL_FROM's display name + address only; never any SMTP
+      // host/user/password). Public by nature: it is the From header every recipient sees.
+      mail_sender: parseMailFrom(env().MAIL_FROM),
       auth: {
         via: req.auth?.via ?? 'session',
         token_scope: req.auth?.tokenScope ?? null,

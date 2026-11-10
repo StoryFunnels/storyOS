@@ -9,6 +9,7 @@ const base: Omit<DigestInput, 'sections'> = {
   dateLabel: 'Tue 10 Nov',
   recipientEmail: 'me@example.com',
   cadenceText: 'every weekday (Mon–Fri) at 08:00',
+  webUrl: 'https://app.test',
   myWorkUrl: 'https://app.test/w/1/me',
   customizeUrl: 'https://app.test/w/1/settings/notifications',
   stopUrl: 'https://api.test/unsub?token=t',
