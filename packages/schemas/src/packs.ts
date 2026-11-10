@@ -178,9 +178,34 @@ export const packSuggestedSourceSchema = z.object({
 });
 export type PackSuggestedSource = z.infer<typeof packSuggestedSourceSchema>;
 
+/**
+ * #1197 - a pack that BUILDS ON another pack (Deal Desk on Agency OS's Clients and Projects). `pack` is the other pack's slug and
+ * `databases` the names of THIS manifest's databases that are really that pack's (they must be in this manifest's `databases`, which the
+ * install checks): when the other pack is installed in the workspace they are linked to ITS databases instead of being created empty;
+ * when it is not, the review offers PACK_REQUIRED_CHOICES. Never an automatic install: the person decides.
+ */
+export const packRequiredPackSchema = z.object({
+  pack: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, 'pack must be a lowercase slug'),
+  databases: z.array(z.string().min(1).max(200)).min(1).max(20),
+  /** Why this pack builds on the other one; shown in the review. */
+  note: z.string().max(300).optional(),
+});
+export type PackRequiredPack = z.infer<typeof packRequiredPackSchema>;
+
+/** What a person chooses for a required pack: install it too, or create the linked databases inside this pack (today's behaviour). */
+export const PACK_REQUIRED_CHOICES = ['also_install', 'create_here'] as const;
+export const packRequiredChoiceSchema = z.enum(PACK_REQUIRED_CHOICES);
+export type PackRequiredChoice = (typeof PACK_REQUIRED_CHOICES)[number];
+
 export const packRequiresSchema = z.object({
   connections: z.array(packConnectionSchema).default([]),
   ai: packAiNeedSchema.default('none'),
+  /** #1197 - packs this one builds on; absent for a pack that stands alone. */
+  packs: z.array(packRequiredPackSchema).max(10).optional(),
 });
 export type PackRequires = z.infer<typeof packRequiresSchema>;
 
@@ -579,6 +604,14 @@ export const packInstallResultSchema = z.object({
   skills: z.array(installedEntitySchema),
   /** #568 — see skippedSampleFieldValueSchema's doc. Empty on every install that hits none. */
   skipped_sample_field_values: z.array(skippedSampleFieldValueSchema).default([]),
+  /**
+   * #1197 - what became of each pack this one builds on (`requires.packs`): `linked` (already installed, its databases used),
+   * `installed_and_linked` (installed first on the person's choice, then used) or `created_here` (this pack made its own). `databases`
+   * names this pack's databases concerned. Absent when the manifest requires no pack.
+   */
+  required_packs: z
+    .array(z.object({ pack: z.string(), outcome: z.enum(['linked', 'installed_and_linked', 'created_here']), databases: z.array(z.string()) }))
+    .optional(),
 });
 export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
 
@@ -740,6 +773,31 @@ export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
  * agent that uses it and is not, on its own, something a person reviews
  * before clicking install.
  */
+/**
+ * #1197 - one pack the manifest builds on (`requires.packs`), as the review shows it.
+ *   installed       the required pack is installed here and its databases (`linked`) are the ones this pack links to
+ *   linked          names of this pack's databases that WILL be the required pack's own (empty if the person chose create_here, or a
+ *                   database of that pack is gone or not editable by them)
+ *   fields_added    what this pack adds to those databases ({database, name, type}), the same lists as each database's `existing_elsewhere`
+ *   choices         what the person may pick in `required_packs[slug]`: ['also_install', 'create_here'] when it is not installed
+ *                   (just ['create_here'] if StoryOS has no such built-in pack), ['create_here'] when installed (to decline the link)
+ *   chosen          the choice in effect: the one sent, else `create_here` when not installed; absent when installed and the link stands
+ *   name            the required pack's display name when StoryOS knows it
+ * Several same-named databases still go through `existing_elsewhere.candidates` + `resolutions[name].database_id` (#1176); a pick there wins.
+ */
+export const packPreviewRequiredPackSchema = z.object({
+  pack: z.string(),
+  name: z.string().optional(),
+  note: z.string().optional(),
+  databases: z.array(z.string()),
+  installed: z.boolean(),
+  linked: z.array(z.string()),
+  fields_added: z.array(z.object({ database: z.string(), name: z.string(), type: z.string() })),
+  choices: z.array(packRequiredChoiceSchema),
+  chosen: packRequiredChoiceSchema.optional(),
+});
+export type PackPreviewRequiredPack = z.infer<typeof packPreviewRequiredPackSchema>;
+
 export const packPreviewResultSchema = z.object({
   slug: z.string(),
   name: z.string(),
@@ -755,6 +813,8 @@ export const packPreviewResultSchema = z.object({
    * `human_gate: true` (it never fires by itself, so no switch). A trigger that already exists is `reuse` and carries neither.
    */
   triggers: z.array(packPreviewItemSchema),
+  /** #1197 - the packs this one builds on; [] when it stands alone. */
+  required_packs: z.array(packPreviewRequiredPackSchema),
 });
 export type PackPreviewResult = z.infer<typeof packPreviewResultSchema>;
 

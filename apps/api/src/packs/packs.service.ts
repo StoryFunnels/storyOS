@@ -39,7 +39,10 @@ import type {
   PackInstallSummary,
   PackManifest,
   PackPreviewItem,
+  PackPreviewRequiredPack,
   PackPreviewResult,
+  PackRequiredChoice,
+  PackRequiredPack,
   PackSkill,
   PackUninstallResult,
   PackUnmetRequirement,
@@ -85,6 +88,7 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { trackSampleRecords, untrackSampleRecords } from '../workspaces/sample-records';
 import { MarketplaceService } from './marketplace.service';
 import { deref, findRawUuids, refify, renameRef } from './pack-refs';
+import { PACK_REGISTRY } from './registry';
 
 /** How many records a scan of a system database reads. Mirrors ArchitectService. */
 const MAX_SCAN = 200;
@@ -1382,10 +1386,14 @@ export class PacksService {
     resolutions: PackInstallResolutions = {},
     /** #1192 - see `install`. A preview that ignored it would show the triggers off that the install then turns on. */
     enableAgentTriggers: string[] = [],
+    /** #1197 - see `install`. */
+    requiredChoices: Record<string, PackRequiredChoice> = {},
   ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
     // #1198 — the same up-front refusals install makes, so a preview never promises an install that then fails.
     this.validateAutomationAgentRefs(manifest);
+    const requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);
+    resolutions = this.withRequiredLinks(manifest, resolutions, requiredPlan);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
@@ -1418,7 +1426,28 @@ export class PacksService {
       item.enabled_on_install = state.enabled;
       if (state.switched_off_because) item.switched_off_because = state.switched_off_because;
     }
-    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents, triggers };
+    // #1197 - the packs this one builds on. Which fields this pack adds to each linked database is read off that database's own hint (the same list).
+    const required_packs: PackPreviewRequiredPack[] = requiredPlan.map((r) => {
+      const linked = r.req.databases.filter((n) => r.links.has(norm(n)));
+      const fields_added = linked.flatMap((n) => {
+        const item = databases.find((d) => norm(d.name) === norm(n));
+        return (item?.existing_elsewhere?.fields_added ?? []).map((f) => ({ database: item!.name, name: f.name, type: f.type }));
+      });
+      const choices: PackRequiredChoice[] = r.installed ? ['create_here'] : r.installable ? ['also_install', 'create_here'] : ['create_here'];
+      const chosen = r.installed && linked.length > 0 ? undefined : (r.choice ?? 'create_here');
+      return {
+        pack: r.req.pack,
+        ...(r.name ? { name: r.name } : {}),
+        ...(r.req.note ? { note: r.req.note } : {}),
+        databases: r.req.databases,
+        installed: r.installed,
+        linked,
+        fields_added,
+        choices,
+        ...(chosen ? { chosen } : {}),
+      };
+    });
+    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents, triggers, required_packs };
   }
 
   /**
@@ -1904,7 +1933,73 @@ export class PacksService {
         `This is not a valid pack manifest: ${describeManifestIssues(rawManifest, parsed.error.issues)}`,
       );
     }
+    // #1197 - `requires.packs` names databases of THIS manifest; one that is not here would never link to anything, so it is refused up
+    // front rather than silently ignored. A pack cannot build on itself.
+    for (const req of parsed.data.requires.packs ?? []) {
+      if (req.pack === parsed.data.slug) {
+        throw new UnprocessableEntityException(`"${parsed.data.name}" cannot build on itself (requires.packs names "${req.pack}").`);
+      }
+      const planned = new Set(parsed.data.databases.map((d) => norm(d.name)));
+      const stray = req.databases.filter((n) => !planned.has(norm(n)));
+      if (stray.length > 0) {
+        throw new UnprocessableEntityException(
+          `requires.packs says ${stray.map((n) => `"${n}"`).join(', ')} belong${stray.length === 1 ? 's' : ''} to "${req.pack}", but this manifest has no database of that name.`,
+        );
+      }
+    }
     return parsed.data;
+  }
+
+  /**
+   * #1197 - where each pack this manifest builds on stands in THIS workspace, and which of this pack's databases would be linked to it.
+   *
+   * A database is linked only when the required pack is installed (tracked, not uninstalled), the database is one that install tracked and
+   * it is still live, editable by the installer and not a system one; anything else is treated as absent, so nothing about a database the
+   * person cannot edit is used or described. `create_here` (their explicit choice) links nothing: the pack then makes its own, as before.
+   * `choices` may only name a pack the manifest requires.
+   */
+  private async planRequiredPacks(
+    membership: Membership,
+    manifest: PackManifest,
+    choices: Record<string, PackRequiredChoice> = {},
+  ): Promise<Array<{ req: PackRequiredPack; name?: string; installable: boolean; installed: boolean; choice?: PackRequiredChoice; links: Map<string, string> }>> {
+    const wanted = manifest.requires.packs ?? [];
+    for (const slug of Object.keys(choices)) {
+      if (!wanted.some((r) => r.pack === slug)) {
+        throw new UnprocessableEntityException(`"${manifest.name}" does not build on a pack called "${slug}", so there is nothing to choose for it.`);
+      }
+    }
+    if (wanted.length === 0) return [];
+    const live = await this.databases.list(membership);
+    const out = [];
+    for (const req of wanted) {
+      const entry = PACK_REGISTRY.find((p) => p.slug === req.pack);
+      const choice = choices[req.pack];
+      const install = await this.findExistingInstall(membership.workspaceId, req.pack);
+      const tracked = install ? await this.trackedDatabaseIds(install.id) : new Map<string, string>();
+      const links = new Map<string, string>();
+      if (install && choice !== 'create_here') {
+        for (const n of req.databases) {
+          const id = tracked.get(norm(n));
+          const l = id ? live.find((x) => x.id === id) : undefined;
+          if (l && l.my_access !== null && ACCESS_RANK[l.my_access as EffectiveRole] >= ACCESS_RANK.editor && !isSystemDatabase(l)) links.set(norm(n), l.id);
+        }
+      }
+      out.push({ req, name: entry?.name, installable: Boolean(entry), installed: Boolean(install), choice, links });
+    }
+    return out;
+  }
+
+  /** #1197 - the person's `resolutions` plus an implicit `reuse` for each database linked to a required pack, unless they already chose one (the #1176 picker wins). */
+  private withRequiredLinks(manifest: PackManifest, resolutions: PackInstallResolutions, plan: Awaited<ReturnType<PacksService['planRequiredPacks']>>): PackInstallResolutions {
+    const out: PackInstallResolutions = { ...resolutions };
+    for (const r of plan) {
+      for (const [key, databaseId] of r.links) {
+        const d = manifest.databases.find((x) => norm(x.name) === key);
+        if (d && !out[d.name]) out[d.name] = { action: 'reuse', database_id: databaseId };
+      }
+    }
+    return out;
   }
 
   private async findExistingInstall(workspaceId: string, slug: string) {
@@ -1972,6 +2067,13 @@ export class PacksService {
      * earlier install already created is never touched, in either direction.
      */
     enableAgentTriggers: string[] = [],
+    /**
+     * #1197 - `{ "<pack slug>": "also_install" | "create_here" }` for each pack `requires.packs` names. A required pack that is installed
+     * here is linked (databases reused) unless `create_here`; one that is not is installed first on `also_install` (its own all-or-nothing
+     * install, which stays if this pack's install then fails: it is a whole pack in its own right) and otherwise its databases are created
+     * inside this pack, as before.
+     */
+    requiredChoices: Record<string, PackRequiredChoice> = {},
   ): Promise<PackInstallResult> {
     const manifest = this.parseManifest(rawManifest);
     const targetSpace = targetSpaceId ? await this.resolveTargetSpace(membership, manifest, targetSpaceId) : undefined;
@@ -1982,6 +2084,20 @@ export class PacksService {
     this.validateAgentSkillNames(manifest);
     this.validateAutomationAgentRefs(manifest);
     const unmet = await this.checkRequirements(membership, manifest);
+
+    let requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);
+    const alsoInstalled = new Set<string>();
+    for (const r of requiredPlan) {
+      if (r.installed || r.choice !== 'also_install') continue;
+      const entry = PACK_REGISTRY.find((p) => p.slug === r.req.pack);
+      if (!entry) {
+        throw new UnprocessableEntityException(`StoryOS has no built-in pack "${r.req.pack}" to install; choose create_here to make the linked databases inside "${manifest.name}".`);
+      }
+      await this.install(membership, entry.manifest);
+      alsoInstalled.add(r.req.pack);
+    }
+    if (alsoInstalled.size > 0) requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);
+    resolutions = this.withRequiredLinks(manifest, resolutions, requiredPlan);
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
     const { adopt } = await this.planAdoptions(membership, manifest, targetSpace?.id, resolutions, existingInstall);
@@ -2027,6 +2143,16 @@ export class PacksService {
         skipped_sample_field_values: [],
       };
       ledger.result = result;
+      if (requiredPlan.length > 0) {
+        result.required_packs = requiredPlan.map((r) => {
+          const linked = r.req.databases.filter((n) => adopt.has(norm(n)));
+          return {
+            pack: r.req.pack,
+            outcome: linked.length === 0 ? ('created_here' as const) : alsoInstalled.has(r.req.pack) ? ('installed_and_linked' as const) : ('linked' as const),
+            databases: r.req.databases,
+          };
+        });
+      }
 
       const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
 

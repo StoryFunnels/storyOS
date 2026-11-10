@@ -2502,6 +2502,17 @@ describe('view-scoped queries and bulk building (#332, #394)', () => {
       expect('enable_agent_triggers' in plainBody).toBe(false);
     });
 
+    it('install_pack sends required_packs only when named (ticket #1197)', async () => {
+      const on = harness();
+      await on.call('install_pack', { workspace: 'Eng', slug: 'crm', required_packs: { 'agency-os': 'also_install' } });
+      const body = on.sent.find((s) => s.path === '/api/v1/workspaces/{ws}/packs/install')!.body as Record<string, unknown>;
+      expect(body['required_packs']).toEqual({ 'agency-os': 'also_install' });
+      const plain = harness();
+      await plain.call('install_pack', { workspace: 'Eng', slug: 'crm' });
+      const plainBody = plain.sent.find((s) => s.path === '/api/v1/workspaces/{ws}/packs/install')!.body as Record<string, unknown>;
+      expect('required_packs' in plainBody).toBe(false);
+    });
+
     it('create_records sends ONE request for many records', async () => {
       const { call, sent } = harness();
       await call('create_records', {

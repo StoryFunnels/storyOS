@@ -829,6 +829,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * approve call next to it.
    */
   get_agents: 'read',
+  // #1195 — GET /agents/{agent}/scope: where an agent works, resolved now. Read-only; the targets are fields a person edits.
+  get_agent_scope: 'read',
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
@@ -3097,7 +3099,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack that builds on another pack (preview `required_packs`: pack, installed, linked, fields_added, choices) is linked to that pack\'s databases when it is installed; when it is not, choose required_packs {"agency-os": "also_install"} to install it first and link, or "create_here" (the default) to make the linked databases inside this pack. Uninstalling never removes the other pack\'s databases. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3135,9 +3137,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Labels ("Agent \u2190 Database.Field = State", exactly as preview lists them under `triggers`) of state-bound agent triggers, which a pack installs SWITCHED OFF, that you want switched ON (the agent then wakes by itself whenever a record reaches that state). Only name one when the person asked for it; a pack cannot switch one on itself. Has no effect on a trigger that already exists.',
           ),
+        required_packs: z
+          .record(z.string(), z.enum(['also_install', 'create_here']))
+          .optional()
+          .describe(
+            'For a pack that builds on another pack (preview `required_packs`): {"<pack slug>": "also_install" | "create_here"}. also_install installs that built-in pack first and links to its databases; create_here makes the linked databases inside this pack (the default when the other pack is not installed; when it IS installed the databases are linked unless you say create_here). Only name one when the person chose it.',
+          ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[] }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[]; required_packs?: Record<string, 'also_install' | 'create_here'> }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers, required_packs }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3161,6 +3169,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             : {}),
           ...(enable_automations?.length ? { enable_automations } : {}),
           ...(enable_agent_triggers?.length ? { enable_agent_triggers } : {}),
+          ...(required_packs && Object.keys(required_packs).length ? { required_packs } : {}),
         } as never,
       };
       return text(
@@ -6260,13 +6269,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get agents setup',
       description:
-        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
+        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record. Where an agent works is two text fields on its record: `target_databases` (database names) and `target_spaces` (space names or ids). A space target is LIVE: it includes every database in that space on each call, including ones created after the agent was hired. Read the resolved list with get_agent_scope. Only a person sets these; an agent cannot change its own.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/agents', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_agent_scope',
+    {
+      title: 'Where an agent works',
+      description:
+        "Ticket #1195 — the databases an agent can work in, resolved NOW: the databases named in its `target_databases` plus every database in the spaces named in its `target_spaces` (a database added to a target space later is included on the next call, nothing is expanded at hire), narrowed to what the agent's manager can open. `databases[].via` says whether each came from a named database or a space. `enforced` is true when the agent targets at least one space: its Runner credential is then bound to exactly this set and a call outside it is refused (a database-only agent's `target_databases` stays its brief, not a boundary). A personal space is never included; entries that matched nothing (or a personal space) come back in `unresolved`, and `withheld_count` is how many databases the manager's access removed (their names are not listed).",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+      },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/scope', { params: { path: { ws: ws.id, agent } } } as never),
       );
       return text(res);
     }),
