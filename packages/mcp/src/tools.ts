@@ -599,7 +599,7 @@ export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown 
  * is the enforcement; this map is the UX that stops an agent calling a doomed tool.
  * run_button lives in `write` but is separately gateable via allow_run_button.
  */
-const TOOL_SCOPE: Record<string, ToolScope> = {
+export const TOOL_SCOPE: Record<string, ToolScope> = {
   // read
   get_started: 'read',
   list_workspaces: 'read',
@@ -609,6 +609,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   search: 'read',
   query_records: 'read',
   count_records: 'read',
+  // #1261 — the three below had no entry and so defaulted to admin: a member's token never saw them.
+  count_records_grouped: 'read', // POST .../records/aggregate/grouped, @RequiresScope('read') since #1261 (a count, as count_records)
+  get_bulk_record_job: 'read', // GET .../records/batch-jobs/:id: polls a job's status, writes nothing (enqueue_bulk_record_job is the write)
+  list_agent_catch_up: 'read', // GET /agents/:agent/catch-up: the waiting records, read-only (owner/admin checks are in the handler)
   get_record: 'read',
   get_links: 'read',
   list_attachments: 'read',
