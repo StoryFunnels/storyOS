@@ -115,6 +115,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'link_records',
   'list_action_gates',
   'list_agent_activity',
+  'list_agent_catch_up',
   'list_agent_wakes',
   'list_agent_write_gates',
   'list_ai_connections',

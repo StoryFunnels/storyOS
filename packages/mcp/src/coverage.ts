@@ -123,7 +123,7 @@ export const EXCLUDED: CoverageRule[] = [
   {
     match: 'POST /api/v1/workspaces/{ws}/agents/{agent}/catch-up',
     reason:
-      "ticket #1152 / ADR-0021 §11 — the one-click catch-up queues a wake for every record already waiting in an agent's trigger state, and each wake becomes a run on the agent OWNER's own computer and model subscription. Like the rest of the Runner family it is a signed-in person's decision (the API refuses any token, connected AI and the agent's own run credential, so an agent cannot start itself on a backlog), and it is the button's own act with a per-click cap. The read half IS reachable: get_agent_wake_summary carries each agent's `catch_up` count, so an agent-first workspace can see how much is waiting; it just cannot press the button.",
+      "ticket #1152 / ADR-0021 §11 — the one-click catch-up queues a wake for every record already waiting in an agent's trigger state, and each wake becomes a run on the agent OWNER's own computer and model subscription. Like the rest of the Runner family it is a signed-in person's decision (the API refuses any token, connected AI and the agent's own run credential, so an agent cannot start itself on a backlog), and it is the button's own act with a per-click cap. The read half IS reachable: get_agent_wake_summary carries each agent's `catch_up` count and list_agent_catch_up (ticket #1224) names the records, so an agent-first workspace can see what is waiting; it just cannot press the button.",
   },
   {
     match: 'GET /api/v1/workspaces/{ws}/runner-assignments/{agent}',
