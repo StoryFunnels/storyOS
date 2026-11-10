@@ -46,8 +46,11 @@ services:
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
       S3_BUCKET: ${S3_BUCKET:-storyos-attachments}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-storyos}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-storyos-minio}
+      # Ticket #1045: NO defaults. With STORAGE_DRIVER=s3 the API refuses to boot if these are unset or the
+      # old `storyos` / `storyos-minio` pair (config/env.ts assertS3Credentials). Not `:?` here: the api is
+      # always active, so that would break every local-storage install.
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
@@ -209,17 +212,31 @@ services:
     image: minio/minio:latest
     profiles: [minio]
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    # Ticket #1045: root credentials come from .env with NO defaults. `${VAR:?}` cannot be used on this
+    # service: compose interpolates services in inactive profiles too, so it would break plain
+    # `docker compose up` for everyone. The refusal therefore runs inside the container, before MinIO
+    # starts: empty, or the old built-in pair `storyos` / `storyos-minio`, exits 1 with a message.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$MINIO_ROOT_USER" ] || [ -z "$$MINIO_ROOT_PASSWORD" ] \
+          || [ "$$MINIO_ROOT_USER" = storyos ] || [ "$$MINIO_ROOT_PASSWORD" = storyos-minio ]; then
+          echo "minio: refusing to start. Set S3_ACCESS_KEY and S3_SECRET_KEY in .env to your own values (not empty, not the old defaults storyos / storyos-minio)." >&2
+          exit 1
+        fi
+        exec /usr/bin/docker-entrypoint.sh "$$@"
+      - minio-guard
+    command: ['server', '/data', '--console-address', ':9001']
     environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-storyos}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-storyos-minio}
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-}
     volumes:
       - storyos_minio:/data
-    # Ticket #1052 — loopback only. The API reaches MinIO over the compose network (S3_ENDPOINT=http://minio:9000) and
-    # proxies every attachment, so nothing outside this host needs these ports; with the default credentials above, a
-    # public 9000/9001 was an open bucket and console. Reach the console with an SSH tunnel to 127.0.0.1:9001.
+    # Ticket #1045 / #1052: the S3 API (9000) is NOT published at all: the api reaches it over the compose
+    # network (S3_ENDPOINT=http://minio:9000) and proxies every attachment. Only the console (9001) is
+    # published, on loopback; reach it with an SSH tunnel to 127.0.0.1:9001 to create the bucket once.
     ports:
-      - '127.0.0.1:9000:9000'
       - '127.0.0.1:9001:9001'
 
   # PDF renderer (#874): Gotenberg, a headless Chromium in its own container.

@@ -16,12 +16,15 @@ fine for most teams — nothing to configure. Back it up alongside your database
 ## S3-compatible (MinIO, S3, R2)
 
 For object storage, set `STORAGE_DRIVER=s3` and point the `S3_*` variables at your bucket. The
-bundled MinIO service works out of the box behind a Compose profile:
+bundled MinIO service runs behind a Compose profile. Set your own `S3_ACCESS_KEY` and
+`S3_SECRET_KEY` in `.env` first: there are no defaults, and both the MinIO container and the API
+refuse to start with empty values or the old built-in `storyos` / `storyos-minio` pair.
 
 ```bash
 docker compose --profile minio up -d
-# once: open http://localhost:9001 (storyos / storyos-minio). The console listens on the
-# server's loopback only; from your laptop: ssh -L 9001:127.0.0.1:9001 you@server
+# once: open http://localhost:9001 and sign in with your S3_ACCESS_KEY / S3_SECRET_KEY.
+# Only the console is published, on the server's loopback; the S3 API (9000) is not published
+# at all. From your laptop: ssh -L 9001:127.0.0.1:9001 you@server
 #       → create the bucket "storyos-attachments"
 # then set STORAGE_DRIVER=s3 in .env and restart the api
 docker compose up -d api
@@ -34,7 +37,12 @@ Relevant variables (see the full [configuration matrix](/self-hosting/configurat
 | `STORAGE_DRIVER` | `local` | Set to `s3` to use object storage. |
 | `S3_ENDPOINT` | `http://minio:9000` | Endpoint of your S3-compatible store. |
 | `S3_BUCKET` | `storyos-attachments` | Create it once before switching the driver. |
-| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | MinIO defaults | Credentials for the bucket. |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | none (required) | Credentials for the bucket. Required with `STORAGE_DRIVER=s3`; the API refuses to boot without them or with the old `storyos` / `storyos-minio`. |
+
+**Upgrading from the old defaults:** set new credentials in `.env`. We have not verified what MinIO
+does when its root credentials change on an existing data volume (`storyos_minio`): check the MinIO
+documentation for your version and test on a copy before rotating. Treat anything stored while the
+old defaults were in use as potentially exposed.
 | `ATTACHMENT_MAX_BYTES` | `20971520` (20 MB) | Per-file upload cap. |
 
 Any S3-compatible provider works — AWS S3, Cloudflare R2, Backblaze B2, or your own MinIO. Point

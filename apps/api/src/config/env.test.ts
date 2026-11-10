@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   LEGACY_DEFAULT_AUTH_SECRET,
+  assertS3Credentials,
   envSchema,
   resolveAuthSecret,
   resolveConnectionsMasterKey,
@@ -201,5 +202,41 @@ describe('envSchema PDF renderer (#262 / #794)', () => {
     expect(() => envSchema.parse({ PDF_RENDER_TIMEOUT_MS: '9999999' })).toThrow();
     expect(() => envSchema.parse({ PDF_RENDER_MAX_PENDING: '0' })).toThrow();
     expect(() => envSchema.parse({ PDF_RENDER_MAX_PENDING: '5000' })).toThrow();
+  });
+});
+
+describe('assertS3Credentials (ticket #1045)', () => {
+  it('refuses the s3 driver with no credentials, naming both variables', () => {
+    expect(() => assertS3Credentials('s3', undefined, undefined)).toThrow(
+      /S3_ACCESS_KEY and S3_SECRET_KEY are not set/,
+    );
+  });
+
+  it('refuses an empty value and names only the missing one', () => {
+    expect(() => assertS3Credentials('s3', 'my-key', '  ')).toThrow(/S3_SECRET_KEY is not set/);
+  });
+
+  it('refuses the old MinIO defaults', () => {
+    expect(() => assertS3Credentials('s3', 'storyos', 'storyos-minio')).toThrow(
+      /old built-in defaults/,
+    );
+  });
+
+  it('refuses when only one half is still a default', () => {
+    expect(() => assertS3Credentials('s3', 'my-key', 'storyos-minio')).toThrow(
+      /old built-in defaults/,
+    );
+    expect(() => assertS3Credentials('s3', 'storyos', 'a-real-secret')).toThrow(
+      /old built-in defaults/,
+    );
+  });
+
+  it('accepts real credentials', () => {
+    expect(() => assertS3Credentials('s3', 'AKIAREAL', 'a-real-secret-value')).not.toThrow();
+  });
+
+  it('does not touch the local-disk driver, whatever the S3 variables hold', () => {
+    expect(() => assertS3Credentials('local', undefined, undefined)).not.toThrow();
+    expect(() => assertS3Credentials('local', 'storyos', 'storyos-minio')).not.toThrow();
   });
 });
