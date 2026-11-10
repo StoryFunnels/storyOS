@@ -3,6 +3,7 @@ import { SessionOnly } from '../auth/token-scope.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { isValidTimeZone } from '@storyos/schemas/schedule-cadence';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthedRequest } from '../auth/auth.guard';
 import { PREFERENCE_LISTS, PreferencesService } from './preferences.service';
@@ -93,7 +94,21 @@ const sidebarSchema = z
   })
   .partial();
 
+// #1251: "Email me my work". Every key optional (a PATCH names only what changed). `timezone` must be a real IANA zone: the sweep reads
+// the time in it, and an unknown zone would otherwise silently fall back to UTC.
+const myWorkEmailSchema = z
+  .object({
+    frequency: z.enum(['off', 'daily', 'weekly']),
+    weekday: z.number().int().min(0).max(6),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time is HH:MM, 24h'),
+    timezone: z.string().max(64).refine(isValidTimeZone, 'timezone must be an IANA zone such as Europe/Madrid').nullable(),
+    include_assigned_by_me: z.boolean(),
+  })
+  .partial();
+
 const preferencesPatchSchema = z.object({
+  /** Email me my work (#1251). */
+  myWorkEmail: myWorkEmailSchema.optional(),
   notifications: notificationTogglesSchema.optional(),
   regional: regionalSchema.optional(),
   /** Per-database My Work config, keyed by database id (MN-072 part 2). */

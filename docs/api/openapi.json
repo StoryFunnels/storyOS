@@ -9811,6 +9811,34 @@
         ]
       }
     },
+    "/api/v1/public/my-work-digest/unsubscribe": {
+      "get": {
+        "operationId": "MyWorkDigestController_unsubscribe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Stop the My work email: a signed link, no sign-in. Redirects to Settings › Notifications",
+        "tags": [
+          "public"
+        ]
+      },
+      "post": {
+        "operationId": "MyWorkDigestController_unsubscribeOneClick",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Stop the My work email (RFC 8058 one-click List-Unsubscribe-Post). Signed token, no sign-in",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/import": {
       "post": {
         "operationId": "ImportController_run",
@@ -14491,6 +14519,36 @@
       "PreferencesPatchDto": {
         "type": "object",
         "properties": {
+          "myWorkEmail": {
+            "type": "object",
+            "properties": {
+              "frequency": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "daily",
+                  "weekly"
+                ]
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "time": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "timezone": {
+                "type": "string",
+                "maxLength": 64,
+                "nullable": true
+              },
+              "include_assigned_by_me": {
+                "type": "boolean"
+              }
+            }
+          },
           "notifications": {
             "type": "object",
             "properties": {

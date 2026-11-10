@@ -6,6 +6,8 @@ export interface MailMessage {
   subject: string;
   html: string;
   text: string;
+  /** Extra message headers (ticket #1251: List-Unsubscribe on the My work digest). */
+  headers?: Record<string, string>;
 }
 
 export interface MailDriver {
@@ -72,6 +74,7 @@ export class ResendMailDriver implements MailDriver {
         subject: message.subject,
         html: message.html,
         text: message.text,
+        ...(message.headers ? { headers: message.headers } : {}),
       }),
     });
     if (res.status >= 300) {
@@ -101,6 +104,7 @@ export class SmtpMailDriver implements MailDriver {
       subject: message.subject,
       html: message.html,
       text: message.text,
+      ...(message.headers ? { headers: message.headers } : {}),
     });
   }
 }

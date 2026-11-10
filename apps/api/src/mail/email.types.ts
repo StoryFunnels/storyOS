@@ -5,6 +5,16 @@
  * (branded HTML) can swap that layer out without touching any call site below.
  */
 export type EmailInput =
+  | {
+      /** Ticket #1251 — the My work digest. Rendered by `my-work-digest/digest-render.ts` (the template is long and has its own tests);
+       * this kind only carries the finished message and the one-click unsubscribe URL for the List-Unsubscribe headers. */
+      kind: 'my-work-digest';
+      to: string;
+      subject: string;
+      html: string;
+      text: string;
+      unsubscribeUrl: string;
+    }
   | { kind: 'invite'; to: string; role: string; acceptUrl: string; workspaceName: string }
   | {
       kind: 'mention';
@@ -92,4 +102,6 @@ export interface RenderedEmail {
   subject: string;
   html: string;
   text: string;
+  /** Extra message headers (ticket #1251). */
+  headers?: Record<string, string>;
 }

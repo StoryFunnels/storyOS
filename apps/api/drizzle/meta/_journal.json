@@ -911,6 +911,13 @@
       "when": 1794269250583,
       "tag": "0129_records_last_ai_change_at",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1794317474380,
+      "tag": "0130_my_work_digest_sends",
+      "breakpoints": true
     }
   ]
 }

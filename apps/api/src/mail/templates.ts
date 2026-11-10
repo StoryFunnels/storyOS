@@ -503,6 +503,17 @@ function renderSalesSignal(
  * have to touch when the template changes. */
 export function renderEmail(input: EmailInput): RenderedEmail {
   switch (input.kind) {
+    case 'my-work-digest':
+      return {
+        subject: input.subject,
+        html: input.html,
+        text: input.text,
+        // RFC 8058: a mail app's own Unsubscribe button POSTs to this URL; the same signed link the footer carries.
+        headers: {
+          'List-Unsubscribe': `<${input.unsubscribeUrl}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      };
     case 'invite':
       return renderInvite(input.role, input.acceptUrl, input.workspaceName);
     case 'mention':
