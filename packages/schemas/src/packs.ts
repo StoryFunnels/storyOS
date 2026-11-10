@@ -330,6 +330,21 @@ export const packSampleRecordSchema = z.object({
 export type PackSampleRecord = z.infer<typeof packSampleRecordSchema>;
 
 /**
+ * ticket #1218 - a record template a pack ships for one of its databases. `values` is keyed by api_name like a sample record's, and
+ * its option ids are `$option:` refs the installer resolves; `$me` and `$date:+Nd` pass through untouched and are decided when a
+ * record is made from the template. `description` is the template's own one-line label; `body` is the record description it creates,
+ * as Markdown (sections included). Optional on the manifest, so every pack written before it still validates.
+ */
+export const packRecordTemplateSchema = z.object({
+  database: nameSchema,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).optional(),
+  values: jsonObjectSchema.default({}),
+  body: z.string().max(20_000).optional(),
+});
+export type PackRecordTemplate = z.infer<typeof packRecordTemplateSchema>;
+
+/**
  * A skill (#40), bundled into a pack.
  *
  * Deliberately the same shape `createSkillSchema` accepts — not a subset, not
@@ -458,6 +473,11 @@ export const packManifestSchema = architectPlanSchema.extend({
   views: z.array(packViewSchema).default([]),
   automations: z.array(packAutomationSchema).default([]),
   sample_records: z.array(packSampleRecordSchema).default([]),
+  /**
+   * ticket #1218 - record templates per database, installed with the pack and editable afterwards. Optional with NO default, so a
+   * manifest written before it parses to exactly what it did (a pinned manifest does not grow a key).
+   */
+  record_templates: z.array(packRecordTemplateSchema).optional(),
   /** Skills (#40) bundled into this pack, installed/matched by name. */
   skills: z.array(packSkillSchema).default([]),
   /** #600 — data sources this pack recommends connecting (Shopify/YouTube/
@@ -582,6 +602,8 @@ export const packInstallResultSchema = z.object({
     }),
   ),
   sample_records: z.array(installedEntitySchema),
+  /** ticket #1218 - defaults, so a result from before templates existed still parses. */
+  record_templates: z.array(installedEntitySchema).default([]),
   skills: z.array(installedEntitySchema),
   /** #568 — see skippedSampleFieldValueSchema's doc. Empty on every install that hits none. */
   skipped_sample_field_values: z.array(skippedSampleFieldValueSchema).default([]),
@@ -868,7 +890,7 @@ export type PackInstallSummary = z.infer<typeof packInstallSummarySchema>;
 
 /** One object uninstall touched, or chose not to. */
 export const packUninstallItemSchema = z.object({
-  kind: z.enum(['view', 'automation', 'agent', 'skill']),
+  kind: z.enum(['view', 'automation', 'agent', 'skill', 'record_template']),
   name: z.string(),
   id: z.uuid(),
   /** Present only on `kept` — why it was left behind. */

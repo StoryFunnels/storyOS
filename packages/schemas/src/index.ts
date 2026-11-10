@@ -23,6 +23,7 @@ export * from './views';
 export * from './form-visibility';
 export * from './access';
 export * from './validation-rules';
+export * from './record-templates';
 
 /**
  * Health check response — the first shared schema, proving the

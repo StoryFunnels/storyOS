@@ -674,6 +674,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   browse_pack_marketplace: 'read',
   list_pack_submissions: 'read',
   list_templates: 'read',
+  list_record_templates: 'read',
   export_pack: 'admin',
   uninstall_pack: 'admin',
   apply_template: 'admin',
@@ -913,6 +914,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_records: 'write',
   restore_records: 'write',
   duplicate_record: 'write',
+  create_record_from_template: 'write',
+  create_record_template: 'write',
+  update_record_template: 'write',
+  delete_record_template: 'write',
   copy_records: 'write',
   move_record: 'write',
   update_comment: 'write',
@@ -5236,6 +5241,152 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(client.GET('/api/v1/templates'));
       return text(res);
     }),
+  );
+
+  /*
+   * ticket #1218 - RECORD templates: a named starting point for a new record in one database (not the starter templates above, which
+   * are whole database shapes). Values are keyed by field api_name and hold option ids as get_record returns them; `body` is Markdown.
+   */
+  reg(
+    'list_record_templates',
+    {
+      title: 'List record templates',
+      description:
+        "A database's record templates (ticket #1218): name, preset field values keyed by api_name, and a Markdown body with its sections. Packs ship some (Dev Tracker: Bug, Feature, Improvement for Issues). NOT list_templates, which lists starter database shapes. Use create_record_from_template to make a record from one.",
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<{ data: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/record-templates', { params: { path: { ws: ws.id, db: db.id } } }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'create_record_template',
+    {
+      title: 'Create a record template',
+      description:
+        'Make a record template in a database. Either name it and give `values` (field api_name -> value; option ids as get_record shows them; "$me" and "$date:+3d" are decided when a record is made from it) and a Markdown `body`, OR pass `from_record` to save an existing record as a template: its values and description are copied (not its title, links or computed fields). Editor role on the database. Template names are unique per database.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string().describe('The template\'s name, e.g. "Bug".'),
+        description: z.string().optional().describe('One line saying when to pick this template.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Preset field values keyed by api_name. Ignored with from_record.'),
+        body: z.string().optional().describe('The description the record starts with, as Markdown (use ## headings for sections). Ignored with from_record.'),
+        from_record: z.string().optional().describe('Record uuid or public number to save as a template.'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; description?: string; values?: Record<string, unknown>; body?: string; from_record?: string }>(
+      async ({ workspace, database, name, description, values, body, from_record }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const path = { ws: ws.id, db: db.id };
+        if (from_record) {
+          const rec = await resolveRecordId(ws.id, db.id, from_record);
+          return text(
+            await unwrap<unknown>(
+              client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record', {
+                params: { path },
+                body: { record_id: rec, name, ...(description !== undefined ? { description } : {}) },
+              }),
+            ),
+          );
+        }
+        return text(
+          await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates', {
+              params: { path },
+              body: { name, ...(description !== undefined ? { description } : {}), values: values ?? {}, ...(body !== undefined ? { body } : {}) },
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'update_record_template',
+    {
+      title: 'Edit a record template',
+      description:
+        'Change a record template\'s name, description, preset values or body (send only what changes; `values` replaces the whole preset set; null clears description or body). Works on a pack-installed template too; pack uninstall then keeps it as changed.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        values: z.record(z.string(), z.unknown()).optional(),
+        body: z.string().nullable().optional(),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; name?: string; description?: string | null; values?: Record<string, unknown>; body?: string | null }>(
+      async ({ workspace, database, template, ...patch }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        return text(
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+              params: { path: { ws: ws.id, db: db.id, template } },
+              body: patch,
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'delete_record_template',
+    {
+      title: 'Delete a record template',
+      description: 'Delete a record template. Records already made from it are untouched.',
+      inputSchema: { workspace: z.string(), database: z.string(), template: z.string() },
+    },
+    handle<{ workspace: string; database: string; template: string }>(async ({ workspace, database, template }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+          params: { path: { ws: ws.id, db: db.id, template } },
+        }),
+      );
+      return heldDelete(res) ?? text({ deleted: template });
+    }),
+  );
+
+  reg(
+    'create_record_from_template',
+    {
+      title: 'Create a record from a template',
+      description:
+        'Create a record pre-filled from a record template: its preset values and its body (sections included). `values` overrides a preset, usually the title. A preset that no longer fits the schema (a deleted field or option) is dropped and listed in `skipped`, the record is still made. Returns the new record.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Field values keyed by api_name that win over the template\'s, e.g. { name: "Login fails on Safari" }.'),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; values?: Record<string, unknown> }>(
+      async ({ workspace, database, template, values }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{ record: RecordRow; skipped: unknown[] }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records', {
+            params: { path: { ws: ws.id, db: db.id, template } },
+            body: { values: values ?? {} },
+          }),
+        );
+        const detail = await getDetail(ws.id, db.id);
+        return text({ template, record: await readRecord(detail, ws.id, db.id, res.record.id), skipped: res.skipped });
+      },
+    ),
   );
 
   reg(
