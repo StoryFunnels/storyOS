@@ -8,7 +8,7 @@ import { signUpUser } from './helpers/users';
 
 /**
  * ticket #1201 (PR 1 of 2) - Deal Desk: the 8 databases, the 11 links, the 8 views and the 28 sample records.
- * The automations and the 3 agents are PR 2, so this file also pins that they are NOT here yet.
+ * The automations and agents (PR 2) are pinned in deal-desk-automations.test.ts.
  *
  * Every database below is checked against the COMPLETE field list Dara's spec gives it, not a sample of it.
  */
@@ -67,8 +67,7 @@ describe('#1201 the manifest', () => {
     expect(m.views.map((v) => v.name)).toEqual(['Pipeline', 'My open deals', 'Closing this month', 'Why we lose', 'Quote board', 'Price list', 'Accounts', 'This week']);
     expect(m.sample_records).toHaveLength(28);
     expect(m.sample_records.every((r) => String(r.values.name).includes('(sample'))).toBe(true);
-    expect([m.automations.length, m.agents.length, m.triggers.length], 'PR 2 adds these').toEqual([0, 0, 0]);
-    expect(m.requires.packs).toEqual([expect.objectContaining({ pack: 'agency-os', databases: ['Clients', 'Projects'] })]);
+    expect(m.requires.packs).toEqual([expect.objectContaining({ pack: 'agency-os', databases: ['Clients', 'Contacts', 'Projects'] })]);
   });
 });
 
@@ -86,7 +85,9 @@ describe('#1201 installs on a fresh workspace', () => {
   it('creates every database, nothing is unmet, and Clients/Projects are made here (Agency OS is not installed)', async () => {
     expect(result.unmet).toEqual([]);
     expect(result.required_packs[0]!.outcome).toBe('created_here');
-    expect((await dbsOf(ws)).map((d) => d.name).sort()).toEqual(entry.manifest.databases.map((d) => d.name).sort());
+    // the agents bring their own bookkeeping databases (Agents, Runs ...), so compare the pack's own
+    const names = entry.manifest.databases.map((d) => d.name);
+    expect((await dbsOf(ws)).map((d) => d.name).filter((n) => names.includes(n)).sort()).toEqual([...names].sort());
   });
 
   for (const [db, fields] of Object.entries(SPEC_FIELDS)) {
@@ -180,14 +181,6 @@ describe('#1201 installs on a fresh workspace', () => {
     expect(week.config.date_field_id).toBe(acts.fields.find((f) => f.displayName === 'Date')!.id);
   });
 
-  it('installs no automation and no agent (PR 2)', async () => {
-    for (const name of ['Deals', 'Quotes']) {
-      const d = await detail(ws, name);
-      const body = (await as('GET', `/workspaces/${ws}/databases/${d.id}/automations`)).json();
-      expect((Array.isArray(body) ? body : body.data) as unknown[]).toHaveLength(0);
-    }
-  });
-
   it('sample data: 28 records, every title says (sample), and the teaching deals are in the stages their titles say', async () => {
     expect(result.sample_records).toHaveLength(28);
     const counts: Record<string, number> = {};
@@ -262,7 +255,7 @@ describe('#1201 installs on a workspace that already has Agency OS', () => {
     const res = await install(ws);
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().unmet).toEqual([]);
-    expect(res.json().required_packs).toEqual([{ pack: 'agency-os', outcome: 'linked', databases: ['Clients', 'Projects'] }]);
+    expect(res.json().required_packs).toEqual([{ pack: 'agency-os', outcome: 'linked', databases: ['Clients', 'Contacts', 'Projects'] }]);
     const dbs = await dbsOf(ws);
     expect(dbs.filter((d) => d.name === 'Clients').map((d) => d.id), 'still the one Agency OS Clients').toEqual([clientsBefore[0]!.id]);
     expect(dbs.filter((d) => d.name === 'Projects').map((d) => d.id)).toEqual([projectsBefore[0]!.id]);
@@ -279,11 +272,34 @@ describe('#1201 installs on a workspace that already has Agency OS', () => {
     for (const n of ['Accounts', 'Deals', 'Activities', 'Quotes', 'Quote Lines', 'Products', 'Competitors']) expect(dbs.map((d) => d.name)).toContain(n);
   });
 
+  it('Otto\'s ruling: Agency OS Contacts is PRESELECTED for reuse in the preview and the install links it (one Contacts, gaining Buying role)', async () => {
+    const ws = await newWs('Contacts reuse');
+    expect((await as('POST', `/workspaces/${ws}/packs/install`, { manifest: agencyOs() })).statusCode).toBe(201);
+    const before = (await dbsOf(ws)).filter((d) => d.name === 'Contacts');
+    expect(before).toHaveLength(1);
+    const pv = await as('POST', `/workspaces/${ws}/packs/preview`, { manifest: entry.manifest });
+    expect(pv.statusCode, pv.body).toBe(201);
+    expect(pv.json().required_packs[0].linked, 'Contacts is among the preselected links').toEqual(['Clients', 'Contacts', 'Projects']);
+    const contactsItem = pv.json().databases.find((d: { name: string }) => d.name === 'Contacts');
+    expect(contactsItem.existing_elsewhere, 'adopted = preselected, reusable, in the other pack\'s space').toMatchObject({ adopted: true, reusable: true, space_name: 'Client Work' });
+    const res = await install(ws);
+    expect(res.statusCode, res.body).toBe(201);
+    const contacts = (await dbsOf(ws)).filter((d) => d.name === 'Contacts');
+    expect(contacts.map((d) => d.id), 'the Agency OS Contacts, not a second one').toEqual([before[0]!.id]);
+    expect((await detailById(ws, contacts[0]!.id)).fields.map((f) => f.displayName)).toEqual(expect.arrayContaining(['Buying role', 'Account', 'Deals', 'Activities']));
+    // The #1176 picker still wins: declining the link keeps the pack's own Contacts
+    const ws2 = await newWs('Contacts decline');
+    expect((await as('POST', `/workspaces/${ws2}/packs/install`, { manifest: agencyOs() })).statusCode).toBe(201);
+    const declined = await install(ws2, { required_packs: { 'agency-os': 'create_here' } });
+    expect(declined.statusCode, declined.body).toBe(201);
+    expect((await dbsOf(ws2)).filter((d) => d.name === 'Contacts'), 'declined: a second, Deal Desk Contacts').toHaveLength(2);
+  });
+
   it('also_install on a fresh workspace installs Agency OS first and links to it', async () => {
     const ws = await newWs('Also install');
     const res = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
     expect(res.statusCode, res.body).toBe(201);
-    expect(res.json().required_packs).toEqual([{ pack: 'agency-os', outcome: 'installed_and_linked', databases: ['Clients', 'Projects'] }]);
+    expect(res.json().required_packs).toEqual([{ pack: 'agency-os', outcome: 'installed_and_linked', databases: ['Clients', 'Contacts', 'Projects'] }]);
     const dbs = await dbsOf(ws);
     expect(dbs.filter((d) => d.name === 'Clients')).toHaveLength(1);
     expect(dbs.filter((d) => d.name === 'Projects')).toHaveLength(1);
