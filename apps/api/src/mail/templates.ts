@@ -1,5 +1,6 @@
 import { env } from '../config/env';
 import type { EmailInput, RenderedEmail } from './email.types';
+import { QUILL_HEADER_CSS, quillHeaderHtml } from './quill-header';
 
 /**
  * Brand tokens (docs/design/design-system.md) mirrored here as literal hex —
@@ -72,7 +73,8 @@ interface BrandedEmailOptions {
  * `prefers-color-scheme: dark` override for clients that honor it (Apple
  * Mail, iOS Mail, Gmail's app dark mode). Wordmark header ("Story" in navy/
  * cream, "OS" in gold — matching apps/web/public/brand/logo.svg's own text
- * treatment) rendered as an `<img>` logo (MN-284), optional CTA button, muted
+ * treatment) was replaced by the shared Quill header card (ticket #1266, see
+ * quill-header.ts), optional CTA button, muted
  * footer, hidden preheader text.
  *
  * The `<img>` points at PNG rasters exported from the SVG brand assets
@@ -131,9 +133,8 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
     .eo-footer { color: ${DARK.textMuted} !important; }
     .eo-cta-bg { background: ${DARK.ctaBg} !important; }
     .eo-cta-text { color: ${DARK.ctaText} !important; }
-    .eo-logo-light { display: none !important; }
-    .eo-logo-dark { display: inline-block !important; }
   }
+  ${QUILL_HEADER_CSS}
 </style>
 </head>
 <body class="eo-page" style="margin: 0; padding: 0; background: ${LIGHT.pageBg};">
@@ -144,10 +145,7 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
         <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="width: 480px; max-width: 100%;">
           <tr>
             <td align="center" style="padding: 8px 0 20px;">
-              <a href="${webUrl}" style="text-decoration: none;">
-                <img src="${webUrl}/brand/logo.png" srcset="${webUrl}/brand/logo.png 1x, ${webUrl}/brand/logo@2x.png 2x" width="116" height="32" alt="StoryOS" class="eo-logo-light" style="display: inline-block; border: 0; outline: none; text-decoration: none; font-family: ${font}; font-size: 22px; font-weight: 700; color: ${LIGHT.textPrimary};">
-                <img src="${webUrl}/brand/logo-dark.png" srcset="${webUrl}/brand/logo-dark.png 1x, ${webUrl}/brand/logo-dark@2x.png 2x" width="116" height="32" alt="StoryOS" class="eo-logo-dark" style="display: none; border: 0; outline: none; text-decoration: none; font-family: ${font}; font-size: 22px; font-weight: 700; color: ${DARK.textPrimary};">
-              </a>
+              <a href="${webUrl}" style="text-decoration: none;">${quillHeaderHtml(webUrl)}</a>
             </td>
           </tr>
           <tr>

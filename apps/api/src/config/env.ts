@@ -183,7 +183,7 @@ export const envSchema = z.object({
   SMTP_PORT: z.coerce.number().default(1025),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  MAIL_FROM: z.string().default('StoryOS <noreply@storyos.local>'),
+  MAIL_FROM: z.string().default('Quill from StoryOS <quill@storyos.local>'),
   /**
    * Transactional email via Resend's HTTP API (MN-103) — invitations, mention
    * notifications, and better-auth's verification/reset mail. Preferred over
