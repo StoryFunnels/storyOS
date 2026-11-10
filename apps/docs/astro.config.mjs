@@ -131,6 +131,7 @@ export default defineConfig({
             { label: 'The Team Board pack', slug: 'guides/team-board-pack' },
             { label: 'The Team Wiki pack', slug: 'guides/team-wiki-pack' },
             { label: 'The Dev Tracker pack', slug: 'guides/dev-tracker-pack' },
+            { label: 'The Deal Desk pack', slug: 'guides/deal-desk-pack' },
             { label: 'Connecting GitHub', slug: 'guides/github' },
             { label: 'Sources', slug: 'guides/sources' },
             { label: 'Copying a record into another database', slug: 'guides/copy-record' },
