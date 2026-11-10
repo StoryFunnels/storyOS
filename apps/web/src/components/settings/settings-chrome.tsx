@@ -60,6 +60,7 @@ export function SettingsRow({
   children,
   className,
   inlineControls,
+  testId,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -68,9 +69,11 @@ export function SettingsRow({
   className?: string;
   /** A small control (a switch) that stays beside the words on a phone instead of dropping under them at full width. */
   inlineControls?: boolean;
+  testId?: string;
 }) {
   return (
     <div
+      data-testid={testId}
       className={cn(
         'flex min-h-[46px] flex-wrap items-center gap-x-3 gap-y-2 border-t border-border-default px-3.5 py-2 text-body first:border-t-0',
         className,

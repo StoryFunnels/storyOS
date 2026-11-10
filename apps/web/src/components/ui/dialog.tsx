@@ -15,6 +15,7 @@ export function DialogContent({
   children,
   className,
   unsaved,
+  onCloseAutoFocus,
 }: {
   title: string;
   children: ReactNode;
@@ -22,6 +23,8 @@ export function DialogContent({
   /** #962 — this dialog is a form with a Save button: Back asks "Discard changes?" once anything in it has been
    *  typed or changed. Never set it on anything that autosaves. */
   unsaved?: boolean;
+  /** Radix hands focus back to a Trigger; a dialog opened from code has none, so the opener says where focus goes. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const content = useRef<HTMLDivElement>(null);
   return (
@@ -29,6 +32,7 @@ export function DialogContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-[var(--z-dialog-backdrop)] bg-[var(--scrim)]" />
       <DialogPrimitive.Content
         ref={content}
+        onCloseAutoFocus={onCloseAutoFocus}
         // #924 — pressing a toast's action (Undo) is not "clicking outside the dialog": the dialog stays.
         onInteractOutside={(e) => {
           if ((e.target as Element | null)?.closest?.('[data-sonner-toast]')) e.preventDefault();

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { SetupDisclosure } from '@/components/settings/setup-disclosure';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { useConnections } from '@/components/connections/use-connections';
 import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
@@ -33,6 +34,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
 
       <ProviderConnectionCard ws={ws} id={platform} />
 
+      <SetupDisclosure label={cfg.label} connected={connected}>
       <IntegrationSetupGuide
         steps={[
           {
@@ -52,7 +54,6 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
           },
         ]}
       />
-
       <section className="rounded-[var(--radius-card)] border border-border-default bg-card p-5">
         <h2 className="text-sm font-semibold text-ink">Get your token</h2>
         <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-body text-muted">
@@ -61,6 +62,7 @@ export function SocialIngestSetup({ platform }: { platform: SocialIngestId }) {
           ))}
         </ol>
       </section>
+      </SetupDisclosure>
 
       <section className="rounded-[var(--radius-card)] border border-border-default bg-hover p-5">
         <h2 className="text-sm font-semibold text-ink">Where do items land?</h2>

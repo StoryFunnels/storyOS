@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { SetupDisclosure } from '@/components/settings/setup-disclosure';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -106,8 +107,8 @@ export default function ShopifyIntegrationPage() {
         <ProviderConnectionCard ws={ws} id="shopify" />
       </div>
 
+      <SetupDisclosure label="Shopify" connected={connected}>
       <IntegrationSetupGuide
-        className="mt-6"
         steps={[
           {
             label: 'Connect Shopify',
@@ -127,6 +128,7 @@ export default function ShopifyIntegrationPage() {
           },
         ]}
       />
+      </SetupDisclosure>
 
       {connected && (
         <section className="mt-5 rounded-[var(--radius-card)] border border-border-default bg-card p-5">
