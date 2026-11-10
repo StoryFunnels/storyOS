@@ -140,6 +140,105 @@ read the record at send time, and the Slack mirror of a mention is **never poste
 restricted database or space**, because the channel's membership isn't known. A notification an
 automation's *send email* action sends is chosen by the automation's author and isn't filtered.
 
+## My Work: what is waiting on you
+
+> This section describes code in open pull requests 1466 and 1470 and is accurate once they merge.
+
+**My Work** is the one place that answers "what is mine right now". The page, the MCP
+[`get_my_work`](/mcp/tools/) tool and the email below all read from the same server code, so they
+cannot disagree about what is open. There are four lists:
+
+| List | What is in it |
+|---|---|
+| **Assigned** | Records with you in a person field. |
+| **Created** | Records you created. |
+| **Assigned by me** | Records you assigned to someone else that are still open. The record is yours to chase while the last change to its person field was yours; a later reassignment by anyone else ends it. |
+| **Waiting** | Things that need an answer from you: approvals you can decide (pending and not expired, where you are the named approver or a workspace admin) and **mentions you have not answered**. |
+
+A mention counts as unanswered when someone else mentioned you in a comment, you have not commented
+on that record since, and you have not read the mention's notification since. Each record appears
+once, with its newest unanswered mention. Records in a personal space never appear in Waiting.
+An approval names its record only if you can open that record.
+
+How the lists behave:
+
+- **Finished work is dropped.** A record in a completed or canceled state is not returned by the
+  API, the MCP or the email. The My Work page itself asks for finished rows too and shows them
+  greyed out.
+- **Ordered by urgency.** Within each database: overdue first, then due within the next seven days,
+  then In Progress, then the rest, newest change first in each group. The due date is the date
+  field named *Due*, *Deadline*, *Due date* or *Target date*; a database without one has no due dates here.
+- **Every total is exact.** Each list returns at most 50 rows per database (50 per kind for
+  Waiting), and says so with `truncated`, alongside a `total` counted by the server over the same
+  rules. A count is never the number of rows that happened to load.
+- **You only see what you can open.** A guest sees only the rows they have access to.
+
+Over the API, `GET /api/v1/workspaces/{ws}/my-work?tab=` takes `assigned` (the default), `created`,
+`assigned_by_me` or `waiting`; `include_finished=true` keeps finished rows. In MCP, `get_my_work`
+takes the same four as `kind`, plus `recent` and `favorites`.
+
+## Email me my work
+
+A daily or weekly email of what waits on you. It is **off by default**, it goes by email only (it
+never appears in your Inbox), and the setting belongs to you, not to a workspace.
+
+<!-- TODO(ticket #1252): screenshot of Settings > You > Notifications > "Email me my work", light mode at 1270px wide.
+     Add it once the web setting ships; until then this section is described from the preference API only. -->
+
+The setting has five parts:
+
+| Setting | Values |
+|---|---|
+| **How often** | Off, Daily or Weekly. Daily means Monday to Friday. |
+| **Day** | Weekly only: the weekday it arrives. |
+| **Time** | Local clock time, 24 hours, such as 08:00. |
+| **Time zone** | A named zone such as `Europe/Madrid`. With none set the time is read in UTC, never the server's zone. A name that is not a real zone is rejected. |
+| **Include what I assigned to others** | Adds the *You assigned to others* section. Off by default. |
+
+Over the API, `PATCH /api/v1/users/me/preferences` with a `myWorkEmail` object (`frequency`,
+`weekday` as 0 for Sunday to 6, `time`, `timezone`, `include_assigned_by_me`) changes only the keys
+you send.
+
+*From the design, not yet in the code reviewed here:* the setting is meant to sit under
+**Settings → You → Notifications** as an **Email me my work** box, with a **See an example** link
+that opens a sample email.
+
+### What the email contains
+
+You get one email per workspace you are an active member of, with up to three sections in this order:
+
+1. **Waiting on you**: approvals and unanswered mentions.
+2. **Assigned to you**: open records, in the urgency order above.
+3. **You assigned to others**: only if you turned that on.
+
+Each section shows its first 15 rows and then **and N more**, linking to My Work, where N comes from
+the exact total. The subject reads like *Your work in Acme: 3 waiting, 12 open*. A section with
+nothing in it is left out, and **if every section is empty no email is sent at all**. No AI writes
+any part of it. The email is built for your own access, so it never shows a row you cannot open or
+anything from your personal space.
+
+### When it arrives, and only once
+
+The server checks every minute. A digest is sent at your chosen time, and a missed time is made up for
+only within the next 30 minutes. So switching the setting on at 15:00 does not send that morning's
+08:00 digest late. Each person, workspace and time is claimed once before sending, so a restart or a
+second server never sends two. The cost of that guarantee is that a crash between claiming and
+sending loses one digest rather than doubling it.
+
+### Stopping it
+
+Every email ends with **Stop these emails**. It is a signed link that turns off only your own digest:
+
+- It needs no sign-in, because you are clicking in your mail app.
+- It opens a redirect to **Settings → Notifications** in the workspace the email came from, so
+  turning it back on is one click.
+- Mail apps that offer their own *Unsubscribe* button use the same link through the one-click
+  `List-Unsubscribe` standard.
+- It does not expire, so an old email's link still works.
+- A link that was not signed by the server returns a plain 404.
+
+The footer also has **Customize these emails**, which opens Settings → Notifications.
+
 ## Over the API and MCP
 
 `GET .../records/{id}/backlinks` returns `{data, total, has_more, next_cursor}` — the same

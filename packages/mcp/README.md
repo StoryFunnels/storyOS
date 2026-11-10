@@ -50,7 +50,7 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | Tool | What it does |
 |---|---|
 | `list_skills` | Skills visible to the caller — their own personal ones, plus every shared one (same visibility rule the in-app Skills list enforces). |
-| `run_skill` | Resolve a skill's instructions/when_to_use by name or id, and record the run (last_run_at/last_run_status). StoryOS has no managed AI runtime yet, so **you** — the connected agent — carry out the instructions against the `inputs` you pass; they're echoed back, not executed server-side. |
+| `run_skill` | Resolve a skill's instructions/when_to_use by name or id, and record the run (last_run_at/last_run_status). The call invokes no model, so **you** — the connected agent — carry out the instructions against the `inputs` you pass; they're echoed back, not executed server-side (an agent set to "StoryOS AI" can have the skill named in its Skills field instead). |
 
 A workspace's skills are also exposed as native MCP **resources** and **prompts**,
 for clients that understand those primitives (not just tools):

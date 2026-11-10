@@ -178,6 +178,8 @@ export class RecordsController {
    * rows and ignore them. Viewer access, same as reading: a count reveals
    * nothing a query would not.
    */
+  // #1261 — a read that POSTs (like `query`): without this the guard's method default made a READ token's count a 403.
+  @RequiresScope('read')
   @Post('aggregate')
   // A read, not a creation. Nest defaults POST to 201, which would tell every
   // client that a count made something.
@@ -198,6 +200,7 @@ export class RecordsController {
    * (`groups: [...]` instead of `value`) and a caller wanting one total
    * should not parse an array to find it.
    */
+  @RequiresScope('read') // #1261, as `aggregate` above
   @Post('aggregate/grouped')
   @HttpCode(200)
   @ApiOperation({ summary: "One aggregate value per group — a board/dashboard column's true total, in one query" })

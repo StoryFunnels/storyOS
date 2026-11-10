@@ -372,7 +372,7 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 
 | Tool | What it does |
 |---|---|
-| `get_my_work` | `assigned` (default), `created`, or `recent` records for the identity the token belongs to. |
+| `get_my_work` | For the identity the token belongs to: `kind` is `assigned` (default), `created`, `assigned_by_me`, `waiting` (approvals to decide and unanswered mentions), `recent` or `favorites`. Finished records are never returned; totals are exact and `truncated` says when a list was cut. See [My Work](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you). |
 | `list_notifications` / `get_unread_count` / `mark_notifications` | What's waiting for you (assignments, mentions, comments, state changes, approval requests, and an agent's budget notices `agent_budget_warning` and `agent_budget_paused`); a single unread number; mark read or archive (`all: true` clears the inbox). |
 
 ## Agents, runs and automations

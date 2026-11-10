@@ -21,7 +21,7 @@ import { PACK_FILTERS, useRegistry, type RegistryCard } from '@/components/pack-
 import { packCountsLine, registryVertical } from '@/components/pack-visual';
 import { PackMap } from '@/components/pack-review';
 import { cn } from '@/lib/utils';
-import { ALL_PACKS, FEATURED_SPACE_PACKS, spacePackFilters, visibleSpacePacks } from '@/lib/space-start';
+import { ALL_PACKS, packCardBorder, spacePackFilters, visibleSpacePacks } from '@/lib/space-start';
 
 /**
  * Everything the space page needs to ADD something to the space it is showing (#1094): a database, a document, or a pack.
@@ -244,7 +244,7 @@ export function SpacePackGrid({
                 // The approved shape: roughly square (1:1.08) from the tablet width up, content height on a phone. It is drawn
                 // around the database map (#1145), so until that arrives the lower half is empty, as in the prototype.
                 'flex w-full flex-col gap-2 overflow-hidden rounded-[var(--radius-card)] border bg-card p-3 text-left hover:border-border-strong md:aspect-[1/1.08]',
-                FEATURED_SPACE_PACKS.includes(pack.slug) ? 'border-border-strong' : 'border-border-default',
+                packCardBorder(pack.slug),
               )}
             >
               <b className="text-prose font-semibold text-ink">{pack.name}</b>
