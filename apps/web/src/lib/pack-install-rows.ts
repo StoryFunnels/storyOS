@@ -50,6 +50,8 @@ export interface InstallRow {
   name: string;
   /** Muted line under the name: "view of Tickets". */
   sub: string;
+  /** A database's relations on their OWN line, "Links to Project, Sprint"; null for everything else and for a database with none. */
+  links: string | null;
   action: PreviewRowItem['action'];
   /** Present only when something is NOT new. Null for a new item and for an agent, whose note is `agentEffect`. */
   note: string | null;
@@ -104,9 +106,9 @@ export function fieldLabel(name: string, options: readonly string[] | undefined)
 }
 
 /**
- * Every field a person will see on a database, in order: its workflow state fields, then its plain fields (manifest order),
- * then the relation fields it owns (`from_field`, on the `from` database). Derived fields (formula/rollup/lookup) live in
- * `derived_fields`, outside everything read here, and are left out.
+ * The plain and workflow-state fields a person will see on a database, in order: state fields first, then plain fields
+ * (manifest order). Relation fields are NOT here: they get their own line (`relationNames`), outside the cap. Derived
+ * fields (formula/rollup/lookup) live in `derived_fields`, outside everything read here, and are left out.
  */
 export function databaseFieldLabels(manifest: RowManifest | undefined, name: string): string[] {
   const m = manifest?.databases?.find((d) => d.name === name);
@@ -127,11 +129,21 @@ export function databaseFieldLabels(manifest: RowManifest | undefined, name: str
           f.options?.map((o) => o.label),
         ),
       ),
-    ...(manifest?.relations ?? []).filter((r) => r.from === name).map((r) => r.from_field),
   ];
 }
 
-/** The muted line under a database row: "database · State (Triage → Canceled), Lead, …" (just "database" when nothing is listed). */
+/** The relation fields a database owns (`from_field`, on the `from` database); a to-side name belongs to the other database. */
+export function relationNames(manifest: RowManifest | undefined, name: string): string[] {
+  return (manifest?.relations ?? []).filter((r) => r.from === name).map((r) => r.from_field);
+}
+
+/** "Links to Project, Sprint, Release"; null when the database owns no relation. Never capped: a relation is the connection, not a column. */
+export function linksLine(names: readonly string[]): string | null {
+  const clean = names.map((n) => n.trim()).filter(Boolean);
+  return clean.length ? `Links to ${clean.join(', ')}` : null;
+}
+
+/** The muted line under a database row: "database · State (Triage → Canceled), Lead, …" (just "database" when no plain field is listed). */
 function databaseSub(manifest: RowManifest | undefined, name: string): string {
   const line = fieldsLine(databaseFieldLabels(manifest, name));
   return line ? `database · ${line}` : 'database';
@@ -153,6 +165,7 @@ export function buildInstallRows(
       kind: 'database',
       name: item.name,
       sub: databaseSub(manifest, item.name),
+      links: linksLine(relationNames(manifest, item.name)),
       action: item.action,
       note: itemEffect('database', item.action, item.gains),
       item,
@@ -164,6 +177,7 @@ export function buildInstallRows(
       kind: 'view',
       name: m?.name ?? item.name,
       sub: m ? `view of ${m.database}` : 'view',
+      links: null,
       viewType: m?.type,
       action: item.action,
       note: itemEffect('view', item.action),
@@ -177,6 +191,7 @@ export function buildInstallRows(
       kind: 'automation',
       name: m?.name ?? item.name,
       sub: m ? `automation · on ${m.database}` : 'automation',
+      links: null,
       action: item.action,
       note: itemEffect('automation', item.action),
       item,
@@ -190,6 +205,7 @@ export function buildInstallRows(
       key: item.name,
       kind: 'agent',
       name: item.name,
+      links: null,
       sub: `agent · ${goal ? `${goal}. ` : ''}It works through your own AI.${gate ? ` ${gate}` : ''}`,
       action: item.action,
       // An agent this pack installed before is described by `agentEffect` (the dialog), not here.

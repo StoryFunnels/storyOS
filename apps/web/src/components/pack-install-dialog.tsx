@@ -939,6 +939,7 @@ export function InstallDialog({
               kind,
               name: i.name,
               sub: '',
+              links: null,
               action: 'create' as const,
               note: null,
               item: { name: i.name, action: 'create' as const },
@@ -992,7 +993,7 @@ export function InstallDialog({
             </p>
             {doneRows(result).length > 0 ? (
               <InstallList
-                rows={doneRows(result).map((r) => ({ ...r, sub: '', note: null, action: 'create' }))}
+                rows={doneRows(result).map((r) => ({ ...r, sub: '', links: null, note: null, action: 'create' }))}
                 renderExtra={(row) => {
                   // #1172 — the result says what state each automation was ACTUALLY created in, not just that it exists.
                   const made = row.kind === 'automation' ? result.automations.find((x) => x.name === row.key) : undefined;

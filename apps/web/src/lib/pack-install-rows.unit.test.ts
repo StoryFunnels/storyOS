@@ -212,49 +212,65 @@ describe('database rows name their fields (ticket #1245)', () => {
     expect(fieldLabel('Status', [])).toBe('Status');
   });
 
-  it('lists plain fields first, then the relations the database owns; a to-side name is not added', () => {
-    expect(
-      sub({
-        databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
-        relations: [
-          { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
-          { from: 'Projects', to: 'Tickets', from_field: 'Owner ticket', to_field: 'Projects' },
-        ],
-      }),
-    ).toBe('database · Title, Project');
+  const links = (m: RowManifest) => buildInstallRows(preview(), m)[0]!.links;
+
+  it('relations go on their OWN line, not in the fields line; a to-side name is not added', () => {
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
+      relations: [
+        { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
+        { from: 'Projects', to: 'Tickets', from_field: 'Owner ticket', to_field: 'Projects' },
+      ],
+    };
+    expect(sub(m)).toBe('database · Title');
+    expect(links(m)).toBe('Links to Project');
   });
 
-  it('a database with only relations is not a bare "database"', () => {
-    expect(
-      sub({
-        databases: [{ name: 'Tickets' }],
-        relations: [
-          { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
-          { from: 'Tickets', to: 'Sprints', from_field: 'Sprint', to_field: 'Tickets' },
-        ],
-      }),
-    ).toBe('database · Project, Sprint');
+  it('a database with only relations shows only the Links line (sub stays bare "database")', () => {
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets' }],
+      relations: [
+        { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
+        { from: 'Tickets', to: 'Sprints', from_field: 'Sprint', to_field: 'Tickets' },
+      ],
+    };
+    expect(sub(m)).toBe('database');
+    expect(links(m)).toBe('Links to Project, Sprint');
+  });
+
+  it('a database with no relations has no Links line, and non-database rows never do', () => {
+    expect(links({ databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }] })).toBeNull();
+    const rows = buildInstallRows(preview(), {
+      databases: [{ name: 'Tickets' }],
+      relations: [{ from: 'Tickets', from_field: 'Project' }],
+    });
+    expect(rows.slice(1).every((r) => r.links === null)).toBe(true);
   });
 
   it('derived fields (outside fields/states/relations) are never listed', () => {
     const m = {
       databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
       derived_fields: [{ database: 'Tickets', name: 'Open count', type: 'rollup' }],
+      relations: [{ from: 'Tickets', from_field: 'Project' }],
     } as RowManifest;
     expect(sub(m)).toBe('database · Title');
+    expect(links(m)).toBe('Links to Project');
   });
 
-  it('+N counts relations: the cap is crossed because of them', () => {
+  it('the cap and +N count plain/state fields only; relations never consume the cap and are never cut', () => {
     const fields = ['A', 'B', 'C', 'D', 'E'].map((name) => ({ name }));
-    expect(
-      sub({
-        databases: [{ name: 'Tickets', fields }],
-        relations: [
-          { from: 'Tickets', from_field: 'R1' },
-          { from: 'Tickets', from_field: 'R2' },
-          { from: 'Tickets', from_field: 'R3' },
-        ],
-      }),
-    ).toBe('database · A, B, C, D, E, R1, +2 more');
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets', fields }],
+      relations: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7'].map((from_field) => ({
+        from: 'Tickets',
+        from_field,
+      })),
+    };
+    expect(sub(m)).toBe('database · A, B, C, D, E'); // 5 fields + 7 relations: no "+N more"
+    expect(links(m)).toBe('Links to R1, R2, R3, R4, R5, R6, R7');
+    const eight = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((name) => ({ name }));
+    expect(sub({ ...m, databases: [{ name: 'Tickets', fields: eight }] })).toBe(
+      'database · A, B, C, D, E, F, +2 more',
+    );
   });
 });
