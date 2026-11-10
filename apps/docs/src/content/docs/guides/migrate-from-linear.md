@@ -60,13 +60,16 @@ Everything below is **off until an admin switches it on**, on the same Linear pa
   run is due, and how many issues and comments the last run read and how long it took. If it has not succeeded for two intervals it says **"This mirror has stopped
   updating"**, the Integrations list shows a **Not updating** chip, and the first failure of a
   streak notifies the admin who enabled it.
-- **Comment write-back.** When on, a comment written in StoryOS on a mirrored issue is posted to
-  the Linear issue as a comment, signed `<author> · via StoryOS` (the agent's name when an agent
-  wrote it). Only comments created **after** you switch it on are sent, and it never sends
-  anything but comments. It posts under the identity of the connected API key, which therefore
+- **Comment write-back.** When on, a comment a person or an agent wrote in StoryOS on a mirrored
+  issue is posted to the Linear issue as a comment, signed `<author> · via StoryOS` (the agent's
+  name when an agent wrote it). Only comments created **after** you switch it on are sent, and it
+  never sends anything but comments. **A comment StoryOS writes itself is never sent**: an
+  approval's decision or expiry note (so a rejection reason stays in StoryOS), a note about a run
+  or a delegation, a comment an automation wrote, the note on a duplicated record, a comment
+  imported from Linear, and any comment whose origin was not recorded. It posts under the identity of the connected API key, which therefore
   needs permission to write comments; the page asks you to confirm this before it turns on. A
   comment that can't be delivered after five attempts is marked as such on the comment itself, and
-  the page counts those still waiting and those given up on. Every pushed comment ends with a small marker line naming the StoryOS comment it came from (`storyos-comment-<id>`), visible in Linear under the text. Before any retry (a send cut off by a server stop, or one whose answer was lost), StoryOS reads the Linear issue's comments and looks for that marker. If it finds the comment, it records it as sent and does not send it again. If that lookup itself fails, the comment waits for its next retry rather than being sent blind. The comment you wrote in StoryOS is never imported back as a second copy.
+  the page counts those still waiting and those given up on. An admin can also have a comment an agent wrote held for approval before it is posted: see [holding an agent's comment before it reaches Linear](/concepts/approval-gates/#holding-an-agents-comment-before-it-reaches-linear). Every pushed comment ends with a small marker line naming the StoryOS comment it came from (`storyos-comment-<id>`), visible in Linear under the text. Before any retry (a send cut off by a server stop, or one whose answer was lost), StoryOS reads the Linear issue's comments and looks for that marker. If it finds the comment, it records it as sent and does not send it again. If that lookup itself fails, the comment waits for its next retry rather than being sent blind. The comment you wrote in StoryOS is never imported back as a second copy.
 - **Edited descriptions are flagged, not overwritten.** If an issue's description changes in
   Linear after it was imported, StoryOS keeps the description it has, stores Linear's new text in
   the **Linear Description** field and ticks **Description Drift**. **Linear Description** is

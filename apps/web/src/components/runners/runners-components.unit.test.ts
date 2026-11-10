@@ -118,7 +118,7 @@ describe('the first-time moment', () => {
   it('says the agent has not started, why, and offers ONLY Add a Runner (no API-key button, it is not in v1)', () => {
     const out = html(1);
     expect(out).toContain('Onboarding Assistant hasn’t started work yet');
-    expect(out).toContain('your own <b class="font-semibold text-ink">Claude Code or Cursor</b>, through a small free Runner on your computer');
+    expect(out).toContain('your own <b class="font-semibold text-ink">Claude Code</b>, through a small free Runner on your computer');
     expect(out).toContain('Add a Runner');
     expect(out).not.toMatch(/API key/i);
   });
@@ -127,6 +127,9 @@ describe('the first-time moment', () => {
     expect(html(3)).toContain('3 records are waiting for it');
     expect(html(4)).toContain('4 records are waiting for it');
     expect(html(4)).not.toContain('1 record');
+    const withNoun = renderToStaticMarkup(createElement(FirstRunCard, { agentName: 'A', recordsWaiting: 4, noun: 'client', onAdd: () => {} }));
+    expect(withNoun).toContain('4 clients are waiting for it');
+    expect(withNoun).not.toContain('records');
     expect(html(0)).not.toMatch(/waiting for it/);
     expect(html(null)).not.toMatch(/waiting for it/);
   });

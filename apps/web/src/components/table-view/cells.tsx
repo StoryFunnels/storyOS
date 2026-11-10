@@ -2,10 +2,10 @@
 
 import { Button } from '@/components/ui/button';
 import { STRIP_PERSON, STRIP_PILL, useStripChip } from '@/components/entity/strip-chip';
-import { useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, Plus, Sigma } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, PanelRightOpen, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AttachmentEditor, formatBytes } from './attachment-cell';
 import type { AttachmentValue } from './attachment-cell';
@@ -14,7 +14,6 @@ import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
-import { Textarea } from '@/components/ui/textarea';
 import { RelationChips } from './relation-cell';
 import { chipVariants } from '@/components/ui/chip';
 import type { LinkChip } from './relation-cell';
@@ -703,7 +702,7 @@ export function CellEditor({ ws, db, rec, field, value, members, onCommit, onTog
     // the read side. url/email are never multiline — the config key only
     // applies to `text`, so they always keep the single-line editor.
     case 'text':
-      if (field.config['multiline'] === true) {
+      if (isLongTextValue(field, value)) {
         return (
           <MultilineTextEditor
             initial={value == null ? '' : String(value)}
@@ -832,7 +831,9 @@ function TextEditor({
     <input
       autoFocus
       inputMode={inputMode}
-      className="h-full w-full bg-card px-2 text-body text-ink outline-none"
+      data-cell-input
+      // #1232 — no padding of its own: the cell already pads 8px, and a second 8px shifted the text right on edit.
+      className="h-full w-full bg-card px-0 text-body text-ink outline-none"
       value={val}
       onChange={(e) => setVal(e.target.value)}
       onFocus={(e) => e.target.select()}
@@ -855,14 +856,36 @@ function TextEditor({
 }
 
 /**
- * #758 — multiline `text` fields need real room to type in, which a 32px-tall
- * virtualized grid row (table-view.tsx's ROW_HEIGHT) can't give an inline
- * child without breaking every other row's position. Same fix the table
- * already uses for this exact shape of problem (RelationEditor, ColorEditor
- * above): grow via a `Popover` anchored to the cell's own `relative` wrapper
- * (`PopoverParentAnchor`) instead of the row itself, so the editor overlays
- * rather than resizing. Unlike `TextEditor`, Enter inserts a newline — the
- * whole point of the control — so committing needs its own key.
+ * #1232 — which `text` cells open the expanded editor. The field's own "Long text" setting says so; a value that
+ * already holds a line break or runs past a line's worth of text does too, since a one-line input would show a
+ * sliver of it scrolled to the end. Title, url and email never do.
+ */
+export function isLongTextValue(field: { type: string; config: Record<string, unknown> }, value: unknown): boolean {
+  if (field.type !== 'text') return false;
+  if (field.config['multiline'] === true) return true;
+  return typeof value === 'string' && (value.includes('\n') || value.length > 120);
+}
+
+/** #1232 — an editor's text alignment must match the read cell's (number reads right-aligned). */
+export function editorAlignClass(type: string): string {
+  return type === 'number' ? 'text-right' : 'text-left';
+}
+
+/** #1232 — a mouse press this soon after the long-text editor mounts is the tail of the double-click that opened it. */
+export const OPENING_CLICK_MS = 500;
+export function isOpeningClick(mountedAt: number, now: number): boolean {
+  return now - mountedAt < OPENING_CLICK_MS;
+}
+
+/** Expanded editor: grows with the text up to this tall, then scrolls. */
+const LONG_TEXT_MAX_HEIGHT = 300;
+
+/**
+ * #758 / #1232 — long text needs room, which a fixed-height virtualised row can't give an inline child. The textarea
+ * is anchored over the cell (top-left aligned, at least 320px wide, never narrower than the column) and overlays
+ * the rows below instead of resizing its own. It wears the SAME single ring as the cell it sits on, so the whole
+ * thing reads as that cell grown, not a second frame beside it. Enter inserts a newline; Cmd/Ctrl+Enter or a click
+ * outside saves; Esc cancels. The caret starts at the beginning, never scrolled to the end.
  */
 function MultilineTextEditor({
   initial,
@@ -875,35 +898,70 @@ function MultilineTextEditor({
 }) {
   const [val, setVal] = useState(initial);
   const committed = useRef(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const mountedAt = useRef(0);
   const commit = () => {
     committed.current = true;
     onCommit(val.trim());
   };
+  const fit = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, LONG_TEXT_MAX_HEIGHT)}px`;
+  };
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    mountedAt.current = Date.now();
+    fit(el);
+    el.focus();
+    el.setSelectionRange(0, 0);
+    window.getSelection()?.removeAllRanges();
+    el.setSelectionRange(0, 0);
+    el.scrollTop = 0;
+  }, []);
   return (
-    <Popover open onOpenChange={(open) => !open && onCancel()}>
-      <PopoverParentAnchor />
-      <PopoverContent className="w-80 p-1" onClick={(e) => e.stopPropagation()}>
-        <Textarea
-          autoFocus
-          size="default"
-          className="w-full"
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          onFocus={(e) => e.target.select()}
-          onBlur={() => {
-            if (!committed.current) onCommit(val.trim());
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit();
-            if (e.key === 'Escape') {
-              committed.current = true;
-              onCancel();
-            }
-            e.stopPropagation();
-          }}
-        />
-      </PopoverContent>
-    </Popover>
+    <textarea
+      ref={ref}
+      data-cell-input
+      rows={1}
+      className="absolute left-0 top-0 z-30 block min-h-full w-full min-w-[320px] resize-none overflow-y-auto bg-card px-2 py-[7px] text-body leading-[18px] text-ink outline-none ring-2 ring-inset ring-[var(--focus-ring-color)]"
+      style={{ maxHeight: LONG_TEXT_MAX_HEIGHT }}
+      value={val}
+      onClick={(e) => e.stopPropagation()}
+      // #1232 — the second press of the double-click that opened this lands on the textarea and would select a word.
+      onMouseDown={(e) => {
+        if (isOpeningClick(mountedAt.current, Date.now())) {
+          e.preventDefault();
+          e.currentTarget.focus();
+          e.currentTarget.setSelectionRange(0, 0);
+        }
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (isOpeningClick(mountedAt.current, Date.now())) {
+          e.preventDefault();
+          e.currentTarget.setSelectionRange(0, 0);
+        }
+      }}
+      onChange={(e) => {
+        setVal(e.target.value);
+        fit(e.target);
+      }}
+      onBlur={() => {
+        if (!committed.current) commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          commit();
+        }
+        if (e.key === 'Escape') {
+          committed.current = true;
+          onCancel();
+        }
+        e.stopPropagation();
+      }}
+    />
   );
 }
 
@@ -916,13 +974,14 @@ function MultilineTextEditor({
 function ComputedTitleNotice({ value, onCancel }: { value: string; onCancel: () => void }) {
   return (
     <div
-      className="flex h-full w-full items-center gap-1.5 bg-card px-2 text-body text-muted"
+      className="flex h-full w-full items-center gap-1.5 bg-card px-0 text-body text-muted"
       title="This name is computed from a template — edit the template in the Name field’s settings."
     >
       <Sigma className="h-3.5 w-3.5 shrink-0 text-faint" />
       <input
         autoFocus
         readOnly
+        data-cell-input
         className="h-full min-w-0 flex-1 cursor-not-allowed bg-transparent outline-none"
         value={value}
         onBlur={onCancel}
@@ -956,11 +1015,13 @@ function NumberEditor({
     setVal(String(next));
   };
   return (
-    <div className="flex h-full items-center gap-1 bg-card pr-1">
+    <div className="group relative flex h-full w-full items-center bg-card">
       <input
         autoFocus
         inputMode="decimal"
-        className="h-full min-w-0 flex-1 bg-transparent px-2 text-body text-ink outline-none"
+        data-cell-input
+        // #1232 — numbers read right-aligned (see CellDisplay); the editor keeps that alignment so the text does not move.
+        className={`h-full w-full min-w-0 bg-transparent px-0 text-body tabular-nums text-ink outline-none ${editorAlignClass('number')}`}
         value={val}
         onChange={(e) => setVal(e.target.value)}
         onFocus={(e) => e.target.select()}
@@ -982,7 +1043,8 @@ function NumberEditor({
           e.stopPropagation();
         }}
       />
-      <div className="flex flex-col">
+      {/* #1232 — overlays the cell instead of taking width, so the right-aligned digits sit exactly where they read. */}
+      <div className="absolute right-0 top-1/2 flex -translate-y-1/2 flex-col bg-card opacity-0 transition-opacity group-hover:opacity-100">
         <button
           type="button"
           tabIndex={-1}
@@ -1165,6 +1227,7 @@ function OptionList({
       >
         <input
           autoFocus
+          data-picker-search
           value={query}
           placeholder="Search…"
           // #717 — plain `rounded` bypassed the radius token; --radius-control
@@ -1348,6 +1411,47 @@ export function PressButton({
       disabled={disabled || busy}
     >
       {busy ? '…' : field.displayName}
+    </button>
+  );
+}
+
+/**
+ * #1231 — the "Open" affordance on a title cell. Pinned right, over the truncated
+ * title, with the row's own ground behind it (the parent row is `group`). Shown on
+ * row hover, when the cell is the cursor (`active`, the keyboard path) or focused,
+ * and always on touch, where it drops the label.
+ */
+export function OpenRecordButton({
+  title,
+  active,
+  selected,
+  onOpen,
+}: {
+  title: string;
+  active: boolean;
+  selected: boolean;
+  onOpen: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${title || 'Untitled'}`}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(e);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={cn(
+        'absolute right-1 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center gap-1 rounded px-1.5 text-meta font-medium text-ink-secondary shadow-sm ring-1 ring-border-default hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:pointer-events-auto',
+        selected ? 'bg-active' : 'bg-card group-hover:bg-hover',
+        active
+          ? 'opacity-100'
+          : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100',
+      )}
+    >
+      <PanelRightOpen className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="[@media(hover:none)]:hidden">Open</span>
     </button>
   );
 }

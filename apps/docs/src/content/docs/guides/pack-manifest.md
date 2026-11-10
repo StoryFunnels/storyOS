@@ -1,6 +1,6 @@
 ---
 title: Writing a pack manifest
-description: The parts of a pack manifest that decide how an install behaves, and what a pack says about itself — why and can lines, option categories, agent AI mode and skills, which automations install switched off, and that agent triggers do too.
+description: The parts of a pack manifest that decide how an install behaves, and what a pack says about itself — why and can lines, option categories, agent AI mode and skills, sort and limit on scheduled automations, which automations install switched off, and that agent triggers do too.
 sidebar:
   order: 10
 ---
@@ -43,6 +43,16 @@ summary:
   `to_field`. A relation from a database to itself is listed like any other.
 
 This lets a person, or an agent, say why a pack fits before installing it.
+
+### The public preview, before signup
+
+The two public routes, `GET /api/v1/public/packs/registry` and `GET /api/v1/public/packs/registry/:slug`,
+need no login and return the same three fields, built by the same code as the listing above: `why` (a string,
+or `null`), `can` (an array, empty when there is none) and `relations`. A pack with no copy returns `null`,
+`[]` and `[]`, never a missing key. The list route returns each pack's `slug`, `name`, `summary`,
+`highlights`, `why`, `can` and `relations`. The single-pack route adds `requires` and `contents` (the names
+of its databases, views, automations, agents and skills). Neither returns the manifest, an id or anything
+from a workspace.
 
 ## Option categories
 
@@ -157,8 +167,9 @@ being empty; this names the columns, empty or not.
   labels (or ids); `[]` shows every column again, and changing `group_by` without passing it clears the
   list. Over REST it is `hidden_option_ids` in the view's `config`.
 
-As of 3 November 2026 the web board does not read this setting, so it does not yet hide the columns on
-screen; the API and MCP store and return it.
+The web board reads the setting and does not draw those columns. They are listed under **Hidden columns** in
+the board's **Display** menu, each with a **Show** button; see
+[Hiding chosen columns](/concepts/views/#hiding-chosen-columns).
 
 ### Filters in a manifest: relative days and state categories
 
@@ -207,6 +218,59 @@ open it). It is optional, so manifests without it still validate.
   one, converted to Markdown.
 - The built-in Team Wiki pack uses it for the text of its four starter pages.
 
+## Record templates
+
+A manifest may carry `record_templates`: named starting points for a new record in one of the pack's
+databases. The key is optional, so a manifest without it validates as before and parses to the same thing.
+Each entry has this shape:
+
+```json
+{
+  "database": "Issues",
+  "name": "Bug",
+  "description": "Something is broken.",
+  "values": { "name": "Bug: ", "priority": "$option:Issues.Priority.Medium" },
+  "body": "## Steps to reproduce\n\n1. \n"
+}
+```
+
+- **`database`** names a database the manifest declares. One it does not declare fails the install with a 422
+  ("belongs to a database ... that the manifest does not declare").
+- **`name`** is required: 1 to 120 characters after trimming. A template is matched by database and name,
+  ignoring case.
+- **`description`** is optional, up to 500 characters: the template's one-line label.
+- **`values`** is optional and keyed by field API name, like a sample record's values. Option ids are written
+  as `$option:` references, which install turns into the real option ids.
+- **`body`** is optional Markdown, up to 20,000 characters: the description document of a record made from the
+  template, so a template can carry sections.
+
+`$me` (the person making the record) and `$date:+Nd` or `$date:-Nd` (a date relative to that day) may appear
+in `values`. Install leaves them as written; they are decided when a record is made from the template.
+
+### What a template does
+
+- **Install creates it** as a template of that database, marked as coming from the pack. It is a template of
+  the database, not a record, and it can be edited afterwards.
+- **Making a record from it** presets the template's values and writes its body as the new record's
+  description. Values you pass at that moment replace the template's value for the same field, typically the
+  title. A preset that names a field the database no longer has, or an option that no longer exists, is
+  skipped and listed in a `skipped` list on the response; the record is still created. Over MCP the tools are
+  `list_record_templates`, `create_record_template`, `update_record_template`, `delete_record_template` and
+  `create_record_from_template`.
+- **A re-install keeps your edits.** A template whose name already exists in that database is reused and left
+  exactly as it is, so installing again changes nothing and adds no duplicate. (The tests cover re-installing;
+  an update installs through the same step.)
+- **If a database was reused**, a preset value that names an option or field it does not have is dropped and
+  listed in the install result's `skipped_sample_field_values`, rather than failing the install.
+- **Uninstall** removes a template the install created and you have not changed. One whose name, description,
+  values or body you edited is kept, reported as "Changed since install.", and one the install only reused is
+  kept as "Existed before the install."
+- **Export includes them.** `export_pack` writes each database's templates into `record_templates`, with option
+  ids rewritten to `$option:` references. Only portable field types travel, so a preset for a person or an
+  attachment field is left out, unless its value is a `$` token such as `$me`. Duplicating a database copies
+  its templates, with option ids pointing at the copy; the copies are your own templates, not the pack's.
+- The built-in [Dev Tracker pack](/guides/dev-tracker-pack/#the-issue-templates) ships three.
+
 ## Automations that send things out install switched off
 
 An automation whose actions leave the workspace or start an agent installs **switched off**, whatever
@@ -219,7 +283,8 @@ the manifest's `enabled` says.
 | `set_values`, `create_record`, `create_records`, `add_comment`, `notify_user`, `update_linked` | As the manifest says |
 
 A rule with several actions is off if any action is outward or runs an agent. An action type the server
-does not recognise is treated as outward. A rule the manifest itself marks `enabled: false` stays off.
+does not recognise is treated as outward. A rule the manifest itself marks `enabled: false` also installs
+off. Naming any of these in `enable_automations` (below) switches it on.
 
 To switch some on at install, pass `enable_automations` with their labels, written
 `Database.Rule name` as the preview lists them. Over MCP this is the `enable_automations` input of
@@ -233,7 +298,43 @@ The preview and the install result both report the outcome for each rule the ins
 - **Install result:** `enabled`, and the same `switched_off_because`.
 
 A rule that already exists is left as it is, so the preview says nothing about it.
-The web install screen does not list these switches yet; use the API or MCP.
+
+### In the web install review
+
+The review lists each automation the install would create. One that installs off reads **Off until you turn
+it on**, followed by why: *It sends things outside your workspace.*, *It runs an agent.*, or, for a rule the
+pack itself ships off, *The pack ships it switched off.* Each has a switch. Turning one on changes the line
+to **On once installed** and sends that rule's label as `enable_automations`; with no switch turned on,
+nothing is sent and every one of them stays off. The review checks your choice with a second preview, and
+shows a rule as on only when that preview says it would be.
+
+## Scheduled automations: sort and limit
+
+An automation whose trigger is `schedule` may carry `sort` and `limit`, to act on the top few records
+instead of all that match, such as the five tickets that have gone longest without an update. They are the same two
+keys the rule API takes (see [Automations](/concepts/automations/)).
+
+```json
+{
+  "database": "Tickets",
+  "name": "Stalled digest",
+  "trigger": { "type": "schedule", "every": "day", "at": "09:00" },
+  "sort": [{ "field": "updated_at", "direction": "asc" }],
+  "limit": 5,
+  "actions": [{ "type": "add_comment", "body_template": "Stalled" }]
+}
+```
+
+- **`sort`:** up to 3 keys, each a field's `api_name` and a `direction` (`asc` or `desc`; `asc` when
+  omitted). It names a field by `api_name`, not by `$field:` reference, so nothing is rewritten on install.
+  A field the database does not have fails the install with a 4xx that names it, and nothing is left behind.
+- **`limit`:** a whole number from 1 to 200.
+- **Schedule triggers only.** `sort` or `limit` on any other trigger fails validation with the message
+  `sort/limit (top-N selection) are only available on a schedule trigger`; over REST that is a 422.
+- **Optional.** A rule without them behaves as before, and its export has neither key.
+- **Export** writes `sort` and `limit` on a scheduled rule that has them, and omits both on one that does not.
+- **Editing them counts as a change.** On uninstall, a rule whose `sort` or `limit` differs from what the
+  install created is kept, with the reason `Changed since install.`, the same as an edit to its actions.
 
 ## Agent triggers install switched off
 
@@ -248,6 +349,8 @@ no `enabled` field, and one a file carries is dropped.
 - A trigger with `human_gate: true` ("ask me before each run") is not held off. It never starts a run by
   itself: a person starts every run. It reports `enabled: true` and `human_gate: true`. A manifest can
   still set it; no built-in pack does.
+- **The web install review does not list triggers yet.** It shows the automations (above) but no switch for a
+  trigger, so a trigger is switched on at install through the API or MCP, as below. The preview does list them.
 - To switch one on at install, pass `enable_agent_triggers` with its label, written
   `Agent ← Database.Field = State` as the preview lists it. Over MCP this is the `enable_agent_triggers`
   input of `install_pack`; over REST it is `enable_agent_triggers` on `packs/install` and `packs/preview`.

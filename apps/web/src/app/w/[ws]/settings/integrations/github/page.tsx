@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -505,11 +504,10 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
         </div>
 
         <div className="flex items-center justify-between border-t border-border-default pt-3 opacity-60">
-          <span className="flex items-center gap-1.5 text-body text-ink-secondary">
+          {/* Ticket #1190: the explanation was a hover-only tooltip on an icon; the #974 rule is that explanations are visible text. */}
+          <span className="flex flex-col text-body text-ink-secondary">
             GitLab
-            <span title="GitLab support is planned but not built yet — this toggle is a placeholder.">
-              <Info className="h-3.5 w-3.5 text-faint" />
-            </span>
+            <span className="text-label text-muted">Planned, not built yet: this row is a placeholder.</span>
           </span>
           <span className="rounded-full bg-surface px-2 py-0.5 text-meta text-muted">
             Coming soon

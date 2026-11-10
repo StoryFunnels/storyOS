@@ -51,16 +51,28 @@ the agent runs, the names are looked up in the workspace's skills when the run s
 made since the last run is what the next run uses. A run whose agent names a skill that no longer
 exists fails, naming it, instead of quietly running without it.
 
-**On a Runner, the Skills field is passed on as written.** An agent set to **Your own AI** runs in
-your own AI tool through a [Runner](/concepts/agent-runs/#agents-on-your-own-ai). What the tool
-receives under "Your skills" is the text of the agent's Skills field, which is the skill names as typed.
-StoryOS does not add each skill's instructions to that prompt on this path (read from the code on
-2026-11-03, not seen in a live run), so write what the agent must do in its own instructions as well
-as naming the skill.
+### On a Runner, the skills' instructions are sent
 
-A skill has no identity of its own. It always runs **as the person who runs it**, capped by their
-workspace role: an admin runs it with admin power, a member with write power, a guest with read
-power. A teammate's AI running your shared skill never gets your access, only theirs.
+An agent set to **Your own AI** runs in your own AI tool through a
+[Runner](/concepts/agent-runs/#agents-on-your-own-ai). Its run is given **each attached skill's
+instructions**, as a run inside StoryOS is, not just the skill names.
+
+- **What is sent:** for each skill, its name, its "when to use" and its instructions, each in a block
+  labelled with the skill's name, under "Your skills" in the run's instructions. They are treated as
+  your manager's guidance for the job, and they do not override the rules the run is given.
+- **When it is read:** when the Runner claims the job, by name, as the agent's owner. An edit made
+  since the last run is what the next run uses.
+- **Long skills are cut, and the run is told.** One skill is cut at 6,000 characters and all of an
+  agent's skills together at 24,000. A skill that is cut says how many characters it has and how many
+  were given, and a skill past the total is still named with that note.
+- **The Run records the skill by name, not its text.**
+- **A skill that cannot be sent stops the run.** If a skill the agent names was removed or renamed, or
+  its owner cannot read it, the run does not start: it fails, the Run names the skill, and the agent's
+  owner is notified. It does not run quietly without it.
+- **A personal skill reaches a Runner only from its author, on the author's own Runner.** If the
+  agent's owner is not the skill's author, or the Runner is not the author's, the skill is not sent
+  and the run fails naming it. This holds for admins too: an admin can read a colleague's personal
+  skill in the library, but it is never copied to another person's computer.
 
 ## Skills written by AI
 

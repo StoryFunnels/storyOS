@@ -92,7 +92,10 @@ Click a space's name in the sidebar (the caret still just collapses it) and it o
   space**, so you do not end up with a second space and an empty first one. Only an admin can install
   a pack; a member sees the two Start from scratch buttons and a line naming the admins to ask. If a database the
   pack would create already exists in another space, the install is refused with a message naming
-  that database and the space it lives in, and nothing is created.
+  that database and the space it lives in, and nothing is created. If the space is still called
+  exactly "Untitled space", a successful install renames it to the name the pack gives its own
+  space; a space you have named anything else keeps its name. If that rename fails the install still
+  stands and you get a message.
 - **Access** — at the bottom of the page, who can open the space. In an unrestricted space it lists three groups: workspace
   members, space-level grants, and database-scoped grants within the space. In a
   [restricted](/concepts/access-and-roles/#restricting-a-space-or-database) space an admin sees a

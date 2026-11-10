@@ -3083,6 +3083,58 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/branch-name": {
+      "get": {
+        "operationId": "RecordsController_branchName",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lane",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "docs",
+                "mcp",
+                "api",
+                "web",
+                "fix"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The git branch name for this record, derived (never stored): [lane/]<number>-<title-slug> (ticket #1219)",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate": {
       "post": {
         "operationId": "RecordsController_duplicate",
@@ -8929,6 +8981,43 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/seen": {
+      "post": {
+        "operationId": "ViewSeenController_markSeen",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mark this view as seen by me now; returns when I last had seen it before this call (null the first time)",
+        "tags": [
+          "views"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/dismissed-hints": {
       "get": {
         "operationId": "DismissedHintsController_get",
@@ -10308,6 +10397,32 @@
         "x-min-role": "admin"
       }
     },
+    "/api/v1/workspaces/{ws}/agents/{agent}/scope": {
+      "get": {
+        "operationId": "AgentsController_getAgentScope",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "description": "The agent record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Where this agent works, resolved NOW: its named databases plus every database in its target spaces (a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
+        "tags": [
+          "agents"
+        ],
+        "x-min-role": "admin"
+      }
+    },
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
       "get": {
         "operationId": "AgentsController_getAgentActivity",
@@ -10929,6 +11044,53 @@
       }
     },
     "/api/v1/workspaces/{ws}/agents/{agent}/catch-up": {
+      "get": {
+        "operationId": "RunnersController_listWaiting",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 0,
+              "maximum": 1000000,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The records POST /agents/{agent}/catch-up would start on, by name (ticket #1224): {total, listed_total, not_listed, items:[{id, title, database_id, database_name}], limit, offset, truncated}. `total` is exactly the `catch_up` count in GET /agent-wakes/summary (a real SQL count seen as the agent's owner). Items are oldest first, the order one click wakes them in, paged with ?limit= (1-100, default 5) and ?offset=. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (never an id); `truncated` is true while more remain to page through. The agent's owner or an admin (a guest 403; anyone else, and an unknown agent, 404). An agent that cannot take wakes returns total 0.",
+        "tags": [
+          "runners"
+        ]
+      },
       "post": {
         "operationId": "RunnersController_startOnWaiting",
         "parameters": [
@@ -11600,6 +11762,275 @@
         "summary": "Duplicate a database — schema, or schema + records (#266)",
         "tags": [
           "databases"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates": {
+      "get": {
+        "operationId": "RecordTemplatesController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a database's record templates (name, preset values, body)",
+        "tags": [
+          "record-templates"
+        ]
+      },
+      "post": {
+        "operationId": "RecordTemplatesController_create",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRecordTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a record template: name, preset values keyed by field api_name, and a Markdown body",
+        "tags": [
+          "record-templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}": {
+      "get": {
+        "operationId": "RecordTemplatesController_get",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One record template",
+        "tags": [
+          "record-templates"
+        ]
+      },
+      "patch": {
+        "operationId": "RecordTemplatesController_update",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRecordTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Edit a record template (a pack-installed one too: it is then kept on uninstall as changed)",
+        "tags": [
+          "record-templates"
+        ]
+      },
+      "delete": {
+        "operationId": "RecordTemplatesController_remove",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a record template. Records already made from it are untouched.",
+        "tags": [
+          "record-templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record": {
+      "post": {
+        "operationId": "RecordTemplatesController_saveFromRecord",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveRecordAsTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Save an existing record as a template: its values and description (not its title, links or computed fields)",
+        "tags": [
+          "record-templates"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records": {
+      "post": {
+        "operationId": "RecordTemplatesController_apply",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "template",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRecordTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a record from a template: preset values and the body are filled in; `values` overrides a preset. Presets that no longer fit the schema are dropped and listed in `skipped`.",
+        "tags": [
+          "record-templates"
         ]
       }
     },
@@ -20758,6 +21189,16 @@
               "minLength": 1,
               "maxLength": 400
             }
+          },
+          "required_packs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "also_install",
+                "create_here"
+              ]
+            }
           }
         }
       },
@@ -20804,6 +21245,88 @@
           "include_records": {
             "default": false,
             "type": "boolean"
+          }
+        }
+      },
+      "CreateRecordTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "values": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 20000
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "SaveRecordAsTemplateDto": {
+        "type": "object",
+        "properties": {
+          "record_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "record_id",
+          "name"
+        ]
+      },
+      "UpdateRecordTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 20000,
+            "nullable": true
+          }
+        }
+      },
+      "ApplyRecordTemplateDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "default": {},
+            "type": "object",
+            "additionalProperties": {}
           }
         }
       },

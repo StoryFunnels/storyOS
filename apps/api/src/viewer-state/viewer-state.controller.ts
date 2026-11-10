@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { AuthGuard } from '../auth/auth.guard';
@@ -41,6 +41,33 @@ export class PinnedTabsController {
   async clear(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
     await this.viewerState.clear(req.membership, 'pinned_tabs', databaseId);
     return { cleared: true };
+  }
+}
+
+/**
+ * Mark a view as seen NOW, by me (ticket #1204, the API half of the gold edge #831). The answer carries `previous_seen_at`, the time
+ * before this call, because opening a view is what overwrites it and "changed since you last looked" needs the value from BEFORE the
+ * open. It is only ever MY row: the route has no way to name another member, and nothing lists or exports these.
+ *
+ * A person looking is a human act, and the stored provenance is the credential's, never a header: an agent or MCP token (and an
+ * automation) cannot mark a view seen on a member's behalf, or an agent reading the board would clear the gold it is the cause of.
+ */
+@ApiTags('views')
+@ApiBearerAuth()
+@Controller('workspaces/:ws/databases/:db/views/:view/seen')
+@UseGuards(AuthGuard, WorkspaceAccessGuard)
+export class ViewSeenController {
+  constructor(private readonly viewerState: ViewerStateService) {}
+
+  @Post()
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Mark this view as seen by me now; returns when I last had seen it before this call (null the first time)' })
+  async markSeen(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('view') viewId: string) {
+    if ((req.auth?.source ?? 'human') !== 'human') throw new ForbiddenException('Only a person opening a view marks it seen');
+    const previous = await this.viewerState.read(req.membership.userId, 'view_last_seen', viewId);
+    const seenAt = new Date().toISOString();
+    await this.viewerState.set(req.membership, 'view_last_seen', viewId, { seen_at: seenAt }, databaseId);
+    return { seen_at: seenAt, previous_seen_at: previous?.seen_at ?? null };
   }
 }
 

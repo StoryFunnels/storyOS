@@ -18,12 +18,27 @@ as the tooltip on that row, at the top of the **Personal page** (click the name 
 the dialog for a new personal view. Nobody else can see into your Personal space, **including admins**, and
 there is no restore path once your account is gone.
 
+Removal is per workspace. If an admin removes you from one workspace, your Personal space and
+personal views **in that workspace** are deleted; your personal content in any other workspace you
+belong to is untouched.
+
 ## What it can hold
 
 **Documents and views only.** There is no private database — a personal view is always a lens on a
 **shared** database, never a place to keep data nobody else has. Deleting a record through a
 personal view deletes it for everyone; deleting the view itself only removes your lens and touches
 nothing else.
+
+**StoryOS refuses to put a database there, whichever way you try.** Creating a database in your
+Personal space, moving one into it (including through the API or MCP), applying a database
+template, installing a pack into it, or having the Architect plan one there all fail with a `422`
+and the message *"A personal space holds documents and views only, so a database cannot live
+there."* Nothing is created and nothing moves; a rename sent alongside a refused move is refused
+with it. Naming **someone else's** personal space answers `404`, exactly as a space that does not
+exist would, so the refusal never confirms that the space is there. Moves between ordinary spaces
+and documents and views in Personal are unaffected. The check looks at the space's personal flag,
+not its name. It stops new placements only: a database that was moved into a personal space
+before this check existed is left where it is, and duplicating one is refused.
 
 ## Creating one
 

@@ -27,6 +27,9 @@ See [Option categories](/guides/pack-manifest/#option-categories).
   Tasks opens on, instead of the plain list.
 - **Assigned to me** on Tasks, also a board grouped by Status, showing only the tasks whose Assignee is
   the person looking at it. It is one shared view: each teammate sees their own tasks in it.
+
+Both boards hide the **No value** column while it is empty, so a fresh install shows three columns. It comes
+back by itself when a task has no Status.
 - **All projects** on Projects, a table that shows Owner, Target date and Open tasks. It hides the
   Tasks link column, because the count says the same thing more briefly. It is not the view Projects
   opens on; Projects keeps its own **All records** list as its default.
@@ -59,6 +62,8 @@ to the person who installed), **Open me and set a due date**, and **Assign me to
 
 ## Installing and uninstalling
 
+- **After an install in the web app** you land on the Board, with the space open in the sidebar. See
+  [The install review, and where you land](/guides/creating-a-workspace/#the-install-review-and-where-you-land).
 - **Installing again** into the same space creates nothing new.
 - **Uninstalling** removes the automations. It does not delete the Tasks or Projects databases, their
   tasks, or the default **Board** view. See [Uninstalling a pack](/mcp/tools/#uninstalling-a-pack).

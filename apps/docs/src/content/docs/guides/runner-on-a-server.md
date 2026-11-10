@@ -13,11 +13,10 @@ and in your subscription.
 This guide assumes you have read [The StoryOS Runner](/guides/runner/) and have a Linux server you
 can reach over SSH, with systemd. It uses no provider-specific steps.
 
-:::caution[Status, as of 3 November 2026]
+:::caution[Status, as of 10 November 2026]
 Claude Code is the only tool the Runner supports today. The `@storyos/runner` package was not yet
 on the npm registry when this was written, so the install step below cannot succeed until it is
-published. The Settings screen for Runners is coming: until then, get the pairing code from the
-[API](/guides/adding-and-removing-a-runner/).
+published.
 :::
 
 ## What you are trusting the server with
@@ -71,7 +70,7 @@ Autostart needs a permanent install, not the `npx` cache:
 npm install -g @storyos/runner
 ```
 
-Get a 6-character code from StoryOS (see
+Get a 6-character code from StoryOS (in the web app, **Settings → Runners → Add a Runner**; see
 [Adding and removing a Runner](/guides/adding-and-removing-a-runner/)), then:
 
 ```sh
@@ -79,7 +78,7 @@ storyos-runner pair
 ```
 
 Type the code. The Runner prints what it found (`found    Claude Code ... signed in`), then waits.
-Turn it on in StoryOS and choose Claude Code, within 10 minutes of getting the code. On a
+Back in StoryOS, choose Claude Code and press **Done**, within 10 minutes of getting the code. On a
 self-managed StoryOS add `--server https://your.server`, and give `--mcp-url` for the MCP service.
 
 Check:
@@ -140,8 +139,9 @@ Three things follow from it:
   it waits for work.
 - In StoryOS: your Runner shows as connected and not offline. StoryOS marks a Runner offline
   after 2 minutes without a sign of life, and sends you one notification per episode when agents
-  are assigned to it. `GET /api/v1/workspaces/{ws}/runners` (or the MCP tool `list_runners`) shows
-  its connection and `offline_since`.
+  are assigned to it. **Settings → Runners** shows its status line, and
+  `GET /api/v1/workspaces/{ws}/runners` (or the MCP tool `list_runners`) shows its connection and
+  `offline_since`.
 - End to end, hand an agent a record and watch the comment arrive. To check the install without
   real work, stop the service (`systemctl --user stop storyos-runner`; only one Runner runs per
   computer) and run `storyos-runner start --adapter stub` in the foreground. It claims and reports

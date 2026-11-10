@@ -146,6 +146,74 @@ export class AgentCatchUpService {
     return this.countFor(await this.plans(caller.workspaceId, agentId), facts.owner as Membership, agentId, 'eligible');
   }
 
+  /**
+   * ticket #1224 — GET /agents/{agent}/catch-up: the records the count counts, by name. Same plans, same WHERE, same owner-scoped
+   * visibility as `countForSummary`, so `total` IS the summary's `catch_up` (a test holds the two equal). Same caller rule as the
+   * click: a guest 403, anyone but the owner or an admin (and an unknown agent) the same 404.
+   *
+   * NAMES ARE READ AS THE CALLER. The count is the agent's owner's view; an admin who is not the owner may be unable to open a
+   * database the owner can. Such a record is not listed and its title never leaves: it is reported only as part of `not_listed`
+   * (total minus what the caller can open), a number, never an id. `listed_total` is the size of what the caller may page through;
+   * `truncated` is true while `offset + items.length < listed_total`. Titles pass through `narrowTitles` like every other read.
+   * Oldest first, the order one click wakes them in. `entered_at` is deliberately absent: when a record entered its state is not
+   * stored reliably (history capture is plan-gated), and a guessed time would be a wrong answer.
+   */
+  async list(caller: Membership, agentId: string, page: { limit: number; offset: number }) {
+    if (caller.role === 'guest') throw new ForbiddenException('A guest cannot see the records waiting for an agent.');
+    const identity = /^[0-9a-f-]{36}$/i.test(agentId) ? await resolveAgentIdentity(this.db, caller.workspaceId, agentId) : null;
+    if (!identity || (identity.ownerId !== caller.userId && caller.role !== 'admin')) throw new NotFoundException('Agent not found');
+    const facts = await this.wakes.catchUpFacts(caller.workspaceId, agentId);
+    if (!facts) throw new NotFoundException('Agent not found');
+    const items: Array<{ id: string; title: string; database_id: string; database_name: string }> = [];
+    // An agent that cannot take wakes has no catch-up (the summary says null); total 0 says the same without an error.
+    if (!facts.owner || !facts.enabled || !facts.ownAi) {
+      return { total: 0, listed_total: 0, not_listed: 0, items, limit: page.limit, offset: page.offset, truncated: false };
+    }
+    const owner = facts.owner as Membership;
+    const plans = await this.plans(caller.workspaceId, agentId);
+    const total = await this.countFor(plans, owner, agentId, 'eligible');
+
+    let listedTotal = 0;
+    let skip = page.offset;
+    for (const plan of plans) {
+      const ownerWhere = await this.where(plan, owner, agentId, 'eligible');
+      if (!ownerWhere) continue;
+      let where: SQL = ownerWhere;
+      if (owner.userId !== caller.userId) {
+        const callerWhere = await this.where(plan, caller, agentId, 'eligible');
+        if (!callerWhere) continue;
+        where = and(ownerWhere, callerWhere) as SQL;
+      }
+      const planTotal = await this.countWhere(where);
+      listedTotal += planTotal;
+      if (planTotal === 0 || items.length >= page.limit) continue;
+      if (skip >= planTotal) {
+        skip -= planTotal;
+        continue;
+      }
+      const rows = await this.db
+        .select({ id: records.id, title: records.title, databaseId: records.databaseId, databaseName: databases.name })
+        .from(records)
+        .innerJoin(databases, eq(databases.id, records.databaseId))
+        .where(where)
+        .orderBy(asc(records.createdAt), asc(records.id))
+        .limit(page.limit - items.length)
+        .offset(skip);
+      skip = 0;
+      for (const r of rows) items.push({ id: r.id, title: r.title, database_id: r.databaseId, database_name: r.databaseName });
+    }
+    await this.records.narrowTitles(caller, items);
+    return {
+      total,
+      listed_total: listedTotal,
+      not_listed: Math.max(0, total - listedTotal),
+      items,
+      limit: page.limit,
+      offset: page.offset,
+      truncated: page.offset + items.length < listedTotal,
+    };
+  }
+
   /** The records one click will wake: oldest first (stable between clicks), at most `limit`. */
   private async pick(plans: DbPlan[], owner: Membership, agentId: string, limit: number): Promise<string[]> {
     const ids: string[] = [];

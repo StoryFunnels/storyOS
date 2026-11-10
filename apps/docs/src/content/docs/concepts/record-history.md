@@ -183,8 +183,9 @@ A row written by a person has these fields `null`.
 show the run number or the Runner's name; those two come from the API and MCP.
 
 **Events with no record.** When an agent's write sends something to a destination an admin fixed in
-advance, the log also holds an `outward.slack_mention_mirror`, `outward.mention_email` or
-`outward.watcher_email` event naming the agent and the run. See
+advance, the log also holds an `outward.slack_mention_mirror`, `outward.mention_email`,
+`outward.watcher_email`, `outward.calendar_sync`, `outward.linear_comment` or `outward.ai_field`
+event naming the agent and the run. See
 [approval gates](/concepts/approval-gates/#destinations-an-admin-fixed-in-advance).
 
 ### Spaces, databases and views

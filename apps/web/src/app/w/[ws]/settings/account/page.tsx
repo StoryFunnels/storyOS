@@ -13,6 +13,7 @@ import { DELETE_ACCOUNT_BLOCKER, DELETE_ACCOUNT_CONSEQUENCES, ERASE_ME_BODY, ema
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRemovePhoto, confirmRevokeSession } from '@/lib/settings-confirmations';
+import { removeProfilePhoto } from '@/lib/remove-photo';
 import { Label } from '@/components/ui/label';
 import {
   AdvancedSection,
@@ -133,9 +134,12 @@ function ProfileBox({
 
   async function remove() {
     if (!(await confirm(confirmRemovePhoto()))) return;
-    await fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' });
-    setOverride(null);
-    onChange();
+    // Ticket #1190 (parity row Account #3): a failed removal must say so. The logic is in lib/remove-photo.ts so a test can fail it.
+    const removed = await removeProfilePhoto(() => fetch(`${API_URL}/api/v1/users/me/avatar`, { method: 'DELETE', credentials: 'include' }), toast);
+    if (removed) {
+      setOverride(null);
+      onChange();
+    }
   }
 
   const [draft, setDraft] = useState(name);

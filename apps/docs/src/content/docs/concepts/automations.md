@@ -200,7 +200,7 @@ whose trigger already isn't `schedule`.
 ## Sending email
 
 An email action needs a **connection** — StoryOS never sends as an address you have not proved
-you own. Set one up at **Settings → Connections** (Resend or SMTP), including a from-address;
+you own. Set one up at **Settings → Integrations → Email** (Resend or SMTP), including a from-address;
 for Resend, on a domain Resend has verified for that key. The connection's own from-address is
 what the mail sends as. You cannot type a `from` on the action.
 

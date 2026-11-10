@@ -2,11 +2,13 @@ import { ConflictException, HttpException, Inject, Injectable, Logger, Unprocess
 import { stripPublicSharing } from '../views/view-sharing';
 import { DocumentsService } from '../documents/documents.service';
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   blocksToMarkdown,
   compareSemver,
   creatableFieldTypeSchema,
+  agentRef,
+  collectAgentRefs,
   dbRef,
   fieldRef,
   lineDiff,
@@ -17,6 +19,8 @@ import {
   describeManifestIssues,
   packManifestSchema,
   resolveSampleDate,
+  scheduleTriggerSchema,
+  packSlug,
   installedEnabledState,
   installedTriggerState,
   SAMPLE_ME,
@@ -35,8 +39,12 @@ import type {
   PackInstallSummary,
   PackManifest,
   PackPreviewItem,
+  PackPreviewRequiredPack,
   PackPreviewResult,
+  PackRequiredChoice,
+  PackRequiredPack,
   PackSkill,
+  PackRecordTemplate,
   PackUninstallResult,
   PackUnmetRequirement,
   PlanAgent,
@@ -54,6 +62,7 @@ import {
   fields as fieldsTable,
   packInstallItems,
   packInstalls,
+  recordTemplates,
   records as recordsTable,
   selectOptions,
   sources,
@@ -80,12 +89,21 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { trackSampleRecords, untrackSampleRecords } from '../workspaces/sample-records';
 import { MarketplaceService } from './marketplace.service';
-import { deref, findRawUuids, refify } from './pack-refs';
+import { deref, findRawUuids, refify, renameRef } from './pack-refs';
+import { PACK_REGISTRY } from './registry';
 
 /** How many records a scan of a system database reads. Mirrors ArchitectService. */
 const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
+
+/** ticket #1218 - the content of a record template that uninstall compares: what a person can edit, not its ids or timestamps. */
+const templateProjection = (t: { name: string; description: string | null; values: unknown; body: string | null }) => ({
+  name: t.name,
+  description: t.description ?? null,
+  values: t.values ?? {},
+  body: t.body ?? null,
+});
 
 /**
  * #1199 — a scheduled rule's top-N selection as the keys a pack manifest and the install hash carry: present ONLY when the rule has one.
@@ -238,6 +256,8 @@ interface SliceDb {
 }
 
 /** #1112 — everything an install has created so far; `result` exists once the architect walk has returned. */
+type InstallArgs = Parameters<PacksService['installInner']> extends [unknown, ...infer R] ? R : never;
+
 interface InstallLedger {
   built: ArchitectBuildProgress;
   result?: PackInstallResult;
@@ -247,6 +267,18 @@ interface InstallLedger {
 interface AgentOsSnapshot {
   databaseIds: Set<string>;
   spaceIds: Set<string>;
+}
+
+/**
+ * #1246 - an install that COMPLETED inside one request (a pack `also_install`ed first), kept with its #1112 ledger so a later failure of
+ * the same request can be compensated by the same rollback as any failed install: one request is one install.
+ */
+interface CompletedInstall {
+  slug: string;
+  name: string;
+  installId: string;
+  ledger: InstallLedger;
+  agentOsBefore: AgentOsSnapshot | undefined;
 }
 
 /**
@@ -440,14 +472,17 @@ export class PacksService {
     }
 
     const relations = await this.exportRelations(slice);
-    const { agents, triggers } = agentsDb
-      ? await this.exportAgents(membership, slice, agentsDb.id, bindings.data)
-      : { agents: [], triggers: [] };
+    // #1198 — an agent a rule RUNS travels with the pack even when no state trigger binds it, and the rule exports it by `$agent:` ref.
+    const runAgentKeys = agentsDb ? await this.runAgentKeys(slice) : new Set<string>();
+    const { agents, triggers, agentRefByKey } = agentsDb
+      ? await this.exportAgents(membership, slice, agentsDb.id, bindings.data, runAgentKeys)
+      : { agents: [], triggers: [], agentRefByKey: new Map<string, string>() };
     const views = this.exportViews(slice, idToRef);
-    const automations = await this.exportAutomations(slice, idToRef);
+    const automations = await this.exportAutomations(slice, idToRef, agentRefByKey);
     const sampleRecords = request.include_sample_records
       ? await this.exportSampleRecords(slice, idToRef, request.sample_limit)
       : [];
+    const recordTemplatesOut = await this.exportRecordTemplates(slice, idToRef);
     const skills = await this.exportSkills(membership, [...request.skill_ids, ...(await this.agentSkillIds(membership, agents, request.skill_ids))]);
 
     const manifest: PackManifest = packManifestSchema.parse({
@@ -474,6 +509,8 @@ export class PacksService {
       views,
       automations,
       sample_records: sampleRecords,
+      // ticket #1241 - absent (not []) when there are none, so an export of a database without templates is byte-identical to before.
+      ...(recordTemplatesOut.length > 0 ? { record_templates: recordTemplatesOut } : {}),
       skills,
     });
 
@@ -667,6 +704,12 @@ export class PacksService {
     for (const field of manifest.derived_fields) if (field.database === source.name) field.database = targetName;
     for (const automation of manifest.automations) if (automation.database === source.name) automation.database = targetName;
     for (const record of manifest.sample_records) if (record.database === source.name) record.database = targetName;
+    // ticket #1241 - the templates' option refs are rewritten like a sample record's, then their database label
+    manifest.record_templates = manifest.record_templates?.map((t) => ({
+      ...t,
+      database: t.database === source.name ? targetName : t.database,
+      values: remapRefStrings(t.values, oldToNewRef) as typeof t.values,
+    }));
     for (const relation of manifest.relations) {
       if (relation.from === source.name) relation.from = targetName;
       if (relation.to === source.name) relation.to = targetName;
@@ -701,6 +744,12 @@ export class PacksService {
     // #266.3 — a duplicate is not an installed pack; strip the provenance
     // `install()` always writes. Cascades to pack_install_items.
     await this.db.delete(packInstalls).where(and(eq(packInstalls.workspaceId, membership.workspaceId), eq(packInstalls.slug, slug)));
+
+    // ticket #1241 - a duplicate's templates are the person's own, not a pack's: install stamped them origin 'pack'
+    const copiedTemplateIds = result.record_templates.map((t) => t.id).filter((id): id is string => Boolean(id));
+    if (copiedTemplateIds.length > 0) {
+      await this.db.update(recordTemplates).set({ origin: 'user' }).where(inArray(recordTemplates.id, copiedTemplateIds));
+    }
 
     const newDb = result.databases.find((d) => norm(d.name) === norm(targetName));
     if (!newDb) {
@@ -948,7 +997,9 @@ export class PacksService {
     slice: SliceDb[],
     agentsDbId: string,
     bindings: Array<{ id: string; values: Record<string, unknown> }>,
-  ): Promise<{ agents: PackAgent[]; triggers: PlanTrigger[] }> {
+    /** #1198 — the `agent` strings of the exported rules' `run_agent` actions (a uuid or a public number). */
+    runAgentKeys: ReadonlySet<string> = new Set(),
+  ): Promise<{ agents: PackAgent[]; triggers: PlanTrigger[]; agentRefByKey: Map<string, string> }> {
     const byId = new Map(slice.map((d) => [d.id, d]));
     const agentRows = await this.records.list(agentsDbId, { limit: MAX_SCAN });
     const agentById = new Map(agentRows.data.map((r) => [r.id, r]));
@@ -984,6 +1035,15 @@ export class PacksService {
         state_option: option.label,
         human_gate: binding.values['human_gate'] === true,
       });
+    }
+
+    // #1198 — which agent each `run_agent` key names; the agent is exported and the key becomes its `$agent:` ref.
+    const agentRefByKey = new Map<string, string>();
+    for (const key of runAgentKeys) {
+      const row = agentById.get(key) ?? agentRows.data.find((r) => String((r as { number?: unknown }).number) === key);
+      if (!row) continue; // not an agent of this workspace: left as it is, and an id outside the pack is refused by the exporter as before
+      wantedAgentIds.add(row.id);
+      agentRefByKey.set(key, agentRef(row.title));
     }
 
     // #1104 — the per-agent write gates, by database/field NAME. Absent for an agent with none, so an ungated agent exports exactly as before.
@@ -1028,7 +1088,22 @@ export class PacksService {
         ...this.exportedAiMode(labelOf('ai_mode', row.values['ai_mode'])),
       });
     }
-    return { agents, triggers };
+    return { agents, triggers, agentRefByKey };
+  }
+
+  /** #1198 — every `agent` a `run_agent` action of the slice's rules names. */
+  private async runAgentKeys(slice: SliceDb[]): Promise<Set<string>> {
+    const keys = new Set<string>();
+    for (const db of slice) {
+      const { data } = await this.automations.list(db.id);
+      for (const rule of data) {
+        for (const action of (rule.actions as unknown[]) ?? []) {
+          const a = action as { type?: unknown; agent?: unknown };
+          if (a.type === 'run_agent' && typeof a.agent === 'string') keys.add(a.agent);
+        }
+      }
+    }
+    return keys;
   }
 
   /** Flatten a BlockNote document to text — `goal`/`instructions` are rich_text. */
@@ -1063,7 +1138,7 @@ export class PacksService {
     );
   }
 
-  private async exportAutomations(slice: SliceDb[], idToRef: Map<string, string>) {
+  private async exportAutomations(slice: SliceDb[], idToRef: Map<string, string>, agentRefByKey: ReadonlyMap<string, string> = new Map()) {
     const out = [];
     for (const db of slice) {
       const { data } = await this.automations.list(db.id);
@@ -1076,12 +1151,50 @@ export class PacksService {
           condition: rule.condition ? refify(rule.condition, idToRef, where) : undefined,
           // Same as the button configs: a `send_webhook` action's headers/URL are
           // credentials, and a pack is published.
-          actions: ((rule.actions as unknown[]) ?? []).map(
-            (a) => refify(redactSecrets(a), idToRef, where) as Record<string, unknown>,
-          ),
+          actions: ((rule.actions as unknown[]) ?? []).map((a) => {
+            // #1198 — a `run_agent` action names its agent by the pack's own ref, never by an id the receiving workspace does not have.
+            const action = a as { type?: unknown; agent?: unknown };
+            const ref = action.type === 'run_agent' && typeof action.agent === 'string' ? agentRefByKey.get(action.agent) : undefined;
+            return refify(redactSecrets(ref ? { ...action, agent: ref } : a), idToRef, where) as Record<string, unknown>;
+          }),
           enabled: rule.enabled,
           // #1199 — a scheduled rule's top-N selection travels with the pack; a rule without one gets neither key.
           ...topNOf(rule),
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * ticket #1241 - a database's record templates (#1218), as the manifest carries them: `values` keyed by field api name with option ids
+   * rewritten to symbolic refs (so install maps them to the target's ids, exactly as for a sample record), `$me` / `$date:` tokens kept
+   * as they are. Only portable field types travel (a user id or an attachment is not portable); a value naming a field the database no
+   * longer has is dropped, as it would be when a record is made from the template.
+   */
+  private async exportRecordTemplates(slice: SliceDb[], idToRef: Map<string, string>): Promise<PackRecordTemplate[]> {
+    const out: PackRecordTemplate[] = [];
+    for (const db of slice) {
+      const rows = await this.db.query.recordTemplates.findMany({
+        where: eq(recordTemplates.databaseId, db.id),
+        orderBy: [asc(recordTemplates.createdAt), asc(recordTemplates.name)],
+      });
+      const typeOf = new Map(db.fields.map((f) => [f.apiName, f.type]));
+      for (const row of rows) {
+        const values: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries((row.values ?? {}) as Record<string, unknown>)) {
+          const type = typeOf.get(key);
+          if (!type) continue;
+          if (!PORTABLE_VALUE_TYPES.has(type) && !(typeof value === 'string' && value.startsWith('$'))) continue;
+          const rewritten = refify(value, idToRef, `A record template of "${db.name}"`, 'drop');
+          if (rewritten !== undefined) values[key] = rewritten;
+        }
+        out.push({
+          database: db.name,
+          name: row.name,
+          ...(row.description ? { description: row.description } : {}),
+          values,
+          ...(row.body?.trim() ? { body: row.body } : {}),
         });
       }
     }
@@ -1347,8 +1460,14 @@ export class PacksService {
     resolutions: PackInstallResolutions = {},
     /** #1192 - see `install`. A preview that ignored it would show the triggers off that the install then turns on. */
     enableAgentTriggers: string[] = [],
+    /** #1197 - see `install`. */
+    requiredChoices: Record<string, PackRequiredChoice> = {},
   ): Promise<PackPreviewResult> {
     const manifest = this.parseManifest(rawManifest);
+    // #1198 — the same up-front refusals install makes, so a preview never promises an install that then fails.
+    this.validateAutomationAgentRefs(manifest);
+    const requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);
+    resolutions = this.withRequiredLinks(manifest, resolutions, requiredPlan);
     // #1095 — a preview that ignored the input install takes would promise a different install: same checks, same refusals.
     if (targetSpaceId) await this.resolveTargetSpace(membership, manifest, targetSpaceId);
     const unmet = await this.checkRequirements(membership, manifest);
@@ -1381,7 +1500,28 @@ export class PacksService {
       item.enabled_on_install = state.enabled;
       if (state.switched_off_because) item.switched_off_because = state.switched_off_because;
     }
-    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents, triggers };
+    // #1197 - the packs this one builds on. Which fields this pack adds to each linked database is read off that database's own hint (the same list).
+    const required_packs: PackPreviewRequiredPack[] = requiredPlan.map((r) => {
+      const linked = r.req.databases.filter((n) => r.links.has(norm(n)));
+      const fields_added = linked.flatMap((n) => {
+        const item = databases.find((d) => norm(d.name) === norm(n));
+        return (item?.existing_elsewhere?.fields_added ?? []).map((f) => ({ database: item!.name, name: f.name, type: f.type }));
+      });
+      const choices: PackRequiredChoice[] = r.installed ? ['create_here'] : r.installable ? ['also_install', 'create_here'] : ['create_here'];
+      const chosen = r.installed && linked.length > 0 ? undefined : (r.choice ?? 'create_here');
+      return {
+        pack: r.req.pack,
+        ...(r.name ? { name: r.name } : {}),
+        ...(r.req.note ? { note: r.req.note } : {}),
+        databases: r.req.databases,
+        installed: r.installed,
+        linked,
+        fields_added,
+        choices,
+        ...(chosen ? { chosen } : {}),
+      };
+    });
+    return { slug: manifest.slug, name: manifest.name, version: manifest.version, unmet, databases, views, automations, agents, triggers, required_packs };
   }
 
   /**
@@ -1867,7 +2007,73 @@ export class PacksService {
         `This is not a valid pack manifest: ${describeManifestIssues(rawManifest, parsed.error.issues)}`,
       );
     }
+    // #1197 - `requires.packs` names databases of THIS manifest; one that is not here would never link to anything, so it is refused up
+    // front rather than silently ignored. A pack cannot build on itself.
+    for (const req of parsed.data.requires.packs ?? []) {
+      if (req.pack === parsed.data.slug) {
+        throw new UnprocessableEntityException(`"${parsed.data.name}" cannot build on itself (requires.packs names "${req.pack}").`);
+      }
+      const planned = new Set(parsed.data.databases.map((d) => norm(d.name)));
+      const stray = req.databases.filter((n) => !planned.has(norm(n)));
+      if (stray.length > 0) {
+        throw new UnprocessableEntityException(
+          `requires.packs says ${stray.map((n) => `"${n}"`).join(', ')} belong${stray.length === 1 ? 's' : ''} to "${req.pack}", but this manifest has no database of that name.`,
+        );
+      }
+    }
     return parsed.data;
+  }
+
+  /**
+   * #1197 - where each pack this manifest builds on stands in THIS workspace, and which of this pack's databases would be linked to it.
+   *
+   * A database is linked only when the required pack is installed (tracked, not uninstalled), the database is one that install tracked and
+   * it is still live, editable by the installer and not a system one; anything else is treated as absent, so nothing about a database the
+   * person cannot edit is used or described. `create_here` (their explicit choice) links nothing: the pack then makes its own, as before.
+   * `choices` may only name a pack the manifest requires.
+   */
+  private async planRequiredPacks(
+    membership: Membership,
+    manifest: PackManifest,
+    choices: Record<string, PackRequiredChoice> = {},
+  ): Promise<Array<{ req: PackRequiredPack; name?: string; installable: boolean; installed: boolean; choice?: PackRequiredChoice; links: Map<string, string> }>> {
+    const wanted = manifest.requires.packs ?? [];
+    for (const slug of Object.keys(choices)) {
+      if (!wanted.some((r) => r.pack === slug)) {
+        throw new UnprocessableEntityException(`"${manifest.name}" does not build on a pack called "${slug}", so there is nothing to choose for it.`);
+      }
+    }
+    if (wanted.length === 0) return [];
+    const live = await this.databases.list(membership);
+    const out = [];
+    for (const req of wanted) {
+      const entry = PACK_REGISTRY.find((p) => p.slug === req.pack);
+      const choice = choices[req.pack];
+      const install = await this.findExistingInstall(membership.workspaceId, req.pack);
+      const tracked = install ? await this.trackedDatabaseIds(install.id) : new Map<string, string>();
+      const links = new Map<string, string>();
+      if (install && choice !== 'create_here') {
+        for (const n of req.databases) {
+          const id = tracked.get(norm(n));
+          const l = id ? live.find((x) => x.id === id) : undefined;
+          if (l && l.my_access !== null && ACCESS_RANK[l.my_access as EffectiveRole] >= ACCESS_RANK.editor && !isSystemDatabase(l)) links.set(norm(n), l.id);
+        }
+      }
+      out.push({ req, name: entry?.name, installable: Boolean(entry), installed: Boolean(install), choice, links });
+    }
+    return out;
+  }
+
+  /** #1197 - the person's `resolutions` plus an implicit `reuse` for each database linked to a required pack, unless they already chose one (the #1176 picker wins). */
+  private withRequiredLinks(manifest: PackManifest, resolutions: PackInstallResolutions, plan: Awaited<ReturnType<PacksService['planRequiredPacks']>>): PackInstallResolutions {
+    const out: PackInstallResolutions = { ...resolutions };
+    for (const r of plan) {
+      for (const [key, databaseId] of r.links) {
+        const d = manifest.databases.find((x) => norm(x.name) === key);
+        if (d && !out[d.name]) out[d.name] = { action: 'reuse', database_id: databaseId };
+      }
+    }
+    return out;
   }
 
   private async findExistingInstall(workspaceId: string, slug: string) {
@@ -1917,8 +2123,65 @@ export class PacksService {
    * showed. Anything still unresolved is a 409, not a guess: installing on a
    * genuine name collision without an explicit decision is exactly the
    * silent-adoption bug `preview` exists to let a person catch first.
+   *
+   * #1246 — `required_packs: also_install` makes the request ONE install: when this install (or the nested one) fails, everything the
+   * request created is rolled back, the pack it installed first included and its databases too (`rollbackAlsoInstalled`). A required pack
+   * that was already installed before the request is never touched.
    */
-  async install(
+  async install(...args: InstallArgs): Promise<PackInstallResult> {
+    const completed: CompletedInstall[] = [];
+    try {
+      return await this.installInner(completed, ...args);
+    } catch (error) {
+      // `completed` holds only installs that finished: the failing install already rolled itself back (#1112).
+      if (completed.length === 0) throw error;
+      throw await this.rollbackAlsoInstalled(args[0], completed, error);
+    }
+  }
+
+  /**
+   * #1246 — compensate: undo every install this request completed (newest first) with the #1112 rollback, so everything it CREATED goes
+   * (databases, records and all: they were made seconds ago by this same request and hold only the pack's own sample data) and anything it
+   * merely reused stays. Then its install record goes, since the pack is no longer installed. Never swallows: a failed rollback is reported
+   * alongside the original failure.
+   */
+  private async rollbackAlsoInstalled(membership: Membership, packs: CompletedInstall[], cause: unknown): Promise<HttpException> {
+    const rolledBack: string[] = [];
+    const notes: string[] = [];
+    for (const p of [...packs].reverse()) {
+      const problems = await this.rollbackInstall(membership, p.ledger, p.agentOsBefore);
+      try {
+        await this.db.transaction(async (tx) => {
+          await tx.delete(packInstallItems).where(eq(packInstallItems.packInstallId, p.installId));
+          await tx.delete(packInstalls).where(and(eq(packInstalls.id, p.installId), eq(packInstalls.workspaceId, membership.workspaceId)));
+        });
+      } catch (e) {
+        problems.push(`its install record: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (problems.length === 0) rolledBack.push(`"${p.name}"`);
+      else notes.push(`rolling back "${p.name}" FAILED for ${problems.join('; ')} - delete those by hand before installing again`);
+    }
+    const status = cause instanceof HttpException && cause.getStatus() >= 400 ? cause.getStatus() : 500;
+    const reason = cause instanceof HttpException ? this.reasonOf(cause) : cause instanceof Error ? cause.message : String(cause);
+    const said =
+      rolledBack.length > 0
+        ? `Rolled back everything this request had installed first: ${rolledBack.join(', ')} - its databases, records and install are removed again.`
+        : 'No pack could be rolled back.';
+    const extra = notes.length > 0 ? ` ${notes.join('; ')}.` : '';
+    return new HttpException(`${reason} ${said}${extra}`, status);
+  }
+
+  private reasonOf(error: HttpException): string {
+    const response = error.getResponse();
+    if (typeof response === 'string') return response;
+    const m = (response as { message?: string | string[] }).message;
+    return Array.isArray(m) ? m.join('; ') : (m ?? error.message);
+  }
+
+  /** Not private only so `InstallArgs` can name its parameters; call `install`. */
+  async installInner(
+    /** #1246 - filled with each install that completes in this request (the pack an `also_install` made first, then this one). */
+    completed: CompletedInstall[],
     membership: Membership,
     rawManifest: unknown,
     resolutions: PackInstallResolutions = {},
@@ -1935,6 +2198,13 @@ export class PacksService {
      * earlier install already created is never touched, in either direction.
      */
     enableAgentTriggers: string[] = [],
+    /**
+     * #1197 - `{ "<pack slug>": "also_install" | "create_here" }` for each pack `requires.packs` names. A required pack that is installed
+     * here is linked (databases reused) unless `create_here`; one that is not is installed first on `also_install` (its own all-or-nothing
+     * install, which is rolled back with this one if this pack's install then fails, #1246) and otherwise its databases are created
+     * inside this pack, as before.
+     */
+    requiredChoices: Record<string, PackRequiredChoice> = {},
   ): Promise<PackInstallResult> {
     const manifest = this.parseManifest(rawManifest);
     const targetSpace = targetSpaceId ? await this.resolveTargetSpace(membership, manifest, targetSpaceId) : undefined;
@@ -1943,7 +2213,23 @@ export class PacksService {
     // is, and the same rule applies — a broken promise about the manifest's
     // own contents is a 422, not a partial install.
     this.validateAgentSkillNames(manifest);
+    this.validateAutomationAgentRefs(manifest);
     const unmet = await this.checkRequirements(membership, manifest);
+
+    let requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);
+    const alsoInstalled = new Set<string>();
+    for (const r of requiredPlan) {
+      if (r.installed || r.choice !== 'also_install') continue;
+      const entry = PACK_REGISTRY.find((p) => p.slug === r.req.pack);
+      if (!entry) {
+        throw new UnprocessableEntityException(`StoryOS has no built-in pack "${r.req.pack}" to install; choose create_here to make the linked databases inside "${manifest.name}".`);
+      }
+      // The nested install appends itself to `completed` once it has finished, so this request can undo it if a later step fails.
+      await this.installInner(completed, membership, entry.manifest);
+      alsoInstalled.add(r.req.pack);
+    }
+    if (alsoInstalled.size > 0) requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);
+    resolutions = this.withRequiredLinks(manifest, resolutions, requiredPlan);
 
     const existingInstall = await this.findExistingInstall(membership.workspaceId, manifest.slug);
     const { adopt } = await this.planAdoptions(membership, manifest, targetSpace?.id, resolutions, existingInstall);
@@ -1985,10 +2271,21 @@ export class PacksService {
         views: [],
         automations: [],
         sample_records: [],
+        record_templates: [],
         skills: [],
         skipped_sample_field_values: [],
       };
       ledger.result = result;
+      if (requiredPlan.length > 0) {
+        result.required_packs = requiredPlan.map((r) => {
+          const linked = r.req.databases.filter((n) => adopt.has(norm(n)));
+          return {
+            pack: r.req.pack,
+            outcome: linked.length === 0 ? ('created_here' as const) : alsoInstalled.has(r.req.pack) ? ('installed_and_linked' as const) : ('linked' as const),
+            databases: r.req.databases,
+          };
+        });
+      }
 
       const dbIds = new Map(built.databases.map((d) => [norm(d.name), d.id]));
 
@@ -1998,6 +2295,8 @@ export class PacksService {
       await this.installDerivedFields(membership, working, dbIds, result);
 
       const refToId = await this.readInstallRefs(membership, working, dbIds);
+      // #1198 — the pack's own agents, by manifest name, so a rule can run one by `$agent:<name>`. An agent the person skipped has no id here.
+      for (const agent of result.agents) if (agent.id && agent.action !== 'skipped') refToId.set(agentRef(agent.name), agent.id);
       const hashes = new Map<string, string>();
       // Entity ids never worth a `pack_install_items` row — currently just a
       // database's default view (see `installViews`'s doc). `recordInstall`
@@ -2018,6 +2317,8 @@ export class PacksService {
       );
       step = 'adding the sample records';
       await this.installSampleRecords(membership, working, dbIds, refToId, result);
+      step = 'adding the record templates';
+      await this.installRecordTemplates(membership, working, dbIds, refToId, result, hashes);
       step = 'adding the skills';
       await this.installSkills(membership, working, result, hashes);
 
@@ -2029,6 +2330,8 @@ export class PacksService {
       await this.hashInstalledAgents(membership, result, hashes);
 
       await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked, agentProvenance);
+      const recorded = await this.findExistingInstall(membership.workspaceId, manifest.slug);
+      if (recorded) completed.push({ slug: manifest.slug, name: manifest.name, installId: recorded.id, ledger, agentOsBefore });
 
       return result;
     } catch (error) {
@@ -2111,6 +2414,10 @@ export class PacksService {
       await attempt(`skill ${id}`, () => this.skills.remove(membership, membership.userId, id));
     }
 
+    // 1b. Record templates this install created (a created database takes its own with it).
+    const templateIds = created(result?.record_templates);
+    if (templateIds.length > 0) await attempt('record templates', () => this.db.delete(recordTemplates).where(inArray(recordTemplates.id, templateIds)));
+
     // 2. Sample records, and their entries in the sample-data registry.
     const sampleIds = created(result?.sample_records);
     if (sampleIds.length > 0) {
@@ -2158,7 +2465,12 @@ export class PacksService {
       for (const id of ids) {
         const databaseId = byId.get(id);
         if (!databaseId || createdDbIds.includes(databaseId)) continue; // gone already, or goes with its database
-        await attempt(`field ${id}`, () => this.fields.remove(databaseId, id));
+        // `fields.remove` soft-deletes (and tidies lookups and unique indexes); the row is then hard-deleted, like everything else a rollback
+        // removes, so a field this install added to a database that already existed leaves no trace.
+        await attempt(`field ${id}`, async () => {
+          await this.fields.remove(databaseId, id);
+          await this.db.delete(fieldsTable).where(eq(fieldsTable.id, id));
+        });
       }
     };
     await removeFields(created(result?.derived_fields).reverse());
@@ -2331,6 +2643,8 @@ export class PacksService {
       triggers: manifest.triggers.map((t) =>
         norm(t.agent) === norm(oldName) ? { ...t, agent: newName } : t,
       ),
+      // #1198 — a rule that runs the agent follows it to its new name (its ref is derived from the name).
+      automations: renameRef(manifest.automations, agentRef(oldName), agentRef(newName)) as PackManifest['automations'],
     };
   }
 
@@ -2422,7 +2736,7 @@ export class PacksService {
 
       type Kind =
         | 'database' | 'field' | 'relation' | 'state' | 'agent' | 'trigger'
-        | 'derived_field' | 'view' | 'automation' | 'sample_record' | 'skill';
+        | 'derived_field' | 'view' | 'automation' | 'sample_record' | 'skill' | 'record_template';
       const rows: Array<{
         packInstallId: string;
         kind: Kind;
@@ -2457,6 +2771,7 @@ export class PacksService {
       add('view', result.views);
       add('automation', result.automations);
       add('sample_record', result.sample_records);
+      add('record_template', result.record_templates);
       add('skill', result.skills);
 
       if (rows.length > 0) await tx.insert(packInstallItems).values(rows);
@@ -2608,6 +2923,22 @@ export class PacksService {
         }
         await this.records.softDelete(membership.workspaceId, agentsDb.id, item.entityId, membership.userId);
         removed.push({ kind: 'agent', name: item.name, id: item.entityId });
+      } else if (item.kind === 'record_template') {
+        // ticket #1218 - a template the person edited (or one the install merely reused) is theirs now: kept, with the reason.
+        const live = await this.db.query.recordTemplates.findFirst({
+          where: and(eq(recordTemplates.id, item.entityId), eq(recordTemplates.workspaceId, membership.workspaceId)),
+        });
+        if (!live) continue;
+        if (item.action === 'reused') {
+          kept.push({ kind: 'record_template', name: item.name, id: item.entityId, reason: 'Existed before the install.' });
+          continue;
+        }
+        if (this.hashOf(templateProjection(live)) !== item.contentHash) {
+          kept.push({ kind: 'record_template', name: item.name, id: item.entityId, reason: 'Changed since install.' });
+          continue;
+        }
+        await this.db.delete(recordTemplates).where(eq(recordTemplates.id, item.entityId));
+        removed.push({ kind: 'record_template', name: item.name, id: item.entityId });
       } else if (item.kind === 'skill') {
         let skill;
         try {
@@ -2915,6 +3246,12 @@ export class PacksService {
         result.automations.push({ name: label, action: 'skipped', id: '' });
         continue;
       }
+      // #1198 — a rule that runs an agent the person chose to SKIP has nothing to run: it is skipped with it, not installed pointing at nothing.
+      // (A ref naming an agent the manifest never declared was refused before the build; reaching here unresolved means the agent was skipped.)
+      if (collectAgentRefs([planned.trigger, planned.condition, planned.actions]).some((ref) => !refToId.has(ref))) {
+        result.automations.push({ name: label, action: 'skipped', id: '' });
+        continue;
+      }
       const targetName = resolution?.action === 'rename' ? resolution.rename_to! : planned.name;
 
       const dbId = this.resolveDb(dbIds, planned.database, `The automation "${label}"`);
@@ -3079,9 +3416,61 @@ export class PacksService {
       }
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });
-      createdIds.push(created.id);
+      // #1242 — `sample: false` is structure (other records point at it): created, but never registered, so Remove sample data leaves it.
+      if (planned.sample !== false) createdIds.push(created.id);
     }
     await trackSampleRecords(this.db, membership.workspaceId, createdIds);
+  }
+
+  /**
+   * ticket #1218 - the pack's record templates, matched by (database, name). One that already exists is REUSED and left exactly as the
+   * person has it, so a re-install never overwrites an edit. Option refs resolve like a sample record's, per field when the database
+   * was reused (a dropped one is reported in `skipped_sample_field_values`); `$me` and `$date:` tokens are kept as they are, because
+   * they are decided when a record is made from the template, not now.
+   */
+  private async installRecordTemplates(
+    membership: Membership,
+    manifest: PackManifest,
+    dbIds: Map<string, string>,
+    refToId: Map<string, string>,
+    result: PackInstallResult,
+    hashes: Map<string, string>,
+  ): Promise<void> {
+    for (const planned of manifest.record_templates ?? []) {
+      const dbId = this.resolveDb(dbIds, planned.database, 'A record template');
+      const label = `${planned.database}: ${planned.name}`;
+      const existing = await this.db.query.recordTemplates.findMany({ where: eq(recordTemplates.databaseId, dbId) });
+      const match = existing.find((t) => norm(t.name) === norm(planned.name));
+      if (match) {
+        result.record_templates.push({ name: label, action: 'reused', id: match.id });
+        continue;
+      }
+      const isReused = result.databases.find((d) => norm(d.name) === norm(planned.database))?.action === 'reused';
+      const values: Record<string, unknown> = {};
+      for (const [field, rawValue] of Object.entries(planned.values)) {
+        try {
+          values[field] = deref(rawValue, refToId, `A record template of "${planned.database}"`);
+        } catch (err) {
+          if (!isReused) throw err;
+          result.skipped_sample_field_values.push({ record: label, field, reason: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      const [row] = await this.db
+        .insert(recordTemplates)
+        .values({
+          workspaceId: membership.workspaceId,
+          databaseId: dbId,
+          name: planned.name,
+          description: planned.description ?? null,
+          values,
+          body: planned.body?.trim() ? planned.body : null,
+          origin: 'pack',
+          createdBy: membership.userId,
+        })
+        .returning();
+      result.record_templates.push({ name: label, action: 'created', id: row!.id });
+      hashes.set(`record_template:${row!.id}`, this.hashOf(templateProjection(row!)));
+    }
   }
 
   /**
@@ -3140,6 +3529,40 @@ export class PacksService {
             `Agent "${agent.name}" declares skill "${name}", which this pack does not bundle. ` +
               `Every name in an agent's \`skills\` must match a \`skills[].name\` in the same manifest.`,
           );
+        }
+      }
+    }
+  }
+
+  /**
+   * Ticket #1198 — a pack automation may run (and so SCHEDULE) one of the pack's own agents: `{ type: 'run_agent', agent: '$agent:<name>' }`.
+   * Checked before anything is built, like `validateAgentSkillNames`: a ref naming an agent this manifest does not declare is the
+   * manifest lying about its own contents, and so is a schedule the rule engine would refuse (a bad cadence would otherwise fail halfway
+   * through the install). The schedule shape is `scheduleTriggerSchema` itself — the pack has no cadence grammar of its own.
+   */
+  private validateAutomationAgentRefs(manifest: PackManifest): void {
+    const bySlug = new Map<string, string[]>();
+    for (const agent of manifest.agents) bySlug.set(packSlug(agent.name), [...(bySlug.get(packSlug(agent.name)) ?? []), agent.name]);
+    for (const rule of manifest.automations) {
+      const where = `The automation "${rule.database}.${rule.name}"`;
+      for (const ref of collectAgentRefs([rule.trigger, rule.condition, rule.actions])) {
+        const named = bySlug.get(ref.slice('$agent:'.length));
+        if (!named) {
+          const known = manifest.agents.map((a) => `"${a.name}" (${agentRef(a.name)})`);
+          throw new UnprocessableEntityException(
+            `${where} references the agent "${ref}", which this pack does not declare. A pack automation can only run an agent listed in ` +
+              `the manifest's \`agents\`, by its ref (the name lowercased, runs of other characters as "-").` +
+              (known.length > 0 ? ` This pack declares: ${known.join(', ')}.` : ' This pack declares no agents.'),
+          );
+        }
+        if (named.length > 1) {
+          throw new UnprocessableEntityException(`${where} references "${ref}", which names more than one agent of this pack (${named.map((n) => `"${n}"`).join(', ')}). Rename one so each agent has its own ref.`);
+        }
+      }
+      if (rule.trigger.type === 'schedule') {
+        const parsed = scheduleTriggerSchema.safeParse(rule.trigger);
+        if (!parsed.success) {
+          throw new UnprocessableEntityException(`${where} has a schedule trigger the rule engine would refuse: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
         }
       }
     }

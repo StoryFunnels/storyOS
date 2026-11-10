@@ -73,7 +73,7 @@ const nameSchema = z.string().min(1).max(200);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
 /** Matches a symbolic ref anywhere a string is allowed. */
-export const PACK_REF_PATTERN = /^\$(db|field|option):[a-z0-9-]+(\.[a-z0-9-]+){0,2}$/;
+export const PACK_REF_PATTERN = /^\$(db|field|option|agent):[a-z0-9-]+(\.[a-z0-9-]+){0,2}$/;
 
 export const packRefSchema = z.string().regex(PACK_REF_PATTERN, 'not a symbolic pack ref');
 
@@ -98,6 +98,25 @@ export const dbRef = (db: string) => `$db:${packSlug(db)}`;
 export const fieldRef = (db: string, field: string) => `$field:${packSlug(db)}.${packSlug(field)}`;
 export const optionRef = (db: string, field: string, option: string) =>
   `$option:${packSlug(db)}.${packSlug(field)}.${packSlug(option)}`;
+/**
+ * #1198 — a pack's OWN agent, by manifest name: `{ type: 'run_agent', agent: '$agent:deal-coach' }` on a (scheduled) automation. A manifest
+ * cannot know the id the agent will get, so install resolves the ref to it. A ref naming an agent the manifest does not declare is
+ * refused up front (`unknownAgentRefs`), never installed pointing at nothing.
+ */
+export const agentRef = (name: string) => `$agent:${packSlug(name)}`;
+
+/** Every `$agent:` ref anywhere in a value (an automation's trigger/condition/actions), in first-seen order and without repeats. */
+export function collectAgentRefs(value: unknown): string[] {
+  const found = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (typeof node === 'string') {
+      if (node.startsWith('$agent:') && PACK_REF_PATTERN.test(node)) found.add(node);
+    } else if (Array.isArray(node)) node.forEach(walk);
+    else if (node && typeof node === 'object') Object.values(node).forEach(walk);
+  };
+  walk(value);
+  return [...found];
+}
 
 /**
  * The connections a pack can require.
@@ -159,9 +178,34 @@ export const packSuggestedSourceSchema = z.object({
 });
 export type PackSuggestedSource = z.infer<typeof packSuggestedSourceSchema>;
 
+/**
+ * #1197 - a pack that BUILDS ON another pack (Deal Desk on Agency OS's Clients and Projects). `pack` is the other pack's slug and
+ * `databases` the names of THIS manifest's databases that are really that pack's (they must be in this manifest's `databases`, which the
+ * install checks): when the other pack is installed in the workspace they are linked to ITS databases instead of being created empty;
+ * when it is not, the review offers PACK_REQUIRED_CHOICES. Never an automatic install: the person decides.
+ */
+export const packRequiredPackSchema = z.object({
+  pack: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, 'pack must be a lowercase slug'),
+  databases: z.array(z.string().min(1).max(200)).min(1).max(20),
+  /** Why this pack builds on the other one; shown in the review. */
+  note: z.string().max(300).optional(),
+});
+export type PackRequiredPack = z.infer<typeof packRequiredPackSchema>;
+
+/** What a person chooses for a required pack: install it too, or create the linked databases inside this pack (today's behaviour). */
+export const PACK_REQUIRED_CHOICES = ['also_install', 'create_here'] as const;
+export const packRequiredChoiceSchema = z.enum(PACK_REQUIRED_CHOICES);
+export type PackRequiredChoice = (typeof PACK_REQUIRED_CHOICES)[number];
+
 export const packRequiresSchema = z.object({
   connections: z.array(packConnectionSchema).default([]),
   ai: packAiNeedSchema.default('none'),
+  /** #1197 - packs this one builds on; absent for a pack that stands alone. */
+  packs: z.array(packRequiredPackSchema).max(10).optional(),
 });
 export type PackRequires = z.infer<typeof packRequiresSchema>;
 
@@ -301,8 +345,29 @@ export const packSampleRecordSchema = z.object({
    * validates. A wiki page's text is its description, so a starter page that installed with only a title would install empty.
    */
   description: z.string().max(20_000).optional(),
+  /**
+   * ticket #1242 — `false` marks the record STRUCTURE, not sample: other records point at it (Team Wiki's "Everyone" team, which every
+   * starter page is grouped under). It is created like any record in this list, but never registered as sample data, so "Remove sample data"
+   * leaves it. Omitted means sample, so every manifest written before this keeps its meaning.
+   */
+  sample: z.boolean().optional(),
 });
 export type PackSampleRecord = z.infer<typeof packSampleRecordSchema>;
+
+/**
+ * ticket #1218 - a record template a pack ships for one of its databases. `values` is keyed by api_name like a sample record's, and
+ * its option ids are `$option:` refs the installer resolves; `$me` and `$date:+Nd` pass through untouched and are decided when a
+ * record is made from the template. `description` is the template's own one-line label; `body` is the record description it creates,
+ * as Markdown (sections included). Optional on the manifest, so every pack written before it still validates.
+ */
+export const packRecordTemplateSchema = z.object({
+  database: nameSchema,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).optional(),
+  values: jsonObjectSchema.default({}),
+  body: z.string().max(20_000).optional(),
+});
+export type PackRecordTemplate = z.infer<typeof packRecordTemplateSchema>;
 
 /**
  * A skill (#40), bundled into a pack.
@@ -433,6 +498,11 @@ export const packManifestSchema = architectPlanSchema.extend({
   views: z.array(packViewSchema).default([]),
   automations: z.array(packAutomationSchema).default([]),
   sample_records: z.array(packSampleRecordSchema).default([]),
+  /**
+   * ticket #1218 - record templates per database, installed with the pack and editable afterwards. Optional with NO default, so a
+   * manifest written before it parses to exactly what it did (a pinned manifest does not grow a key).
+   */
+  record_templates: z.array(packRecordTemplateSchema).optional(),
   /** Skills (#40) bundled into this pack, installed/matched by name. */
   skills: z.array(packSkillSchema).default([]),
   /** #600 — data sources this pack recommends connecting (Shopify/YouTube/
@@ -557,9 +627,19 @@ export const packInstallResultSchema = z.object({
     }),
   ),
   sample_records: z.array(installedEntitySchema),
+  /** ticket #1218 - defaults, so a result from before templates existed still parses. */
+  record_templates: z.array(installedEntitySchema).default([]),
   skills: z.array(installedEntitySchema),
   /** #568 — see skippedSampleFieldValueSchema's doc. Empty on every install that hits none. */
   skipped_sample_field_values: z.array(skippedSampleFieldValueSchema).default([]),
+  /**
+   * #1197 - what became of each pack this one builds on (`requires.packs`): `linked` (already installed, its databases used),
+   * `installed_and_linked` (installed first on the person's choice, then used) or `created_here` (this pack made its own). `databases`
+   * names this pack's databases concerned. Absent when the manifest requires no pack.
+   */
+  required_packs: z
+    .array(z.object({ pack: z.string(), outcome: z.enum(['linked', 'installed_and_linked', 'created_here']), databases: z.array(z.string()) }))
+    .optional(),
 });
 export type PackInstallResult = z.infer<typeof packInstallResultSchema>;
 
@@ -721,6 +801,31 @@ export type PackPreviewItem = z.infer<typeof packPreviewItemSchema>;
  * agent that uses it and is not, on its own, something a person reviews
  * before clicking install.
  */
+/**
+ * #1197 - one pack the manifest builds on (`requires.packs`), as the review shows it.
+ *   installed       the required pack is installed here and its databases (`linked`) are the ones this pack links to
+ *   linked          names of this pack's databases that WILL be the required pack's own (empty if the person chose create_here, or a
+ *                   database of that pack is gone or not editable by them)
+ *   fields_added    what this pack adds to those databases ({database, name, type}), the same lists as each database's `existing_elsewhere`
+ *   choices         what the person may pick in `required_packs[slug]`: ['also_install', 'create_here'] when it is not installed
+ *                   (just ['create_here'] if StoryOS has no such built-in pack), ['create_here'] when installed (to decline the link)
+ *   chosen          the choice in effect: the one sent, else `create_here` when not installed; absent when installed and the link stands
+ *   name            the required pack's display name when StoryOS knows it
+ * Several same-named databases still go through `existing_elsewhere.candidates` + `resolutions[name].database_id` (#1176); a pick there wins.
+ */
+export const packPreviewRequiredPackSchema = z.object({
+  pack: z.string(),
+  name: z.string().optional(),
+  note: z.string().optional(),
+  databases: z.array(z.string()),
+  installed: z.boolean(),
+  linked: z.array(z.string()),
+  fields_added: z.array(z.object({ database: z.string(), name: z.string(), type: z.string() })),
+  choices: z.array(packRequiredChoiceSchema),
+  chosen: packRequiredChoiceSchema.optional(),
+});
+export type PackPreviewRequiredPack = z.infer<typeof packPreviewRequiredPackSchema>;
+
 export const packPreviewResultSchema = z.object({
   slug: z.string(),
   name: z.string(),
@@ -736,6 +841,8 @@ export const packPreviewResultSchema = z.object({
    * `human_gate: true` (it never fires by itself, so no switch). A trigger that already exists is `reuse` and carries neither.
    */
   triggers: z.array(packPreviewItemSchema),
+  /** #1197 - the packs this one builds on; [] when it stands alone. */
+  required_packs: z.array(packPreviewRequiredPackSchema),
 });
 export type PackPreviewResult = z.infer<typeof packPreviewResultSchema>;
 
@@ -808,7 +915,7 @@ export type PackInstallSummary = z.infer<typeof packInstallSummarySchema>;
 
 /** One object uninstall touched, or chose not to. */
 export const packUninstallItemSchema = z.object({
-  kind: z.enum(['view', 'automation', 'agent', 'skill']),
+  kind: z.enum(['view', 'automation', 'agent', 'skill', 'record_template']),
   name: z.string(),
   id: z.uuid(),
   /** Present only on `kept` — why it was left behind. */

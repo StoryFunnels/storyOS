@@ -34,6 +34,16 @@ export interface CoverageRule {
  */
 export const EXCLUDED: CoverageRule[] = [
   {
+    match: 'POST /api/v1/workspaces/{ws}/databases/{db}/views/{view}/seen',
+    reason:
+      "ticket #1204 - this records that a PERSON opened a view, so the web can show 'changed by an agent since you last looked'. The route refuses any credential whose stored provenance is not human (403): an agent marking a view seen would clear the very gold its own writes cause. A tool could never succeed, so it would only invite an agent to try. What an agent CAN read is the other half: last_ai_change_at on every record it lists.",
+  },
+  {
+    match: 'GET /api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}',
+    reason:
+      'ticket #1218 - reading one record template is already reachable: list_record_templates returns every template of the database in full (values and body), and a database holds a handful, so a by-id read would be the same data behind a second call.',
+  },
+  {
     match: 'GET /api/v1/workspaces/{ws}/documents/{doc}/export/markdown',
     reason:
       "#262 — the capability (read a document as Markdown) is already reachable via get_document, which renders through the same @storyos/schemas/markdown converter this route's response is built from. This route exists for the FILE-DOWNLOAD convention the web UI needs (content-disposition, a single self-contained blob with the title as an H1) — not a second way for an agent to read the same text. Mirroring it as a tool would be exactly the false parity coverage.ts's own docstring warns against: 'the requirement is that every CAPABILITY is reachable, not that the two surfaces mirror each other operation for operation.'",
@@ -123,7 +133,7 @@ export const EXCLUDED: CoverageRule[] = [
   {
     match: 'POST /api/v1/workspaces/{ws}/agents/{agent}/catch-up',
     reason:
-      "ticket #1152 / ADR-0021 §11 — the one-click catch-up queues a wake for every record already waiting in an agent's trigger state, and each wake becomes a run on the agent OWNER's own computer and model subscription. Like the rest of the Runner family it is a signed-in person's decision (the API refuses any token, connected AI and the agent's own run credential, so an agent cannot start itself on a backlog), and it is the button's own act with a per-click cap. The read half IS reachable: get_agent_wake_summary carries each agent's `catch_up` count, so an agent-first workspace can see how much is waiting; it just cannot press the button.",
+      "ticket #1152 / ADR-0021 §11 — the one-click catch-up queues a wake for every record already waiting in an agent's trigger state, and each wake becomes a run on the agent OWNER's own computer and model subscription. Like the rest of the Runner family it is a signed-in person's decision (the API refuses any token, connected AI and the agent's own run credential, so an agent cannot start itself on a backlog), and it is the button's own act with a per-click cap. The read half IS reachable: get_agent_wake_summary carries each agent's `catch_up` count and list_agent_catch_up (ticket #1224) names the records, so an agent-first workspace can see what is waiting; it just cannot press the button.",
   },
   {
     match: 'GET /api/v1/workspaces/{ws}/runner-assignments/{agent}',

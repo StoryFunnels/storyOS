@@ -631,6 +631,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_history: 'read',
   list_backlinks: 'read',
   list_watchers: 'read',
+  get_branch_name: 'read',
   list_linked_records: 'read',
   list_spaces: 'read',
   /*
@@ -674,6 +675,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   browse_pack_marketplace: 'read',
   list_pack_submissions: 'read',
   list_templates: 'read',
+  list_record_templates: 'read',
   export_pack: 'admin',
   uninstall_pack: 'admin',
   apply_template: 'admin',
@@ -829,6 +831,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * approve call next to it.
    */
   get_agents: 'read',
+  // #1195 — GET /agents/{agent}/scope: where an agent works, resolved now. Read-only; the targets are fields a person edits.
+  get_agent_scope: 'read',
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
@@ -911,6 +915,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_records: 'write',
   restore_records: 'write',
   duplicate_record: 'write',
+  create_record_from_template: 'write',
+  create_record_template: 'write',
+  update_record_template: 'write',
+  delete_record_template: 'write',
   copy_records: 'write',
   move_record: 'write',
   update_comment: 'write',
@@ -2597,7 +2605,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get record history',
       description:
-        'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four.',
+        'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four. Every row carries `source` (human/agent/automation/mcp); an agent-made row also carries `agent_id` and `agent_name` (null otherwise), so "which agent did that" needs no second call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2790,6 +2798,34 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text({ record: rec, ...(res as Record<string, unknown>) });
     }),
+  );
+
+  reg(
+    'get_branch_name',
+    {
+      title: 'Get git branch name',
+      description:
+        'The git branch name for a record, derived from its number and title (never stored): [lane/]<number>-<slug>, e.g. api/1219-git-branch-names. Pass lane (docs, mcp, api, web or fix) for the repo\'s lane prefix. Open the PR from this branch and the GitHub integration links the PR back to the record by its number.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        lane: z.enum(['docs', 'mcp', 'api', 'web', 'fix']).optional().describe('Branch lane prefix.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; lane?: 'docs' | 'mcp' | 'api' | 'web' | 'fix' }>(
+      async ({ workspace, database, record, lane }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/branch-name', {
+            params: { path: { ws: ws.id, db: db.id, rec }, query: { lane } },
+          }),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(
@@ -3097,7 +3133,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack that builds on another pack (preview `required_packs`: pack, installed, linked, fields_added, choices) is linked to that pack\'s databases when it is installed; when it is not, choose required_packs {"agency-os": "also_install"} to install it first and link, or "create_here" (the default) to make the linked databases inside this pack. If the install then fails, everything THIS request installed first is rolled back with it, its databases and records included (the error names it; a pack that was already installed before the request is never touched). Uninstalling never removes the other pack\'s databases. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3135,9 +3171,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Labels ("Agent \u2190 Database.Field = State", exactly as preview lists them under `triggers`) of state-bound agent triggers, which a pack installs SWITCHED OFF, that you want switched ON (the agent then wakes by itself whenever a record reaches that state). Only name one when the person asked for it; a pack cannot switch one on itself. Has no effect on a trigger that already exists.',
           ),
+        required_packs: z
+          .record(z.string(), z.enum(['also_install', 'create_here']))
+          .optional()
+          .describe(
+            'For a pack that builds on another pack (preview `required_packs`): {"<pack slug>": "also_install" | "create_here"}. also_install installs that built-in pack first and links to its databases; create_here makes the linked databases inside this pack (the default when the other pack is not installed; when it IS installed the databases are linked unless you say create_here). Only name one when the person chose it.',
+          ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[] }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[]; required_packs?: Record<string, 'also_install' | 'create_here'> }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers, required_packs }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3161,6 +3203,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             : {}),
           ...(enable_automations?.length ? { enable_automations } : {}),
           ...(enable_agent_triggers?.length ? { enable_agent_triggers } : {}),
+          ...(required_packs && Object.keys(required_packs).length ? { required_packs } : {}),
         } as never,
       };
       return text(
@@ -5150,7 +5193,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Export pack',
       description:
-        'Turn part of this workspace into a pack manifest — the installable form of a schema you just built. Creates nothing; it hands back the manifest. This closes the loop packs exist for: an agent that has designed a good workspace can make it reusable instead of describing how to rebuild it.',
+        'Turn part of this workspace into a pack manifest — the installable form of a schema you just built. Creates nothing; it hands back the manifest. An agent that a rule runs (`run_agent`) is exported with the pack and the rule names it by `$agent:<name>` ref, never by id, so the schedule survives a re-install. This closes the loop packs exist for: an agent that has designed a good workspace can make it reusable instead of describing how to rebuild it.',
       inputSchema: {
         workspace: z.string(),
         databases: z
@@ -5227,6 +5270,152 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(client.GET('/api/v1/templates'));
       return text(res);
     }),
+  );
+
+  /*
+   * ticket #1218 - RECORD templates: a named starting point for a new record in one database (not the starter templates above, which
+   * are whole database shapes). Values are keyed by field api_name and hold option ids as get_record returns them; `body` is Markdown.
+   */
+  reg(
+    'list_record_templates',
+    {
+      title: 'List record templates',
+      description:
+        "A database's record templates (ticket #1218): name, preset field values keyed by api_name, and a Markdown body with its sections. Packs ship some (Dev Tracker: Bug, Feature, Improvement for Issues). NOT list_templates, which lists starter database shapes. Use create_record_from_template to make a record from one.",
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<{ data: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/record-templates', { params: { path: { ws: ws.id, db: db.id } } }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'create_record_template',
+    {
+      title: 'Create a record template',
+      description:
+        'Make a record template in a database. Either name it and give `values` (field api_name -> value; option ids as get_record shows them; "$me" and "$date:+3d" are decided when a record is made from it) and a Markdown `body`, OR pass `from_record` to save an existing record as a template: its values and description are copied (not its title, links or computed fields). Editor role on the database. Template names are unique per database.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string().describe('The template\'s name, e.g. "Bug".'),
+        description: z.string().optional().describe('One line saying when to pick this template.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Preset field values keyed by api_name. Ignored with from_record.'),
+        body: z.string().optional().describe('The description the record starts with, as Markdown (use ## headings for sections). Ignored with from_record.'),
+        from_record: z.string().optional().describe('Record uuid or public number to save as a template.'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; description?: string; values?: Record<string, unknown>; body?: string; from_record?: string }>(
+      async ({ workspace, database, name, description, values, body, from_record }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const path = { ws: ws.id, db: db.id };
+        if (from_record) {
+          const rec = await resolveRecordId(ws.id, db.id, from_record);
+          return text(
+            await unwrap<unknown>(
+              client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record', {
+                params: { path },
+                body: { record_id: rec, name, ...(description !== undefined ? { description } : {}) },
+              }),
+            ),
+          );
+        }
+        return text(
+          await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates', {
+              params: { path },
+              body: { name, ...(description !== undefined ? { description } : {}), values: values ?? {}, ...(body !== undefined ? { body } : {}) },
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'update_record_template',
+    {
+      title: 'Edit a record template',
+      description:
+        'Change a record template\'s name, description, preset values or body (send only what changes; `values` replaces the whole preset set; null clears description or body). Works on a pack-installed template too; pack uninstall then keeps it as changed.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        values: z.record(z.string(), z.unknown()).optional(),
+        body: z.string().nullable().optional(),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; name?: string; description?: string | null; values?: Record<string, unknown>; body?: string | null }>(
+      async ({ workspace, database, template, ...patch }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        return text(
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+              params: { path: { ws: ws.id, db: db.id, template } },
+              body: patch,
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'delete_record_template',
+    {
+      title: 'Delete a record template',
+      description: 'Delete a record template. Records already made from it are untouched.',
+      inputSchema: { workspace: z.string(), database: z.string(), template: z.string() },
+    },
+    handle<{ workspace: string; database: string; template: string }>(async ({ workspace, database, template }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+          params: { path: { ws: ws.id, db: db.id, template } },
+        }),
+      );
+      return heldDelete(res) ?? text({ deleted: template });
+    }),
+  );
+
+  reg(
+    'create_record_from_template',
+    {
+      title: 'Create a record from a template',
+      description:
+        'Create a record pre-filled from a record template: its preset values and its body (sections included). `values` overrides a preset, usually the title. A preset that no longer fits the schema (a deleted field or option) is dropped and listed in `skipped`, the record is still made. Returns the new record.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Field values keyed by api_name that win over the template\'s, e.g. { name: "Login fails on Safari" }.'),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; values?: Record<string, unknown> }>(
+      async ({ workspace, database, template, values }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{ record: RecordRow; skipped: unknown[] }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records', {
+            params: { path: { ws: ws.id, db: db.id, template } },
+            body: { values: values ?? {} },
+          }),
+        );
+        const detail = await getDetail(ws.id, db.id);
+        return text({ template, record: await readRecord(detail, ws.id, db.id, res.record.id), skipped: res.skipped });
+      },
+    ),
   );
 
   reg(
@@ -6260,13 +6449,33 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get agents setup',
       description:
-        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
+        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record. Where an agent works is two text fields on its record: `target_databases` (database names) and `target_spaces` (space names or ids). A space target is LIVE: it includes every database in that space on each call, including ones created after the agent was hired. Read the resolved list with get_agent_scope. Only a person sets these; an agent cannot change its own.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/agents', { params: { path: { ws: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_agent_scope',
+    {
+      title: 'Where an agent works',
+      description:
+        "Ticket #1195 — the databases an agent can work in, resolved NOW: the databases named in its `target_databases` plus every database in the spaces named in its `target_spaces` (a database added to a target space later is included on the next call, nothing is expanded at hire), narrowed to what the agent's manager can open. `databases[].via` says whether each came from a named database or a space. `enforced` is true when the agent targets at least one space: its Runner credential is then bound to exactly this set and a call outside it is refused (a database-only agent's `target_databases` stays its brief, not a boundary). A personal space is never included; entries that matched nothing (or a personal space) come back in `unresolved`, and `withheld_count` is how many databases the manager's access removed (their names are not listed).",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+      },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/scope', { params: { path: { ws: ws.id, agent } } } as never),
       );
       return text(res);
     }),
@@ -7639,12 +7848,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Agent wake counts',
       description:
-        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), waiting (queued wakes), and `budget` (ticket #1138: its monthly token and run budget against this month's usage, for an agent that has one; null otherwise. get_agent_budget has the full detail, including tokens the tool did not report). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
+        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), waiting (queued wakes), and `budget` (ticket #1138: its monthly token and run budget against this month's usage, for an agent that has one; null otherwise. get_agent_budget has the full detail, including tokens the tool did not report). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). list_agent_catch_up names them. Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/agent-wakes/summary', { params: { path: { ws: ws.id } } } as never));
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_agent_catch_up',
+    {
+      title: 'Records waiting for an agent (catch-up)',
+      description:
+        "ticket #1224: the records already sitting in an agent's trigger state(s) that no wake was ever made for, BY NAME (the list behind `catch_up` in get_agent_wake_summary). Returns total (exactly that count: a real SQL count seen as the agent's owner), listed_total, not_listed, items [{id, title, database_id, database_name}] oldest first, limit (default 5, max 100), offset and `truncated`. READ IT HONESTLY: when `truncated` is true you were shown a page, not all of them; quote `total` for how many and say \"and N more\", never count the items. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (a number, never an id). Only the agent's owner or an admin can read it (anyone else gets the same not-found as an unknown agent); an agent that cannot take wakes returns total 0. Read-only: starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. entered-state time is not returned because it is not reliably stored.",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid (from the Agents database; get_agent_wake_summary shows it)."),
+        limit: z.number().int().min(1).max(100).optional().describe('Page size, default 5.'),
+        offset: z.number().int().min(0).optional().describe('Skip this many, to page through when truncated is true.'),
+      },
+    },
+    handle<{ workspace: string; agent: string; limit?: number; offset?: number }>(async ({ workspace, agent, limit, offset }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/catch-up', {
+          params: { path: { ws: ws.id, agent }, query: { ...(limit !== undefined ? { limit } : {}), ...(offset !== undefined ? { offset } : {}) } },
+        } as never),
+      );
       return text(res);
     }),
   );

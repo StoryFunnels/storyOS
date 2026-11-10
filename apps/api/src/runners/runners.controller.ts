@@ -1,6 +1,7 @@
-import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 import { AuthGuard } from '../auth/auth.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
@@ -9,6 +10,11 @@ import { GUEST_RUNNER_MESSAGE, RunnersService } from './runners.service';
 import { AgentCatchUpService } from './agent-catch-up.service';
 import { AgentWakesService } from './agent-wakes.service';
 
+const catchUpListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
+});
+class CatchUpListQueryDto extends createZodDto(catchUpListQuerySchema) {}
 class RunnerToolChoiceDto extends createZodDto(runnerToolChoiceSchema) {}
 class RunnerUpdateDto extends createZodDto(runnerUpdateSchema) {}
 class RunnerAssignmentDto extends createZodDto(runnerAssignmentSchema) {}
@@ -123,6 +129,15 @@ export class RunnersController {
     assertPerson(req, 'choose where an agent runs');
     assertNotGuest(req);
     return this.runners.assign(req.membership, req.user.id, agent, body.runner_id, { source: req.auth.source });
+  }
+
+  @Get('agents/:agent/catch-up')
+  @ApiOperation({
+    summary:
+      "The records POST /agents/{agent}/catch-up would start on, by name (ticket #1224): {total, listed_total, not_listed, items:[{id, title, database_id, database_name}], limit, offset, truncated}. `total` is exactly the `catch_up` count in GET /agent-wakes/summary (a real SQL count seen as the agent's owner). Items are oldest first, the order one click wakes them in, paged with ?limit= (1-100, default 5) and ?offset=. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (never an id); `truncated` is true while more remain to page through. The agent's owner or an admin (a guest 403; anyone else, and an unknown agent, 404). An agent that cannot take wakes returns total 0.",
+  })
+  listWaiting(@Req() req: WorkspaceRequest, @Param('agent') agent: string, @Query() q: CatchUpListQueryDto) {
+    return this.catchUp.list(req.membership, agent, { limit: q.limit ?? 5, offset: q.offset ?? 0 });
   }
 
   @Post('agents/:agent/catch-up')

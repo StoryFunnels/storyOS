@@ -3,7 +3,7 @@ import type { RunnerDto, RunnerSharingPatch, WorkingDay, WorkingHours } from './
 import { limitBrand, toolName } from './words';
 
 /**
- * Ticket #1137 — "Sharing your subscription": the person's own rules for when their agents may use their Claude or Cursor time.
+ * Ticket #1137 — "Sharing your subscription": the person's own rules for when their agents may use their Claude time.
  * Pure functions of the API's shapes (`runner-sharing.ts`, `runner-present.ts`), so each rule has a test that fails when it breaks.
  *
  * Two rules, both per RUNNER (a Runner is one computer and one subscription; hours are not per agent):
