@@ -4,6 +4,7 @@ import { Bot, Building2, Globe, Lock, Users } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { SkillSummary } from '@storyos/schemas';
 import { cn } from '@/lib/utils';
+import { isAiSource } from '@/lib/governance';
 import { VISIBILITY_CHIP } from './skill-meta';
 import type { Segment } from './skill-compare';
 
@@ -32,11 +33,11 @@ export function VisibilityChip({ visibility }: { visibility: SkillSummary['visib
  * default the reader assumes, and marking every row would bury the exception.
  */
 export function SkillSourceMark({ source }: { source: SkillSummary['source'] }) {
-  if (source === 'human') return null;
+  if (!isAiSource(source)) return null;
   return (
     <span
       title="Written by an agent or an MCP client, not typed by a person"
-      className="inline-flex h-[17px] items-center gap-1 rounded-full bg-accent-soft px-1.5 text-micro font-bold text-accent"
+      className="inline-flex h-[17px] items-center gap-1 rounded-full bg-accent-soft px-1.5 text-micro font-bold text-accent-text"
     >
       <Bot className="h-2.5 w-2.5" />
       {source === 'mcp' ? 'MCP-written' : 'Agent-written'}
