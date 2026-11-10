@@ -8,6 +8,7 @@ import { CheckCircle2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, API_URL, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { SetupDisclosure } from '@/components/settings/setup-disclosure';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -362,7 +363,9 @@ export default function GoogleCalendarIntegrationPage() {
         <ProviderConnectionCard ws={ws} id="google-calendar" />
       </div>
 
-      <IntegrationSetupGuide className="mt-6" steps={setupSteps} />
+      <SetupDisclosure label="Google Calendar" connected={activeConnections.length > 0}>
+      <IntegrationSetupGuide steps={setupSteps} />
+      </SetupDisclosure>
 
       <div className="mt-4 rounded-[var(--radius-control)] border border-border-default bg-hover px-4 py-3 text-label text-muted">
         Choose one-way push, one-way pull, or two-way sync. Pull and two-way mappings poll Google

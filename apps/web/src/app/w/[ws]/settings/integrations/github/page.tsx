@@ -14,7 +14,9 @@ import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { useDateFormat } from '@/lib/preferences';
+import { SetupDisclosure } from '@/components/settings/setup-disclosure';
+import { GithubUntracked } from '@/components/settings/github-untracked';
+import { trackRequestBody } from '@/lib/github-untracked';
 import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 
 interface GithubConfig {
@@ -59,6 +61,8 @@ export default function GitHubIntegrationPage() {
   });
 
   const connected = Boolean(config.data?.connected);
+  // Something is saved (the App or a token): the card leads and setup waits under its disclosure.
+  const hasCredential = connected || Boolean(config.data?.has_token);
 
   // #247 repo picker: the installation's repos, only once connected.
   const installRepos = useQuery({
@@ -115,6 +119,27 @@ export default function GitHubIntegrationPage() {
     onError: () => toast.error('Could not update repositories'),
   });
 
+  // Ticket #1221: Track = the same selection call as the picker, with this repository added. The row goes away when the re-read
+  // config no longer reports it (the list is filtered by the fresh selection), not because the click succeeded.
+  const track = useMutation({
+    mutationFn: async (repo: string) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github', {
+        params: { path: { ws } },
+        body: trackRequestBody(config.data?.repos ?? [], repo) as never,
+      } as never);
+      if (error) throw error;
+      return repo;
+    },
+    onSuccess: (repo) => {
+      toast.success(`Tracking ${repo}`);
+      setRepos('');
+      void qc.invalidateQueries({ queryKey: ['github-config', ws] });
+      void qc.invalidateQueries({ queryKey: ['integration-facts', ws] });
+      void qc.invalidateQueries({ queryKey: ['github-install-repos', ws] });
+    },
+    onError: () => toast.error('Could not track that repository'),
+  });
+
   const sync = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github/sync', {
@@ -136,7 +161,9 @@ export default function GitHubIntegrationPage() {
       if (skipped.length > 0) {
         // #193: partial success — one or more repos couldn't be read (no access /
         // not found); the rest synced. Name them so the user can fix the config.
-        toast.warning(`${base}. Skipped ${skipped.length}: ${skipped.map((s) => s.repo).join(', ')}`);
+        toast.warning(
+          `${base}. Skipped ${skipped.length}: ${skipped.map((s) => s.repo).join(', ')}`,
+        );
       } else {
         toast.success(base);
       }
@@ -155,138 +182,162 @@ export default function GitHubIntegrationPage() {
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <div className="mb-5 flex flex-col gap-[18px]">
         <ProviderPageHeader ws={ws} id="github">
-          Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync. PRs auto-link to issues referenced by{' '}
-          <code className="text-ink">#number</code> in the title or the branch name.
+          Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync.
+          PRs auto-link to issues referenced by <code className="text-ink">#number</code> in the
+          title or the branch name.
         </ProviderPageHeader>
         <ProviderConnectionCard ws={ws} id="github" />
       </div>
 
-      <IntegrationSetupGuide
-        className="mb-5"
-        steps={[
-          {
-            label: 'Connect GitHub',
-            description: 'Install the GitHub App, or save a personal access token.',
-            complete: connected || Boolean(config.data?.has_token),
-          },
-          {
-            label: 'Choose repositories',
-            description: 'Select the repositories StoryOS should watch and import.',
-            complete: Boolean(config.data?.repos.length),
-          },
-          {
-            label: 'Sync and inspect',
-            description: 'Run the first sync, then open the generated GitHub space.',
-            complete: Boolean(summary),
-          },
-        ]}
-      />
-
-      {/* #828: shown for the App path AND the manual-secret path — both can ignore deliveries. */}
-      <div className="mb-6 empty:hidden">
-        <IgnoredDeliveriesNotice ignored={config.data?.ignored_deliveries} />
+      {/* #828 / ticket #1221: deliveries from repositories outside the selection, with the one action each has. */}
+      <div className="mb-5 empty:hidden">
+        <GithubUntracked
+          ignored={config.data?.ignored_deliveries}
+          tracked={config.data?.repos ?? []}
+          tracking={track.isPending ? (track.variables ?? null) : null}
+          onTrack={(repo) => track.mutate(repo)}
+        />
       </div>
 
-      {/* GitHub App connect (#247) */}
-      <div className="mb-6 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
-        <h2 className="mb-1 text-prose font-semibold text-ink">Connect the GitHub App</h2>
-        <p className="mb-3 text-body text-muted">
-          Connect an installation to post a backlink comment on linked pull requests and to pick
-          which repositories StoryOS watches — no personal token required.
-        </p>
-        {connected ? (
-          <div className="flex flex-col gap-3">
-            <div className="text-body text-ink-secondary">
-              Connected as installation <strong>{config.data?.installation_id}</strong>
-              {installRepos.data && (
-                <>
-                  {' '}
-                  · watching {config.data?.repos.length ?? 0} of {installRepos.data.repos.length}{' '}
-                  repos
-                </>
-              )}
-            </div>
-            {installRepos.isLoading && (
-              <p className="text-body text-muted">Loading repositories…</p>
-            )}
-            {installRepos.data && (
-              <RepoPicker
-                repos={installRepos.data.repos}
-                selected={config.data?.repos ?? []}
-                saving={saveSelection.isPending}
-                onSave={(sel) => saveSelection.mutate(sel)}
-              />
-            )}
-            <div>
-              <Button size="sm" variant="secondary" onClick={connect}>
-                Reconnect / change installation
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-body text-muted">Use Connect GitHub above to install the app, or save a personal access token below.</p>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <h2 className="text-prose font-semibold text-ink">Or use a personal access token</h2>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="gh-token">
-            Personal access token {config.data?.has_token && '(saved — enter to replace)'}
-          </Label>
-          <Input
-            id="gh-token"
-            type="password"
-            placeholder="ghp_… (repo read scope)"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="gh-repos">Repositories (one owner/name per line)</Label>
-          <Textarea
-            id="gh-repos"
-            rows={3}
-            size="default"
-            // `rows` alone governs height here (as it did before) — `min-h-0`
-            // removes the primitive's own floor so it doesn't quietly grow.
-            className="min-h-0 w-full font-mono outline-none focus:border-border-strong"
-            placeholder={'acme/website\nacme/api'}
-            value={repos}
-            onChange={(e) => setRepos(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => save.mutate()}
-            disabled={save.isPending}
-          >
-            Save
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => sync.mutate()}
-            disabled={sync.isPending || (!config.data?.has_token && !connected)}
-          >
-            {sync.isPending ? 'Syncing…' : 'Sync now'}
-          </Button>
-        </div>
-        {summary && (
-          <p className="text-body text-ink-secondary">
-            Imported <strong>{summary.issues}</strong> issues, <strong>{summary.pulls}</strong> pull
-            requests, <strong>{summary.linked}</strong> auto-links.{' '}
-            <Link
-              href={`/w/${ws}`}
-              className="text-info underline-offset-2 hover:underline"
-              onClick={() => router.refresh()}
+      {hasCredential && (
+        <div className="mb-5 flex flex-col gap-3" data-testid="github-watched">
+          <h2 className="text-body font-semibold text-ink">Watched repositories</h2>
+          {installRepos.isLoading && <p className="text-body text-muted">Loading repositories…</p>}
+          {installRepos.data && (
+            <RepoPicker
+              key={(config.data?.repos ?? []).join('|')}
+              repos={installRepos.data.repos}
+              selected={config.data?.repos ?? []}
+              saving={saveSelection.isPending}
+              onSave={(sel) => saveSelection.mutate(sel)}
+            />
+          )}
+          <div>
+            <Button
+              size="sm"
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending || !hasCredential}
             >
-              See the GitHub space →
-            </Link>
+              {sync.isPending ? 'Syncing…' : 'Sync now'}
+            </Button>
+          </div>
+          {summary && (
+            <p className="text-body text-ink-secondary">
+              Imported <strong>{summary.issues}</strong> issues, <strong>{summary.pulls}</strong>{' '}
+              pull requests, <strong>{summary.linked}</strong> auto-links.{' '}
+              <Link
+                href={`/w/${ws}`}
+                className="text-info underline-offset-2 hover:underline"
+                onClick={() => router.refresh()}
+              >
+                See the GitHub space →
+              </Link>
+            </p>
+          )}
+        </div>
+      )}
+
+      <SetupDisclosure label="GitHub" connected={hasCredential}>
+        <IntegrationSetupGuide
+          steps={[
+            {
+              label: 'Connect GitHub',
+              description: 'Install the GitHub App, or save a personal access token.',
+              complete: connected || Boolean(config.data?.has_token),
+            },
+            {
+              label: 'Choose repositories',
+              description: 'Select the repositories StoryOS should watch and import.',
+              complete: Boolean(config.data?.repos.length),
+            },
+            {
+              label: 'Sync and inspect',
+              description: 'Run the first sync, then open the generated GitHub space.',
+              complete: Boolean(summary),
+            },
+          ]}
+        />
+        {/* GitHub App connect (#247) */}
+        <div className="mb-6 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
+          <h2 className="mb-1 text-prose font-semibold text-ink">Connect the GitHub App</h2>
+          <p className="mb-3 text-body text-muted">
+            Connect an installation to post a backlink comment on linked pull requests and to pick
+            which repositories StoryOS watches — no personal token required.
           </p>
-        )}
-      </div>
+          {connected ? (
+            <div className="flex flex-col gap-3">
+              <div className="text-body text-ink-secondary">
+                Connected as installation <strong>{config.data?.installation_id}</strong>
+                {installRepos.data && (
+                  <>
+                    {' '}
+                    · watching {config.data?.repos.length ?? 0} of {installRepos.data.repos.length}{' '}
+                    repos
+                  </>
+                )}
+              </div>
+              <div>
+                <Button size="sm" variant="secondary" onClick={connect}>
+                  Reconnect / change installation
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-body text-muted">
+              Use Connect GitHub above to install the app, or save a personal access token below.
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <h2 className="text-prose font-semibold text-ink">Or use a personal access token</h2>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="gh-token">
+              Personal access token {config.data?.has_token && '(saved — enter to replace)'}
+            </Label>
+            <Input
+              id="gh-token"
+              type="password"
+              placeholder="ghp_… (repo read scope)"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="gh-repos">Repositories (one owner/name per line)</Label>
+            <Textarea
+              id="gh-repos"
+              rows={3}
+              size="default"
+              // `rows` alone governs height here (as it did before) — `min-h-0`
+              // removes the primitive's own floor so it doesn't quietly grow.
+              className="min-h-0 w-full font-mono outline-none focus:border-border-strong"
+              placeholder={'acme/website\nacme/api'}
+              value={repos}
+              onChange={(e) => setRepos(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => save.mutate()}
+              disabled={save.isPending}
+            >
+              Save
+            </Button>
+            {!hasCredential && (
+              <Button
+                size="sm"
+                onClick={() => sync.mutate()}
+                disabled={sync.isPending || (!config.data?.has_token && !connected)}
+              >
+                {sync.isPending ? 'Syncing…' : 'Sync now'}
+              </Button>
+            )}
+          </div>
+        </div>
+      </SetupDisclosure>
 
       <ReviewSettingsSection ws={ws} />
     </div>
@@ -527,38 +578,6 @@ function RepoPicker({
           {saving ? 'Saving…' : 'Save watched repositories'}
         </Button>
       </div>
-    </div>
-  );
-}
-
-/**
- * #828: a repo outside the picker still sends deliveries, and they are answered 200
- * and dropped — which looks exactly like a healthy, silent connection. Say so.
- */
-function IgnoredDeliveriesNotice({
-  ignored,
-}: {
-  ignored: GithubConfig['ignored_deliveries'];
-}) {
-  const fmt = useDateFormat();
-  if (!ignored || (ignored.repos.length === 0 && ignored.other_count === 0)) return null;
-  return (
-    <div
-      role="status"
-      data-testid="github-ignored-deliveries"
-      className="rounded-[var(--radius-control)] border border-border-default bg-surface p-3 text-body text-ink-secondary"
-    >
-      <p className="mb-1 font-medium text-ink">Ignoring deliveries from repositories you have not selected</p>
-      <ul className="flex flex-col gap-0.5">
-        {ignored.repos.map((r) => (
-          <li key={r.repo}>
-            <strong>{r.repo}</strong> — {r.count} {r.count === 1 ? 'delivery' : 'deliveries'}, last{' '}
-            {fmt.dateTime(r.last_seen_at)}
-          </li>
-        ))}
-        {ignored.other_count > 0 && <li>…and {ignored.other_count} more from other repositories</li>}
-      </ul>
-      <p className="mt-1 text-muted">Select a repository above to start syncing it.</p>
     </div>
   );
 }

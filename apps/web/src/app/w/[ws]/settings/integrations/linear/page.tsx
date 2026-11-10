@@ -7,6 +7,7 @@ import { AlertTriangle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { SetupDisclosure } from '@/components/settings/setup-disclosure';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -228,27 +229,6 @@ export default function LinearIntegrationPage() {
         </div>
       )}
 
-      <IntegrationSetupGuide
-        className="mb-5"
-        steps={[
-          {
-            label: 'Save access',
-            description: 'Paste a Linear API key and optionally limit the migration to team keys.',
-            complete: Boolean(cfg?.has_key),
-          },
-          {
-            label: 'Preview',
-            description: 'Count the teams, issues, sprints, and projects without writing anything.',
-            complete: Boolean(preview),
-          },
-          {
-            label: 'Import and inspect',
-            description: 'Create or update the Linear spaces, then review the imported records.',
-            complete: Boolean(imported),
-          },
-        ]}
-      />
-
       {/* MN-249: obvious next step for an already-connected integration — the key
           field below looks empty (write-only, never round-trips), so without this
           it's easy to assume there's more setup to do before anything can happen. */}
@@ -272,6 +252,27 @@ export default function LinearIntegrationPage() {
         </div>
       )}
 
+      <SetupDisclosure label="Linear" connected={Boolean(cfg?.has_key)}>
+      <IntegrationSetupGuide
+       
+        steps={[
+          {
+            label: 'Save access',
+            description: 'Paste a Linear API key and optionally limit the migration to team keys.',
+            complete: Boolean(cfg?.has_key),
+          },
+          {
+            label: 'Preview',
+            description: 'Count the teams, issues, sprints, and projects without writing anything.',
+            complete: Boolean(preview),
+          },
+          {
+            label: 'Import and inspect',
+            description: 'Create or update the Linear spaces, then review the imported records.',
+            complete: Boolean(imported),
+          },
+        ]}
+      />
       <Section step={1} title="Key and teams">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
@@ -302,6 +303,7 @@ export default function LinearIntegrationPage() {
           </div>
         </div>
       </Section>
+      </SetupDisclosure>
 
       <Section step={2} title="Preview">
         <p className="mb-3 text-body text-muted">

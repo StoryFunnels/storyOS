@@ -44,9 +44,12 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [opts, setOpts] = useState<ConfirmOptions | null>(null);
   const [typed, setTyped] = useState('');
   const resolver = useRef<((value: boolean) => void) | null>(null);
+  // Ticket #1221: the confirm is opened from code (no Trigger), so Radix has nowhere to return focus. Remember the opener and hand it back.
+  const opener = useRef<HTMLElement | null>(null);
 
   const confirm = useCallback<ConfirmFn>((options) => {
     setTyped('');
+    opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
     setOpts(options);
     return new Promise<boolean>((resolve) => {
       resolver.current = resolve;
@@ -67,7 +70,17 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       {children}
       <Dialog open={opts !== null} onOpenChange={(open) => !open && settle(false)}>
         {opts && (
-          <DialogContent title={opts.title}>
+          <DialogContent
+            title={opts.title}
+            onCloseAutoFocus={(event) => {
+              const el = opener.current;
+              opener.current = null;
+              if (el?.isConnected) {
+                event.preventDefault();
+                el.focus();
+              }
+            }}
+          >
             {opts.message && <p className="mb-5 text-reading text-muted">{opts.message}</p>}
             {opts.requireTyped && (
               <div className="mb-5">
