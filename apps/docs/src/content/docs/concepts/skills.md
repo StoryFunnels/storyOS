@@ -84,7 +84,7 @@ so anyone reading a skill can see where it came from.
   AI-written skill is visible to everyone in the workspace straight away, and their AI can find and
   run it. Using StoryOS through your own AI is the intended path, so there is nothing to switch on.
   An AI can also ask for a skill to stay **personal**.
-- **A workspace admin can switch it off.** In **Settings → General → Skills written by AI**, an admin
+- **A workspace admin can switch it off.** In the **Let AI share skills with the whole workspace** switch on **Settings → Agent rules**, an admin
   can stop AI from sharing skills with the workspace. With it off, an AI-written skill is private to
   the person whose AI wrote it, and a request to share it is refused. Skills already shared stay
   shared. The setting is per workspace, and **only a person can change it** in the web app; it cannot
