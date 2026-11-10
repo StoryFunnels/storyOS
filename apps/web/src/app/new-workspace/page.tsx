@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import posthog from 'posthog-js';
 import {
@@ -20,11 +20,14 @@ import { setPendingBuild } from '@/lib/pending-build';
 import { setPendingShare } from '@/lib/pending-share';
 import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
+import { orderSignupPacks, signupPackLine } from '@/lib/signup-packs';
 
 interface PackCard {
   slug: string;
   name: string;
   summary: string;
+  /** #1145 — the manifest's one-sentence why, served by the registry. */
+  why?: string | null;
   highlights: string[];
   /** #351 — already returned by /packs/registry; the picker just never used it. */
   preview: { databases: number; views: number; automations: number; agents: number };
@@ -111,7 +114,7 @@ function PackChoice({
             cascade, so the clamp silently never applied. Support Inbox's
             six-line summary then ate the card and squeezed the preview above
             from 112px to 43px. The class was present and doing nothing. */}
-        <span className="line-clamp-2 text-label text-muted">{pack.summary}</span>
+        <span className="line-clamp-2 text-label text-muted">{signupPackLine(pack)}</span>
       </span>
     </button>
   );
@@ -161,6 +164,7 @@ export default function NewWorkspacePage() {
   });
 
   const packs = registry.data ?? [];
+  const { featured, rest } = orderSignupPacks(packs);
   const packBySlug = new Map(packs.map((pack) => [pack.slug, pack]));
   const selectedSlug = choice?.startsWith('pack:') ? choice.slice(5) : null;
   const selectedQuickPick = QUICK_PICKS.find((pick) => pick.slug === selectedSlug);
@@ -458,17 +462,29 @@ export default function NewWorkspacePage() {
                 </Button>
               </div>
             ) : (
-              packs.map((pack) => (
-                <PackChoice
-                  key={pack.slug}
-                  /* The quick-pick LABEL ("Running an agency") is the reader's
-                     words for the same thing, so it wins over the product name. */
-                  label={QUICK_PICKS.find((q) => q.slug === pack.slug)?.label}
-                  pack={pack}
-                  selected={choice === `pack:${pack.slug}`}
-                  onClick={() => setChoice(`pack:${pack.slug}`)}
-                />
-              ))
+              <>
+                {registry.isLoading && (
+                  <p className="col-span-full text-label text-muted">Loading starting points…</p>
+                )}
+                {featured.length > 0 && (
+                  <p className="col-span-full text-label font-medium text-ink">Start ready to work</p>
+                )}
+                {[...featured, ...rest].map((pack, i) => (
+                  <Fragment key={pack.slug}>
+                    {featured.length > 0 && i === featured.length && (
+                      <p className="col-span-full mt-1 text-label font-medium text-ink">More starting points</p>
+                    )}
+                    <PackChoice
+                      /* The quick-pick LABEL ("Running an agency") is the reader's
+                         words for the same thing, so it wins over the product name. */
+                      label={QUICK_PICKS.find((q) => q.slug === pack.slug)?.label}
+                      pack={pack}
+                      selected={choice === `pack:${pack.slug}`}
+                      onClick={() => setChoice(`pack:${pack.slug}`)}
+                    />
+                  </Fragment>
+                ))}
+              </>
             )}
 
 
