@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * ADR-0007: graded scope access. `contributor` (MN-121) = read + create + update
- * records, no delete — and the boundary the billing layer reads for a paid seat.
+ * records, no delete. Not a billing boundary: a guest is free at every rung (ticket #1258).
  */
 export const grantRoleSchema = z.enum([
   'viewer',

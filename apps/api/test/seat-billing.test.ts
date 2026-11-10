@@ -101,17 +101,19 @@ describe('MN-190 — seat entitlement wiring on invite', () => {
     }
   });
 
-  it('checks entitlements for a guest invited with a contributor+ grant — that guest IS billable (MN-121)', async () => {
+  it('a guest invited with a contributor or creator grant is never billable, so is never seat-blocked (ticket #1258)', async () => {
     const spaceRes = await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`);
     const spaceId = spaceRes.json()[0].id;
     const restore = forceSeatBlocked();
     try {
-      const res = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
-        email: 'blocked-contributor@storyos.local',
-        role: 'guest',
-        grants: [{ space_id: spaceId, role: 'contributor' }],
-      });
-      expect(res.statusCode, res.body).toBe(402);
+      for (const role of ['contributor', 'creator'] as const) {
+        const res = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
+          email: `free-${role}@storyos.local`,
+          role: 'guest',
+          grants: [{ space_id: spaceId, role }],
+        });
+        expect(res.statusCode, res.body).toBe(201);
+      }
     } finally {
       restore();
     }
