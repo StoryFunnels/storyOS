@@ -273,7 +273,7 @@ describe('Remove, the first-time moment and the sidebar number', () => {
   it('the pinned copy is exactly Dara’s', () => {
     expect(COPY.doneSentence).toBe('Press Done to let this computer run your agents. Until then it is connected but does nothing.');
     expect(COPY.firstRun).toBe(
-      'It thinks with an AI you already pay for: your own Claude Code or Cursor, through a small free Runner on your computer. Setting it up takes about two minutes.',
+      'It thinks with an AI you already pay for: your own Claude Code, through a small free Runner on your computer. Setting it up takes about two minutes.',
     );
     expect(COPY.command).toBe('npx @storyos/runner');
   });

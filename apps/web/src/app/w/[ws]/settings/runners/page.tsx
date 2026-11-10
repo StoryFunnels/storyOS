@@ -13,7 +13,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { useRunnerMutations, useRunners, useWakeSummary } from '@/lib/runners/queries';
 import { canUseRunners, GUEST_RUNNERS_MESSAGE } from '@/lib/runners/access';
 import { canEditSharing } from '@/lib/runners/sharing';
-import { confirmRemoveRunner, COPY } from '@/lib/runners/words';
+import { confirmRemoveRunner, COPY, SUPPORTED_TOOLS } from '@/lib/runners/words';
 import { useWorkspace } from '@/lib/queries';
 
 /**
@@ -99,7 +99,7 @@ export default function RunnersPage() {
               : waitingAgents.length > 1
                 ? `${waitingAgents.length} agents are hired and waiting. `
                 : ''}
-            Add a Runner on the computer where Claude Code or Cursor is signed in. No password, nothing to paste: you type a short code once.
+            Add a Runner on the computer where {SUPPORTED_TOOLS} is signed in. No password, nothing to paste: you type a short code once.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" onClick={() => setPairing(true)}>

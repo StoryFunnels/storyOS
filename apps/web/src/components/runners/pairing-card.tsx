@@ -16,7 +16,7 @@ import {
 } from '@/lib/runners/pairing';
 import type { PairingState } from '@/lib/runners/pairing';
 import { pollPairingCode, useRunnerMutations } from '@/lib/runners/queries';
-import { COPY, toolName } from '@/lib/runners/words';
+import { COPY, SUPPORTED_TOOLS, toolName } from '@/lib/runners/words';
 import { cn } from '@/lib/utils';
 
 const POLL_MS = 2_000;
@@ -127,7 +127,7 @@ export function PairingCard({
           <ol className="m-0 flex list-none flex-col gap-3.5 p-0">
             <Step n={1} ok={connected}>
               <span>
-                On the computer where <b className="font-semibold text-ink">Claude Code or Cursor</b> is signed in, open Terminal and run:
+                On the computer where <b className="font-semibold text-ink">{SUPPORTED_TOOLS}</b> is signed in, open Terminal and run:
               </span>
               <CommandBlock />
             </Step>
@@ -195,7 +195,7 @@ function ConnectedStep({
       <span>
         <b className="font-semibold text-ink">{state.runner.name} is connected.</b>{' '}
         {tools.length === 0
-          ? 'It did not find Claude Code or Cursor on that computer. Sign in to one of them there, then add the Runner again.'
+          ? `It did not find ${SUPPORTED_TOOLS} on that computer. Sign in to it there, then add the Runner again.`
           : `It found ${found.length === 1 ? found[0] : `${found.slice(0, -1).join(', ')} and ${found[found.length - 1]}`}. Which should your agents use?`}
       </span>
       {tools.length > 1 && (

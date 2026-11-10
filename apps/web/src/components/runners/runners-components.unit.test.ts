@@ -118,7 +118,7 @@ describe('the first-time moment', () => {
   it('says the agent has not started, why, and offers ONLY Add a Runner (no API-key button, it is not in v1)', () => {
     const out = html(1);
     expect(out).toContain('Onboarding Assistant hasn’t started work yet');
-    expect(out).toContain('your own <b class="font-semibold text-ink">Claude Code or Cursor</b>, through a small free Runner on your computer');
+    expect(out).toContain('your own <b class="font-semibold text-ink">Claude Code</b>, through a small free Runner on your computer');
     expect(out).toContain('Add a Runner');
     expect(out).not.toMatch(/API key/i);
   });
