@@ -1,9 +1,19 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { arrangeBoardColumns } from './board-columns';
+import {
+  ALL_HIDDEN_LINK_TARGET,
+  allHiddenNotice,
+  allOptionColumnsHidden,
+  arrangeBoardColumns,
+  canHideBoardColumn,
+  focusTargetAfterHide,
+  hideBoardColumn,
+} from './board-columns';
+import { requestOpenDisplayMenu } from './display-menu-open';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StateCategory } from '@storyos/schemas';
 import type { MouseEvent } from 'react';
 import {
@@ -17,7 +27,7 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Lock, Plus } from 'lucide-react';
+import { EyeOff, Lock, MoreHorizontal, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
@@ -94,6 +104,7 @@ export function BoardView({
   config,
   readOnly,
   personalFilter,
+  onPatch,
 }: {
   ws: string;
   db: string;
@@ -104,6 +115,8 @@ export function BoardView({
   readOnly: boolean;
   /** #259 — narrows this view's results for the current viewer only. */
   personalFilter?: FilterNode;
+  /** #1162 — the page's view-config patch (autosaves the FULL config); the column menu's Hide writes through it. */
+  onPatch?: (updates: Partial<ViewConfig>) => void;
 }) {
   const database = useDatabase(ws, db);
   const qc = useQueryClient();
@@ -295,6 +308,25 @@ export function BoardView({
       records.hasNextPage,
     ],
   );
+
+  // #1162 — every option column hidden: say so beside the No value lane (a bare "No value" reads as data loss).
+  const allHiddenCount = allOptionColumnsHidden(columns, config.hidden_option_ids);
+  // #1162 — after a Hide the focused column's ⋯ is gone; the target is picked at Hide time and focused once the
+  // columns have re-rendered. Always applied (a mouse Hide moves focus too, harmlessly: no focus ring after a click).
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    pendingFocus.current = null;
+    const el =
+      id === ALL_HIDDEN_LINK_TARGET
+        ? document.querySelector<HTMLElement>('[data-all-hidden-link]')
+        : document.querySelector<HTMLElement>(`[data-column-menu="${CSS.escape(id)}"]`);
+    // preventScroll + scrolling the whole SENTENCE into view: focusing the link alone scrolls only the link, and with
+    // the board scrolled right at 390 that left the start of the sentence clipped off the left edge.
+    el?.focus({ preventScroll: true });
+    (id === ALL_HIDDEN_LINK_TARGET ? el?.closest('p') : el)?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [shownColumns]);
 
   const columnLabels = useMemo(() => new Map(columns.map((c) => [c.id, c.label])), [columns]);
 
@@ -593,6 +625,21 @@ export function BoardView({
             memberNames={memberNames} memberImages={memberImages}
             readOnly={readOnly}
             dragDisabled={groupIsReadOnly}
+            onHide={
+              onPatch && canHideBoardColumn({ columnId: column.id, groupType: groupField.type, readOnly })
+                ? () => {
+                    const previous = config.hidden_option_ids;
+                    pendingFocus.current = focusTargetAfterHide(
+                      shownColumns.filter((c) => c.id !== NO_VALUE).map((c) => c.id),
+                      column.id,
+                    );
+                    onPatch({ hidden_option_ids: hideBoardColumn(columns, previous, column.id) });
+                    toast.success('Column hidden. Show it again in Display.', {
+                      action: { label: 'Undo', onClick: () => onPatch({ hidden_option_ids: previous }) },
+                    });
+                  }
+                : undefined
+            }
             onOpen={openCard}
             onAdd={() =>
               createRecord.mutate(
@@ -622,6 +669,21 @@ export function BoardView({
           />
           </ErrorBoundary>
         ))}
+        {allHiddenCount > 0 && groupField && (
+          <p className="order-first scroll-ml-4 mt-0.5 w-[85vw] shrink-0 self-start text-label text-muted md:order-none md:w-[258px]">
+            {allHiddenNotice(allHiddenCount, groupField.displayName, readOnly).text}{' '}
+            {!readOnly && (
+              <button
+                type="button"
+                data-all-hidden-link
+                onClick={requestOpenDisplayMenu}
+                className="rounded text-ink underline underline-offset-2 hover:text-ink"
+              >
+                {allHiddenNotice(allHiddenCount, groupField.displayName).link}
+              </button>
+            )}
+          </p>
+        )}
       </div>
       {/* #755 — the board otherwise never advances past its first page: no
           affordance meant every column count (and hide_empty_groups) was
@@ -662,6 +724,7 @@ function BoardColumn({
   memberImages,
   readOnly,
   dragDisabled,
+  onHide,
   onOpen,
   onAdd,
 }: {
@@ -681,6 +744,8 @@ function BoardColumn({
   /** #499 — separate from `readOnly`: a text/lookup-grouped board has full
    * write access otherwise, it just can never move a card between columns. */
   dragDisabled: boolean;
+  /** #1162 — set only when this viewer may hide this column (see `canHideBoardColumn`); no menu otherwise. */
+  onHide?: () => void;
   onOpen: (row: RecordRow, event: MouseEvent) => void;
   onAdd: () => void;
 }) {
@@ -720,11 +785,33 @@ function BoardColumn({
             {trueCount !== undefined ? trueCount : groupCountLabel(column.rows.length, hasMore)}
           </span>
         </span>
-        {!readOnly && (
-          <button onClick={onAdd} className="rounded p-0.5 text-muted hover:bg-active" title="Add card">
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        )}
+        <span className="flex items-center gap-0.5">
+          {onHide && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Column actions for ${column.label}`}
+                  data-column-menu={column.id}
+                  /* #1162/#900 — rests at --faint and darkens on hover/focus/open; never hover-only. */
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink focus-visible:text-ink aria-expanded:bg-hover aria-expanded:text-ink"
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onSelect={onHide}>
+                  <EyeOff className="h-3.5 w-3.5" /> Hide column
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {!readOnly && (
+            <button onClick={onAdd} className="rounded p-0.5 text-muted hover:bg-active" title="Add card">
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </span>
       </div>
       <div className="flex min-h-10 flex-1 flex-col gap-[7px] overflow-y-auto">
         {column.rows.map((row) => (
