@@ -32,7 +32,7 @@ export interface RowManifest {
   }>;
   /** Workflow state fields live apart from `databases[].fields` (planStateSchema). */
   states?: Array<{ database: string; field: string; options?: Array<{ label: string }> }>;
-  /** `from_field` is created on the `from` database; that database owns the name. */
+  /** `from_field` is created on the `from` database, `to_field` on the `to` database; each database has the name it is given. */
   relations?: Array<{ from: string; to?: string; from_field: string; to_field?: string }>;
   views?: Array<{ database: string; name: string; type?: string; default?: boolean }>;
   automations?: Array<{ database: string; name: string }>;
@@ -132,9 +132,23 @@ export function databaseFieldLabels(manifest: RowManifest | undefined, name: str
   ];
 }
 
-/** The relation fields a database owns (`from_field`, on the `from` database); a to-side name belongs to the other database. */
+/**
+ * The relation fields a database actually has: its own `from_field` names (where `from === db`) plus the `to_field` names
+ * the other side creates on it (where `to === db`), so a database that only GAINS a relation (Clients' "Sales accounts")
+ * lists it. Manifest order, de-duplicated (a self-relation or a repeated name is listed once). A relation with no
+ * `to_field` simply contributes no to-side name; it is never dropped from the from side.
+ */
 export function relationNames(manifest: RowManifest | undefined, name: string): string[] {
-  return (manifest?.relations ?? []).filter((r) => r.from === name).map((r) => r.from_field);
+  const out: string[] = [];
+  const add = (n: string | undefined) => {
+    const t = n?.trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  for (const r of manifest?.relations ?? []) {
+    if (r.from === name) add(r.from_field);
+    if (r.to === name) add(r.to_field);
+  }
+  return out;
 }
 
 /** "Links to Project, Sprint, Release"; null when the database owns no relation. Never capped: a relation is the connection, not a column. */

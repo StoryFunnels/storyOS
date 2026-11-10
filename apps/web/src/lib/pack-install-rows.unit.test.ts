@@ -214,7 +214,7 @@ describe('database rows name their fields (ticket #1245)', () => {
 
   const links = (m: RowManifest) => buildInstallRows(preview(), m)[0]!.links;
 
-  it('relations go on their OWN line, not in the fields line; a to-side name is not added', () => {
+  it('relations go on their OWN line, not in the fields line; own from_field names then to_field names pointing at it', () => {
     const m: RowManifest = {
       databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
       relations: [
@@ -223,7 +223,42 @@ describe('database rows name their fields (ticket #1245)', () => {
       ],
     };
     expect(sub(m)).toBe('database · Title');
-    expect(links(m)).toBe('Links to Project');
+    expect(links(m)).toBe('Links to Project, Projects');
+  });
+
+  it('a database that only GAINS a relation from the other side lists it (Deal Desk Clients, "Sales accounts")', () => {
+    // Shape from apps/api/src/packs/deal-desk.ts: Clients is declared with no fields; Accounts.Client links to it.
+    const m: RowManifest = {
+      databases: [
+        { name: 'Accounts', fields: [] },
+        { name: 'Clients', fields: [] },
+        { name: 'Projects', fields: [] },
+        { name: 'Deals', fields: [] },
+      ],
+      relations: [
+        { from: 'Accounts', to: 'Clients', from_field: 'Client', to_field: 'Sales accounts' },
+        { from: 'Projects', to: 'Deals', from_field: 'Source deal', to_field: 'Projects' },
+      ],
+    };
+    const row = (n: string) =>
+      buildInstallRows(preview({ databases: [item(n)] }), m).find((r) => r.name === n)!;
+    expect(row('Clients').links).toBe('Links to Sales accounts');
+    expect(row('Clients').sub).toBe('database');
+    expect(row('Accounts').links).toBe('Links to Client');
+    expect(row('Deals').links).toBe('Links to Projects');
+  });
+
+  it('a self-relation is listed once per name; a relation with no to_field keeps its from side', () => {
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets' }],
+      relations: [
+        { from: 'Tickets', to: 'Tickets', from_field: 'Parent', to_field: 'Sub-issues' },
+        { from: 'Tickets', to: 'Tickets', from_field: 'Related', to_field: 'Related' },
+        { from: 'Tickets', to: 'Projects', from_field: 'Project' },
+        { from: 'Projects', to: 'Tickets', from_field: 'Lead' },
+      ],
+    };
+    expect(links(m)).toBe('Links to Parent, Sub-issues, Related, Project');
   });
 
   it('a database with only relations shows only the Links line (sub stays bare "database")', () => {
