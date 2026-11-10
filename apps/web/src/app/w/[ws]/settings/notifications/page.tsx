@@ -22,6 +22,11 @@ const EVENTS: { key: keyof UserPreferences['notifications']; label: string; desc
   { key: 'record_changed', label: 'Record changes', description: 'Any field on records you watch, not just status' },
 ];
 
+/** "Mentions and Record changes", from the same set that tags the rows, so the sentence and the tags cannot disagree. */
+const EMAILED_LABELS = EVENTS.filter((e) => EMAILED_EVENTS.has(e.key))
+  .map((e) => e.label)
+  .join(' and ');
+
 /**
  * Notifications (ticket #1189, Dara's #974 design): one box, a row per kind of event, the switch on the right. An admin also gets
  * the pointer the design draws: GitHub review notifications are a workspace setting, not a personal one, so they live on the GitHub
@@ -45,10 +50,46 @@ export default function NotificationsPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <SettingsPageHeader title="Notifications" lead="What reaches your Inbox. Everything is on by default." />
+      <SettingsPageHeader title="Notifications" lead="What you hear about, and where it arrives" />
 
       <SettingsPageBody>
+        {/* Ticket #1264: the Inbox / Email explainer. It says "email" only for what the code emails (EMAILED_EVENTS) and prints no claim at all while the sender is unknown. */}
         <SettingsBox>
+          <SettingsRow title="Inbox" description="Every event below lands in your Inbox, in the app." />
+          {line.kind === 'sent' && (
+            <SettingsRow
+              title="Email"
+              description={
+                <>
+                  {EMAILED_LABELS} are also emailed to <b className="font-medium text-ink">{line.email}</b>, from{' '}
+                  {line.senderName ? `${line.senderName} (${line.senderAddress})` : line.senderAddress}.{' '}
+                  <Link href={`/w/${ws}/settings/account`} className="font-medium text-primary-text underline-offset-2 hover:underline">
+                    Change your address in Profile
+                  </Link>
+                </>
+              }
+            />
+          )}
+          {line.kind === 'not_set_up' && (
+            <SettingsRow
+              title="Email"
+              description={
+                <>
+                  Email isn{'\u2019'}t set up on this StoryOS server. Ask your admin.
+                  {isAdmin && (
+                    <>
+                      {' '}
+                      <a href={EMAIL_SETUP_DOCS_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-text underline-offset-2 hover:underline">
+                        How to set it up
+                      </a>
+                    </>
+                  )}
+                </>
+              }
+            />
+          )}
+        </SettingsBox>
+        <SettingsBox title={line.kind === 'sent' ? 'Each switch covers your Inbox. Tagged ones cover email too.' : 'Each switch covers your Inbox.'}>
           {EVENTS.map(({ key, label, description }) => (
             <SettingsRow
               key={key}
@@ -72,29 +113,6 @@ export default function NotificationsPage() {
             </SettingsRow>
           ))}
         </SettingsBox>
-        {/* Ticket #1264: a fact about THIS person, not an operator detail. Only the two events that email today carry the tag above. */}
-        {line.kind === 'sent' && (
-          <p className="text-label text-muted">
-            We also email these to <b className="font-medium text-ink">{line.email}</b>, from{' '}
-            {line.senderName ? `${line.senderName} (${line.senderAddress})` : line.senderAddress}.{' '}
-            <Link href={`/w/${ws}/settings/account`} className="font-medium text-primary-text underline-offset-2 hover:underline">
-              Change your address in Profile
-            </Link>
-          </p>
-        )}
-        {line.kind === 'not_set_up' && (
-          <p className="text-label text-muted">
-            Email isn{'\u2019'}t set up on this StoryOS server. Ask your admin.
-            {isAdmin && (
-              <>
-                {' '}
-                <a href={EMAIL_SETUP_DOCS_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-text underline-offset-2 hover:underline">
-                  How to set it up
-                </a>
-              </>
-            )}
-          </p>
-        )}
         <MyWorkEmailBox />
         {isAdmin && (
           <p className="text-label text-muted">

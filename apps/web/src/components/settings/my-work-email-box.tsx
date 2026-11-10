@@ -104,8 +104,8 @@ export function MyWorkEmailBox() {
         </SettingsRow>
       )}
       <SettingsRow
-        title="The email lists only what you can open, the same list as My Work."
-        description="Every one ends with Customize these emails · Stop these emails."
+        title="What the email lists"
+        description="Only what you can open, the same list as My Work. Every one ends with Customize these emails · Stop these emails."
       >
         <a href={MY_WORK_EXAMPLE_URL} target="_blank" rel="noopener noreferrer" className="text-label font-medium text-primary-text underline-offset-2 hover:underline">
           See an example {'→'}

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -84,6 +84,42 @@ describe('the sentence about email on Notifications (ticket #1264)', () => {
 
   it('only the two events that email today are tagged; the other three are Inbox only', () => {
     expect([...EMAILED_EVENTS].sort()).toEqual(['mentioned', 'record_changed']);
+  });
+
+  it('the tagged rows are exactly the events the API code emails (derived from apps/api/src, not restated)', () => {
+    const api = join(SRC, '..', '..', 'api', 'src');
+    const walk = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.ts') && !e.name.includes('.test.') ? [join(d, e.name)] : [],
+      );
+    const keys = ['assigned', 'mentioned', 'commented', 'state_changed', 'record_changed'];
+    const emailed = new Set<string>();
+    for (const f of walk(api)) {
+      const src = readFileSync(f, 'utf8');
+      if (!/\b(emailService|email)\.send\(/.test(src)) continue;
+      // An email send that honours the person's switch: `<prefs>.<key> === false` ... continue before the send.
+      for (const k of keys) if (new RegExp(`\\.${k}\\s*===\\s*false`).test(src)) emailed.add(k);
+    }
+    expect([...emailed].sort()).toEqual([...EMAILED_EVENTS].sort());
+    const page = read('app/w/[ws]/settings/notifications/page.tsx');
+    expect(page).toContain('EMAILED_EVENTS.has(key)');
+    expect(page).toContain('EMAILED_EVENTS.has(e.key)');
+  });
+
+  it('the page lead and explainer follow the ruling, and no row claims email for an event that does not send it', () => {
+    const page = read('app/w/[ws]/settings/notifications/page.tsx');
+    expect(page).toContain('lead="What you hear about, and where it arrives"');
+    expect(page).not.toContain('Everything is on by default');
+    expect(page).not.toContain('each switch covers your Inbox and email');
+    // Mentions' and Record changes' labels reach the Email row only through EMAILED_EVENTS.
+    expect(page).toContain('{EMAILED_LABELS} are also emailed to');
+  });
+
+  it('the box note sits in the muted description, not the bold truncating title', () => {
+    const box = read('components/settings/my-work-email-box.tsx');
+    expect(box).toContain('title="What the email lists"');
+    expect(box).toContain('description="Only what you can open, the same list as My Work.');
+    expect(box).not.toContain('title="The email lists only');
   });
 
   it('the static operator line is gone from the page, and the page uses the shared line + box', () => {
