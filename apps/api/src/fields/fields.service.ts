@@ -26,6 +26,9 @@ import {
   CONVERTIBLE,
   FormulaError,
   formulaConfigSchema,
+  NUMBER_FORMAT_KEYS,
+  rollupConfigSchema,
+  rollupInheritsFormat,
   formulaRefs,
   formulaTypeOfFieldType,
   inferStateCategory,
@@ -1237,6 +1240,40 @@ export class FieldsService {
     );
   }
 
+  /**
+   * ticket #1256 — what a rollup's own number format may be. Mutates `config`, like the rest of assertRollupConfig.
+   *  - `format_inherited` is the read path's marker (see rollup-format.ts). A client that read the config and sends it
+   *    back is not choosing a format, so the marker and the inherited keys it rides with are dropped, not stored.
+   *  - `null` on a format key clears an explicit format, so a user can go back to inheriting.
+   *  - A format on any op but sum/avg/min/max is REFUSED rather than ignored: a count is a plain integer, and silently
+   *    storing a currency on it would look like a setting that did nothing.
+   *  - currency needs a 3-letter code, as for a formula: no silent USD on a money total.
+   */
+  private assertRollupFormat(config: Record<string, unknown>, op: string): void {
+    if (config['format_inherited'] === true) {
+      for (const key of NUMBER_FORMAT_KEYS) delete config[key];
+    }
+    delete config['format_inherited'];
+    for (const key of NUMBER_FORMAT_KEYS) if (config[key] === null) delete config[key];
+    if (NUMBER_FORMAT_KEYS.every((key) => config[key] === undefined)) return;
+    if (!rollupInheritsFormat(op)) {
+      throw new UnprocessableEntityException(
+        `rollup op "${op}" cannot take a number format — only sum, avg, min and max return a number that can be shown as currency or percent (a count is always a plain integer)`,
+      );
+    }
+    const parsed = rollupConfigSchema.pick({ format: true, currency_code: true, precision: true }).safeParse(config);
+    if (!parsed.success) {
+      throw new UnprocessableEntityException(parsed.error.issues[0]?.message ?? 'invalid rollup number format');
+    }
+    if (config['format'] === 'currency') {
+      const code = config['currency_code'];
+      if (typeof code !== 'string' || !/^[A-Za-z]{3}$/.test(code)) {
+        throw new UnprocessableEntityException('A currency rollup needs a 3-letter currency_code (for example EUR)');
+      }
+      config['currency_code'] = code.toUpperCase();
+    }
+  }
+
   private async assertRollupConfig(databaseId: string, config: Record<string, unknown>, membership?: Membership) {
     const op = config['op'] as string | undefined;
     if (!op || !FieldsService.ROLLUP_OPS.has(op)) {
@@ -1244,6 +1281,7 @@ export class FieldsService {
         'rollup op must be one of count, sum, avg, min, max, first, last, collect',
       );
     }
+    this.assertRollupFormat(config, op);
     const targetApiName = config['target_field_api_name'] as string | undefined | null;
     const targetDbId = await this.resolveRelationTargetDb(
       databaseId,
