@@ -109,6 +109,17 @@ A guest is narrowed the same way (see [Guest scoping](#guest-scoping)).
   back. **Inviting someone as a member can carry grants** (space or database); the invite is
   refused with a 422 if it carries a record-scoped grant for a member, or any grants for an admin,
   who already sees everything.
+- **Removing a member also revokes their tokens on that workspace** — personal access tokens, agent
+  tokens and run credentials. Re-inviting the person does not bring them back, and their tokens on
+  other workspaces are untouched. Revoked tokens stay on record, so a past action can still say
+  which token made it.
+- **A rule or button that writes into other databases needs access to them.** Saving a
+  [rule](/concepts/automations/) whose actions create records in, or update linked records in,
+  another database requires at least `contributor` on that database; pressing such a button
+  requires the same of the person pressing it. Without it the request is refused with a 403
+  (*"This action writes records into a database you can't add records to."*) — the same wording
+  whether that database is hidden from you or merely read-only. A rule's approver must be an
+  active member of the workspace (a 422 otherwise).
 - A notification about something that later became restricted, and that you can no longer open, is
   hidden from your inbox; see [mentions and notifications](/concepts/mentions-and-notifications/).
 
@@ -136,6 +147,11 @@ Guests are invited to one or more specific [spaces](/getting-started/concepts/):
   existence of resources they can't see.
 - Cross-space relation chips on records they *can* see render **name-only and non-navigable**.
 - Guests can read and comment, but aren't `@`-mentionable in v1.
+- **A guest sees "a Runner", not a machine.** A Runner is a colleague's own computer, so where a
+  member sees which machine and tool an agent run is waiting on, a guest who can read the agent sees
+  only "a Runner". That holds in the app and in the API's agent-wakes and wake-summary responses
+  (and so in the MCP tools that read them): there is no machine name, id or tool in what a guest
+  receives. Members and admins are unchanged.
 - **Filters, sorts and aggregates give a guest no signal about hidden data.** A rollup or lookup
   derived through a relation to something the guest can't fully read is treated, when they
   filter, sort or aggregate, as if it didn't exist: the refusal is the same as for a field that was

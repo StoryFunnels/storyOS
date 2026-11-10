@@ -8,6 +8,19 @@ sidebar:
 Type **@** for a person or **#** for a record, anywhere rich text or a comment accepts input. Both
 open a picker; picking one inserts a chip.
 
+## Mentioning an agent
+
+In a **comment**, **@** lists the agents you can read as well as people, under the people and
+marked with the agent mark so one is never mistaken for a person. Picking an agent inserts a chip
+that renders as an agent. A comment is the one place a mention of an agent can start a run: see
+the `mention` wake source in [agent runs](/concepts/agent-runs/). A description or document does
+not offer agents, because a chip there would do nothing.
+
+An agent a mention cannot wake is still listed, greyed out and not pickable, with the reason beside
+its name: **Switched off**, **Runs without an AI**, or **Not on your own AI** (an agent on StoryOS AI
+is not woken by a mention). If you cannot read an agent, it is not listed for you. The picker shows
+at most four agents at a time, so type more of the name to narrow it.
+
 ## What a mention actually stores
 
 A mention chip stores the **id**, not just the name you saw when you picked it — a label snapshot
