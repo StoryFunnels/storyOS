@@ -103,7 +103,7 @@ describe('#534 portal recipients — identity and lifecycle', () => {
     expect(count).toBe(1);
   });
 
-  it('MUST KEEP WORKING: guest tier (#238) seat accounting is untouched by recipients existing', async () => {
+  it('MUST KEEP WORKING: seat accounting is untouched by recipients existing, and a contributor guest is still free (#238, ticket #1258)', async () => {
     const guest = await signUpUser(app, 'PortalGuestCheck');
     const guestId = (await as(guest.token, 'GET', '/me')).json().id;
     const spaceId = (await as(admin.token, 'GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
@@ -118,7 +118,8 @@ describe('#534 portal recipients — identity and lifecycle', () => {
     await as(guest.token, 'POST', '/invites/accept', { token: inviteToken });
 
     const billable = await access.billableUserIds(wsId);
-    expect(billable).toContain(guestId);
+    // Ticket #1258: a guest is free at every grant role, so even this contributor guest is no seat.
+    expect(billable).not.toContain(guestId);
   });
 
   it('AC6/decision: recipients are a first-class table, not a user-visible database — see schema.ts:portalRecipients doc comment', async () => {

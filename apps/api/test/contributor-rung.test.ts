@@ -203,41 +203,65 @@ function res_body(r: { body: string }) {
   return r.body;
 }
 
-describe('the billing predicate (MN-121)', () => {
-  it('a contributor guest is billable — they can create', async () => {
-    const m = await membershipOf(clientId);
-    expect(await access.isBillable(m)).toBe(true);
+describe('guests are always free (ticket #1258, supersedes the MN-121 billing predicate)', () => {
+  async function seatsOnBillingPage() {
+    const res = await as(admin.token, 'GET', `/workspaces/${wsId}/billing`);
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json().usage.billableSeats as number;
+  }
+
+  it('a guest is NOT billable at ANY grant role — contributor, editor, creator and below', async () => {
+    for (const role of ['viewer', 'commenter', 'contributor', 'editor', 'creator']) {
+      await setGrant({ space_id: clientSpace }, role);
+      const m = await membershipOf(clientId);
+      expect(await access.isBillable(m), role).toBe(false);
+      const billable = await access.billableUserIds(wsId);
+      expect(billable, role).not.toContain(clientId);
+      expect(billable, role).toHaveLength(2);
+      expect(await seatsOnBillingPage(), role).toBe(2);
+    }
+    await setGrant({ space_id: clientSpace }, 'contributor');
   });
 
-  it('a viewer-only guest is NOT billable — "viewers and guests are always free"', async () => {
-    await setGrant({ space_id: clientSpace }, 'viewer');
-    const m = await membershipOf(clientId);
-    expect(await access.isBillable(m)).toBe(false);
+  it('a creator guest holding a database-scoped grant is free too', async () => {
+    await setGrant({ database_id: tasks }, 'creator');
+    expect(await access.billableUserIds(wsId)).not.toContain(clientId);
+    expect(await seatsOnBillingPage()).toBe(2);
   });
 
-  it('a commenter is NOT billable', async () => {
-    await setGrant({ space_id: clientSpace }, 'commenter');
-    const m = await membershipOf(clientId);
-    expect(await access.isBillable(m)).toBe(false);
-  });
-
-  it('members and admins are always billable', async () => {
+  it('members and admins are still billable', async () => {
     const adminId = (await as(admin.token, 'GET', '/me')).json().id;
     const memberId = (await as(member.token, 'GET', '/me')).json().id;
     expect(await access.isBillable(await membershipOf(adminId))).toBe(true);
     expect(await access.isBillable(await membershipOf(memberId))).toBe(true);
+    const billable = await access.billableUserIds(wsId);
+    expect(billable).toEqual(expect.arrayContaining([adminId, memberId]));
   });
 
-  it('counts seats: admin + member, but not the commenter guest', async () => {
-    const billable = await access.billableUserIds(wsId);
-    expect(billable).not.toContain(clientId);
-    expect(billable).toHaveLength(2);
+  it('a pending guest invite (even at creator) is not a seat', async () => {
+    const pendingEmail = `pending-${Date.now()}@example.com`;
+    const inv = await as(admin.token, 'POST', `/workspaces/${wsId}/invites`, {
+      email: pendingEmail,
+      role: 'guest',
+      grants: [{ space_id: clientSpace, role: 'creator' }],
+    });
+    expect(inv.statusCode, inv.body).toBeLessThan(300);
+    expect(await seatsOnBillingPage()).toBe(2);
   });
 
-  it('the guest joins the seat count the moment they can create', async () => {
-    await setGrant({ space_id: clientSpace }, 'contributor');
-    const billable = await access.billableUserIds(wsId);
-    expect(billable).toContain(clientId);
-    expect(billable).toHaveLength(3);
+  it('promoting the guest to member starts counting them; demoting to guest stops it', async () => {
+    const rows = (await as(admin.token, 'GET', `/workspaces/${wsId}/members`)).json();
+    const list = Array.isArray(rows) ? rows : rows.data;
+    const row = list.find((m: { user: { id: string } }) => m.user.id === clientId);
+
+    const up = await as(admin.token, 'PATCH', `/workspaces/${wsId}/members/${row.id}`, { role: 'member' });
+    expect(up.statusCode, up.body).toBeLessThan(300);
+    expect(await access.billableUserIds(wsId)).toContain(clientId);
+    expect(await seatsOnBillingPage()).toBe(3);
+
+    const down = await as(admin.token, 'PATCH', `/workspaces/${wsId}/members/${row.id}`, { role: 'guest' });
+    expect(down.statusCode, down.body).toBeLessThan(300);
+    expect(await access.billableUserIds(wsId)).not.toContain(clientId);
+    expect(await seatsOnBillingPage()).toBe(2);
   });
 });

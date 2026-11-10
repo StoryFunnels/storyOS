@@ -25,16 +25,10 @@ describe('guestInviteHref (#327)', () => {
   });
 });
 
-describe('isBillableGuestGrant mirrors the server billing rule (#327)', () => {
-  it('viewer and commenter are free', () => {
+describe('isBillableGuestGrant mirrors the server billing rule (#1258)', () => {
+  it('a guest is free at every grant role, creator included', () => {
+    expect([...FREE_GUEST_GRANTS]).toEqual(['viewer', 'commenter', 'contributor', 'editor', 'creator']);
     for (const grant of FREE_GUEST_GRANTS) expect(isBillableGuestGrant(grant)).toBe(false);
-  });
-
-  it('contributor and above cost a seat', () => {
-    // access.service.ts: billable once ACCESS_RANK[grant] >= ACCESS_RANK.contributor.
-    for (const grant of ['contributor', 'editor', 'creator'] as const) {
-      expect(isBillableGuestGrant(grant)).toBe(true);
-    }
   });
 });
 
