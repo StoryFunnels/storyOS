@@ -20784,6 +20784,16 @@
               "minLength": 1,
               "maxLength": 400
             }
+          },
+          "required_packs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "also_install",
+                "create_here"
+              ]
+            }
           }
         }
       },
