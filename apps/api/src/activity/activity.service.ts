@@ -25,6 +25,18 @@ const MAX_HIERARCHY_DEPTH = 5;
  * field ids → display names (deleted fields → "(deleted field)"), option ids
  * → labels, actor ids → names.
  */
+/**
+ * #1226 - WHICH agent made an event, for the "made by an agent" badge's tooltip. Read from the snapshot stamped on the row at write time
+ * (activity_events.agent_id / agent_name, from the credential's own agent, never from request input), so a whole page needs NO lookup. A
+ * snapshot: a rename does not retcon history, and a deleted agent's past events still name it. Null unless source is 'agent': a person's,
+ * an automation's or an mcp client's event carries no agent, and a row from before the columns existed stays null (never guessed).
+ * Visibility is the feed's own: whoever may read the record's activity already reads the same name on its comments and versions.
+ */
+export function agentOfEvent(e: { source: string | null; agentId: string | null; agentName: string | null }) {
+  const isAgent = e.source === 'agent';
+  return { agent_id: isAgent ? e.agentId : null, agent_name: isAgent ? e.agentName : null };
+}
+
 @Injectable()
 export class ActivityService {
   constructor(
@@ -187,6 +199,7 @@ export class ActivityService {
           // a call site not yet threading a source (never defaulted to
           // 'human': see activity_events.source's own comment).
           source: event.source,
+          ...agentOfEvent(event),
         };
       }),
       next_cursor: nextCursor,
@@ -348,6 +361,7 @@ export class ActivityService {
               // Never defaulted to 'human' — see activity_events.source's own
               // comment. A caller must not treat a null source as a person.
               source: event.source,
+              ...agentOfEvent(event),
             };
           }
           const comment = commentById.get(payload.comment_id as string)!;
@@ -359,6 +373,7 @@ export class ActivityService {
             actor: actorOf(event.actorId),
             created_at: event.createdAt,
             source: event.source,
+            ...agentOfEvent(event),
           };
         }),
       next_cursor: nextCursor,

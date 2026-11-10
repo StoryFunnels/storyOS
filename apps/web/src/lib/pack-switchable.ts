@@ -6,16 +6,10 @@
  * lives in ONE place, the `SwitchKindSpec` in `SWITCH_KINDS`: the words, the aria label, which items a person may switch on, and
  * the request field the chosen keys go in. The request is built from the items by kind (`enableRequestBody`).
  *
- * EXTENSION POINT, ticket #1192 (agent triggers install off too; only a person's switch in the review turns one on; human-gated
- * bindings are unaffected). It is deliberately NOT registered below, because the API does not return it yet and its field names
- * are not known. To add it, #1192's preview must provide, per agent trigger it would create:
- *   1. a stable label to key the switch by, and the same label accepted by the install request;
- *   2. whether it would be on or off at install (and, for an off one, why);
- *   3. the request field the chosen labels go in.
- * Then: register `agent_trigger` in `SWITCH_KINDS` with its own `sentence` (e.g. "wakes when Status becomes Onboarding · off"),
- * `ariaLabel`, `eligible` and `requestField`, and have the dialog map the preview's new list to `SwitchableItem`s next to the
- * automations. No row component or request code changes. Until then an item of an unregistered kind is IGNORED: it draws nothing
- * and is never sent, rather than crashing or being sent under a guessed field.
+ * Agent triggers (ticket #1192 / ticket #1254) are the second kind: a state-bound pack agent trigger installs OFF and only a
+ * person's switch here turns it on ("Wake it automatically", sent as `enable_agent_triggers`). The preview's `triggers` list carries
+ * each one's label ("Agent <- Database.Field = State"), whether it would be on, and why not. A human-gated trigger never starts by
+ * itself and is not held off, so it draws nothing.
  */
 
 import {
@@ -26,11 +20,58 @@ import {
   type AutomationState,
 } from './pack-automation-state';
 
+const ARROW = ' \u2190 ';
+
+/** A trigger's label, "Agent <- Database.Field = State", in parts; null when it is not in that shape (the row then says nothing specific). */
+export function parseTriggerLabel(label: string): { agent: string; database: string; field: string; option: string } | null {
+  const arrow = label.indexOf(ARROW);
+  const eq = label.lastIndexOf(' = ');
+  if (arrow < 0 || eq < arrow) return null;
+  const agent = label.slice(0, arrow);
+  const dbField = label.slice(arrow + ARROW.length, eq);
+  const dot = dbField.indexOf('.');
+  if (dot < 0) return null;
+  return { agent, database: dbField.slice(0, dot), field: dbField.slice(dot + 1), option: label.slice(eq + 3) };
+}
+
+/** What wakes it, as one clause: "wakes when Status becomes Onboarding"; the raw label when it is not in the known shape. */
+function wakesWhen(label: string): string {
+  const p = parseTriggerLabel(label);
+  return p ? `wakes when ${p.field} becomes ${p.option}` : `wakes on ${label}`;
+}
+
+/** "Wake it automatically": off by default, one line naming what wakes it. Nothing for a trigger that already exists or never fires by itself. */
+function triggerSentence(state: AutomationState, key: string): { lead: string; rest: string | null } | null {
+  const when = wakesWhen(key);
+  const cap = when.charAt(0).toUpperCase() + when.slice(1);
+  switch (state.kind) {
+    case 'off':
+      return { lead: 'Wake it automatically', rest: `Off until you turn it on. ${cap}.` };
+    case 'turned-on':
+      return { lead: 'Wake it automatically', rest: `On once installed. ${cap}.` };
+    default:
+      return null;
+  }
+}
+
+function triggerAriaLabel(key: string): string {
+  const p = parseTriggerLabel(key);
+  return p ? `Wake ${p.agent} automatically when ${p.field} becomes ${p.option}` : `Wake it automatically: ${key}`;
+}
+
+/** The preview's agent triggers as switchable items, keyed by their label. */
+export const triggerItems = (triggers: AutomationPreviewItem[]): SwitchableItem[] =>
+  triggers.map((item) => ({ kind: 'agent_trigger', key: item.name, item }));
+
+/** The triggers that belong under one agent's row. */
+export const triggersOfAgent = <T extends { name: string }>(triggers: T[], agent: string): T[] =>
+  triggers.filter((t) => parseTriggerLabel(t.name)?.agent === agent);
+
 export interface SwitchKindSpec {
   /** The install/preview request body field this kind's chosen keys are sent in. */
   requestField: string;
   /** The one sentence under a row, in this kind's own words; null draws nothing. */
-  sentence: (state: AutomationState) => { lead: string; rest: string | null } | null;
+  sentence: (state: AutomationState, key: string) => { lead: string; rest: string | null } | null;
   /** The switch's accessible name. */
   ariaLabel: (key: string) => string;
   /** The keys of this kind's items a person turned on AND may turn on, in the preview's own order. */
@@ -44,6 +85,13 @@ export const SWITCH_KINDS: SwitchKinds = {
     requestField: 'enable_automations',
     sentence: automationSentence,
     ariaLabel: (key) => `Turn on ${key} when installed`,
+    pick: enableAutomationsList,
+  },
+  agent_trigger: {
+    requestField: 'enable_agent_triggers',
+    sentence: triggerSentence,
+    ariaLabel: triggerAriaLabel,
+    // Same rule as an automation: only a trigger that would be created OFF and that a person turned on.
     pick: enableAutomationsList,
   },
 };
@@ -73,7 +121,7 @@ export function switchableSentence(
   const spec = kinds[kind];
   if (!spec) return null;
   const state = automationState(item, chosen, confirmed);
-  const s = spec.sentence(state);
+  const s = spec.sentence(state, item.name);
   return s ? { state, ...s } : null;
 }
 

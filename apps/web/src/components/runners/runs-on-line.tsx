@@ -3,6 +3,7 @@
 import { Check, ChevronDown, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { SUPPORTED_TOOLS } from '@/lib/runners/words';
 import { buildRunsOnMenu, runsOnLine } from '@/lib/runners/runs-on';
 import { describeRunnerShort } from '@/lib/runners/status';
 import type { RunnerDto } from '@/lib/runners/types';
@@ -79,7 +80,7 @@ export function RunsOnLine({
               </span>
               <span className="min-w-0">
                 <b className="block text-body font-medium text-ink">Add a Runner…</b>
-                <span className="block text-meta leading-[1.4] text-muted">Use your Claude Code or Cursor subscription</span>
+                <span className="block text-meta leading-[1.4] text-muted">Use your {SUPPORTED_TOOLS} subscription</span>
               </span>
             </DropdownMenuItem>
           </DropdownMenuContent>

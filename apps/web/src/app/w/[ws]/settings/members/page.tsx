@@ -625,7 +625,7 @@ function InviteDialog({
              */}
             {role === 'guest' && (
               <FreeGuestTip dismissKey={`members-invite-${ws}`}>
-                Viewer and commenter guests are free, always — never a paid seat. Scope them to the
+                Guests are free, always — at any access level, never a paid seat. Scope them to the
                 spaces they need below.
               </FreeGuestTip>
             )}

@@ -26,10 +26,10 @@ only the people added to it can. **Space scoping** lets you invite a guest into 
 
 ## Admin-only Settings pages
 
-**Members**, **Billing**, **Integrations**, **Connections** and **Webhooks** are for workspace
+**Members**, **Plan & billing**, **Integrations** and **Webhooks** are for workspace
 admins. The Settings menu leaves them out for a member or a guest, and a member or guest who opens
 one by its address, from a bookmark or a link someone sent, gets a short notice in place of the
-page: *"Billing is for workspace admins"*, with a line saying their role and to ask an admin. The
+page: *"Plan & billing is for workspace admins"*, with a line saying their role and to ask an admin. The
 page's own controls and data requests are not loaded, so nothing on it looks usable and then fails.
 
 ## Settings asks before the consequential actions
@@ -39,7 +39,7 @@ leaves everything as it was.
 
 - **Settings → Members:** changing a member's role (moving someone off admin, or onto it, is stated
   first), removing a member, and revoking a pending invite.
-- **Settings → Account:** removing your photo, and signing out one of your other devices.
+- **Settings → Profile:** removing your photo, and signing out one of your other devices.
 - **Settings → API tokens:** revoking a token.
 - **Settings → Webhooks:** enabling or disabling a webhook.
 - **Settings → Integrations → Google Calendar:** removing a database's calendar mapping.
@@ -109,6 +109,17 @@ A guest is narrowed the same way (see [Guest scoping](#guest-scoping)).
   back. **Inviting someone as a member can carry grants** (space or database); the invite is
   refused with a 422 if it carries a record-scoped grant for a member, or any grants for an admin,
   who already sees everything.
+- **Removing a member also revokes their tokens on that workspace** — personal access tokens, agent
+  tokens and run credentials. Re-inviting the person does not bring them back, and their tokens on
+  other workspaces are untouched. Revoked tokens stay on record, so a past action can still say
+  which token made it.
+- **A rule or button that writes into other databases needs access to them.** Saving a
+  [rule](/concepts/automations/) whose actions create records in, or update linked records in,
+  another database requires at least `contributor` on that database; pressing such a button
+  requires the same of the person pressing it. Without it the request is refused with a 403
+  (*"This action writes records into a database you can't add records to."*) — the same wording
+  whether that database is hidden from you or merely read-only. A rule's approver must be an
+  active member of the workspace (a 422 otherwise).
 - A notification about something that later became restricted, and that you can no longer open, is
   hidden from your inbox; see [mentions and notifications](/concepts/mentions-and-notifications/).
 
@@ -136,6 +147,11 @@ Guests are invited to one or more specific [spaces](/getting-started/concepts/):
   existence of resources they can't see.
 - Cross-space relation chips on records they *can* see render **name-only and non-navigable**.
 - Guests can read and comment, but aren't `@`-mentionable in v1.
+- **A guest sees "a Runner", not a machine.** A Runner is a colleague's own computer, so where a
+  member sees which machine and tool an agent run is waiting on, a guest who can read the agent sees
+  only "a Runner". That holds in the app and in the API's agent-wakes and wake-summary responses
+  (and so in the MCP tools that read them): there is no machine name, id or tool in what a guest
+  receives. Members and admins are unchanged.
 - **Filters, sorts and aggregates give a guest no signal about hidden data.** A rollup or lookup
   derived through a relation to something the guest can't fully read is treated, when they
   filter, sort or aggregate, as if it didn't exist: the refusal is the same as for a field that was
@@ -162,17 +178,22 @@ while every other client's work stays invisible.
 
 ## Who counts toward billing
 
-**Settings → Billing** shows **Billable seats** — admins and members always count; a guest counts
-only once their grant reaches `contributor` or higher. **A viewer or commenter guest is free**,
-whatever the total member count on the Members page looks like — pending invites don't count
-either, whether they resolve to a paid role or not. The billing page names exactly this rule in
-its own caption, with a link to Members, precisely so the two numbers can be reconciled rather
-than left to look like a discrepancy.
+**Settings → Plan & billing** shows **Billable seats**: admins and members count, and nobody else
+does. **A guest is always free**, whatever access they hold — viewer, commenter, contributor,
+editor or creator. A guest who can edit is still not a paid seat; the people who pay are the
+members. Pending invites don't count either, whether they resolve to a paid role or not. The Plan &
+billing page names exactly this rule in its own caption, with a link to Members, precisely so the
+two numbers can be reconciled rather than left to look like a discrepancy.
+
+Promoting a guest to a member starts counting them from that moment; moving a member to guest stops
+it. A change in the count only affects the seat line going forward — invoices already issued are
+not rewritten.
 
 ## Pending invitations
 
-An invite that hasn't been accepted shows a **Pending** badge on Settings → Members, with
-**Resend invitation** and **Revoke**. Revoke asks first, naming the email address.
+An invite that hasn't been accepted is listed in the **Invitations** box on Settings → Members, as
+**Pending** (with its expiry date) or **Expired**, with a **Send again** button and **Revoke**.
+Revoke asks first, naming the email address.
 
 **Resending mints a fresh link — the old one stops working.** It's not a reminder email pointing
 at the same URL; the invite's token and its 7-day expiry both reset, so a stale copy of the

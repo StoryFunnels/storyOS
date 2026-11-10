@@ -27,7 +27,7 @@ viewer < commenter < contributor < editor < creator   (< admin, workspace-wide)
 | `editor` | + delete records, views, links, buttons |
 | `creator` | + schema: fields, automations, rename |
 
-**The ladder IS the billing boundary.** No second concept: billable = workspace `admin`/`member`, or any grant `>= contributor` on any scope. `viewer`/`commenter` are never billable. That makes "viewers and guests are always free" and "anyone who can create is a seat" the same sentence.
+**[Superseded 2026-11-10, ticket #1258: guests are always free at every grant role; billable = admin or member only. The ladder is the permission model, not the billing boundary. The paragraph below records the original decision.]** **The ladder IS the billing boundary.** No second concept: billable = workspace `admin`/`member`, or any grant `>= contributor` on any scope. `viewer`/`commenter` are never billable. That makes "viewers and guests are always free" and "anyone who can create is a seat" the same sentence.
 
 **Recorded with it:**
 - **Members stay workspace-wide creators.** No member scoping. This is why MN-124 ("any member can delete any space") is not about restricting members — it is about making the graded ladder authoritative instead of a blunt `@MinRole('member')`.

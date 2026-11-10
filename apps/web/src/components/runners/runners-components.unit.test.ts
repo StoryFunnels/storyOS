@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { canHireAgents, canSeeRunnerDetails } from '@/lib/runners/access';
+import { RUN_STATE_NAMES } from '@/lib/runners/types';
 import type { RunnerDto, RunStateName, WakeDto } from '@/lib/runners/types';
 import { FirstRunCard } from './first-run-card';
 import { RunList } from './run-list';
@@ -44,7 +45,8 @@ const wake = (state: RunStateName, over: Partial<WakeDto> = {}): WakeDto => ({
   finished_at: '2026-10-12T10:00:00Z',
   ...over,
 });
-const ALL: RunStateName[] = ['needs_approval', 'running', 'done', 'failed', 'canceled', 'waiting_for_runner', 'runner_offline', 'waiting_for_limit', 'waiting_for_turn', 'waiting_for_hours', 'waiting_for_reserve'];
+// Every state the API emits, from the one list (ticket #1248): a hand-typed prefix passed for exactly the states it left out.
+const ALL: readonly RunStateName[] = RUN_STATE_NAMES;
 const runList = (wakes: WakeDto[], extra: Record<string, unknown> = {}) => renderToStaticMarkup(createElement(RunList, { ws: 'w1', wakes, more: false, tz, ...extra }));
 
 describe('the status mark: gold only on running and approval', () => {
@@ -66,7 +68,7 @@ describe('the status mark: gold only on running and approval', () => {
 });
 
 describe('the run list renders every state as drawn', () => {
-  it('all eleven states render, each with its own words (the two ticket #1137 holds are pinned in sharing.unit.test.ts)', () => {
+  it('every state renders, each with its own words (the two ticket #1137 holds are pinned in sharing.unit.test.ts)', () => {
     const out = runList(ALL.map((s) => wake(s, { run_state: { state: s, runner_name: 'MacBook', since: '2026-10-29T18:40:00Z', until: '2026-10-30T14:00:00Z', tool: 'claude-code' } })));
     for (const text of [
       'Needs your approval',
@@ -118,7 +120,7 @@ describe('the first-time moment', () => {
   it('says the agent has not started, why, and offers ONLY Add a Runner (no API-key button, it is not in v1)', () => {
     const out = html(1);
     expect(out).toContain('Onboarding Assistant hasn’t started work yet');
-    expect(out).toContain('your own <b class="font-semibold text-ink">Claude Code or Cursor</b>, through a small free Runner on your computer');
+    expect(out).toContain('your own <b class="font-semibold text-ink">Claude Code</b>, through a small free Runner on your computer');
     expect(out).toContain('Add a Runner');
     expect(out).not.toMatch(/API key/i);
   });
@@ -127,6 +129,9 @@ describe('the first-time moment', () => {
     expect(html(3)).toContain('3 records are waiting for it');
     expect(html(4)).toContain('4 records are waiting for it');
     expect(html(4)).not.toContain('1 record');
+    const withNoun = renderToStaticMarkup(createElement(FirstRunCard, { agentName: 'A', recordsWaiting: 4, noun: 'client', onAdd: () => {} }));
+    expect(withNoun).toContain('4 clients are waiting for it');
+    expect(withNoun).not.toContain('records');
     expect(html(0)).not.toMatch(/waiting for it/);
     expect(html(null)).not.toMatch(/waiting for it/);
   });

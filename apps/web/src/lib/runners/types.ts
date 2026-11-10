@@ -94,20 +94,28 @@ export interface PairingPoll {
   runner?: { id: string; name: string; tools: RunnerTool[] };
 }
 
-export type RunStateName =
-  | 'needs_approval'
-  | 'running'
-  | 'done'
-  | 'failed'
-  | 'canceled'
-  | 'waiting_for_runner'
-  | 'runner_offline'
-  | 'waiting_for_limit'
-  | 'waiting_for_turn'
+/**
+ * Every run state the API can emit (apps/api/src/runners/run-state.ts, the SDK's agent-wakes description). One list, and the type is
+ * derived from it, so a test can walk the list and prove describeRun has a case for each (ticket #1248).
+ */
+export const RUN_STATE_NAMES = [
+  'needs_approval',
+  'running',
+  'done',
+  'failed',
+  'canceled',
+  'waiting_for_runner',
+  'runner_offline',
+  'waiting_for_limit',
+  'waiting_for_turn',
   /** Ticket #1137: outside the Runner's working hours; `until` is when the window opens. */
-  | 'waiting_for_hours'
+  'waiting_for_hours',
   /** Ticket #1137: the person's reserve is being kept; `until` is the tool's reported reset, absent when unknown. */
-  | 'waiting_for_reserve';
+  'waiting_for_reserve',
+  /** Ticket #1138: the AGENT has used its monthly budget; `until` is the UTC month reset, `budget_metric` says which budget. */
+  'waiting_for_budget',
+] as const;
+export type RunStateName = (typeof RUN_STATE_NAMES)[number];
 
 /** `since` / `until` are ISO instants; the client formats them in the viewer's timezone. */
 export interface RunState {
@@ -116,6 +124,8 @@ export interface RunState {
   until?: string;
   runner_name?: string;
   tool?: string;
+  /** `waiting_for_budget` only: which budget ran out. Absent from an older API. */
+  budget_metric?: 'tokens' | 'runs';
 }
 
 export type WakeReason = 'state_change' | 'assigned' | 'mention' | 'automation' | 'manual' | 'approval_decided' | 'must_comment' | 'retry' | 'catch_up';

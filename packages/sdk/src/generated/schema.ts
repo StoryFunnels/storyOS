@@ -1237,6 +1237,23 @@ export interface paths {
         patch: operations["RecordsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/branch-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The git branch name for this record, derived (never stored): [lane/]<number>-<title-slug> (ticket #1219) */
+        get: operations["RecordsController_branchName"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate": {
         parameters: {
             query?: never;
@@ -3454,6 +3471,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark this view as seen by me now; returns when I last had seen it before this call (null the first time) */
+        post: operations["ViewSeenController_markSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/dismissed-hints": {
         parameters: {
             query?: never;
@@ -3807,7 +3841,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Records across databases assigned to me or created by me (MN-049, #36) */
+        /** My work: records assigned to me, created by me, assigned BY me, or waiting on me (approvals + unanswered mentions). Finished rows are dropped; every total is exact (MN-049, #36, #1250) */
         get: operations["SearchController_myWork"];
         put?: never;
         post?: never;
@@ -3828,6 +3862,24 @@ export interface paths {
         get: operations["SearchController_recent"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/my-work-digest/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stop the My work email: a signed link, no sign-in. Redirects to Settings › Notifications */
+        get: operations["MyWorkDigestController_unsubscribe"];
+        put?: never;
+        /** Stop the My work email (RFC 8058 one-click List-Unsubscribe-Post). Signed token, no sign-in */
+        post: operations["MyWorkDigestController_unsubscribeOneClick"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4158,6 +4210,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agents/{agent}/scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where this agent works, resolved NOW: its named databases plus every database in its target spaces (a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list. */
+        get: operations["AgentsController_getAgentScope"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
         parameters: {
             query?: never;
@@ -4409,7 +4478,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** The records POST /agents/{agent}/catch-up would start on, by name (ticket #1224): {total, listed_total, not_listed, items:[{id, title, database_id, database_name}], limit, offset, truncated}. `total` is exactly the `catch_up` count in GET /agent-wakes/summary (a real SQL count seen as the agent's owner). Items are oldest first, the order one click wakes them in, paged with ?limit= (1-100, default 5) and ?offset=. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (never an id); `truncated` is true while more remain to page through. The agent's owner or an admin (a guest 403; anyone else, and an unknown agent, 404). An agent that cannot take wakes returns total 0. */
+        get: operations["RunnersController_listWaiting"];
         put?: never;
         /** Start the agent on the records already waiting in its trigger state(s) that no wake was ever made for (ticket #1152): one wake per record through the normal queue, at most 25 per click. Returns {queued, already_waiting, remaining, skipped}; remaining is how many more a further click will queue. The agent's owner or an admin, signed in (a token, a connected AI or the agent's own run credential gets 403; anyone else, and an unknown agent, 404). The count that decides whether to offer this is `catch_up` in GET /agent-wakes/summary. */
         post: operations["RunnersController_startOnWaiting"];
@@ -4822,6 +4892,77 @@ export interface paths {
         put?: never;
         /** Duplicate a database — schema, or schema + records (#266) */
         post: operations["DatabaseDuplicateController_duplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a database's record templates (name, preset values, body) */
+        get: operations["RecordTemplatesController_list"];
+        put?: never;
+        /** Create a record template: name, preset values keyed by field api_name, and a Markdown body */
+        post: operations["RecordTemplatesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One record template */
+        get: operations["RecordTemplatesController_get"];
+        put?: never;
+        post?: never;
+        /** Delete a record template. Records already made from it are untouched. */
+        delete: operations["RecordTemplatesController_remove"];
+        options?: never;
+        head?: never;
+        /** Edit a record template (a pack-installed one too: it is then kept on uninstall as changed) */
+        patch: operations["RecordTemplatesController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save an existing record as a template: its values and description (not its title, links or computed fields) */
+        post: operations["RecordTemplatesController_saveFromRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a record from a template: preset values and the body are filled in; `values` overrides a preset. Presets that no longer fit the schema are dropped and listed in `skipped`. */
+        post: operations["RecordTemplatesController_apply"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5581,6 +5722,14 @@ export interface components {
             view_id?: string;
         };
         PreferencesPatchDto: {
+            myWorkEmail?: {
+                /** @enum {string} */
+                frequency?: "off" | "daily" | "weekly";
+                weekday?: number;
+                time?: string;
+                timezone?: string | null;
+                include_assigned_by_me?: boolean;
+            };
             notifications?: {
                 assigned?: boolean;
                 mentioned?: boolean;
@@ -7295,6 +7444,9 @@ export interface components {
             target_space_id?: string;
             enable_automations?: string[];
             enable_agent_triggers?: string[];
+            required_packs?: {
+                [key: string]: "also_install" | "create_here";
+            };
         };
         SubmitDto: {
             /** @enum {string} */
@@ -7307,6 +7459,34 @@ export interface components {
             name?: string;
             /** @default false */
             include_records: boolean;
+        };
+        CreateRecordTemplateDto: {
+            name: string;
+            description?: string;
+            /** @default {} */
+            values: {
+                [key: string]: unknown;
+            };
+            body?: string;
+        };
+        SaveRecordAsTemplateDto: {
+            record_id: string;
+            name: string;
+            description?: string;
+        };
+        UpdateRecordTemplateDto: {
+            name?: string;
+            description?: string | null;
+            values?: {
+                [key: string]: unknown;
+            };
+            body?: string | null;
+        };
+        ApplyRecordTemplateDto: {
+            /** @default {} */
+            values: {
+                [key: string]: unknown;
+            };
         };
         FavoriteDto: {
             /** @enum {string} */
@@ -9380,6 +9560,28 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateRecordDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_branchName: {
+        parameters: {
+            query?: {
+                lane?: "docs" | "mcp" | "api" | "web" | "fix";
+            };
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -12886,6 +13088,26 @@ export interface operations {
             };
         };
     };
+    ViewSeenController_markSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     DismissedHintsController_get: {
         parameters: {
             query?: never;
@@ -13395,6 +13617,8 @@ export interface operations {
         parameters: {
             query: {
                 tab: string;
+                /** @description true keeps Done/Canceled rows (the My work page renders them greyed out); default drops them. */
+                include_finished?: string;
             };
             header?: never;
             path?: never;
@@ -13411,6 +13635,40 @@ export interface operations {
         };
     };
     SearchController_recent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MyWorkDigestController_unsubscribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MyWorkDigestController_unsubscribeOneClick: {
         parameters: {
             query?: never;
             header?: never;
@@ -13829,6 +14087,26 @@ export interface operations {
             };
         };
     };
+    AgentsController_getAgentScope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent record's uuid or public number */
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     AgentsController_getAgentActivity: {
         parameters: {
             query: {
@@ -14232,6 +14510,28 @@ export interface operations {
                 "application/json": components["schemas"]["RunnerAssignmentDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_listWaiting: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -14741,6 +15041,159 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DuplicateDatabaseDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRecordTemplateDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRecordTemplateDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_saveFromRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveRecordAsTemplateDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordTemplatesController_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                template: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyRecordTemplateDto"];
             };
         };
         responses: {

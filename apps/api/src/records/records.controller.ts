@@ -1,5 +1,8 @@
 import { HoldsAgentDeletes } from '../action-gates/agent-delete-route';
+import { BRANCH_LANES, branchNameFor } from '../integrations/git-refs';
+import type { BranchLane } from '../integrations/git-refs';
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -16,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { ServerTimingInterceptor } from '../common/server-timing';
 import { ResourceScopable } from '../access/resource-scope';
-import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import {
@@ -175,6 +178,8 @@ export class RecordsController {
    * rows and ignore them. Viewer access, same as reading: a count reveals
    * nothing a query would not.
    */
+  // #1261 — a read that POSTs (like `query`): without this the guard's method default made a READ token's count a 403.
+  @RequiresScope('read')
   @Post('aggregate')
   // A read, not a creation. Nest defaults POST to 201, which would tell every
   // client that a count made something.
@@ -195,6 +200,7 @@ export class RecordsController {
    * (`groups: [...]` instead of `value`) and a caller wanting one total
    * should not parse an array to find it.
    */
+  @RequiresScope('read') // #1261, as `aggregate` above
   @Post('aggregate/grouped')
   @HttpCode(200)
   @ApiOperation({ summary: "One aggregate value per group — a board/dashboard column's true total, in one query" })
@@ -384,6 +390,33 @@ export class RecordsController {
   ) {
     await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
     return this.recordsService.get(databaseId, recordId, req.membership);
+  }
+
+  @Get(':rec/branch-name')
+  @ApiOperation({
+    summary:
+      'The git branch name for this record, derived (never stored): [lane/]<number>-<title-slug> (ticket #1219)',
+  })
+  @ApiQuery({ name: 'lane', required: false, enum: BRANCH_LANES })
+  async branchName(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Param('rec') recordId: string,
+    @Query('lane') lane?: string,
+  ) {
+    if (lane !== undefined && !(BRANCH_LANES as readonly string[]).includes(lane)) {
+      throw new BadRequestException(`lane must be one of: ${BRANCH_LANES.join(', ')}`);
+    }
+    await this.recordsService.assertRecordAccess(req.membership, databaseId, recordId, 'viewer');
+    const record = await this.recordsService.get(databaseId, recordId, req.membership);
+    if (record.number == null) {
+      throw new BadRequestException('This database has no record numbers, so there is no branch name to derive');
+    }
+    return {
+      record_id: record.id,
+      number: record.number,
+      branch_name: branchNameFor({ number: record.number, title: record.title ?? '', lane: lane as BranchLane | undefined }),
+    };
   }
 
   @Patch(':rec')

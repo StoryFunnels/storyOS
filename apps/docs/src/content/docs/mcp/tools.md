@@ -165,6 +165,23 @@ creates its own **Issues** in its space and does not touch another space's **Iss
 
 - **Re-installing into the same space adds nothing.** The install recognises the databases it created by
   the ids it recorded, so a database someone renamed is still found.
+
+#### Re-installing after a database moved
+
+An install records the databases it created or adopted. A re-install of a pack the workspace already has
+looks for those databases by their recorded ids first, wherever they live now, and only then by name in the
+space it installs into. So moving a pack's database to another space, or renaming the pack's space, does not
+make the next install build a second set; the relations and the install's tracked items stay with the
+original databases.
+
+- **A recorded database wins over a same-named one** that happens to sit in the pack's space.
+- **Only a database you can edit, and that is not in the trash, counts.** Anything else is treated as not
+  there, and the install falls back to matching by name in the space, building a fresh database if none is
+  found. A trashed database is not brought back.
+- **An explicit `space` is respected.** If the target space still holds at least one database the pack
+  created, the re-install is into where the pack lives and finds the ones that moved too. If it holds none,
+  that is you installing somewhere else, and the pack builds a new set there. A database the pack adopted
+  with `reuse` is kept either way.
 - **A same-named database the pack did not create, already in the target space, is a collision** the
   install does not decide for you: it is refused with a 409 naming it.
 
@@ -173,16 +190,30 @@ creates its own **Issues** in its space and does not touch another space's **Iss
 Sharing one database between packs is something you ask for, never something an install does on its own.
 To have a pack adopt an existing database wherever it lives, send a resolution of `reuse` for that database's
 name in `resolutions` on the workspace's `packs/preview` and `packs/install` calls, for example
-`{"resolutions": {"Clients": {"action": "reuse"}}}`. The MCP `install_pack` tool has no input for this
-choice; it takes `update_agents` for agent resolutions only.
+`{"resolutions": {"Clients": {"action": "reuse"}}}`. Over MCP, `install_pack` takes `reuse_databases` for the
+same choice, a map of database name to the id of the database to adopt, for example
+`{"Clients": "<database id>"}`; its `update_agents` input is for agent resolutions only.
+
+When more than one same-named database qualifies, say which one: add `database_id` to the resolution,
+`{"Issues": {"action": "reuse", "database_id": "<id>"}}`. The id must be one of the `candidates` the preview
+lists for that database (below). `database_id` is accepted only with `reuse`; sent with another action, or
+not a UUID, it is refused by validation.
 
 A database is adopted only when all of these hold:
 
 - **You can edit it.** A database you can only read, and one you cannot read at all, are treated as not
   there.
-- **Exactly one database with that name is editable by you.** With two or more, the install refuses to guess.
+- **It is the one you named, or the only one.** With a `database_id`, that database is adopted if it is one
+  of the candidates. Without one, exactly one database with that name must be editable by you; with two
+  or more, the install refuses to guess, with a 422 that says you have more than one and names their spaces.
+  An id that is not a candidate (not editable by you, in another workspace, built-in, unknown) is refused
+  the same way as a database that is not there, and nothing is changed.
 - **Its fields fit the pack.** A field the pack declares must have the same type in the existing database. A
   pack's workflow field, such as a Status, needs a select, so an existing Status of another type cannot be used.
+- **It is not synced from Linear.** A database that has the Linear importer's own `linear_id` field is never
+  adopted, with or without a `database_id`, because the sync rewrites its State, Priority and Estimate on
+  every run. The reason says so.
+- **It is not in a personal space.** A pack never lands in one, so such a database is not a candidate.
 
 If any of these fails, an install with `reuse` is refused with a 422 whose message is the reason, and nothing
 is written. Without a `reuse` the pack creates its own database and the existing one is not changed.
@@ -191,6 +222,22 @@ The `preview` reports each database that has a same-named one elsewhere as `exis
 `space_name` it lives in and its `database_id`, `reusable` (true or false), `adopted` (true when the
 install would use that database, which needs your `reuse` choice or an earlier adoption by the same pack) and, when it cannot be reused, a `reason` in plain words, such as
 `There is no Clients database you can edit.` or a note naming the field and both types.
+
+When the database is reusable and has a `database_id`, `existing_elsewhere` also carries:
+
+- `record_count`: how many live records it holds as you count them (the trash and records you cannot see
+  are not counted). `0` is a real answer and is present.
+- `fields_added`: the fields the pack would add to it if reused, each `{name, type}`, in install order.
+  A field it already has with the pack's type is not listed, and `[]` means it already has every field the
+  pack needs.
+
+Neither key is present when `database_id` is absent or `reusable` is false.
+
+`candidates` lists every same-named database you could pick, one entry each with `database_id`, `space_name`,
+`reusable`, a `reason` when it is not, and `record_count` and `fields_added` when it is. It lists only
+databases you can edit: a read-only, hidden, built-in or personal-space database is not in it. It is absent
+when there is none. Existing clients can keep reading the
+older single-database fields, which are unchanged.
 
 - **Re-installing a pack that adopted a database keeps using it**, with or without repeating the choice, and
   does not create a duplicate.
@@ -210,6 +257,20 @@ database's row in the review shows two options:
 Nothing is reused unless you pick it. When the preview says the database cannot be reused, the second option
 is shown disabled with the preview's reason as written, rather than left out. A choice is sent as the same
 `reuse` resolution described above.
+
+**When you have several.** If there is more than one same-named database in other spaces (for example three
+*Issues*), the row reads *You already have 3 Issues databases in other spaces.* and offers:
+
+- **Create a new *Name* database here**, the default.
+- **Use one of your *Name* databases**: opens a short list of the ones that can take the pack, each as
+  *Name in Space* with its record count. Pick one and the review shows what the pack adds to it, with the
+  same *Nothing in it is removed or renamed* line as above.
+
+The ones that cannot be used are summed up on one muted line, *N can't be used:*, each with its space and a
+short reason, for example *synced from Linear*. If none can be used, the row has no choice to make: it says
+*You have 2 Sprints databases, but both sync from Linear, so this pack makes its own.* (or *none can take
+this pack* when the reason is something else). Only databases you can edit are counted. If a pick stops
+being available, or the server refuses it, the review drops it and says the pack will make a new one.
 
 #### Built-in databases are never reused or changed
 
@@ -245,8 +306,50 @@ item carries a reason.
 
 A pack automation that sends email, Slack, webhook, HTTP or social-post actions, or runs an agent, installs
 **switched off**. Pass `enable_automations` (labels written `Database.Rule name`, as `preview` lists them) to
-switch chosen ones on. The preview and the install result say which rules are off and why. Details:
+switch chosen ones on; the web install review shows each rule that installs off as **Off until you turn it
+on**, with why and a switch. The preview and the install result say which rules are off and why. Details:
 [Writing a pack manifest](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
+
+### Packs that build on other packs
+
+A manifest can declare that some of its databases really belong to another pack, in `requires.packs`:
+each entry names the other pack by `pack` (its slug), the `databases` of **this** manifest that are that
+pack's, and an optional `note` shown in the review. Deal Desk, for example, builds on Agency OS's Clients,
+Contacts and Projects. A database named there must be in the manifest's own `databases`, and a pack cannot
+name itself; both are refused with a 422. Details: [Writing a pack manifest](/guides/pack-manifest/#packs-that-build-on-other-packs).
+
+`preview` lists each required pack under `required_packs`: whether it is installed here, which of this
+pack's databases would be linked to it, the fields this pack adds to them, the `choices` on offer and the
+`chosen` one. `install_pack` takes `required_packs` as `{"<pack slug>": "also_install" | "create_here"}`
+(REST: `required_packs` on `packs/install` and `packs/preview`):
+
+- **The required pack is installed here:** its databases are linked, not copied, unless you pass
+  `create_here`. A database you cannot edit is not linked.
+- **It is not installed:** `also_install` installs that built-in pack first, then links to it.
+  `create_here`, the default, makes the linked databases inside this pack. Nothing is installed unless you
+  choose `also_install`. Naming a pack StoryOS does not ship in `also_install` is refused with a 422.
+- **A slug the manifest does not require** is refused with a 422.
+- **One request is one install.** If the dependent install fails after `also_install` installed the other
+  pack, everything that request created is rolled back, including the pack it installed first and its
+  databases, and the error says what was rolled back. A required pack that was installed before the
+  request is not touched. If the rollback itself fails, the error names what to delete by hand.
+- **The install result** reports each required pack as `linked`, `installed_and_linked` or `created_here`.
+
+### A pack that schedules its own agent
+
+A pack automation whose trigger is a `schedule` can run one of the pack's own agents. In its `run_agent`
+action, name the agent by reference instead of by id: `{"type": "run_agent", "agent": "$agent:deal-coach"}`.
+The reference is the agent's name in lower case with every run of other characters turned into one dash,
+so **Deal Coach** is `$agent:deal-coach`. Install replaces it with the id of the agent it created or
+reused. Details: [Writing a pack manifest](/guides/pack-manifest/#a-pack-can-schedule-its-own-agent).
+
+- **The rule installs switched off**, like every rule that runs an agent. Name its label in
+  `enable_automations` to switch it on.
+- **A reference to an agent the manifest does not declare**, a reference that two of its agents share,
+  or a schedule trigger the rule engine would refuse are each a 422 before anything is built; `preview`
+  refuses them too.
+- **`export_pack`** includes an agent that a rule runs even when no trigger wakes it, and writes the rule
+  with the `$agent:` reference, never an id.
 
 ### Space-level views and groups
 
@@ -269,8 +372,8 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 
 | Tool | What it does |
 |---|---|
-| `get_my_work` | `assigned` (default), `created`, or `recent` records for the identity the token belongs to. |
-| `list_notifications` / `get_unread_count` / `mark_notifications` | What's waiting for you (assignments, mentions, comments, state changes, approval requests); a single unread number; mark read or archive (`all: true` clears the inbox). |
+| `get_my_work` | For the identity the token belongs to: `kind` is `assigned` (default), `created`, `assigned_by_me`, `waiting` (approvals to decide and unanswered mentions), `recent` or `favorites`. Finished records are never returned; totals are exact and `truncated` says when a list was cut. See [My Work](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you). |
+| `list_notifications` / `get_unread_count` / `mark_notifications` | What's waiting for you (assignments, mentions, comments, state changes, approval requests, and an agent's budget notices `agent_budget_warning` and `agent_budget_paused`); a single unread number; mark read or archive (`all: true` clears the inbox). |
 
 ## Agents, runs and automations
 
@@ -279,9 +382,19 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 | `get_agents` / `setup_agents` | Whether the Agentic OS space exists (with a summary), and provisioning it (idempotent). |
 | `run_agent` / `delegate_to_agent` | Run an agent by hand and get its Run back; hand one record to an agent, which posts its outcome back on the record as a comment linking to the Run. |
 | `create_agent_trigger` | Fire an agent when a record reaches a given state; it starts by itself by default. `human_gate: true` ("ask me before each run") means it never starts a run by itself: a person starts each run. |
+| `get_agent_scope` | Where an agent works, resolved now: its Target databases plus every database in its Target spaces, narrowed to what its manager can open, with `enforced`, `unresolved` and `withheld_count`. Workspace admins only. See [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). |
+| `get_agent_budget` | One agent's monthly token and run budget against what it has used this UTC month, with each metric's state (unlimited, ok, warning, paused or not_measured). See [the Runner guide](/guides/runner/). |
 | `get_run` / `get_staged_action` / `rerun_action` / `get_run_quota` | One run in full (each action's attempts and artifacts); what a parked run is waiting to do (read-only — approving is human-only); retry one failed action with its original inputs; this month's run usage against your plan. |
 | `create_automation` / `update_automation` | Author or edit a rule (admin-scoped). In an automation's set, create and update-linked actions, a select, workflow or multi-select value can be an option label (any case) or id; an unknown label fails the run and names the valid ones. See [Setting a select field by its label](/concepts/automations/#setting-a-select-workflow-or-multi-select-field-by-its-label). |
 | `test_automation` / `get_automation_last_payload` | Dry-run a rule against one record before trusting it (no side effects unless you pass an `action_index`); the latest payload a webhook-triggered rule received. |
+
+**A held delete is not a failure, and not done.** When an agent's own approval policy holds a delete,
+the delete tools (`delete_record`, `unlink_records`, `delete_comment`, `delete_attachment`,
+`delete_document`, `delete_skill`, `delete_space_view`, `delete_source`, `delete_record_template`,
+`remove_sample_data`) answer `deleted: false` and `pending_approval: true`, with an `approval_id`.
+Nothing was deleted; a person decides it in the Approvals inbox. **Do not retry it**: a retry would
+hold a second approval. `delete_records` answers the same way with `deleted: 0` (a count) and
+`pending_approval: true`. See [approval gates](/concepts/approval-gates/).
 
 ## Conveniences
 

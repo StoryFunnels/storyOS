@@ -1,9 +1,9 @@
 import { Button } from '@/components/ui/button';
 import { recordsWaitingLine } from '@/lib/runners/runner-state';
-import { COPY } from '@/lib/runners/words';
+import { COPY, SUPPORTED_TOOLS } from '@/lib/runners/words';
 
-/** The design bolds the two tools in the first sentence. */
-const BOLD = 'Claude Code or Cursor';
+/** The design bolds the tool in the first sentence. */
+const BOLD = SUPPORTED_TOOLS;
 
 /**
  * Ticket #1139 AC1 — the first-time moment on an agent's page when no Runner serves it yet (the prototype's `.firstrun`).
@@ -16,10 +16,13 @@ const BOLD = 'Claude Code or Cursor';
 export function FirstRunCard({
   agentName,
   recordsWaiting,
+  noun = 'record',
   onAdd,
 }: {
   agentName: string;
   recordsWaiting: number | null;
+  /** Singular noun of the agent's trigger database ("client"), from the catch-up box's own source; "record" when unknown. */
+  noun?: string;
   onAdd: () => void;
 }) {
   const [before, after] = COPY.firstRun.split(BOLD);
@@ -37,7 +40,7 @@ export function FirstRunCard({
       </p>
       {recordsWaiting !== null && recordsWaiting > 0 && (
         <p className="m-0 text-body leading-[1.5] text-ink-secondary">
-          <b className="font-semibold text-ink">{recordsWaitingLine(recordsWaiting)}</b>.
+          <b className="font-semibold text-ink">{recordsWaitingLine(recordsWaiting, noun)}</b>.
         </p>
       )}
       <div className="flex flex-wrap gap-2">

@@ -80,6 +80,12 @@ grouping is one click away.
 - **A dynamic "Me"** value on any user field (including `created_by`/`updated_by`) — pick **Me**
   instead of naming yourself, and the same shared view resolves to "assigned to whoever is
   looking" for every person who opens it, per-viewer, at the backend.
+- **Relative dates** — on a date field, **before** and **after** take either an exact date or a
+  number of days or weeks **ago** or **from now**, picked in the same row. The filter keeps meaning
+  "that many days from today" as time passes, and reads in words: "Last reviewed more than 90 days
+  ago", not the stored `$date:-90d` (see [Querying](/api/querying/)). Only days and weeks are
+  offered, up to 9,999 days; an amount of zero or a blank one is flagged rather than saved.
+  **on** and **is not** take a single day, never a relative one.
 - **Rich value pickers** — select/multi-select/user fields get searchable, removable chips instead
   of a raw list; dates get the same calendar picker as everywhere else in the app, with **Today**
   and **Clear**.
@@ -109,6 +115,27 @@ an unset field counts as "doesn't contain X" rather than being silently excluded
 empty field already counts toward `is_empty`. The full type-by-type list is the [operator × type
 matrix](/api/conventions/#operator--type-matrix) — the same table the raw API and MCP tools use,
 so what the panel offers and what a `filter` you write by hand can express never disagree.
+
+**Filtering by state category.** On a **Status** (workflow) or **select** field, the operator list also has
+**is in category** and **is not in category**. The value is picked from five fixed categories, not from the
+field's own options: **Backlog**, **Not started**, **In progress**, **Done** and **Canceled**. A condition
+reads, for example, *Status is done or canceled* or *Status is not done*, in the category words rather than
+option names. A multi-select has no categories, so it does not offer these. A stored category name the web app does not
+know is shown as written rather than dropped, and is removed the first time you edit that condition's values.
+
+The point is what happens when someone adds a state later. A filter naming the **Done** option misses a new
+*Shipped* state; a filter on the **Done** category counts it as soon as it is given that category, with no
+edit to the filter. **is not in category** is the exact complement, so an issue with no value, or an option
+with no category, passes it. It is offered wherever a condition is written with this builder: a view's
+filter, a record page's collection, an automation's condition, a button's action condition, and the filter
+of a [rollup](/concepts/databases-and-fields/) field. The Team Board pack's **Open tasks** count is one. See
+[Querying records](/api/querying/) for the stored form.
+
+**A condition with no value yet is not applied.** A new condition that still needs a value, such as a date
+operator set to an exact date, is marked **not applied yet** with a dashed outline, and the list is not
+filtered by it until you give it one. A new date condition starts as **within next 7 days**, and that value
+is stored, so what the chip shows is what the filter does. Operators that carry no value, such as **is
+empty**, are applied as soon as you choose them, and a value of `0` or *off* counts as a value.
 
 ## One shared view, each person's own records
 
@@ -241,6 +268,9 @@ sort instead.
 - **Click the title text** to open the record. On a wide screen it opens in the
   [split panel](/concepts/split-screen/) beside the table; ⌘/Ctrl-click or middle-click opens it in
   a new tab. Board, gallery, list, feed and timeline views open a record the same way — click it.
+- **Use the Open button.** Hovering a row, or moving the cursor onto its title cell, shows an **Open**
+  button at the right end of the cell. It opens the record the same way as clicking the title. On a
+  touch screen the button is always shown, as an icon without the label.
 - **Click the empty part of the title cell** to select it without opening anything.
 - **Rename** with a double-click on the empty part of the title cell, or select the cell and press
   **Enter**. A single click never starts a rename.
@@ -364,9 +394,18 @@ progress. This is separate from **Hide empty groups**, which hides by emptiness.
   is deleted drops out of the list, and so do options of a field the board is no longer grouped by.
 - A pack's board can ship with columns hidden (see [Writing a pack manifest](/guides/pack-manifest/#hiding-a-boards-columns-hidden_option_ids)),
   and over MCP `create_view` / `update_view` take `hidden_columns`.
-- **In the web app:** there is no Hide/Display menu for this yet, and as of 3 November 2026 the web board
-  does not read the setting, so a column hidden through the API or MCP is still drawn there. This section
-  describes what the API stores; it will be updated when the web board applies it.
+- **In the web app,** a board does not draw the columns its view hides. Two ways to hide one yourself:
+  a column's **⋯** menu has **Hide column**, and the view's `hidden_option_ids` can be set from a pack,
+  the API or MCP. **Hide column** is offered only to someone who can edit the view, only on a board grouped
+  by a select or workflow field, and never on the "No value" column.
+- **Show a column again** from the board's **Display** menu. Under **Grouping**, a **Hidden columns** list
+  names each hidden column with a **Show** button. The list is not there while nothing is hidden. Someone
+  who cannot edit the view sees the list without the buttons.
+- **Hiding is a display rule.** A card in a hidden column does not fall into "No value", and no record is
+  removed or changed. An option that no longer exists is not listed, and it drops out of the saved list the
+  next time the setting is saved.
+- **If every column is hidden,** the board says so beside the "No value" column, with a link that opens
+  **Display**. A board with only some columns hidden, such as Dev Tracker's Active, shows no notice.
 
 ## Board columns from a date field
 

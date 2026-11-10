@@ -599,7 +599,7 @@ export function mapFilterValues(detail: DatabaseDetail, node: unknown): unknown 
  * is the enforcement; this map is the UX that stops an agent calling a doomed tool.
  * run_button lives in `write` but is separately gateable via allow_run_button.
  */
-const TOOL_SCOPE: Record<string, ToolScope> = {
+export const TOOL_SCOPE: Record<string, ToolScope> = {
   // read
   get_started: 'read',
   list_workspaces: 'read',
@@ -609,6 +609,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   search: 'read',
   query_records: 'read',
   count_records: 'read',
+  // #1261 — the three below had no entry and so defaulted to admin: a member's token never saw them.
+  count_records_grouped: 'read', // POST .../records/aggregate/grouped, @RequiresScope('read') since #1261 (a count, as count_records)
+  get_bulk_record_job: 'read', // GET .../records/batch-jobs/:id: polls a job's status, writes nothing (enqueue_bulk_record_job is the write)
+  list_agent_catch_up: 'read', // GET /agents/:agent/catch-up: the waiting records, read-only (owner/admin checks are in the handler)
   get_record: 'read',
   get_links: 'read',
   list_attachments: 'read',
@@ -631,6 +635,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_history: 'read',
   list_backlinks: 'read',
   list_watchers: 'read',
+  get_branch_name: 'read',
   list_linked_records: 'read',
   list_spaces: 'read',
   /*
@@ -674,6 +679,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   browse_pack_marketplace: 'read',
   list_pack_submissions: 'read',
   list_templates: 'read',
+  list_record_templates: 'read',
   export_pack: 'admin',
   uninstall_pack: 'admin',
   apply_template: 'admin',
@@ -829,6 +835,8 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
    * approve call next to it.
    */
   get_agents: 'read',
+  // #1195 — GET /agents/{agent}/scope: where an agent works, resolved now. Read-only; the targets are fields a person edits.
+  get_agent_scope: 'read',
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
@@ -911,6 +919,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_records: 'write',
   restore_records: 'write',
   duplicate_record: 'write',
+  create_record_from_template: 'write',
+  create_record_template: 'write',
+  update_record_template: 'write',
+  delete_record_template: 'write',
   copy_records: 'write',
   move_record: 'write',
   update_comment: 'write',
@@ -1129,6 +1141,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
          * concluding rules could not email or call an API. Naming the three
          * outward capabilities in words costs one line and is the whole fix.
          */
+        // #1260 — the agents paragraph: states and queue behaviour here mirror runners/run-state.ts and wake.constants.ts; update them together.
+        'AGENTS: an agent is a record in the Agents database (agentic_os/agents) — setup_agents provisions it (idempotent), get_agents shows the pack, and you hire an agent with create_record there (ai_mode: Non-AI, Your own AI or StoryOS AI; target_databases / target_spaces say where it works, read the resolved list with get_agent_scope; approval_policy lists what needs a person; monthly_token_budget / monthly_run_cap cap it, empty = no limit). create_agent_trigger wakes it when a record reaches a state or a relation field links it, run_agent / a run_agent automation action starts it, and each wake leaves a run in the Runs database. "Your own AI" agents run on a Runner, a program on the person\'s own computer that is paired in StoryOS Settings by a person (there is no tool for it; list_runners reads yours). A wake with no active, online Runner is queued, not lost: it runs when a Runner is back (cancelled after 7 days unserved). list_agent_wakes gives each wake ONE derived run_state — e.g. running, needs_approval, waiting_for_runner, runner_offline, waiting_for_budget (the agent used its monthly budget; it resumes at the month\'s reset or when the budget is raised), done, failed — and get_agent_wake_summary the counts; the Run records themselves are in get_runs / get_run. Records already in a trigger state before the trigger existed get no wake by themselves: list_agent_catch_up names them and a person starts the catch-up. Held actions appear in list_approvals; only a person decides them. get_my_work lists what is waiting on you.',
         'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions. ' +
         'Rules REACH OUTSIDE StoryOS — they can send real email, call any public HTTP API, and post to Slack, from scheduled and triggered rules alike, not just from buttons. ' +
         'Actions: set/create/create_records/comment/notify/send_email/send_webhook/http_request/send_slack_message/run_agent. ' +
@@ -2597,7 +2611,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get record history',
       description:
-        'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four.',
+        'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four. Every row carries `source` (human/agent/automation/mcp); an agent-made row also carries `agent_id` and `agent_name` (null otherwise), so "which agent did that" needs no second call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2790,6 +2804,34 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text({ record: rec, ...(res as Record<string, unknown>) });
     }),
+  );
+
+  reg(
+    'get_branch_name',
+    {
+      title: 'Get git branch name',
+      description:
+        'The git branch name for a record, derived from its number and title (never stored): [lane/]<number>-<slug>, e.g. api/1219-git-branch-names. Pass lane (docs, mcp, api, web or fix) for the repo\'s lane prefix. Open the PR from this branch and the GitHub integration links the PR back to the record by its number.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        lane: z.enum(['docs', 'mcp', 'api', 'web', 'fix']).optional().describe('Branch lane prefix.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; lane?: 'docs' | 'mcp' | 'api' | 'web' | 'fix' }>(
+      async ({ workspace, database, record, lane }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/branch-name', {
+            params: { path: { ws: ws.id, db: db.id, rec }, query: { lane } },
+          }),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(
@@ -3097,7 +3139,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack that builds on another pack (preview `required_packs`: pack, installed, linked, fields_added, choices) is linked to that pack\'s databases when it is installed; when it is not, choose required_packs {"agency-os": "also_install"} to install it first and link, or "create_here" (the default) to make the linked databases inside this pack. If the install then fails, everything THIS request installed first is rolled back with it, its databases and records included (the error names it; a pack that was already installed before the request is never touched). Uninstalling never removes the other pack\'s databases. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -3135,9 +3177,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Labels ("Agent \u2190 Database.Field = State", exactly as preview lists them under `triggers`) of state-bound agent triggers, which a pack installs SWITCHED OFF, that you want switched ON (the agent then wakes by itself whenever a record reaches that state). Only name one when the person asked for it; a pack cannot switch one on itself. Has no effect on a trigger that already exists.',
           ),
+        required_packs: z
+          .record(z.string(), z.enum(['also_install', 'create_here']))
+          .optional()
+          .describe(
+            'For a pack that builds on another pack (preview `required_packs`): {"<pack slug>": "also_install" | "create_here"}. also_install installs that built-in pack first and links to its databases; create_here makes the linked databases inside this pack (the default when the other pack is not installed; when it IS installed the databases are linked unless you say create_here). Only name one when the person chose it.',
+          ),
       },
     },
-    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[] }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers }) => {
+    handle<{ workspace: string; slug: string; preview?: boolean; space?: string; update_agents?: string[]; reuse_databases?: Record<string, string>; enable_automations?: string[]; enable_agent_triggers?: string[]; required_packs?: Record<string, 'also_install' | 'create_here'> }>(async ({ workspace, slug, preview, space, update_agents, reuse_databases, enable_automations, enable_agent_triggers, required_packs }) => {
       const ws = await resolveWorkspace(client, workspace);
       const pack = await unwrap<{ manifest?: unknown }>(
         client.GET('/api/v1/packs/registry/{slug}', { params: { path: { slug } } as never }),
@@ -3161,6 +3209,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             : {}),
           ...(enable_automations?.length ? { enable_automations } : {}),
           ...(enable_agent_triggers?.length ? { enable_agent_triggers } : {}),
+          ...(required_packs && Object.keys(required_packs).length ? { required_packs } : {}),
         } as never,
       };
       return text(
@@ -3421,7 +3470,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
-        'the mention badge and My Work all key off it. A workflow field created with NO options starts as To do / In progress / Done (categories unstarted / started / completed); options you pass are used exactly as given, nothing added. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Formula config: {expression, format?, currency_code?, precision?} — a number-returning formula may set format "percent" or "currency" (currency REQUIRES a 3-letter currency_code, e.g. "EUR", and is refused on a formula that returns text/date/checkbox). Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field, or a formula that RETURNS a number and reads no lookup, via target_field_api_name — e.g. sum a Quote Line\'s `qty * price` formula onto its Quote) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. (Relations link two databases — not added here yet.) ' +
+        'the mention badge and My Work all key off it. A workflow field created with NO options starts as To do / In progress / Done (categories unstarted / started / completed); options you pass are used exactly as given, nothing added. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Formula config: {expression, format?, currency_code?, precision?} — a number-returning formula may set format "percent" or "currency" (currency REQUIRES a 3-letter currency_code, e.g. "EUR", and is refused on a formula that returns text/date/checkbox). Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field, or a formula that RETURNS a number and reads no lookup, via target_field_api_name — e.g. sum a Quote Line\'s `qty * price` formula onto its Quote) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. A sum/avg/min/max rollup is shown in the number format of the field it aggregates (describe_database returns it in the rollup\'s config with format_inherited: true); set format/currency_code/precision on the rollup to override it, null to go back to inheriting. A count is always a plain integer and refuses a format. (Relations link two databases — not added here yet.) ' +
         'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Returns the field.',
       inputSchema: {
         workspace: z.string(),
@@ -5150,7 +5199,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Export pack',
       description:
-        'Turn part of this workspace into a pack manifest — the installable form of a schema you just built. Creates nothing; it hands back the manifest. This closes the loop packs exist for: an agent that has designed a good workspace can make it reusable instead of describing how to rebuild it.',
+        'Turn part of this workspace into a pack manifest — the installable form of a schema you just built. Creates nothing; it hands back the manifest. An agent that a rule runs (`run_agent`) is exported with the pack and the rule names it by `$agent:<name>` ref, never by id, so the schedule survives a re-install. This closes the loop packs exist for: an agent that has designed a good workspace can make it reusable instead of describing how to rebuild it.',
       inputSchema: {
         workspace: z.string(),
         databases: z
@@ -5227,6 +5276,152 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(client.GET('/api/v1/templates'));
       return text(res);
     }),
+  );
+
+  /*
+   * ticket #1218 - RECORD templates: a named starting point for a new record in one database (not the starter templates above, which
+   * are whole database shapes). Values are keyed by field api_name and hold option ids as get_record returns them; `body` is Markdown.
+   */
+  reg(
+    'list_record_templates',
+    {
+      title: 'List record templates',
+      description:
+        "A database's record templates (ticket #1218): name, preset field values keyed by api_name, and a Markdown body with its sections. Packs ship some (Dev Tracker: Bug, Feature, Improvement for Issues). NOT list_templates, which lists starter database shapes. Use create_record_from_template to make a record from one.",
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<{ data: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/record-templates', { params: { path: { ws: ws.id, db: db.id } } }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'create_record_template',
+    {
+      title: 'Create a record template',
+      description:
+        'Make a record template in a database. Either name it and give `values` (field api_name -> value; option ids as get_record shows them; "$me" and "$date:+3d" are decided when a record is made from it) and a Markdown `body`, OR pass `from_record` to save an existing record as a template: its values and description are copied (not its title, links or computed fields). Editor role on the database. Template names are unique per database.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string().describe('The template\'s name, e.g. "Bug".'),
+        description: z.string().optional().describe('One line saying when to pick this template.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Preset field values keyed by api_name. Ignored with from_record.'),
+        body: z.string().optional().describe('The description the record starts with, as Markdown (use ## headings for sections). Ignored with from_record.'),
+        from_record: z.string().optional().describe('Record uuid or public number to save as a template.'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; description?: string; values?: Record<string, unknown>; body?: string; from_record?: string }>(
+      async ({ workspace, database, name, description, values, body, from_record }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const path = { ws: ws.id, db: db.id };
+        if (from_record) {
+          const rec = await resolveRecordId(ws.id, db.id, from_record);
+          return text(
+            await unwrap<unknown>(
+              client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record', {
+                params: { path },
+                body: { record_id: rec, name, ...(description !== undefined ? { description } : {}) },
+              }),
+            ),
+          );
+        }
+        return text(
+          await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates', {
+              params: { path },
+              body: { name, ...(description !== undefined ? { description } : {}), values: values ?? {}, ...(body !== undefined ? { body } : {}) },
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'update_record_template',
+    {
+      title: 'Edit a record template',
+      description:
+        'Change a record template\'s name, description, preset values or body (send only what changes; `values` replaces the whole preset set; null clears description or body). Works on a pack-installed template too; pack uninstall then keeps it as changed.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        values: z.record(z.string(), z.unknown()).optional(),
+        body: z.string().nullable().optional(),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; name?: string; description?: string | null; values?: Record<string, unknown>; body?: string | null }>(
+      async ({ workspace, database, template, ...patch }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        return text(
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+              params: { path: { ws: ws.id, db: db.id, template } },
+              body: patch,
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'delete_record_template',
+    {
+      title: 'Delete a record template',
+      description: 'Delete a record template. Records already made from it are untouched.',
+      inputSchema: { workspace: z.string(), database: z.string(), template: z.string() },
+    },
+    handle<{ workspace: string; database: string; template: string }>(async ({ workspace, database, template }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+          params: { path: { ws: ws.id, db: db.id, template } },
+        }),
+      );
+      return heldDelete(res) ?? text({ deleted: template });
+    }),
+  );
+
+  reg(
+    'create_record_from_template',
+    {
+      title: 'Create a record from a template',
+      description:
+        'Create a record pre-filled from a record template: its preset values and its body (sections included). `values` overrides a preset, usually the title. A preset that no longer fits the schema (a deleted field or option) is dropped and listed in `skipped`, the record is still made. Returns the new record.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Field values keyed by api_name that win over the template\'s, e.g. { name: "Login fails on Safari" }.'),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; values?: Record<string, unknown> }>(
+      async ({ workspace, database, template, values }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{ record: RecordRow; skipped: unknown[] }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records', {
+            params: { path: { ws: ws.id, db: db.id, template } },
+            body: { values: values ?? {} },
+          }),
+        );
+        const detail = await getDetail(ws.id, db.id);
+        return text({ template, record: await readRecord(detail, ws.id, db.id, res.record.id), skipped: res.skipped });
+      },
+    ),
   );
 
   reg(
@@ -6205,11 +6400,11 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Run skill',
       description:
-        'Run a saved skill by name or id (from list_skills). StoryOS has no managed AI runtime yet ' +
-        "(BYO-AI, never metered) — this resolves the skill's instructions/when_to_use and " +
-        'records the run (last_run_at/last_run_status), but ' +
-        'YOU are the model that actually carries out `instructions` against `inputs`; StoryOS executes nothing. `inputs` is free-form ' +
-        'and is only echoed back for you to act on — there is no server-side execution to send it to yet.',
+        'Run a saved skill by name or id (from list_skills). This call invokes NO model: it resolves the skill\'s ' +
+        'instructions/when_to_use and records the run (last_run_at/last_run_status), and ' +
+        'YOU — the connected AI, on your own subscription, never metered — are the one who carries out `instructions` against `inputs`. ' +
+        '`inputs` is free-form and is only echoed back for you to act on; the skill endpoint does not send it to StoryOS AI ' +
+        '(the credit-metered model that runs agents set to "StoryOS AI"). To have a skill applied by an agent instead, name it in that agent\'s Skills field.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         name: z.string().describe('Skill name or id (from list_skills).'),
@@ -6260,7 +6455,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get agents setup',
       description:
-        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record.",
+        "Whether this workspace has the Agentic OS provisioned, and a summary of its three system databases: Agents (agentic_os/agents), Agent runs (agentic_os/runs, the agent executions; not the Automation runs page, which is automation rule runs) and Triggers (agentic_os/agent_triggers). Returns `exists: false` when it has not been set up — call setup_agents then. Once it exists, the agents themselves are ordinary RECORDS in the Agents database, so list them with query_records and edit them with update_record. Where an agent works is two text fields on its record: `target_databases` (database names) and `target_spaces` (space names or ids). A space target is LIVE: it includes every database in that space on each call, including ones created after the agent was hired. Read the resolved list with get_agent_scope. Only a person sets these; an agent cannot change its own.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -6273,11 +6468,31 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'get_agent_scope',
+    {
+      title: 'Where an agent works',
+      description:
+        "Ticket #1195 — the databases an agent can work in, resolved NOW: the databases named in its `target_databases` plus every database in the spaces named in its `target_spaces` (a database added to a target space later is included on the next call, nothing is expanded at hire), narrowed to what the agent's manager can open. `databases[].via` says whether each came from a named database or a space. `enforced` is true when the agent targets at least one space: its Runner credential is then bound to exactly this set and a call outside it is refused (a database-only agent's `target_databases` stays its brief, not a boundary). A personal space is never included; entries that matched nothing (or a personal space) come back in `unresolved`, and `withheld_count` is how many databases the manager's access removed (their names are not listed).",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+      },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/scope', { params: { path: { ws: ws.id, agent } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'list_agent_activity',
     {
       title: 'What an agent has done',
       description:
-        '#541 — field changes + creation events attributed to ONE agent, in a date range (default: last 30 days). "Which agent, under whose authority, at what time" — the run each write happened via is NOT tracked yet for the common BYO-AI path (a known gap, not hidden here). Only writes made through a token minted FOR this agent show up; an ordinary token\'s writes never carry agent attribution.',
+        '#541 — field changes + creation events attributed to ONE agent, in a date range (default: last 30 days). "Which agent, under whose authority, at what time" — each row carries agent_id, agent_name (the name at the time of the write), source and time, but NO run id: to see a run, use get_runs / get_run. Admin only. Returns at most 500 field changes and 500 events for the range. Only writes made through a credential minted FOR this agent (its own token or its Runner\'s run credential) show up; an ordinary token\'s writes never carry agent attribution.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
@@ -6372,7 +6587,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create agent trigger',
       description:
-        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. By default the trigger starts the agent by itself the moment a record reaches the state, so only create one for an agent you want to run on its own (anything it writes outward still waits in the approvals queue). With human_gate:true the trigger NEVER fires by itself: it is \'ask me before each run\', a person has to start each run, and it is stored enabled but starts nothing on its own. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) A pack\'s own triggers are created for you by install_pack, switched OFF until a person turns one on in the install review. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
+        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. By default the trigger starts the agent by itself the moment a record reaches the state, so only create one for an agent you want to run on its own (a run is not held for approval as a whole: outward automation actions its record writes set off — email, Slack, webhook, HTTP, social post — are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent\'s approval_policy lists email, and its deletes and own outward steps are held only when its approval_policy or an action gate says so). With human_gate:true the trigger NEVER fires by itself: it is \'ask me before each run\', a person has to start each run, and it is stored enabled but starts nothing on its own. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) A pack\'s own triggers are created for you by install_pack, switched OFF until a person turns one on in the install review. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number."),
@@ -6522,7 +6737,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List my connected AI clients',
       description:
-        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). Each row says what it `reaches`: all_workspaces (the default for an OAuth connection: every workspace the person belongs to), one_workspace (limited to the one in `approved`), needs_reconnect (refused until the client is reconnected), or this_workspace (a token). Every connection can read and write; there is no access level. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
+        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). Each row says what it `reaches`: all_workspaces (the default for an OAuth connection: every workspace the person belongs to), one_workspace (limited to the one in `approved`), needs_reconnect (refused until the client is reconnected), or this_workspace (a token). An OAuth connection has no access level of its own: it acts as the person, so their workspace role and grants decide what it can do (a guest's AI reaches only what that guest has been granted). A personal access token (connected: token) DOES carry a scope, read, write or admin, set when it was created and enforced on every call: a read token is refused a write, and it can never exceed the person's own role. It needs no admin role and lists only the caller's own connections, never a colleague's. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -7302,14 +7517,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What I am working on',
       description:
-        'The three surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = records they made (assigned_by is null there); kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'The surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = open records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = open records they made (assigned_by is null there); kind:"assigned_by_me" = open records whose current assignee THEY set to someone else, with `assigned_at` (what they are waiting on from others); kind:"waiting" = what waits on THEM: `approvals` they can decide (pending, not expired) and `mentions` of them they have neither replied to nor read, each list with its own exact `total`; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
+        'Finished records (a completed or canceled state) are never returned. Record lists come per database, ordered overdue, due within a week, in progress, then the rest, each by most recently changed, at most 50 rows per database; every group and the top level carry the exact `total`, and `truncated: true` when rows were cut, so a count is never the size of one page. ' +
         'Worth calling at the START of a session: list_databases tells you what exists, this tells you what matters, and the two answer different questions. Reads YOUR surfaces only — there is no argument for another person.',
       inputSchema: {
         workspace: z.string(),
-        kind: z.enum(['assigned', 'created', 'recent', 'favorites']).optional().describe('Default "assigned".'),
+        kind: z.enum(['assigned', 'created', 'assigned_by_me', 'waiting', 'recent', 'favorites']).optional().describe('Default "assigned".'),
       },
     },
-    handle<{ workspace: string; kind?: 'assigned' | 'created' | 'recent' | 'favorites' }>(
+    handle<{ workspace: string; kind?: 'assigned' | 'created' | 'assigned_by_me' | 'waiting' | 'recent' | 'favorites' }>(
       async ({ workspace, kind }) => {
         const ws = await resolveWorkspace(client, workspace);
         const which = kind ?? 'assigned';
@@ -7587,7 +7803,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List my Runners',
       description:
-        '#1131: the StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code or Cursor, on your own subscription). Only your own, never a colleague\'s, even for an admin. Each has status (pending = paired but not turned on yet; active; a removed Runner is not listed), connection (online, offline, paused, outdated = needs an update, tool_missing = the chosen tool is no longer found, revoked), tools (what it found on that computer), chosen_tool, runner_version, protocol_version, last_seen_at, offline_since (derived: set only while the Runner is active and has not been heard from for 2 minutes), paused_until and agents (the agents assigned to it). #1137: how the person shares their subscription: working_hours (days, start, end, timezone; null = any hour), reserve_percent ("leave me X%"), reserve_measurable (false = the tool does not report plan usage, so the reserve cannot be kept: say so, never claim it is) and hold (why it is not claiming right now: limit_reached, working_hours or reserve, and when it resumes). ' +
+        '#1131: the StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code, on your own subscription). Only your own, never a colleague\'s, even for an admin. Each has status (pending = paired but not turned on yet; active; a removed Runner is not listed), connection (online, offline, paused, outdated = needs an update, tool_missing = the chosen tool is no longer found, revoked), tools (what it found on that computer), chosen_tool, runner_version, protocol_version, last_seen_at, offline_since (derived: set only while the Runner is active and has not been heard from for 2 minutes), paused_until and agents (the agents assigned to it). #1137: how the person shares their subscription: working_hours (days, start, end, timezone; null = any hour), reserve_percent ("leave me X%"), reserve_measurable (false = the tool does not report plan usage, so the reserve cannot be kept: say so, never claim it is) and hold (why it is not claiming right now: limit_reached, working_hours or reserve, and when it resumes). ' +
         'Read this to see why an agent is not running: an agent set to "Your own AI" with no active, online Runner waits. Adding, turning on, changing and removing a Runner are done by a person in StoryOS (Settings, Runners); there is deliberately no tool for them, because a Runner decides where your agents\' instructions and the workspace\'s data go.',
       inputSchema: {
         workspace: z.string(),
@@ -7639,12 +7855,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Agent wake counts',
       description:
-        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), waiting (queued wakes), and `budget` (ticket #1138: its monthly token and run budget against this month's usage, for an agent that has one; null otherwise. get_agent_budget has the full detail, including tokens the tool did not report). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
+        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), waiting (queued wakes), and `budget` (ticket #1138: its monthly token and run budget against this month's usage, for an agent that has one; null otherwise. get_agent_budget has the full detail, including tokens the tool did not report). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). list_agent_catch_up names them. Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/agent-wakes/summary', { params: { path: { ws: ws.id } } } as never));
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_agent_catch_up',
+    {
+      title: 'Records waiting for an agent (catch-up)',
+      description:
+        "ticket #1224: the records already sitting in an agent's trigger state(s) that no wake was ever made for, BY NAME (the list behind `catch_up` in get_agent_wake_summary). Returns total (exactly that count: a real SQL count seen as the agent's owner), listed_total, not_listed, items [{id, title, database_id, database_name}] oldest first, limit (default 5, max 100), offset and `truncated`. READ IT HONESTLY: when `truncated` is true you were shown a page, not all of them; quote `total` for how many and say \"and N more\", never count the items. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (a number, never an id). Only the agent's owner or an admin can read it (anyone else gets the same not-found as an unknown agent); an agent that cannot take wakes returns total 0. Read-only: starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. entered-state time is not returned because it is not reliably stored.",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid (from the Agents database; get_agent_wake_summary shows it)."),
+        limit: z.number().int().min(1).max(100).optional().describe('Page size, default 5.'),
+        offset: z.number().int().min(0).optional().describe('Skip this many, to page through when truncated is true.'),
+      },
+    },
+    handle<{ workspace: string; agent: string; limit?: number; offset?: number }>(async ({ workspace, agent, limit, offset }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/catch-up', {
+          params: { path: { ws: ws.id, agent }, query: { ...(limit !== undefined ? { limit } : {}), ...(offset !== undefined ? { offset } : {}) } },
+        } as never),
+      );
       return text(res);
     }),
   );
@@ -8788,8 +9028,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'run_agent{agent, prompt?, target?:"trigger_record", require_approval?, ...} — run an agent (its record uuid or public number, from get_agents) — ' +
         'this is how an agent works on a SCHEDULE or while nobody is signed in: pair it with a schedule trigger and it runs once per ' +
         'record the rule selects (add a condition, or sort/limit, to narrow that — with none, every record in the database up to 500 each tick). ' +
-        'What "overnight" means depends on the agent\'s AI mode: Non-AI runs by itself; Your own AI only works while your AI client is connected ' +
-        'to StoryOS; StoryOS AI runs on credits. A step the agent proposes that needs a person\'s approval still stops and waits. Scheduled runs show ' +
+        'What "overnight" means depends on the agent\'s AI mode: Non-AI runs by itself; Your own AI is served by the person\'s Runner: a wake queues and runs when an active, online Runner ' +
+        'claims it (a wake nobody serves for 7 days is cancelled), so it does not need an AI client connected at that moment; StoryOS AI runs on credits. A step the agent proposes that needs a person\'s approval still stops and waits. Scheduled runs show ' +
         'in get_runs and in the Runs database with Trigger "Automation" ("Schedule" is not a run trigger). ' +
         // #245: per-action condition — shipped, previously undocumented here.
         'ANY action also takes an optional `condition` (a filter AST, same shape as query_records) — that ONE action is SKIPPED when it ' +

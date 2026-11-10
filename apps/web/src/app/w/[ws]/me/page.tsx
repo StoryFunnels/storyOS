@@ -166,7 +166,7 @@ function MyWorkInner() {
     enabled: listTab,
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/my-work', {
-        params: { path: { ws }, query: { tab } },
+        params: { path: { ws }, query: { tab, include_finished: true } },
       } as never);
       if (error) throw error;
       return data as unknown as { groups: MyWorkGroup[] };

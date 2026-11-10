@@ -1,3 +1,4 @@
+import { pluralNoun } from '@/lib/records';
 import type { WakeSummary, WakeSummaryAgent } from './types';
 
 /**
@@ -20,7 +21,8 @@ export interface SummaryLike {
   isError: boolean;
 }
 
-export const RUNNER_LOAD_FAILED = "Couldn't load this agent's Runner. Try again.";
+/** The Retry button beside it is the "try again": the sentence does not say it twice (Dara, ticket #1223). */
+export const RUNNER_LOAD_FAILED = "Couldn't load this agent's Runner.";
 
 export function runnerLineState(summary: SummaryLike, agentId: string): RunnerLineState {
   // A summary we already hold stays true through a failed refresh; only the absence of one is "unknown".
@@ -39,9 +41,13 @@ export function recordsWaitingCount(row: Pick<WakeSummaryAgent, 'catch_up'> | un
   return typeof n === 'number' && n > 0 ? n : null;
 }
 
-/** "1 record is waiting for it" / "4 records are waiting for it". Only ever fed a real `catch_up`. */
-export function recordsWaitingLine(n: number): string {
-  return n === 1 ? '1 record is waiting for it' : `${n} records are waiting for it`;
+/**
+ * "1 record is waiting for it" / "4 clients are waiting for it". Only ever fed a real `catch_up`. `noun` is the singular the
+ * catch-up box already uses for the agent's trigger database (`useCatchUpScope`, which falls back to "record" when it is unknown
+ * or the triggers span several databases): the same word on the same page.
+ */
+export function recordsWaitingLine(n: number, noun = 'record'): string {
+  return `${n} ${pluralNoun(noun, n)} ${n === 1 ? 'is' : 'are'} waiting for it`;
 }
 
 /** Queued wakes are runs in line, not records: "1 run is queued for it" / "3 runs are queued for it". Never worded as records. */

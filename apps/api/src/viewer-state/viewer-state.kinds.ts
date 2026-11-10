@@ -20,6 +20,8 @@ export interface ResolvedTarget {
   /** The database access is checked against. Absent for a kind whose target is the workspace itself (`dismissed_hints`): the door is membership. */
   databaseId?: string;
   workspaceId: string;
+  /** Set by a kind whose target is a view: its owner when it is a PERSONAL view, so `validate` can refuse anyone else's. */
+  viewOwnerUserId?: string | null;
 }
 
 export interface ViewerStateKind<T> {
@@ -147,11 +149,38 @@ const dismissedHints: ViewerStateKind<DismissedHintsData> = {
   },
 };
 
+/**
+ * When THIS person last opened a view (ticket #1204, for the gold edge #831): `{ seen_at }`. The target is the view. A personal view
+ * of someone else's is "View not found", the same as one that does not exist, so a write can never confirm a private view's id.
+ *
+ * Private by construction: it is the viewer's own row, reached only through their own session, never listed, never part of an export
+ * (the export reads `view_filter` by name) and removed with the member like every other `viewer_state` row.
+ */
+export const viewLastSeenSchema = z.object({ seen_at: z.iso.datetime() });
+export type ViewLastSeenData = z.infer<typeof viewLastSeenSchema>;
+const viewLastSeen: ViewerStateKind<ViewLastSeenData> = {
+  missing: 'View not found',
+  schema: viewLastSeenSchema,
+  async resolve(db, viewId) {
+    const row = await db
+      .select({ databaseId: views.databaseId, workspaceId: databases.workspaceId, ownerUserId: views.ownerUserId })
+      .from(views)
+      .innerJoin(databases, eq(databases.id, views.databaseId))
+      .where(and(eq(views.id, viewId), notDeleted(views.deletedAt)));
+    const hit = row[0];
+    return hit?.databaseId ? { databaseId: hit.databaseId, workspaceId: hit.workspaceId, viewOwnerUserId: hit.ownerUserId } : null;
+  },
+  async validate(_db, target, _data, userId) {
+    if (target.viewOwnerUserId && target.viewOwnerUserId !== userId) throw new NotFoundException('View not found');
+  },
+};
+
 export const VIEWER_STATE_KINDS = {
   view_filter: viewFilter,
   collection_view: collectionView,
   pinned_tabs: pinnedTabs,
   dismissed_hints: dismissedHints,
+  view_last_seen: viewLastSeen,
 } as const;
 export type ViewerStateKindName = keyof typeof VIEWER_STATE_KINDS;
 export type ViewerStateData<K extends ViewerStateKindName> = z.infer<(typeof VIEWER_STATE_KINDS)[K]['schema']>;

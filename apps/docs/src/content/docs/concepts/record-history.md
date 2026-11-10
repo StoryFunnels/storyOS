@@ -56,6 +56,14 @@ record has been deleted, or whose owner is no longer an active member, is refuse
 is no fallback identity an agent's writes fall back to instead. A person is never blocked by this;
 only an agent-scoped credential is.
 
+**Where the name appears.** For an `agent` row, these reads return `agent_id` and `agent_name`: a record's
+activity feed (`GET /workspaces/{ws}/databases/{db}/records/{rec}/activity`), its field changes
+(`.../records/{rec}/versions/changes`) and a database's comments feed
+(`GET /workspaces/{ws}/databases/{db}/activity/comments`). Both are `null` for a person's, an
+automation's or an MCP client's row, and for a row written before the name was recorded; the name is
+never guessed. It is the snapshot taken at write time, so a rename does not change earlier rows and a
+deleted agent's past rows still name it. It comes from the credential, not from anything a request sends.
+
 **Query one agent's activity in bulk** — `GET /workspaces/:ws/agents/:agent/activity` (`from`/`to`
 date range) or the `list_agent_activity` MCP tool — for "show me everything this agent did last
 week," rather than reading one record's history at a time.
@@ -183,8 +191,9 @@ A row written by a person has these fields `null`.
 show the run number or the Runner's name; those two come from the API and MCP.
 
 **Events with no record.** When an agent's write sends something to a destination an admin fixed in
-advance, the log also holds an `outward.slack_mention_mirror`, `outward.mention_email` or
-`outward.watcher_email` event naming the agent and the run. See
+advance, the log also holds an `outward.slack_mention_mirror`, `outward.mention_email`,
+`outward.watcher_email`, `outward.calendar_sync`, `outward.linear_comment` or `outward.ai_field`
+event naming the agent and the run. See
 [approval gates](/concepts/approval-gates/#destinations-an-admin-fixed-in-advance).
 
 ### Spaces, databases and views

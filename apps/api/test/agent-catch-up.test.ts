@@ -251,3 +251,119 @@ describe('who may press it', () => {
     expect(ok.statusCode, ok.body).toBe(200);
   });
 });
+
+/** ticket #1224 — the list behind the count: names, not just a number. Own database so earlier tests' records are not in play. */
+const listWaiting = (token: string | null, agent: string, qs = '') => as(token, 'GET', `/workspaces/${ws}/agents/${agent}/catch-up${qs}`);
+
+describe('ticket #1224: catch-up names the waiting records', () => {
+  let nDb: string;
+  let nField: string;
+  let nApi: string;
+  let nA: string;
+  let nB: string;
+  let nC: string;
+  const mkN = async (name: string, option: string) => {
+    const res = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${nDb}/records`, { values: { name, [nApi]: option } });
+    expect(res.statusCode, res.body).toBe(201);
+    return res.json().id as string;
+  };
+  const bindN = async (agent: string, option: string) => {
+    const res = await as(admin.token, 'POST', `/workspaces/${ws}/agents/triggers`, { agent, database_id: nDb, state_field_id: nField, state_option_id: option });
+    expect(res.statusCode, res.body).toBe(201);
+  };
+
+  beforeAll(async () => {
+    const spaceId = (await as(admin.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+    nDb = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: spaceId, name: 'Names DB' })).json().id;
+    const st = (await as(admin.token, 'POST', `/workspaces/${ws}/databases/${nDb}/fields`, { display_name: 'Stage', type: 'select', config: {}, options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }] })).json();
+    nField = st.id;
+    nApi = st.apiName;
+    nA = st.options.find((o: { label: string }) => o.label === 'A').id;
+    nB = st.options.find((o: { label: string }) => o.label === 'B').id;
+    nC = st.options.find((o: { label: string }) => o.label === 'C').id;
+  });
+
+  it('the list endpoint returns exactly the records the count counts (the count equals the list total, and the ids match the wakes a click makes)', async () => {
+    const agent = await mkAgent('Names bot');
+    const ids = [await mkN('Acme Co (sample)', nA), await mkN('Bright', nA), await mkN('Cobalt', nA)];
+    await mkN('Not in the state', nC);
+    await bindN(agent, nA);
+    const count = (await summaryFor(owner.token, agent))?.catch_up;
+    const res = await listWaiting(owner.token, agent, '?limit=100');
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json();
+    expect(count).toBe(3);
+    expect(body.total).toBe(count);
+    expect(body.listed_total).toBe(count);
+    expect(body.not_listed).toBe(0);
+    expect(body.truncated).toBe(false);
+    expect(body.items.map((i: { title: string }) => i.title)).toEqual(['Acme Co (sample)', 'Bright', 'Cobalt']); // oldest first
+    expect(body.items[0]).toMatchObject({ id: ids[0], database_id: nDb, database_name: 'Names DB' });
+    await catchUp(owner.token, agent);
+    const woken = (await wakeRows(agent)).map((r: { record_id: string }) => r.record_id).sort();
+    expect(body.items.map((i: { id: string }) => i.id).sort()).toEqual(woken);
+    // once queued they are no longer waiting: the list empties with the count
+    expect((await listWaiting(owner.token, agent)).json()).toMatchObject({ total: 0, listed_total: 0, items: [], truncated: false });
+  });
+
+  it('a capped page says so: truncated true with the real total, and offset pages through to the end with no repeat or gap', async () => {
+    const agent = await mkAgent('Paging bot');
+    for (let i = 0; i < 7; i++) await mkN(`Page ${i}`, nB);
+    await bindN(agent, nB);
+    const total = (await summaryFor(owner.token, agent))?.catch_up as number;
+    expect(total).toBe(7);
+    const first = (await listWaiting(owner.token, agent, '?limit=5')).json();
+    expect(first).toMatchObject({ total: 7, limit: 5, offset: 0, truncated: true });
+    expect(first.items).toHaveLength(5);
+    const second = (await listWaiting(owner.token, agent, '?limit=5&offset=5')).json();
+    expect(second).toMatchObject({ total: 7, offset: 5, truncated: false });
+    const seen = [...first.items, ...second.items].map((i: { title: string }) => i.title);
+    expect(seen).toEqual([0, 1, 2, 3, 4, 5, 6].map((i) => `Page ${i}`));
+  });
+
+  it('the default page is 5 and a bad limit is a 422, not a silent clamp', async () => {
+    const agent = await mkAgent('Limit bot');
+    await bindN(agent, nB);
+    expect((await listWaiting(owner.token, agent)).json().items).toHaveLength(5);
+    expect((await listWaiting(owner.token, agent, '?limit=0')).statusCode).toBe(422);
+    expect((await listWaiting(owner.token, agent, '?limit=101')).statusCode).toBe(422);
+  });
+
+  it('access matches the summary: the owner and an admin read it; another member gets the same 404 as an unknown agent; a guest gets 403; no token 401', async () => {
+    const agent = await mkAgent('Names guarded bot');
+    await bindN(agent, nB);
+    expect((await listWaiting(owner.token, agent)).statusCode).toBe(200);
+    const byAdmin = await listWaiting(admin.token, agent);
+    expect(byAdmin.statusCode).toBe(200);
+    expect(byAdmin.json().total).toBe((await summaryFor(admin.token, agent))?.catch_up);
+    const stranger = await listWaiting(other.token, agent);
+    const nobody = await listWaiting(other.token, '00000000-0000-4000-8000-000000000000');
+    expect(stranger.statusCode).toBe(404);
+    expect(stranger.json().message).toBe(nobody.json().message);
+    expect((await listWaiting(guest.token, agent)).statusCode).toBe(403);
+    expect((await listWaiting(null, agent)).statusCode).toBe(401);
+  });
+
+  it('a record in a database the owner cannot open is not named, and not counted either', async () => {
+    const spaceId = (await as(admin.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+    const secret = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: spaceId, name: 'Hidden names' })).json().id as string;
+    const st = (await as(admin.token, 'POST', `/workspaces/${ws}/databases/${secret}/fields`, { display_name: 'Stage', type: 'select', config: {}, options: [{ label: 'Open' }] })).json();
+    const agent = await mkAgent('Names nosy bot');
+    const r = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${secret}/records`, { values: { name: 'Confidential Corp', [st.apiName]: st.options[0].id } });
+    expect(r.statusCode, r.body).toBe(201);
+    await as(admin.token, 'POST', `/workspaces/${ws}/agents/triggers`, { agent, database_id: secret, state_field_id: st.id, state_option_id: st.options[0].id });
+    expect((await listWaiting(owner.token, agent)).json().items.map((i: { title: string }) => i.title)).toEqual(['Confidential Corp']);
+    await setRestricted(app, admin.token, ws, 'database', secret, true);
+    for (const who of [owner, admin]) {
+      const res = await listWaiting(who.token, agent);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({ total: 0, listed_total: 0, items: [] });
+      expect(res.body).not.toContain('Confidential Corp');
+    }
+  });
+
+  it('an agent that cannot take wakes (switched off) lists nothing with total 0, like its null count', async () => {
+    const off = await mkAgent('Names off bot', { enabled: false });
+    expect((await listWaiting(owner.token, off)).json()).toMatchObject({ total: 0, items: [], truncated: false });
+  });
+});

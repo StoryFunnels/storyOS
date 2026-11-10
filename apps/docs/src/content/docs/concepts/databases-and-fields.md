@@ -72,6 +72,9 @@ A record opens as one **main column** and a fixed **side panel**.
   database, and a **Personal · Reset** badge appears beside the collection while it's active. Reset
   drops the whole override and returns you to the shared default the field is configured with.
   Nobody else's view of the collection changes.
+  A condition you add there that still needs a value is marked **not applied yet** and does not filter
+  the list; a new date condition starts as **within next 7 days**, and that value is stored. See
+  [Operators](/concepts/views/#operators).
 - **Comments show where they came from.** Each comment carries the same source badge the activity
   feed uses, so a comment an agent posted doesn't read as a person's. A comment from before sources
   were recorded shows the "source not recorded" badge rather than reading as human.
@@ -153,6 +156,12 @@ Add a Workflow field without listing any options (in the add-field dialog, over 
 MCP `add_field` tool) and it is created with three: **To do**, **In progress** and **Done**, coloured
 gray, blue and green, in the state categories *unstarted*, *started* and *completed*.
 
+- **The add-field dialog shows them before you save.** Choose **Workflow** as the type and the options list
+  is already filled with **To do**, **In progress** and **Done**, with their colours, ready to rename,
+  recolour, reorder or remove. The labels come from the same constant the server uses, so what the dialog
+  shows is what a field created without options would get. Switching from Workflow to another type takes
+  the three back out if you have not touched them; once you have changed them, they stay. Switching to
+  Workflow with an empty list fills them in.
 - **Options you give are used exactly as given.** Nothing is added to your list, and an empty list
   counts as giving none.
 - **A plain `select` field still starts empty.** The three defaults apply to the Workflow type only.
@@ -279,7 +288,9 @@ Converting it to **select**, **multi-select** or **workflow** turns the values i
   message that names the count: that many values is free text or an ID column, not a list of choices.
   Exactly 200 is allowed.
 - **The dry run lists the options it would create**, with how many records each covers and how many
-  records are empty. In the app, the Change type dialog shows that list before you confirm.
+  records are empty. In the app, **Check impact** in the Change type dialog shows that list before you
+  confirm, with each option as the coloured chip it will become. If the API refuses the conversion
+  (too many distinct values, a second workflow in the database), the dialog shows the reason.
 - **A workflow target keeps the one-workflow-per-database rule**: if the database already has a
   workflow field, converting to workflow is refused with a `409`.
 - Over MCP this is `change_field_type`. It needs the same access as any other field change.

@@ -566,6 +566,20 @@ html[data-embed] body {
   outline-offset: var(--focus-ring-offset);
 }
 
+/* #1232 — a table cell has ONE frame: the cell's own square ring. An editor inside it carries `data-cell-input` and draws
+   no outline of its own (the global ring above made a second, offset frame). A picker's search box carries
+   `data-picker-search`: the standard thin input focus — a border-strong line, no 2px offset ring. Both keep a visible
+   indicator (the cell ring / the border), so neither leaves focus unmarked. */
+[data-cell-input]:focus-visible {
+  outline: none;
+}
+[data-picker-search]:focus-visible {
+  outline: none;
+}
+[data-picker-search]:focus-visible:not(.border-error) {
+  border-color: var(--border-strong);
+}
+
 /* #1160 — High Contrast / forced colours replaces authored colours; name the system colour so the ring survives it. */
 @media (forced-colors: active) {
   :root {

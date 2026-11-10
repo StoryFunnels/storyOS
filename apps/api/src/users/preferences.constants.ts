@@ -73,7 +73,23 @@ export interface MyWorkDbConfig {
   sorts_nulls?: 'first' | 'last';
 }
 
+/** Ticket #1251 — "Email me my work". Email only, never in the Inbox; default off. Person-level: one setting for every workspace the person is in. */
+export interface MyWorkEmailPrefs {
+  /** off | daily (Monday to Friday) | weekly (on `weekday`). */
+  frequency: 'off' | 'daily' | 'weekly';
+  /** 0 = Sunday … 6 = Saturday; read only when weekly. */
+  weekday: number;
+  /** Local wall-clock time, 24h "HH:MM", in `timezone`. */
+  time: string;
+  /** IANA zone the time is read in (the web sets it from the browser). Null = UTC, never the server's zone. */
+  timezone: string | null;
+  /** Add the "You assigned to others" section. */
+  include_assigned_by_me: boolean;
+}
+
 export interface UserPreferences {
+  /** Email me my work (#1251). */
+  myWorkEmail: MyWorkEmailPrefs;
   /** Which record events produce an inbox notification for me. */
   notifications: {
     assigned: boolean;
@@ -132,7 +148,10 @@ export interface UserPreferences {
   };
 }
 
+export const DEFAULT_MY_WORK_EMAIL: MyWorkEmailPrefs = { frequency: 'off', weekday: 1, time: '09:00', timezone: null, include_assigned_by_me: false };
+
 export const DEFAULT_PREFERENCES: UserPreferences = {
+  myWorkEmail: DEFAULT_MY_WORK_EMAIL,
   notifications: { assigned: true, mentioned: true, commented: true, state_changed: true, record_changed: true },
   regional: { dateFormat: 'system', timeFormat: 'system', firstDayOfWeek: 'system' },
   myWork: {},
@@ -151,8 +170,10 @@ export function mergePreferences(stored: unknown): UserPreferences {
     github?: Partial<UserPreferences['github']>;
     activation?: Partial<UserPreferences['activation']>;
     sidebar?: Partial<UserPreferences['sidebar']>;
+    myWorkEmail?: Partial<UserPreferences['myWorkEmail']>;
   };
   return {
+    myWorkEmail: { ...DEFAULT_MY_WORK_EMAIL, ...(s.myWorkEmail ?? {}) },
     notifications: { ...DEFAULT_PREFERENCES.notifications, ...(s.notifications ?? {}) },
     regional: { ...DEFAULT_PREFERENCES.regional, ...(s.regional ?? {}) },
     myWork: { ...(s.myWork ?? {}) },

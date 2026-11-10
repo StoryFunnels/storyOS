@@ -291,6 +291,13 @@ describe('4/5. the Inbox row and card name the agent and the run; a repeat decis
   let dbId: string;
   let emailApi: string;
 
+  // Finds the Inbox row by ref_id, polling: the notification is written after the approval row it points at.
+  const inboxRow = (refId: string) =>
+    waitFor(async () => {
+      const inbox = (await w.as(w.admin.token, 'GET', `/workspaces/${w.ws}/notifications`)).json();
+      return inbox.data.find((n: { ref_id: string }) => n.ref_id === refId);
+    }, `the Inbox row for approval ${refId}`);
+
   beforeAll(async () => {
     dbId = await newDb('Hooks');
     emailApi = ((await w.as(w.admin.token, 'POST', `/workspaces/${w.ws}/databases/${dbId}/fields`, { display_name: 'Target', type: 'text', config: {} })).json() as { apiName: string }).apiName;
@@ -310,8 +317,9 @@ describe('4/5. the Inbox row and card name the agent and the run; a repeat decis
     expect(card.caused_by).toMatchObject({ agent_id: w.agentId, agent_name: BOT, runner_name: 'audit machine' });
     expect(card.caused_by.run_number, 'the run\'s public number, not its uuid').toEqual(expect.any(Number));
     expect(card.caused_by.label).toBe(`${BOT} (run ${card.caused_by.run_number})`);
-    const inbox = (await w.as(w.admin.token, 'GET', `/workspaces/${w.ws}/notifications`)).json();
-    const row = inbox.data.find((n: { ref_id: string }) => n.ref_id === approvalId);
+    // the approval row is inserted BEFORE its Inbox notification is written (approvals.service createRow), so a row
+    // read from `approvals` does not yet mean the Inbox row exists: wait for it instead of reading once.
+    const row = await inboxRow(approvalId);
     expect(row, 'the approver\'s Inbox row exists').toBeTruthy();
     expect(row.caused_by.label, 'the row header can say who, instead of the rule author').toBe(card.caused_by.label);
     expect(row.actor.name, 'actor is still the rule author, unchanged').not.toBe(BOT);
@@ -326,8 +334,8 @@ describe('4/5. the Inbox row and card name the agent and the run; a repeat decis
     const mine = await waitFor(async () => (await pool.query("select id from approvals where rule_id = $1", [rule2.json().id])).rows[0], 'the person-caused approval');
     const list = (await w.as(w.admin.token, 'GET', `/workspaces/${w.ws}/approvals`)).json();
     expect((list.data ?? list).find((a: { id: string }) => a.id === mine.id).caused_by).toBeNull();
-    const inbox = (await w.as(w.admin.token, 'GET', `/workspaces/${w.ws}/notifications`)).json();
-    expect(inbox.data.find((n: { ref_id: string }) => n.ref_id === mine.id).caused_by).toBeNull();
+    const mineRow = await inboxRow(mine.id as string);
+    expect(mineRow.caused_by).toBeNull();
   });
 
   it('GUEST (no grant): sees no approval and so no agent name', async () => {

@@ -20,6 +20,7 @@ import type { RawComment } from './github-reviews.service';
 import { BACKLINK_COMMENT_API, DEFAULT_STATE_AUTOMATION, GithubService } from './github.service';
 import type { GithubConfig, GithubStateAutomation } from './github.service';
 import { resolveGithubActor } from './github-actor';
+import { extractRecordNumbers } from './git-refs';
 
 /**
  * The inbound delivery path. Exported so app.setup.ts can put exactly this path
@@ -390,6 +391,18 @@ export class GithubWebhookService {
       // `(\d+)$` retried from every digit of a long run followed by a letter.
       const trailing = rec.match(/(?<!\d)(\d+)$/);
       if (trailing) return this.byNumber(workspaceId, databaseId, Number(trailing[1]));
+    }
+
+    // Ticket #1219 — the repo's own convention: a `<lane>/<n>-slug` branch or
+    // "ticket #<n>" / "issue #<n>" in the title/body. Numbers are per-database,
+    // so this resolves ONLY against the configured link database; unconfigured
+    // means no match (never a guess). A bare #<n> is never matched: see git-refs.ts.
+    if (config.link_database_id) {
+      const [titleLine = '', ...rest] = text.split('\n');
+      for (const n of extractRecordNumbers({ branch, title: titleLine, body: rest.join('\n') })) {
+        const found = await this.byNumber(workspaceId, config.link_database_id, n);
+        if (found) return found;
+      }
     }
     return null;
   }

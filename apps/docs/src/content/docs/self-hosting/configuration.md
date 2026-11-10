@@ -25,7 +25,7 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS`, `MAIL_FROM` | unset                             | Invites, mentions, verification, and resets. Without SMTP, invite links are copyable in the UI and other emails are logged. Any SMTP provider works.                                                 |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                        | unset                             | Enables "Continue with Google". Redirect URI: `{API_URL}/api/v1/auth/callback/google`.                                                                                                               |
 | `STORAGE_DRIVER`                                                   | `local`                           | `s3` for MinIO/S3/R2 — see [attachments](/self-hosting/attachments/).                                                                                                                                |
-| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY`    | MinIO defaults                    | Used when `STORAGE_DRIVER=s3`.                                                                                                                                                                       |
+| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY` / `S3_SECRET_KEY`    | keys: none (required)             | Used when `STORAGE_DRIVER=s3`. `S3_ACCESS_KEY` / `S3_SECRET_KEY` must be set to your own values; the API refuses to boot otherwise.                                                                  |
 | `PDF_RENDERER_URL`                                                 | unset                             | Base URL of the optional PDF renderer. Unset = PDF export unavailable — see [PDF export](/self-hosting/pdf-export/).                                                                                  |
 | `ATTACHMENT_MAX_BYTES`                                             | `20971520` (20 MB)                | Per-file upload cap.                                                                                                                                                                                 |
 | `RATE_LIMIT_PER_MINUTE`                                            | `300`                             | Per token/session.                                                                                                                                                                                   |
@@ -33,7 +33,7 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 ## Integrations: what's available self-hosted
 
 One codebase, no crippled edition — but a handful of integrations genuinely can't work the same
-way on your own instance as on StoryOS Cloud, and the Connections/Integrations gallery says so
+way on your own instance as on StoryOS Cloud, and the Integrations gallery (Settings → Integrations) says so
 plainly rather than showing a Connect button that fails. Every provider falls into one of three
 tiers:
 
@@ -92,6 +92,47 @@ To let cloud clients connect the [hosted MCP endpoint](/mcp/hosted/) with a sign
 | `MCP_OAUTH`       | `api` + `mcp` | Set `true` to turn on OAuth discovery (needs the OIDC tables migrated). Off by default. |
 | `MCP_PUBLIC_URL`  | `mcp`         | Public URL of the MCP endpoint, e.g. `https://mcp.your-domain.com`.                     |
 | `MCP_AUTH_SERVER` | `mcp`         | Better Auth's mounted base URL, e.g. `https://app.your-domain.com/api/v1/auth`.         |
+
+## The instance operator (`PLATFORM_ADMIN_EMAIL`)
+
+`PLATFORM_ADMIN_EMAIL` names the one person who operates the instance (the platform `/admin` area).
+Unset, nobody is a platform admin. On every boot the API looks for an account with that email and
+grants it; the grant is only ever added, never removed.
+
+**The account's email must be verified.** An account that signed up with the address but has not
+verified it is skipped, and the API log says so (`PLATFORM_ADMIN_EMAIL=… matches an account whose
+email is not verified yet — not seeded`). To finish: open the link in the verification email, then
+restart the API. Signing in with Google arrives already verified. With no `SMTP_*` configured,
+the verification link is written to the API log instead of being mailed. Setting the variable
+before you have signed up is fine; it takes effect on the first restart after your account is
+verified.
+
+## Request size on the hosted MCP endpoint
+
+The `mcp` service refuses a request body larger than **4 MiB** with `413`. Normal tool calls are far
+smaller; a very long document body is the case that can approach it. A request that declares a larger
+`Content-Length` is refused before its body is read. Set `MCP_MAX_BODY_BYTES` (a positive whole
+number of bytes) in the `mcp` service's environment to change the cap. The Compose file does not
+pass this variable through today, so add it under that service yourself. The service also asks the
+API whether a bearer token is valid before reading the body, and answers `401` if the API says no;
+if the API is unreachable or errors, the request carries on and the API checks the token on each
+tool call.
+
+## Security headers
+
+StoryOS sets these on its responses:
+
+- **Framing is refused.** Pages from the web app and every API response are sent with
+  `frame-ancestors 'none'` and `X-Frame-Options: DENY`, so another site cannot put your instance in
+  an `<iframe>`. The exceptions are the share links that are meant to be embedded: public forms
+  (`/f/…`) and public views (`/v/…`), which any site may frame, so their **Embed** snippets keep
+  working.
+- `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin`.
+- `Strict-Transport-Security: max-age=31536000`, without `includeSubDomains`. Browsers ignore it
+  on plain HTTP, so an instance served on port 80 behaves as before; once a browser has seen it over
+  HTTPS it will refuse plain HTTP for that host for a year.
+- A baseline **Content-Security-Policy** on web pages, in **report-only** mode: the browser logs
+  anything it would have blocked to its developer console and blocks nothing.
 
 ## The API on your instance
 

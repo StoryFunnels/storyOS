@@ -37,7 +37,7 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is require
 | `OPENAI_MODEL` | `gpt-4o-mini` | model used by the managed runtime and Architect proposer |
 | `CONNECTIONS_MASTER_KEY` | derived from `BETTER_AUTH_SECRET` | `openssl rand -hex 32`. Encrypts every credential in **Connections** (Apify/Resend keys, OAuth tokens) at rest. The API **refuses to boot in production** if this is unset or not a 64-char hex string. Self-host can leave it unset — the derived dev/test key still works, but pin it explicitly once you rely on Connections in production so a `BETTER_AUTH_SECRET` rotation can't also invalidate every saved connection. |
 | `STORAGE_DRIVER` | `local` | `s3` for MinIO/S3/R2 |
-| `S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY` | MinIO defaults | with `--profile minio` the bundled MinIO works out of the box (create the bucket once via the console at :9001) |
+| `S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY` | endpoint/bucket default to the bundled MinIO; **keys have no default** | `S3_ACCESS_KEY` and `S3_SECRET_KEY` are required with `STORAGE_DRIVER=s3` or `--profile minio` (api and minio refuse to start without them, or with the old `storyos` / `storyos-minio`) |
 | `ATTACHMENT_MAX_BYTES` | 20971520 (20 MB) | per-file upload cap |
 | `PDF_RENDERER_URL` | unset | base URL of the optional PDF renderer (`http://gotenberg:3000` with `--profile pdf`). Unset = PDF export is unavailable, which is the normal default. See [PDF export](#pdf-export-optional) |
 | `RATE_LIMIT_PER_MINUTE` | 300 | per token/session |
@@ -102,7 +102,7 @@ The approval is enforced on every request. A connection limited to one workspace
 Registration is open (RFC 7591) but only for redirect URIs real AI clients use: `claude.ai`, `claude.com`, `chatgpt.com`, `chat.openai.com`, `platform.openai.com`, loopback addresses (`127.0.0.1`, `localhost`, `[::1]`, any port) and native-app schemes such as `cursor://` and `vscode://`. Anything else is refused with `invalid_redirect_uri`. At authorize time the request's `redirect_uri` must be byte-for-byte one the client registered, except that a loopback address (`127.0.0.1`, `[::1]`, `localhost`) may use a different port than the one registered (RFC 8252 §7.3), as command-line clients pick a random one; scheme, host, path and query must still match, and the list is capped at 20 URIs per client. To allow another https host, set `MCP_OAUTH_REDIRECT_HOSTS` (for example `example.com`).
 
 Leaving `MCP_OAUTH` unset (the default) keeps the endpoint PAT-only, which is the
-right choice for most self-hosted setups: mint a PAT under **Settings → API** and paste
+right choice for most self-hosted setups: mint a PAT under **Settings → API tokens** and paste
 it into the connector.
 
 ### Writes started failing after a deploy? Reconnect the client
@@ -133,7 +133,7 @@ one, a changed type, or a changed meaning — never for wording or for a brand-n
 
 ## Connections (MN-252)
 
-**Connections** (per-workspace, under **Settings → Connections**) is a registry of external-provider
+**Connections** (per-workspace, under **Settings → Integrations**, one page per provider) is a registry of external-provider
 credentials shared by every automation action and source. Each provider declares a **tier** by who owns
 the credential, and that tier — not the auth mechanism — decides what, if anything, you configure:
 
@@ -159,12 +159,24 @@ data-subject requests — see [Data-subject requests](security/data-subject-requ
 
 ## Attachments with MinIO (optional)
 
+Set your own credentials first. There are no defaults, and the container refuses to start without them:
+
+```bash
+# .env
+S3_ACCESS_KEY=pick-a-key
+S3_SECRET_KEY=$(openssl rand -hex 24)   # paste the generated value, not the command
+```
+
 ```bash
 docker compose --profile minio up -d
-# once: open http://localhost:9001 (storyos / storyos-minio). The console listens on the
-# server's loopback only; from your laptop: ssh -L 9001:127.0.0.1:9001 you@server → create bucket "storyos-attachments"
+# once: open http://localhost:9001 and sign in with the S3_ACCESS_KEY / S3_SECRET_KEY above.
+# Only the console (9001) is published, on the server's loopback; the S3 API (9000) is not
+# published at all (the api reaches it as minio:9000 on the compose network).
+# From your laptop: ssh -L 9001:127.0.0.1:9001 you@server → create bucket "storyos-attachments"
 # then set STORAGE_DRIVER=s3 in .env and restart the api
 ```
+
+**Upgrading from the old defaults (`storyos` / `storyos-minio`):** the api and the minio container now refuse to start with those values or with empty ones. Set new credentials in `.env`, then rotate. The existing data volume (`storyos_minio`) keeps its bucket contents and MinIO's own metadata. We have not verified what MinIO does when `MINIO_ROOT_*` changes on an existing volume (it may simply take the new root login, or it may need the old values or a re-initialised volume): check the MinIO documentation for your version and test on a copy of the volume before rotating. Treat any data that sat on a MinIO with the old defaults and a published port as potentially exposed, and rotate accordingly.
 
 Default (`local`) storage keeps files in the `storyos_attachments` volume — simpler, fine for most teams.
 

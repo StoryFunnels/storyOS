@@ -14,7 +14,8 @@ asking the AI nicely: an agent that ignores its instructions still cannot get pa
    outbound API call) can require approval, and some default to it.
 2. **An agent's approval policy.** The owner of an [agent](/concepts/agent-runs/) can have its
    proposed writes wait for approval. This is a setting on that one agent — an owner who forgets to
-   set it gets no gate.
+   set it gets no gate. Its **delete** entry also holds the direct deletes of an agent running on a
+   Runner ([below](#when-an-agents-own-policy-holds-its-deletes)).
 3. **A workspace-declared gate over an action class.** An admin says "deleting records needs
    approval", in one place, for everything that isn't a person at the keyboard. It applies whatever any
    individual agent's own policy says.
@@ -155,6 +156,75 @@ recorded so "what did that agent's write send, and where" can be answered afterw
 | An outbound [webhook subscription](/guides/webhooks/) | The delivery body carries `caused_by` with `source: "agent"`, `agent_id`, `agent_name`, `run_id`, `runner_id` and `runner_name`. |
 | The Slack mirror of an @-mention, and the mention and watcher emails to members | The [audit log](/concepts/record-history/#when-the-agent-ran-on-a-runner) holds an `outward.slack_mention_mirror`, `outward.mention_email` or `outward.watcher_email` event naming the agent and the run. |
 | Write-back on a source whose admin turned approval off | The source's run log records `caused_by`. On a source with approval on, the write-back is held and its card names the agent. |
+| The Google Calendar an admin [bound to a database](/guides/google-calendar-sync/) | The audit log holds an `outward.calendar_sync` event naming the agent and the run. A pushed event carries no guest list today, so Google sends no invitations; a push whose body would carry guests is refused, whoever caused it. |
+| An [AI field](/concepts/databases-and-fields/)'s recompute, which sends the record's prompt values to the workspace's configured AI | The audit log holds an `outward.ai_field` event naming the agent and the run. It is written before the call is made, so it exists whether or not the call succeeds. The new value is written without firing rules or waking an agent. |
+| A comment an agent writes on a Linear-mirrored record, when [write-back](/guides/migrate-from-linear/) is on | The audit log holds an `outward.linear_comment` event once the comment is posted. An admin can ask for these to be held instead: see below. |
+
+### Holding an agent's comment before it reaches Linear
+
+When comment write-back is on, a comment an agent wrote on a mirrored record is posted to Linear,
+signed with the agent's name. An admin can set `write_back.require_approval_for_agent_comments` to
+`true` so that such a comment waits for a person first. It is off by default, it is set through the
+Linear integration's configuration (`POST /api/v1/workspaces/{ws}/integrations/linear`, admin-only),
+and there is no switch for it in the app yet.
+
+- **Nothing is posted while it waits.** The Inbox shows an approval, *Post a comment to Linear on
+  "<record>": <the start of the comment>*, with the card naming the agent and the run. A workspace
+  admin decides it.
+- **Approving posts it**, signed with the agent's name as before. **Rejecting**, or letting it
+  expire, means it is never posted, and the comment itself gets a note saying so.
+- **A person's comment is never held** by this setting.
+
+## When an agent's own policy holds its deletes
+
+This applies to an [agent running on a Runner](/concepts/agent-runs/#agents-on-your-own-ai). If the
+agent's **Approval policy** lists **delete**, a delete it makes directly is **not performed**. It is
+held in the Inbox as an ordinary approval. The API answers `202` with `pending_approval: true` and an
+`approval_id`, and the MCP delete tools answer `deleted: false` and `pending_approval: true`. Do not
+retry the call: a second one stages a second approval.
+
+The delete tools it holds:
+
+| What the agent tried | Held as |
+|---|---|
+| Delete a record, or delete records | One approval. A batch is held whole, and approved or rejected whole. |
+| Unlink records through a relation | One approval for the links in that call. |
+| Delete a comment, an attachment, a document, a source or a skill | One approval each. |
+| Delete a space view | One approval. |
+| Remove sample data | One approval for all the sample records the templates created. |
+
+The card reads *Caused by agent "X" (run N, on the Runner's name): delete …*, followed by what is
+being deleted. A **personal** document, view or skill is shown without its name, because personal
+content is private even from admins.
+
+- **Approving performs the delete once**, as the member the agent acts as, and that member's access is
+  checked again at that moment. If they are no longer an active member, or no longer have access, it
+  is not applied. The audit log names the agent and the run. A record goes to the trash as before, so
+  it can be restored.
+- **Who decides.** The card goes to the agent's owner, who is notified; the owner or a workspace admin
+  can decide it, as a person in the app ([Deciding](#deciding)). The agent can never approve its own.
+- **Rejecting leaves the data.**
+- **Either decision wakes the agent**, with the reason `approval_decided` and the verdict.
+
+**What this does not hold.**
+
+- An agent whose policy does not list `delete` deletes as before: its role and scopes decide.
+- A person is never held by this, and neither is a delete made with an ordinary personal access token.
+- An agent that StoryOS itself runs is not held by this rule either; its proposed actions go through its approval policy as before.
+- Clearing your own preferences (pins, favourites, personal filters, watches, dismissed hints) is not
+  held, because nothing shared is lost.
+- A [gate declared by an admin](#declaring-a-gate-workspace-admins) is checked first and wins. One
+  delete is one approval, never two.
+
+### How the Inbox names an agent's request
+
+An approval that an agent's run caused is named for the agent. The Inbox row and the header of its
+card show the agent and the run, such as *Sales assistant (run 42)*, instead of the name of whoever
+wrote the rule. An approval a person caused still shows that person.
+
+The API carries the same thing as `caused_by` on the approval and on its Inbox notification:
+`agent_id`, `agent_name`, `run_id`, `run_number`, `runner_id`, `runner_name` and a ready-made `label`.
+It is `null` when a person caused the approval.
 
 ## What gets held
 
@@ -182,14 +252,15 @@ app, in the **Inbox**; a request made with an API token or by a connected AI is 
 and named-approver rules are unchanged — this is an extra requirement on *who is acting*, not a
 replacement for them.
 
-**A decision is final.** Repeating the same decision (a double click) is harmless and returns the
-request as it stands. The *opposite* decision — rejecting after approving, or the reverse — is refused
+**A decision is final.** Repeating the same decision (a double click) is harmless: it answers `200`
+with `already_decided: true`, changes nothing, and the app says *Already approved* or *Already
+rejected*. The *opposite* decision — rejecting after approving, or the reverse — is refused
 with a `409` and a reason, and so is any decision on an approval that has **expired**. Nothing is
 changed. To undo what an approval allowed, change that thing directly.
 
-## The Governance page
+## The Agent rules page
 
-**Settings → Governance** (workspace admins only) shows what the server actually enforces, read-only.
+**Settings → Agent rules** (workspace admins only; it was called Governance before) shows what the server actually enforces, read-only.
 Nothing on it widens a scope or decides an approval.
 
 - **Agents.** Each agent's declared scope (read, read and change, or admin) and its own approval
