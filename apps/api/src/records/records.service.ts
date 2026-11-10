@@ -4112,6 +4112,8 @@ export class RecordsService implements OnModuleInit {
         field_type: c.fieldId ? (ctx.fieldType.get(c.fieldId) ?? null) : 'title',
         actor_id: c.actorUserId,
         source: c.source,
+        agent_id: c.source === 'agent' ? c.agentId : null, // #1226
+        agent_name: c.source === 'agent' ? c.agentName : null,
         // #884 — a change to the computed TITLE (field_id null) carries the full title, hidden inputs included.
         old_value: redact && !c.fieldId ? '—' : c.oldValue,
         new_value: redact && !c.fieldId ? '—' : c.newValue,
