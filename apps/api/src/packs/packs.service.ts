@@ -2,7 +2,7 @@ import { ConflictException, HttpException, Inject, Injectable, Logger, Unprocess
 import { stripPublicSharing } from '../views/view-sharing';
 import { DocumentsService } from '../documents/documents.service';
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   blocksToMarkdown,
   compareSemver,
@@ -37,6 +37,7 @@ import type {
   PackPreviewItem,
   PackPreviewResult,
   PackSkill,
+  PackRecordTemplate,
   PackUninstallResult,
   PackUnmetRequirement,
   PlanAgent,
@@ -457,6 +458,7 @@ export class PacksService {
     const sampleRecords = request.include_sample_records
       ? await this.exportSampleRecords(slice, idToRef, request.sample_limit)
       : [];
+    const recordTemplatesOut = await this.exportRecordTemplates(slice, idToRef);
     const skills = await this.exportSkills(membership, [...request.skill_ids, ...(await this.agentSkillIds(membership, agents, request.skill_ids))]);
 
     const manifest: PackManifest = packManifestSchema.parse({
@@ -483,6 +485,8 @@ export class PacksService {
       views,
       automations,
       sample_records: sampleRecords,
+      // ticket #1241 - absent (not []) when there are none, so an export of a database without templates is byte-identical to before.
+      ...(recordTemplatesOut.length > 0 ? { record_templates: recordTemplatesOut } : {}),
       skills,
     });
 
@@ -676,6 +680,12 @@ export class PacksService {
     for (const field of manifest.derived_fields) if (field.database === source.name) field.database = targetName;
     for (const automation of manifest.automations) if (automation.database === source.name) automation.database = targetName;
     for (const record of manifest.sample_records) if (record.database === source.name) record.database = targetName;
+    // ticket #1241 - the templates' option refs are rewritten like a sample record's, then their database label
+    manifest.record_templates = manifest.record_templates?.map((t) => ({
+      ...t,
+      database: t.database === source.name ? targetName : t.database,
+      values: remapRefStrings(t.values, oldToNewRef) as typeof t.values,
+    }));
     for (const relation of manifest.relations) {
       if (relation.from === source.name) relation.from = targetName;
       if (relation.to === source.name) relation.to = targetName;
@@ -710,6 +720,12 @@ export class PacksService {
     // #266.3 — a duplicate is not an installed pack; strip the provenance
     // `install()` always writes. Cascades to pack_install_items.
     await this.db.delete(packInstalls).where(and(eq(packInstalls.workspaceId, membership.workspaceId), eq(packInstalls.slug, slug)));
+
+    // ticket #1241 - a duplicate's templates are the person's own, not a pack's: install stamped them origin 'pack'
+    const copiedTemplateIds = result.record_templates.map((t) => t.id).filter((id): id is string => Boolean(id));
+    if (copiedTemplateIds.length > 0) {
+      await this.db.update(recordTemplates).set({ origin: 'user' }).where(inArray(recordTemplates.id, copiedTemplateIds));
+    }
 
     const newDb = result.databases.find((d) => norm(d.name) === norm(targetName));
     if (!newDb) {
@@ -1091,6 +1107,41 @@ export class PacksService {
           enabled: rule.enabled,
           // #1199 — a scheduled rule's top-N selection travels with the pack; a rule without one gets neither key.
           ...topNOf(rule),
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * ticket #1241 - a database's record templates (#1218), as the manifest carries them: `values` keyed by field api name with option ids
+   * rewritten to symbolic refs (so install maps them to the target's ids, exactly as for a sample record), `$me` / `$date:` tokens kept
+   * as they are. Only portable field types travel (a user id or an attachment is not portable); a value naming a field the database no
+   * longer has is dropped, as it would be when a record is made from the template.
+   */
+  private async exportRecordTemplates(slice: SliceDb[], idToRef: Map<string, string>): Promise<PackRecordTemplate[]> {
+    const out: PackRecordTemplate[] = [];
+    for (const db of slice) {
+      const rows = await this.db.query.recordTemplates.findMany({
+        where: eq(recordTemplates.databaseId, db.id),
+        orderBy: [asc(recordTemplates.createdAt), asc(recordTemplates.name)],
+      });
+      const typeOf = new Map(db.fields.map((f) => [f.apiName, f.type]));
+      for (const row of rows) {
+        const values: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries((row.values ?? {}) as Record<string, unknown>)) {
+          const type = typeOf.get(key);
+          if (!type) continue;
+          if (!PORTABLE_VALUE_TYPES.has(type) && !(typeof value === 'string' && value.startsWith('$'))) continue;
+          const rewritten = refify(value, idToRef, `A record template of "${db.name}"`, 'drop');
+          if (rewritten !== undefined) values[key] = rewritten;
+        }
+        out.push({
+          database: db.name,
+          name: row.name,
+          ...(row.description ? { description: row.description } : {}),
+          values,
+          ...(row.body?.trim() ? { body: row.body } : {}),
         });
       }
     }
