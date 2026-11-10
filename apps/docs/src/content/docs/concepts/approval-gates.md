@@ -258,9 +258,9 @@ rejected*. The *opposite* decision — rejecting after approving, or the reverse
 with a `409` and a reason, and so is any decision on an approval that has **expired**. Nothing is
 changed. To undo what an approval allowed, change that thing directly.
 
-## The Governance page
+## The Agent rules page
 
-**Settings → Governance** (workspace admins only) shows what the server actually enforces, read-only.
+**Settings → Agent rules** (workspace admins only; it was called Governance before) shows what the server actually enforces, read-only.
 Nothing on it widens a scope or decides an approval.
 
 - **Agents.** Each agent's declared scope (read, read and change, or admin) and its own approval

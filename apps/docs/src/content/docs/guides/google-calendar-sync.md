@@ -39,6 +39,10 @@ Pull and two-way bindings poll Google every five minutes, and whenever you press
 Database and space names that repeat elsewhere are disambiguated in the picker — you always see
 which space a same-named database lives in before you choose it.
 
+When an agent's write causes a push to the bound calendar, the push runs as configured and the audit
+log records it as an `outward.calendar_sync` event naming the agent and the run. A change a person
+made is not logged this way. See [approval gates](/concepts/approval-gates/#destinations-an-admin-fixed-in-advance).
+
 ## All-day events
 
 Whether an event is **all-day** is decided by the mapped **Start** field's type: a plain date

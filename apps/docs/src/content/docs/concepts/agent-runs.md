@@ -41,7 +41,7 @@ the tool the Runner can drive. A Runner set to any other tool claims nothing, an
 | `mention` | The agent was @-mentioned in a **comment**. A mention in a document or a rich-text field wakes nothing. |
 | `automation` | An automation rule's **Run an agent** action ran, including one on a schedule. A scheduled firing wakes the agent **once, with no record**, however many records the rule selected; see [Schedules](/guides/runner/#schedules). |
 | `manual` | Someone used **Run now**, or delegated a record to the agent (`run_agent`, `delegate_to_agent`). |
-| `approval_decided` | An approval the agent's own write had asked for was approved or rejected. The verdict is on the wake. |
+| `approval_decided` | An approval the agent caused was approved or rejected: a held write, a held delete, or a held outward action (such as a send or a publish). The verdict is on the wake. An approved write or delete wakes the agent after it has been carried out; a rejection, and an outward hold, wake it at the decision. A delete's wake has no record on it. |
 
 A run that ends without commenting on its record can also be woken once more
 ([below](#when-a-run-ends-without-a-comment)); that wake's reason is `must_comment`.
