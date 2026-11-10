@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   approvalSentence,
   buildInstallRows,
+  fieldLabel,
   fieldsLine,
   notNew,
   packSpaceName,
@@ -115,7 +116,9 @@ describe('buildInstallRows (#978)', () => {
   it('an agent this pack installed before gets its note from agentEffect, not here', () => {
     const rows = buildInstallRows(
       preview({
-        agents: [item('Triage', 'reuse', { agent_update: { status: 'unchanged', changed_fields: [] } })],
+        agents: [
+          item('Triage', 'reuse', { agent_update: { status: 'unchanged', changed_fields: [] } }),
+        ],
       }),
       manifest,
     );
@@ -153,7 +156,10 @@ describe('database rows name their fields (ticket #1245)', () => {
   it('a database row reads "database · fields"; no fields in the manifest keeps plain "database"', () => {
     const m: RowManifest = {
       databases: [
-        { name: 'Tickets', fields: [{ name: 'Status' }, { name: 'Assignee' }, { name: 'Due date' }] },
+        {
+          name: 'Tickets',
+          fields: [{ name: 'Status' }, { name: 'Assignee' }, { name: 'Due date' }],
+        },
         { name: 'Contacts' },
       ],
     };
@@ -166,5 +172,89 @@ describe('database rows name their fields (ticket #1245)', () => {
     const fields = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((name) => ({ name }));
     const rows = buildInstallRows(preview(), { databases: [{ name: 'Tickets', fields }] });
     expect(rows[0]!.sub).toBe('database · A, B, C, D, E, F, +2 more');
+  });
+
+  const opts = (...l: string[]) => l.map((label) => ({ label }));
+  const sub = (m: RowManifest) => buildInstallRows(preview(), m)[0]!.sub;
+
+  it('lists a select/state field’s options, and a range when there are many', () => {
+    expect(
+      sub({
+        databases: [
+          {
+            name: 'Tickets',
+            fields: [{ name: 'Labels', options: opts('Bug', 'Feature') }, { name: 'Lead' }],
+          },
+        ],
+        states: [
+          {
+            database: 'Tickets',
+            field: 'State',
+            options: opts(
+              'Triage',
+              'Backlog',
+              'To Do',
+              'In Progress',
+              'In Review',
+              'Done',
+              'Canceled',
+            ),
+          },
+        ],
+      }),
+    ).toBe('database · State (Triage → Canceled), Labels (Bug, Feature), Lead');
+    expect(
+      fieldLabel(
+        'State',
+        opts('A', 'B', 'C', 'D', 'E', 'F').map((o) => o.label),
+      ),
+    ).toBe('State (A, B, C, D, E, F)');
+    expect(fieldLabel('Status', [])).toBe('Status');
+  });
+
+  it('lists plain fields first, then the relations the database owns; a to-side name is not added', () => {
+    expect(
+      sub({
+        databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
+        relations: [
+          { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
+          { from: 'Projects', to: 'Tickets', from_field: 'Owner ticket', to_field: 'Projects' },
+        ],
+      }),
+    ).toBe('database · Title, Project');
+  });
+
+  it('a database with only relations is not a bare "database"', () => {
+    expect(
+      sub({
+        databases: [{ name: 'Tickets' }],
+        relations: [
+          { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
+          { from: 'Tickets', to: 'Sprints', from_field: 'Sprint', to_field: 'Tickets' },
+        ],
+      }),
+    ).toBe('database · Project, Sprint');
+  });
+
+  it('derived fields (outside fields/states/relations) are never listed', () => {
+    const m = {
+      databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
+      derived_fields: [{ database: 'Tickets', name: 'Open count', type: 'rollup' }],
+    } as RowManifest;
+    expect(sub(m)).toBe('database · Title');
+  });
+
+  it('+N counts relations: the cap is crossed because of them', () => {
+    const fields = ['A', 'B', 'C', 'D', 'E'].map((name) => ({ name }));
+    expect(
+      sub({
+        databases: [{ name: 'Tickets', fields }],
+        relations: [
+          { from: 'Tickets', from_field: 'R1' },
+          { from: 'Tickets', from_field: 'R2' },
+          { from: 'Tickets', from_field: 'R3' },
+        ],
+      }),
+    ).toBe('database · A, B, C, D, E, R1, +2 more');
   });
 });

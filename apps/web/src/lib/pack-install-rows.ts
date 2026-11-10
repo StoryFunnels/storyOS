@@ -24,7 +24,15 @@ export interface PreviewRowItem {
 
 /** The slice of the manifest the rows read; everything optional, because a manifest arrives as `unknown`. */
 export interface RowManifest {
-  databases?: Array<{ name: string; space?: string; fields?: Array<{ name: string }> }>;
+  databases?: Array<{
+    name: string;
+    space?: string;
+    fields?: Array<{ name: string; options?: Array<{ label: string }> }>;
+  }>;
+  /** Workflow state fields live apart from `databases[].fields` (planStateSchema). */
+  states?: Array<{ database: string; field: string; options?: Array<{ label: string }> }>;
+  /** `from_field` is created on the `from` database; that database owns the name. */
+  relations?: Array<{ from: string; to?: string; from_field: string; to_field?: string }>;
   views?: Array<{ database: string; name: string; type?: string; default?: boolean }>;
   automations?: Array<{ database: string; name: string }>;
   agents?: Array<{ name: string; goal?: string; approval_policy?: string[] }>;
@@ -60,7 +68,9 @@ export function approvalSentence(policy: string[] | undefined): string | null {
   const words = (policy ?? []).map((p) => GATE_WORDS[p] ?? p);
   if (words.length === 0) return null;
   const list =
-    words.length === 1 ? words[0]! : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+    words.length === 1
+      ? words[0]!
+      : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
   return `It asks before ${list}.`;
 }
 
@@ -81,10 +91,48 @@ export function fieldsLine(names: readonly string[], max: number = ROW_FIELDS_MA
   return `${clean.slice(0, max).join(', ')}, +${clean.length - max} more`;
 }
 
-/** The muted line under a database row: "database · Status, Assignee, …" (just "database" when the manifest lists no fields). */
-function databaseSub(manifest: RowManifest | undefined, name: string): string {
+/** At most this many options are spelled out; more than this reads as a range, "Triage → Canceled". */
+export const OPTIONS_LISTED_MAX = 6;
+
+/** "State (Backlog, Planned)" for a few options, "State (Triage → Canceled)" for many; a field with no options is its bare name. */
+export function fieldLabel(name: string, options: readonly string[] | undefined): string {
+  const opts = (options ?? []).map((o) => o.trim()).filter(Boolean);
+  if (opts.length === 0) return name;
+  if (opts.length <= OPTIONS_LISTED_MAX) return `${name} (${opts.join(', ')})`;
+  return `${name} (${opts[0]} → ${opts[opts.length - 1]})`;
+}
+
+/**
+ * Every field a person will see on a database, in order: its workflow state fields, then its plain fields (manifest order),
+ * then the relation fields it owns (`from_field`, on the `from` database). Derived fields (formula/rollup/lookup) live in
+ * `derived_fields`, outside everything read here, and are left out.
+ */
+export function databaseFieldLabels(manifest: RowManifest | undefined, name: string): string[] {
   const m = manifest?.databases?.find((d) => d.name === name);
-  const line = fieldsLine((m?.fields ?? []).map((f) => f.name));
+  const states = (manifest?.states ?? []).filter((s) => s.database === name);
+  const stateNames = new Set(states.map((s) => s.field));
+  return [
+    ...states.map((s) =>
+      fieldLabel(
+        s.field,
+        s.options?.map((o) => o.label),
+      ),
+    ),
+    ...(m?.fields ?? [])
+      .filter((f) => !stateNames.has(f.name))
+      .map((f) =>
+        fieldLabel(
+          f.name,
+          f.options?.map((o) => o.label),
+        ),
+      ),
+    ...(manifest?.relations ?? []).filter((r) => r.from === name).map((r) => r.from_field),
+  ];
+}
+
+/** The muted line under a database row: "database · State (Triage → Canceled), Lead, …" (just "database" when nothing is listed). */
+function databaseSub(manifest: RowManifest | undefined, name: string): string {
+  const line = fieldsLine(databaseFieldLabels(manifest, name));
   return line ? `database · ${line}` : 'database';
 }
 
