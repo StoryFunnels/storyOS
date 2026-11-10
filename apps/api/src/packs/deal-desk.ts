@@ -44,7 +44,7 @@ export const DEAL_DESK_PACK: PackRegistryEntry = {
     version: '1.0.0',
     why: 'You sell services to other businesses and want every deal, quote and hand-off to delivery in one place.',
     can: [
-      'See the whole pipeline by stage and get nudged when a deal goes quiet',
+      'See the whole pipeline by stage and spot a deal that has gone quiet',
       'Build a quote from your price list, line by line',
       'Turn a won deal into an Agency OS project, after you approve it',
     ],
