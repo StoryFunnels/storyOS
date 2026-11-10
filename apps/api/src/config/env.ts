@@ -82,7 +82,7 @@ export function assertS3Credentials(
   );
 }
 
-const HEX_64_RE =/^[0-9a-f]{64}$/i;
+const HEX_64_RE = /^[0-9a-f]{64}$/i;
 
 /**
  * Resolve CONNECTIONS_MASTER_KEY (MN-252), or refuse to boot. This key seals

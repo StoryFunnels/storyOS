@@ -39,11 +39,12 @@ Relevant variables (see the full [configuration matrix](/self-hosting/configurat
 | `S3_BUCKET` | `storyos-attachments` | Create it once before switching the driver. |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | none (required) | Credentials for the bucket. Required with `STORAGE_DRIVER=s3`; the API refuses to boot without them or with the old `storyos` / `storyos-minio`. |
 
+| `ATTACHMENT_MAX_BYTES` | `20971520` (20 MB) | Per-file upload cap. |
+
 **Upgrading from the old defaults:** set new credentials in `.env`. We have not verified what MinIO
 does when its root credentials change on an existing data volume (`storyos_minio`): check the MinIO
 documentation for your version and test on a copy before rotating. Treat anything stored while the
 old defaults were in use as potentially exposed.
-| `ATTACHMENT_MAX_BYTES` | `20971520` (20 MB) | Per-file upload cap. |
 
 Any S3-compatible provider works — AWS S3, Cloudflare R2, Backblaze B2, or your own MinIO. Point
 `S3_ENDPOINT` at the provider and supply matching credentials.
