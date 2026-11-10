@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { trackRequestBody, untrackedModel, type IgnoredDeliveries } from './github-untracked';
+import { trackRequestBody, untrackedDetail, untrackedModel, type IgnoredDeliveries } from './github-untracked';
 
 /** Ticket #1221 — GitHub's "Not tracked, but sending events" list. */
 const repo = (name: string, n = 1) => ({ repo: name, count: n, last_seen_at: '2026-11-09T10:00:00Z' });
@@ -7,13 +8,14 @@ const five: IgnoredDeliveries = { repos: ['a/1', 'a/2', 'a/3', 'a/4', 'a/5'].map
 
 describe('untrackedModel', () => {
   it('says nothing when nothing is sending', () => {
-    expect(untrackedModel(undefined, [], false).heading).toBeNull();
-    expect(untrackedModel({ repos: [], other_count: 0 }, [], false).heading).toBeNull();
+    expect(untrackedModel(undefined, [], false).title).toBeNull();
+    expect(untrackedModel({ repos: [], other_count: 0 }, [], false).title).toBeNull();
   });
 
-  it('counts repositories in the heading and shows the first 3, then "N more"', () => {
+  it('puts the title and the count apart (title left, muted count right) and shows the first 3, then "N more"', () => {
     const m = untrackedModel(five, [], false);
-    expect(m.heading).toBe('Not tracked, but sending events · 5 repositories');
+    expect(m.title).toBe('Not tracked, but sending events');
+    expect(m.count).toBe('5 repositories');
     expect(m.rows.map((r) => r.repo)).toEqual(['a/1', 'a/2', 'a/3']);
     expect(m.hiddenCount).toBe(2);
   });
@@ -25,22 +27,23 @@ describe('untrackedModel', () => {
   });
 
   it('uses the singular for one repository', () => {
-    expect(untrackedModel({ repos: [repo('a/1')], other_count: 0 }, [], false).heading).toBe('Not tracked, but sending events · 1 repository');
+    expect(untrackedModel({ repos: [repo('a/1')], other_count: 0 }, [], false).count).toBe('1 repository');
   });
 
   it('KEEPS the other repositories when one becomes tracked, and drops only that one', () => {
     const m = untrackedModel(five, ['a/2'], false);
     expect(m.rows.map((r) => r.repo)).toEqual(['a/1', 'a/3', 'a/4']);
-    expect(m.heading).toContain('· 4 repositories');
+    expect(m.count).toBe('4 repositories');
   });
 
   it('a stale tally for a repository now tracked never lists it', () => {
-    expect(untrackedModel({ repos: [repo('a/1')], other_count: 0 }, ['a/1'], false).heading).toBeNull();
+    expect(untrackedModel({ repos: [repo('a/1')], other_count: 0 }, ['a/1'], false).title).toBeNull();
   });
 
   it('deliveries from unnamed repositories are a muted count, never rows', () => {
     const m = untrackedModel({ repos: [], other_count: 7 }, [], false);
-    expect(m.heading).toBe('Not tracked, but sending events');
+    expect(m.title).toBe('Not tracked, but sending events');
+    expect(m.count).toBeNull();
     expect(m.rows).toEqual([]);
     expect(m.otherDeliveries).toBe(7);
   });
@@ -58,5 +61,28 @@ describe('trackRequestBody (the existing selection call: POST integrations/githu
     expect(trackRequestBody(cur, 'a/x')).toEqual({ repos: ['a/x'] });
     trackRequestBody(cur, 'a/q');
     expect(cur).toEqual(['a/x']);
+  });
+});
+
+describe('untrackedDetail (the row sub-line)', () => {
+  const t = (iso: string) => `T(${iso.slice(0, 10)})`;
+  it('names the last event type when the API sent one', () => {
+    expect(untrackedDetail({ ...repo('a/1', 3), last_event: 'push' }, t)).toBe('3 events · last push, T(2026-11-09)');
+  });
+  it('falls back to count + last-seen when a tally predates the event type', () => {
+    expect(untrackedDetail(repo('a/1', 1), t)).toBe('1 event · last T(2026-11-09)');
+  });
+});
+
+describe('the box is the shared one (the rows are not re-drawn)', () => {
+  const src = readFileSync(new URL('../components/settings/github-untracked.tsx', import.meta.url), 'utf8');
+  it('is one SettingsBox with SettingsRows, and "and N more" is a row INSIDE it after the repository rows', () => {
+    expect(src).toContain("from '@/components/settings/settings-chrome'");
+    expect(src.match(/<SettingsBox\b/g)).toHaveLength(1);
+    expect(src.indexOf('and {m.hiddenCount} more')).toBeGreaterThan(src.indexOf('</SettingsRow>'));
+    expect(src.indexOf('and {m.hiddenCount} more')).toBeLessThan(src.indexOf('</SettingsBox>'));
+  });
+  it('draws no list or heading of its own', () => {
+    expect(src).not.toMatch(/<ul\b|<h2\b|rounded-\[var/);
   });
 });

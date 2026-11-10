@@ -26,7 +26,7 @@ interface GithubConfig {
   installation_id: number | null;
   /** #828: deliveries received for repos that are not selected, and so discarded. */
   ignored_deliveries?: {
-    repos: Array<{ repo: string; count: number; last_seen_at: string }>;
+    repos: Array<{ repo: string; count: number; last_seen_at: string; last_event?: string }>;
     other_count: number;
   };
 }

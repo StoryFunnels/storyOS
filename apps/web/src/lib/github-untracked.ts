@@ -6,7 +6,7 @@
  * has: Track. Pure so the count, the "first 3, then N more" cut and the request Track sends are tested without a browser.
  */
 export interface IgnoredDeliveries {
-  repos: Array<{ repo: string; count: number; last_seen_at: string }>;
+  repos: Array<{ repo: string; count: number; last_seen_at: string; /** The webhook event of the latest delivery (`push`, `pull_request`…). The API stores and returns it. */ last_event?: string }>;
   /** Deliveries (not repositories) from repositories past the API's cap on named ones. */
   other_count: number;
 }
@@ -14,8 +14,10 @@ export interface IgnoredDeliveries {
 export const UNTRACKED_PREVIEW_ROWS = 3;
 
 export interface UntrackedModel {
-  /** Null when there is nothing to say: no heading, no list. */
-  heading: string | null;
+  /** Null when there is nothing to say: no box at all. */
+  title: string | null;
+  /** The muted "N repositories" at the right of the header row; null when only unnamed deliveries are left. */
+  count: string | null;
   rows: IgnoredDeliveries['repos'];
   /** Named repositories hidden behind "Show all". */
   hiddenCount: number;
@@ -32,17 +34,21 @@ export function untrackedModel(
   const repos = (ignored?.repos ?? []).filter((r) => !tracked.includes(r.repo));
   const otherDeliveries = ignored?.other_count ?? 0;
   if (repos.length === 0 && otherDeliveries === 0)
-    return { heading: null, rows: [], hiddenCount: 0, otherDeliveries: 0 };
+    return { title: null, count: null, rows: [], hiddenCount: 0, otherDeliveries: 0 };
   const visible = showAll ? repos : repos.slice(0, UNTRACKED_PREVIEW_ROWS);
   return {
-    heading:
-      repos.length > 0
-        ? `Not tracked, but sending events · ${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'}`
-        : 'Not tracked, but sending events',
+    title: 'Not tracked, but sending events',
+    count: repos.length > 0 ? `${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'}` : null,
     rows: visible,
     hiddenCount: repos.length - visible.length,
     otherDeliveries,
   };
+}
+
+/** A row's sub-line: "3 events · last push, <time>". The event type is named only when the API sent one (rows from before it was stored have none). */
+export function untrackedDetail(r: IgnoredDeliveries['repos'][number], formatTime: (iso: string) => string): string {
+  const last = r.last_event ? `last ${r.last_event}, ${formatTime(r.last_seen_at)}` : `last ${formatTime(r.last_seen_at)}`;
+  return `${r.count} ${r.count === 1 ? 'event' : 'events'} · ${last}`;
 }
 
 /** The body of the existing repository-selection call (POST /integrations/github `{ repos }`): the current selection plus this one. */
