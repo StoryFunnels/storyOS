@@ -7,6 +7,7 @@ import { pluralNoun } from '@/lib/records';
 import { OPTION_COLORS } from '@/components/table-view/option-colors';
 import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseColor } from '@/lib/entity-color';
+import { CENTER_R, NODE_R, computeSpokeLayout } from './database-relations-layout';
 
 /**
  * #531 — a single database's own relations, hub-and-spoke: this database at
@@ -21,15 +22,7 @@ import { databaseColor } from '@/lib/entity-color';
  * angles, no overlap-avoidance measurement needed at this node count.
  */
 
-const CENTER_R = 20;
-const NODE_R = 16;
-
-interface CenterDatabase {
-  id: string;
-  name: string;
-  icon: string | null;
-  color: string | null;
-}
+import type { CenterDatabase } from './database-relations-layout';
 
 export function DatabaseRelationsDiagram({
   center,
@@ -62,7 +55,7 @@ export function DatabaseRelationsDiagram({
       >
         {/* Edges first, so node circles paint over the line ends. */}
         {layout.spokes.flatMap((s) =>
-          s.edges.map((e, i) => (
+          s.edges.map((e) => (
             <g key={`${s.database.id}:${e.relationId}`}>
               <line
                 x1={layout.cx}
@@ -76,13 +69,31 @@ export function DatabaseRelationsDiagram({
               >
                 <title>{e.label}</title>
               </line>
+            </g>
+          )),
+        )}
+
+        {/* Edge labels after ALL lines, so no later spoke paints over one. */}
+        {layout.spokes.flatMap((s) =>
+          s.edges.map((e) => (
+            <g key={`label:${s.database.id}:${e.relationId}`}>
+            {/* #1259 — placed by computeSpokeLayout so no two labels collide; the
+                  halo (stroke in the card colour, painted first) keeps a label
+                  readable where it crosses another spoke. Colours are theme
+                  utilities (fill-muted -> --text-muted): the old `var(--muted)`
+                  named a variable that does not exist, so the fill was invalid
+                  and fell back to black, unreadable on the dark card. */}
               <text
-                x={(layout.cx + s.x) / 2}
-                y={(layout.cy + s.y) / 2 - i * 11}
+                x={e.lx}
+                y={e.ly}
+                dominantBaseline="central"
                 textAnchor="middle"
-                className="pointer-events-none fill-[var(--muted)] text-[9px]"
+                strokeWidth={3}
+                strokeLinejoin="round"
+                style={{ paintOrder: 'stroke' }}
+                className="pointer-events-none fill-muted stroke-card text-meta"
               >
-                {e.shortLabel}
+                {e.text}
               </text>
             </g>
           )),
@@ -95,7 +106,7 @@ export function DatabaseRelationsDiagram({
               cx={s.x}
               cy={s.y}
               r={NODE_R}
-              fill="var(--card)"
+              className="fill-card"
               stroke={(s.database.color && OPTION_COLORS[s.database.color]) || 'var(--border-strong)'}
               strokeWidth={2}
             >
@@ -106,8 +117,8 @@ export function DatabaseRelationsDiagram({
                 <EntityIcon icon={s.database.icon} color={databaseColor(s.database.color, s.database.id)} fallback={<DatabaseIcon className="h-3.5 w-3.5" />} />
               </div>
             </foreignObject>
-            <text x={s.x} y={s.y + NODE_R + 13} textAnchor="middle" className="fill-[var(--ink)] text-meta font-medium">
-              {s.database.name}
+            <text x={s.x} y={s.y + NODE_R + 13} textAnchor="middle" className="fill-ink text-meta font-medium">
+              {s.nameText}
             </text>
           </g>
         ))}
@@ -118,7 +129,7 @@ export function DatabaseRelationsDiagram({
             cx={layout.cx}
             cy={layout.cy}
             r={CENTER_R}
-            fill="var(--card)"
+            className="fill-card"
             stroke={(center.color && OPTION_COLORS[center.color]) || 'var(--border-strong)'}
             strokeWidth={2.5}
           />
@@ -127,77 +138,11 @@ export function DatabaseRelationsDiagram({
               <EntityIcon icon={center.icon} color={databaseColor(center.color, center.id)} fallback={<DatabaseIcon className="h-4 w-4" />} />
             </div>
           </foreignObject>
-          <text x={layout.cx} y={layout.cy + CENTER_R + 14} textAnchor="middle" className="fill-[var(--ink)] text-label font-semibold">
-            {center.name}
+          <text x={layout.cx} y={layout.cy + CENTER_R + 14} textAnchor="middle" className="fill-ink text-label font-semibold">
+            {layout.centreName}
           </text>
         </g>
       </svg>
     </div>
   );
-}
-
-interface Spoke {
-  database: { id: string; name: string; icon: string | null; color: string | null };
-  x: number;
-  y: number;
-  edges: Array<{ relationId: string; label: string; shortLabel: string }>;
-}
-
-/** Self-relations (both sides point at the CENTER database) have no far node
- *  to draw a spoke to — listed as a caption-only edge is out of this ticket's
- *  scope (#449's loop treatment is the precedent if this ever needs one), so
- *  they're simply not drawn here rather than guessed at. */
-function computeSpokeLayout(center: CenterDatabase, relations: OntologyRelation[]) {
-  const byFarDb = new Map<string, Spoke['database']>();
-  const edgesByFarDb = new Map<string, Spoke['edges']>();
-
-  for (const r of relations) {
-    if (r.self_relation) continue;
-    const far = r.a.database_id === center.id ? r.b : r.a;
-    const local = r.a.database_id === center.id ? r.a : r.b;
-    if (!far.database_id || far.database_id === center.id) continue;
-    if (!byFarDb.has(far.database_id)) {
-      byFarDb.set(far.database_id, { id: far.database_id, name: far.database_name ?? 'Untitled', icon: null, color: null });
-    }
-    const list = edgesByFarDb.get(far.database_id) ?? [];
-    const cardinality = r.cardinality.replace(/_/g, '-');
-    list.push({
-      relationId: r.id,
-      label: `${local.field_name ?? '?'} → ${far.database_name ?? '?'}.${far.field_name ?? '?'} (${cardinality})`,
-      shortLabel: `${local.field_name ?? '?'} / ${far.field_name ?? '?'}`,
-    });
-    edgesByFarDb.set(far.database_id, list);
-  }
-
-  const fars = [...byFarDb.values()];
-  const n = fars.length;
-  const radius = Math.max(90, n * 22);
-  const cx = radius + 60;
-  const cy = radius + 40;
-
-  const spokes: Spoke[] = fars.map((database, i) => {
-    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
-    return {
-      database,
-      x: cx + radius * Math.cos(angle),
-      y: cy + radius * Math.sin(angle),
-      edges: edgesByFarDb.get(database.id) ?? [],
-    };
-  });
-
-  // Bounding box measured from real content (node radius + label height),
-  // not a guessed margin — same discipline space-ontology.tsx documents.
-  const pad = NODE_R + 30;
-  const minX = Math.min(cx - CENTER_R, ...spokes.map((s) => s.x - pad));
-  const maxX = Math.max(cx + CENTER_R, ...spokes.map((s) => s.x + pad));
-  const minY = Math.min(cy - CENTER_R - 20, ...spokes.map((s) => s.y - pad));
-  const maxY = Math.max(cy + CENTER_R + 20, ...spokes.map((s) => s.y + pad));
-
-  return {
-    cx: cx - minX,
-    cy: cy - minY,
-    width: maxX - minX,
-    height: maxY - minY,
-    spokes: spokes.map((s) => ({ ...s, x: s.x - minX, y: s.y - minY })),
-  };
 }
