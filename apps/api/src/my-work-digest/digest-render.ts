@@ -175,7 +175,7 @@ export function renderDigest(input: DigestInput): { subject: string; html: strin
   const html =
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(subject)}</title>` +
     `<style>${DARK_CSS}${QUILL_HEADER_CSS}</style></head>\n` +
-    `<body class="d-page" style="margin:0;padding:0;background:#f4efe5;font-family:Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%">\n` +
+    `<body class="d-page" style="margin:0;padding:0;background:#f4efe5;font-family:Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%;overflow-wrap:anywhere;word-break:break-word">\n` +
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(preheader)}.</div>\n` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4efe5" class="d-page"><tr><td align="center" style="padding:24px 12px">\n` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="d-card" style="max-width:600px;background:#ffffff;border:1px solid #e8e5df;border-radius:8px">\n` +
