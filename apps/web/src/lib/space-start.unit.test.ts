@@ -8,6 +8,7 @@ import {
   adminAskLine,
   canAddToSpace,
   canInstallPacks,
+  packCardBorder,
   isSpaceEmpty,
   renamedAfterInstall,
   spacePackFilters,
@@ -215,5 +216,12 @@ describe('the space page wiring (#1094)', () => {
   });
   it('tells a member who can add a pack, from the members list it already reads', () => {
     expect(page).toContain('adminAskLine(members.data)');
+  });
+});
+
+describe('packCardBorder (shared by New space and the signup picker)', () => {
+  it('gives the three featured packs the strong border and every other pack the default one', () => {
+    for (const slug of ['team-board', 'dev-tracker', 'team-wiki']) expect(packCardBorder(slug)).toBe('border-border-strong');
+    for (const slug of ['agency-os', 'book-launch', 'not-a-pack']) expect(packCardBorder(slug)).toBe('border-border-default');
   });
 });
