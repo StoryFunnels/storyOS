@@ -33,7 +33,9 @@ const dealDesk = (over: Record<string, unknown> = {}) => ({
 const agencyOs = async () => (await as('GET', '/packs/registry/agency-os')).json().manifest;
 const preview = (ws: string, body: Record<string, unknown> = {}, manifest = dealDesk()) => as('POST', `/workspaces/${ws}/packs/preview`, { manifest, ...body });
 const install = (ws: string, body: Record<string, unknown> = {}, manifest = dealDesk()) => as('POST', `/workspaces/${ws}/packs/install`, { manifest, ...body });
-const dbs = async (ws: string) => (await as('GET', `/workspaces/${ws}/databases`)).json() as Array<{ id: string; name: string; spaceId: string }>;
+const dbs = async (ws: string) => (await as('GET', `/workspaces/${ws}/databases`)).json() as Array<{ id: string; name: string; spaceId: string; isSystem: boolean }>;
+/** The pack-made databases: the workspace's Members projection is system-flagged and ambient (any member action provisions it lazily, so the install itself can create it), never pack debris. Keyed on the flag, not the name. */
+const packDbs = async (ws: string) => (await dbs(ws)).filter((d) => !d.isSystem);
 const installed = async (ws: string) => (await as('GET', `/workspaces/${ws}/packs/installed`)).json() as Array<{ id: string; slug: string }>;
 const fieldNames = async (ws: string, id: string) => ((await as('GET', `/workspaces/${ws}/databases/${id}`)).json().fields as Array<{ displayName: string }>).map((f) => f.displayName);
 
@@ -180,7 +182,7 @@ describe('also_install rolls back when the dependent install fails (#1246)', () 
 
   it('leaves no trace of anything this request created, databases included, and the error names what was rolled back', async () => {
     const ws = await newWs('Rollback');
-    const dbsBefore = (await dbs(ws)).map((d) => d.id).sort();
+    const dbsBefore = (await packDbs(ws)).map((d) => d.id).sort();
     failDealDesk();
     const res = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
     expect(res.statusCode).toBe(500);
@@ -189,7 +191,7 @@ describe('also_install rolls back when the dependent install fails (#1246)', () 
     expect(msg).toMatch(/Nothing was installed/);
     expect(await installed(ws), 'no pack left installed').toEqual([]);
     // One request is one install (#1246): Agency OS's databases were made seconds ago by this same request, so they go too.
-    expect((await dbs(ws)).map((d) => d.id).sort(), 'the workspace has the databases it had before').toEqual(dbsBefore);
+    expect((await packDbs(ws)).map((d) => d.id).sort(), 'the workspace has the databases it had before').toEqual(dbsBefore);
     vi.restoreAllMocks();
     const again = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
     expect(again.statusCode, 'a re-install is not a name collision: nothing was left behind').toBe(201);
