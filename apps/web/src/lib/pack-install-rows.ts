@@ -10,6 +10,7 @@
  */
 
 import type { PackDatabaseGains, PackAgentUpdate } from '@storyos/schemas';
+import type { SwitchedOffBecause } from './pack-automation-state';
 import { itemEffect, type PackItemKind } from './pack-update';
 
 export interface PreviewRowItem {
@@ -19,7 +20,7 @@ export interface PreviewRowItem {
   gains?: PackDatabaseGains;
   /** Ticket #1172 — automations only, and only when the install would CREATE the rule: see lib/pack-automation-state.ts. */
   enabled_on_install?: boolean;
-  switched_off_because?: 'outward' | 'agent';
+  switched_off_because?: SwitchedOffBecause;
 }
 
 /** The slice of the manifest the rows read; everything optional, because a manifest arrives as `unknown`. */
