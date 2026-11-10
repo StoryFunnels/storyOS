@@ -76,6 +76,7 @@ personal view is only reachable from here today.
 |---|---|
 | `list_spaces` / `create_space` | List / create spaces. |
 | `create_database` / `update_database` / `delete_database` | Create, rename/move, or delete a database (delete needs `confirm` = name). |
+| `preview_formula` | Dry-run a formula before saving it: parses and type-checks it against the database fields and evaluates it on up to 5 recent records you can read. Returns the result type and sample values, or positioned errors (offsets, expected vs got, the nearest valid field or function name). Saves nothing. |
 | `add_field` / `update_field` / `delete_field` / `change_field_type` | Manage fields; select options by label (a `workflow` field added with no options starts as To do / In progress / Done); convert a field's type (`dry_run` to preview). |
 | `create_view` / `update_view` / `delete_view` | Manage views; accepts `group_by` / `card_fields` / date fields plus `filters` + `sorts`. |
 | `create_relation` / `delete_relation` | Link two databases (one_to_many / many_to_many) — paired relation fields. |

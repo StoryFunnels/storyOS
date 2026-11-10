@@ -943,6 +943,8 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   // a structural deletion is exactly as sensitive as making it.
   list_databases_trash: 'admin',
   restore_database: 'admin',
+  // ticket #1263: POST .../fields/formula-preview, @RequiresScope('read'), viewer role: evaluates and returns, writes nothing
+  preview_formula: 'read',
   add_field: 'admin',
   update_field: 'admin',
   get_field_usage: 'read',
@@ -3463,6 +3465,49 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   const normOptions = (o?: Array<string | { label: string; color?: string; icon?: string; category?: string }>) =>
     o?.map((x) => (typeof x === 'string' ? { label: x } : x));
 
+  /*
+   * ticket #1263 - the dry-run an agent runs BEFORE add_field/update_field on a formula. A separate READ tool rather than a
+   * `dry_run` flag on add_field: add_field is admin-scope, so the flag would hide the safe check behind the dangerous permission, and a
+   * flag on a write path is one bug away from persisting.
+   */
+  reg(
+    'preview_formula',
+    {
+      title: 'Preview formula',
+      description:
+        'Dry-run a formula BEFORE saving it with add_field / update_field: parses and type-checks `expression` against the database\'s ' +
+        'fields and evaluates it on up to 5 of the most recent records you can read. Saves NOTHING. Returns ' +
+        '{valid, return_type, samples:[{record_id, number, title, value}], errors:[{message, position:{start,end}, expected, got, suggestion}]}. ' +
+        'return_type is text, number, checkbox or date (what a saved formula field would be). On a mistake, valid is false and each error ' +
+        'gives the character offsets of the offending text in `expression` (start inclusive, end exclusive), what was expected and what ' +
+        'was found, and `suggestion`: the nearest valid field ({Name}) or function name, or a concrete fix; null when nothing is close. ' +
+        'Fix the expression and call again until valid is true and the sample values are what you meant, then save it. A formula ' +
+        'reading a lookup, rollup or link is evaluated live on the samples exactly as a read would. To check an edit to an EXISTING ' +
+        'formula field, pass it as `field` so the self-reference guard applies. Refer to fields as {Display Name}.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string().describe('Database name, api slug, or id.'),
+        expression: z.string().describe('The formula, e.g. {Qty} * {Unit Price} or if({Status} = "Done", 1, 0).'),
+        field: z.string().optional().describe('An existing formula field (name, api_name or id) whose expression you are replacing.'),
+        samples: z.number().int().min(1).max(5).optional().describe('How many records to evaluate (default and maximum 5).'),
+      },
+    },
+    handle<{ workspace: string; database: string; expression: string; field?: string; samples?: number }>(
+      async ({ workspace, database, expression, field, samples }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const fieldId = field ? resolveFieldId(await getDetail(ws.id, db.id), field, ['formula'], 'formula') : undefined;
+        const res = await unwrap<unknown>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields/formula-preview', {
+            params: { path: { ws: ws.id, db: db.id } },
+            body: { expression, field: fieldId, samples } as never,
+          }),
+        );
+        return text(res);
+      },
+    ),
+  );
+
   reg(
     'add_field',
     {
@@ -3470,7 +3515,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
-        'the mention badge and My Work all key off it. A workflow field created with NO options starts as To do / In progress / Done (categories unstarted / started / completed); options you pass are used exactly as given, nothing added. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Formula config: {expression, format?, currency_code?, precision?} — a number-returning formula may set format "percent" or "currency" (currency REQUIRES a 3-letter currency_code, e.g. "EUR", and is refused on a formula that returns text/date/checkbox). Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field, or a formula that RETURNS a number and reads no lookup, via target_field_api_name — e.g. sum a Quote Line\'s `qty * price` formula onto its Quote) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. A sum/avg/min/max rollup is shown in the number format of the field it aggregates (describe_database returns it in the rollup\'s config with format_inherited: true); set format/currency_code/precision on the rollup to override it, null to go back to inheriting. A count is always a plain integer and refuses a format. (Relations link two databases — not added here yet.) ' +
+        'the mention badge and My Work all key off it. A workflow field created with NO options starts as To do / In progress / Done (categories unstarted / started / completed); options you pass are used exactly as given, nothing added. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Formula config: {expression, format?, currency_code?, precision?} — dry-run the expression with preview_formula FIRST (it saves nothing, returns the result type and values on 5 records, and positioned errors with the nearest valid field or function name) — a number-returning formula may set format "percent" or "currency" (currency REQUIRES a 3-letter currency_code, e.g. "EUR", and is refused on a formula that returns text/date/checkbox). Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field, or a formula that RETURNS a number and reads no lookup, via target_field_api_name — e.g. sum a Quote Line\'s `qty * price` formula onto its Quote) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. A sum/avg/min/max rollup is shown in the number format of the field it aggregates (describe_database returns it in the rollup\'s config with format_inherited: true); set format/currency_code/precision on the rollup to override it, null to go back to inheriting. A count is always a plain integer and refuses a format. (Relations link two databases — not added here yet.) ' +
         'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Returns the field.',
       inputSchema: {
         workspace: z.string(),

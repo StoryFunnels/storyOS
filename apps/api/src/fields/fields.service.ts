@@ -12,7 +12,9 @@ import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type {
   CreatableFieldType,
   FilterNode,
+  FormulaDiagnostic,
   FormulaFieldInfo,
+  FormulaPreviewResponse,
   FormulaNode,
   FormulaType,
   StateCategory,
@@ -25,6 +27,8 @@ import {
   aiPromptRefs,
   CONVERTIBLE,
   FormulaError,
+  FORMULA_PREVIEW_MAX_SAMPLES,
+  formulaErrorToDiagnostic,
   formulaConfigSchema,
   NUMBER_FORMAT_KEYS,
   rollupConfigSchema,
@@ -201,6 +205,16 @@ function formulaNodeHasRelRef(node: FormulaNode, relationApiName: string, target
       return node.args.some((a) => formulaNodeHasRelRef(a, relationApiName, targetApiName));
     default:
       return false;
+  }
+}
+
+/** Ticket #1263 — a formula that does not compile: `message` is the exact text save answers with, `diagnostic` the structured form. */
+class FormulaCompileFailure extends Error {
+  constructor(
+    message: string,
+    public readonly diagnostic: FormulaDiagnostic,
+  ) {
+    super(message);
   }
 }
 
@@ -632,7 +646,58 @@ export class FieldsService {
     config: Record<string, unknown>,
     selfApiName?: string,
   ) {
-    const expression = String(config['expression'] ?? '');
+    try {
+      return await this.compileFormulaCore(databaseId, String(config['expression'] ?? ''), selfApiName);
+    } catch (error) {
+      // The save path keeps its exact historical 422 text; only the dry-run reads the structured diagnostic.
+      if (error instanceof FormulaCompileFailure) throw new UnprocessableEntityException(error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Ticket #1263 — dry-run a formula: the SAME compile as save (`compileFormulaCore`), then the SAME evaluation as a read
+   * (`RecordsService.previewFormulaSamples`), on up to 5 of the caller's most recent records. Writes nothing: no field row, no
+   * record value, no computed value. A formula that does not compile returns `valid: false` with positioned diagnostics (HTTP 200,
+   * because the dry-run itself worked: that is the answer an agent asked for).
+   */
+  async previewFormula(
+    databaseId: string,
+    input: { expression: string; field?: string; samples?: number },
+    membership: Membership,
+  ): Promise<FormulaPreviewResponse> {
+    let selfApiName: string | undefined;
+    if (input.field) {
+      const f = await this.getField(databaseId, input.field);
+      if (f.type !== 'formula') {
+        throw new UnprocessableEntityException('That field is not a formula field, so there is nothing to edit: omit `field` to preview a new formula');
+      }
+      selfApiName = f.apiName;
+    }
+    let compiled: { ast: FormulaNode; result_type: string };
+    try {
+      compiled = await this.compileFormulaCore(databaseId, input.expression, selfApiName);
+    } catch (error) {
+      if (error instanceof FormulaCompileFailure) {
+        return { valid: false, return_type: null, samples: [], errors: [error.diagnostic] };
+      }
+      throw error;
+    }
+    const samples = await this.recordsService.previewFormulaSamples(
+      databaseId,
+      compiled.ast,
+      compiled.result_type,
+      Math.min(input.samples ?? FORMULA_PREVIEW_MAX_SAMPLES, FORMULA_PREVIEW_MAX_SAMPLES),
+      membership,
+    );
+    return { valid: true, return_type: compiled.result_type as FormulaPreviewResponse['return_type'], samples, errors: [] };
+  }
+
+  private async compileFormulaCore(
+    databaseId: string,
+    expression: string,
+    selfApiName?: string,
+  ) {
     const live = await this.db.query.fields.findMany({
       where: and(eq(fields.databaseId, databaseId), isNull(fields.deletedAt)),
     });
@@ -743,14 +808,20 @@ export class FieldsService {
       resultType = typecheck(ast, infos);
     } catch (error) {
       if (error instanceof FormulaError)
-        throw new UnprocessableEntityException(`Formula error: ${error.message}`);
+        throw new FormulaCompileFailure(`Formula error: ${error.message}`, formulaErrorToDiagnostic(error, expression));
       throw error;
     }
+    const wholeExpression = (message: string, suggestion: string | null): FormulaDiagnostic => ({
+      message,
+      position: { start: 0, end: expression.length },
+      expected: null,
+      got: null,
+      suggestion,
+    });
     // MN-129: self-reference guard — reject before storing an AST that would cycle.
     if (selfApiName && formulaRefs(ast).includes(selfApiName)) {
-      throw new UnprocessableEntityException(
-        'A formula cannot reference its own field — it would create a cycle',
-      );
+      const message = 'A formula cannot reference its own field — it would create a cycle';
+      throw new FormulaCompileFailure(message, wholeExpression(message, "remove the reference to this formula's own field"));
     }
     if (resultType === 'null') resultType = 'text';
 
@@ -759,8 +830,10 @@ export class FieldsService {
       live.filter((f) => f.type === 'formula').map((f) => [f.apiName, f]),
     );
     const visit = (refs: string[], depth: number): void => {
-      if (depth > 5)
-        throw new UnprocessableEntityException('Formula chains are limited to 5 levels');
+      if (depth > 5) {
+        const message = 'Formula chains are limited to 5 levels';
+        throw new FormulaCompileFailure(message, wholeExpression(message, 'read a plain field instead of a formula that reads another formula'));
+      }
       for (const ref of refs) {
         const target = formulaByApi.get(ref);
         if (!target) continue;

@@ -5737,6 +5737,51 @@ export class RecordsService implements OnModuleInit {
   }
 
   /** Simple list: manual (position) order, optional q title search, keyset cursor. */
+  /**
+   * Ticket #1263 — the value a CANDIDATE formula would have on up to `limit` of the caller's most recent records. READ-ONLY by
+   * construction: it selects rows and evaluates, and nothing here writes a record, a field or a computed value.
+   *
+   * It does not re-implement evaluation. The candidate is appended to the database's real field defs as a transient formula def and
+   * the page goes through the same `attachLinks` the list/get routes use, so the preview sees exactly what a read would: lookups and
+   * rollups resolved first, relation chips narrowed to what `membership` can read (#469), guest record scope (#474) and title
+   * narrowing (#884). A second evaluator would pass for the cases it copied and drift on the rest.
+   */
+  async previewFormulaSamples(
+    databaseId: string,
+    ast: FormulaNode,
+    resultType: string,
+    limit: number,
+    membership?: Membership,
+  ): Promise<Array<{ record_id: string; number: number | null; title: string; value: unknown }>> {
+    const PREVIEW_API_NAME = '__formula_preview__';
+    const defs = await this.fieldDefs(databaseId);
+    const candidate: FieldDef = {
+      id: '00000000-0000-0000-0000-000000000000',
+      api_name: PREVIEW_API_NAME,
+      type: 'formula',
+      config: { ast, result_type: resultType },
+    };
+    const conditions = [eq(records.databaseId, databaseId), isNull(records.deletedAt)];
+    const visibility = await this.recordVisibilityCondition(membership, databaseId);
+    if (visibility) conditions.push(visibility);
+    const rows = await this.db.query.records.findMany({
+      where: and(...conditions),
+      orderBy: [desc(records.createdAt), desc(records.id)],
+      limit,
+    });
+    const projected = await this.attachLinks(
+      rows.map((r) => this.project(r, defs)),
+      [...defs, candidate],
+      membership,
+    );
+    return projected.map((r) => ({
+      record_id: r.id,
+      number: r.number ?? null,
+      title: r.title,
+      value: r.values[PREVIEW_API_NAME] ?? null,
+    }));
+  }
+
   async list(
     databaseId: string,
     opts: { limit: number; cursor?: string; q?: string },

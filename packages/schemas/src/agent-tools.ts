@@ -177,6 +177,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'move_document_to_space',
   'move_record',
   'nominate_workflows',
+  'preview_formula',
   'propose_schema',
   'publish_view',
   'query_records',
