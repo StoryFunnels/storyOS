@@ -38,6 +38,15 @@ export interface UserPreferences {
   sidebar: {
     viewsOnlyWorkspaces: string[];
   };
+  /** #1251/#1252 "Email me my work" (apps/api preferences.constants.ts `MyWorkEmailPrefs`). Optional: an API older than that PR does not
+   *  return it, and the UI then hides the setting instead of showing a default as if it were the saved value. weekday 0 = Sunday. */
+  myWorkEmail?: {
+    frequency: 'off' | 'daily' | 'weekly';
+    weekday: number;
+    time: string;
+    timezone: string | null;
+    include_assigned_by_me: boolean;
+  };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: Partial<T[K]> };
