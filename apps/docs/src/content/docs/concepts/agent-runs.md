@@ -39,7 +39,7 @@ the tool the Runner can drive. A Runner set to use Cursor claims nothing, and it
 | `assigned` | A record's agent field (such as *Next*) was set to the agent. This needs a binding for that field, made with `create_agent_trigger` and its `relation_field` option (an admin tool). |
 | `state_change` | A record reached the state an existing state trigger watches. |
 | `mention` | The agent was @-mentioned in a **comment**. A mention in a document or a rich-text field wakes nothing. |
-| `automation` | An automation rule's **Run an agent** action ran, including one on a schedule. |
+| `automation` | An automation rule's **Run an agent** action ran, including one on a schedule. A scheduled firing wakes the agent **once, with no record**, however many records the rule selected; see [Schedules](/guides/runner/#schedules). |
 | `manual` | Someone used **Run now**, or delegated a record to the agent (`run_agent`, `delegate_to_agent`). |
 | `approval_decided` | An approval the agent's own write had asked for was approved or rejected. The verdict is on the wake. |
 
@@ -76,13 +76,21 @@ The API (`GET /workspaces/{ws}/agent-wakes`) and the MCP tool `list_agent_wakes`
 | `waiting_for_runner` | No Runner is assigned to the agent, or its Runner is not turned on. |
 | `runner_offline` | The Runner has stopped checking in; the state carries since when. |
 | `waiting_for_limit` | The tool's subscription limit was reached; the state carries until when, and which tool. |
+| `waiting_for_hours` | The Runner is outside the working hours its owner set; the state carries when the window opens. |
+| `waiting_for_reserve` | The owner asked to keep a share of the limit, and the tool reported that share as used; carries the reset time when the tool gave one. Only for a tool that reports plan usage. |
+| `waiting_for_budget` | The agent used its monthly budget; carries the 1st of next month (UTC) and which budget, `tokens` or `runs`. Raising the budget resumes it sooner. |
 | `waiting_for_turn` | The agent, or its Runner, is already working on another job; they take one at a time. |
 | `running` | A Runner holds the job. |
 | `needs_approval` | The Run is waiting for a person's approval. |
 | `done`, `failed`, `canceled` | The job ended. |
 
+The first of these that applies is the one reported, in the order of the table: a limit wait is named
+before a budget, a budget before working hours, and working hours before a reserve. For what sets
+them, see [Sharing your subscription](/guides/runner/#sharing-your-subscription) and
+[Budgets](/guides/runner/#budgets).
+
 `get_agent_wake_summary` returns counts instead: per agent, its Runner (null when none), whether it
-can run, and how many wakes are waiting, plus the total waiting and how many enabled Your-own-AI
+can run, its `budget`, and how many wakes are waiting, plus the total waiting and how many enabled Your-own-AI
 agents have no working Runner. Both tools list only wakes whose record and agent you can read; a
 hidden one is neither shown nor counted. The Run's **Trigger** column has no value for `assigned`,
 `mention` or `approval_decided`: those read *State change* (assigned) or *Manual* (the other two), and
