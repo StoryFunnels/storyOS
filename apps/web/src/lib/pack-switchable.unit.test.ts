@@ -8,6 +8,9 @@ import {
   enableRequestBody,
   switchId,
   switchableSentence,
+  parseTriggerLabel,
+  triggerItems,
+  triggersOfAgent,
   type SwitchKinds,
   type SwitchableItem,
 } from './pack-switchable';
@@ -16,36 +19,34 @@ import type { AutomationPreviewItem } from './pack-automation-state';
 const email: AutomationPreviewItem = { name: 'Posts.Email me', enabled_on_install: false, switched_off_because: 'outward' };
 const stamp: AutomationPreviewItem = { name: 'Posts.Stamp', enabled_on_install: true };
 
-// A STAND-IN for ticket #1192's agent trigger. It is NOT registered in the product (the API does not return it yet); it exists
-// here only to prove a second kind goes through the same row and request code with its own words and its own request field.
-const trigger: AutomationPreviewItem = { name: 'Onboarding Assistant', enabled_on_install: false };
-const KINDS: SwitchKinds = {
-  ...SWITCH_KINDS,
-  agent_trigger: {
-    requestField: 'enable_agent_triggers',
-    sentence: (state) =>
-      state.kind === 'off'
-        ? { lead: 'Off', rest: 'Wakes when Status becomes Onboarding.' }
-        : state.kind === 'turned-on'
-          ? { lead: 'On once installed', rest: 'Wakes when Status becomes Onboarding.' }
-          : null,
-    ariaLabel: (key) => `Let ${key} wake itself when installed`,
-    pick: (items, chosen) => items.filter((i) => i.enabled_on_install === false && chosen[i.name]).map((i) => i.name),
-  },
-};
+// Ticket #1254 — the real agent-trigger kind, with the labels and flags the preview's `triggers` list carries.
+const LABEL = 'Triage \u2190 Issues.Status = Onboarding';
+const trigger: AutomationPreviewItem = { name: LABEL, enabled_on_install: false, switched_off_because: 'wakes_agent' };
+const gated: AutomationPreviewItem = { name: 'Triage \u2190 Issues.Status = Review', enabled_on_install: true };
+const KINDS: SwitchKinds = SWITCH_KINDS;
 
 const row = (kind: string, item: AutomationPreviewItem, chosen = false) =>
   renderToStaticMarkup(createElement(SwitchableRow, { kind, item, chosen, onChoose: () => {}, kinds: KINDS }));
 
-describe('the registry today', () => {
-  it('knows automations only: agent triggers are not registered until the API returns them (ticket #1192)', () => {
-    expect(Object.keys(SWITCH_KINDS)).toEqual(['automation']);
+describe('the registry', () => {
+  it('knows automations and agent triggers, each with its own request field (ticket #1254)', () => {
+    expect(Object.keys(SWITCH_KINDS)).toEqual(['automation', 'agent_trigger']);
     expect(SWITCH_KINDS.automation!.requestField).toBe('enable_automations');
+    expect(SWITCH_KINDS.agent_trigger!.requestField).toBe('enable_agent_triggers');
+  });
+  it('parses a label and refuses a shape it does not know', () => {
+    expect(parseTriggerLabel(LABEL)).toEqual({ agent: 'Triage', database: 'Issues', field: 'Status', option: 'Onboarding' });
+    expect(parseTriggerLabel('Onboarding Assistant')).toBeNull();
+  });
+  it('triggersOfAgent keeps exactly the triggers of that agent, and not a prefix-sharing one', () => {
+    const list = [trigger, gated, { name: 'Triage Two \u2190 Issues.Status = Onboarding' }];
+    expect(triggersOfAgent(list, 'Triage').map((t) => t.name)).toEqual([trigger.name, gated.name]);
+    expect(triggersOfAgent(list, 'Nobody')).toEqual([]);
   });
 });
 
 describe('enableRequestBody', () => {
-  const items: SwitchableItem[] = [...automationItems([email, stamp]), { kind: 'agent_trigger', key: trigger.name, item: trigger }];
+  const items: SwitchableItem[] = [...automationItems([email, stamp]), ...triggerItems([trigger, gated])];
   it('is empty by default', () => {
     expect(enableRequestBody(items, {}, KINDS)).toEqual({});
   });
@@ -58,7 +59,7 @@ describe('enableRequestBody', () => {
     const chosen = { [switchId('automation', email.name)]: true, [switchId('agent_trigger', trigger.name)]: true };
     expect(enableRequestBody(items, chosen, KINDS)).toEqual({
       enable_automations: ['Posts.Email me'],
-      enable_agent_triggers: ['Onboarding Assistant'],
+      enable_agent_triggers: [LABEL],
     });
   });
   it('the same label under two kinds cannot collide: a choice is per kind', () => {
@@ -73,9 +74,15 @@ describe('enableRequestBody', () => {
     const chosen = { [switchId('mystery', 'M')]: true, [switchId('automation', email.name)]: true };
     expect(enableRequestBody(odd, chosen, KINDS)).toEqual({ enable_automations: ['Posts.Email me'] });
   });
-  it('with the product registry, a second kind is unknown and is not sent under a guessed field', () => {
-    const chosen = { [switchId('agent_trigger', trigger.name)]: true };
-    expect(enableRequestBody(items, chosen)).toEqual({});
+  it('a trigger left off sends nothing: default off, nothing chosen', () => {
+    expect(enableRequestBody(items, {})).toEqual({});
+  });
+  it('a human-gated trigger (never held off) is never sent, even when chosen', () => {
+    expect(enableRequestBody(items, { [switchId('agent_trigger', gated.name)]: true })).toEqual({});
+  });
+  it('a trigger that already exists (no flags) is never sent, even when chosen', () => {
+    const existing = triggerItems([{ name: 'Triage \u2190 Issues.Status = Done' }]);
+    expect(enableRequestBody(existing, { [switchId('agent_trigger', 'Triage \u2190 Issues.Status = Done')]: true })).toEqual({});
   });
 });
 
@@ -91,16 +98,19 @@ describe('SwitchableRow: one row, per-kind words', () => {
     const html = row('agent_trigger', trigger);
     expect(html).toContain('data-testid="pack-automation-state"');
     expect(html).toContain('data-kind="agent_trigger"');
-    expect(html).toContain('Wakes when Status becomes Onboarding.');
-    expect(html).not.toContain('Off until you turn it on');
-    expect(html).toContain('aria-label="Let Onboarding Assistant wake itself when installed"');
+    expect(html).toContain('Wake it automatically');
+    expect(html).toContain('Off until you turn it on. Wakes when Status becomes Onboarding.');
+    expect(html).toContain('aria-label="Wake Triage automatically when Status becomes Onboarding"');
     expect(html).toContain('role="switch"');
     expect(html).toContain('aria-checked="false"');
   });
   it('a second kind turned on reads checked and uses its own on-sentence', () => {
     const html = row('agent_trigger', trigger, true);
     expect(html).toContain('aria-checked="true"');
-    expect(html).toContain('On once installed');
+    expect(html).toContain('On once installed. Wakes when Status becomes Onboarding.');
+  });
+  it('a human-gated trigger draws nothing: it never wakes by itself, so there is nothing to switch', () => {
+    expect(row('agent_trigger', gated)).toBe('');
   });
   it('an unknown kind draws nothing and does not throw', () => {
     expect(row('mystery', trigger)).toBe('');

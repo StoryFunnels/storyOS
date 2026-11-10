@@ -1,9 +1,9 @@
 import { Button } from '@/components/ui/button';
 import { recordsWaitingLine } from '@/lib/runners/runner-state';
-import { COPY } from '@/lib/runners/words';
+import { COPY, SUPPORTED_TOOLS } from '@/lib/runners/words';
 
-/** The design bolds the two tools in the first sentence. */
-const BOLD = 'Claude Code or Cursor';
+/** The design bolds the tool in the first sentence. */
+const BOLD = SUPPORTED_TOOLS;
 
 /**
  * Ticket #1139 AC1 — the first-time moment on an agent's page when no Runner serves it yet (the prototype's `.firstrun`).

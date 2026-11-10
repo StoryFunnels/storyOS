@@ -90,17 +90,24 @@ export const NOT_PUBLISHED_YET = {
   href: 'https://docs.storyos.dev/guides/runner/',
 } as const;
 
+/**
+ * The AI tool(s) a Runner can drive TODAY, as a phrase for Runner copy. Every "where must I be signed in" sentence reads this, so
+ * when a second adapter ships (Cursor, ticket #1136) the phrase changes here and nowhere else. Until then no other tool is named,
+ * and there is no "coming soon" (ticket #1249).
+ */
+export const SUPPORTED_TOOLS = 'Claude Code';
+
 /** Dara's exact strings (prototype v42 to v45, her comments on tickets #1129 and #1139). Pinned by a test. */
 export const COPY = {
   command: 'npx @storyos/runner',
   firstRun:
-    'It thinks with an AI you already pay for: your own Claude Code or Cursor, through a small free Runner on your computer. Setting it up takes about two minutes.',
+    `It thinks with an AI you already pay for: your own ${SUPPORTED_TOOLS}, through a small free Runner on your computer. Setting it up takes about two minutes.`,
   removeRow: 'Its agents wait until you add another Runner. Nothing is deleted.',
   hireNoRunner: 'You can hire it now. It starts work once it has a Runner.',
   doneSentence: 'Press Done to let this computer run your agents. Until then it is connected but does nothing.',
   codeNote: 'Works once, for the next 10 minutes. It only connects this computer to your account.',
   runnersLead:
-    'Your hired agents think with your own Claude Code or Cursor, on your subscription. A Runner is a small free app that lets them, on your computer or an always-on server.',
+    `Your hired agents think with your own ${SUPPORTED_TOOLS}, on your subscription. A Runner is a small free app that lets them, on your computer or an always-on server.`,
 } as const;
 
 /** The Remove confirm. The agents that would wait are named; with none, the sentence stays true and names nobody. */

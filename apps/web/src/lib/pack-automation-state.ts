@@ -12,7 +12,8 @@
  *    preview taken WITHOUT the choice, never from the confirming one.
  */
 
-export type SwitchedOffBecause = 'outward' | 'agent';
+/** `wakes_agent` is an agent trigger's reason (ticket #1192); the other two are an automation's. */
+export type SwitchedOffBecause = 'outward' | 'agent' | 'wakes_agent';
 
 /** The slice of a preview automation this reads. Everything beyond `name` is optional: an existing rule carries neither flag. */
 export interface AutomationPreviewItem {
@@ -36,6 +37,7 @@ export type AutomationState =
 export const REASON_WORDS: Record<SwitchedOffBecause, string> = {
   outward: 'it sends things outside your workspace',
   agent: 'it runs an agent',
+  wakes_agent: 'it wakes an agent by itself',
 };
 
 export const PACK_OFF_REASON = 'the pack ships it switched off';
