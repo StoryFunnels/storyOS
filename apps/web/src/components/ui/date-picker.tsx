@@ -122,6 +122,7 @@ export function DatePicker({
       <PopoverContent className="w-64 p-2" onClick={(e) => e.stopPropagation()}>
         <input
           autoFocus
+          data-picker-search
           placeholder="2026-07-15, 15.07, jul 15, today…"
           className={cn(
             'mb-1.5 w-full rounded-[var(--radius-control)] border bg-card px-2 py-1.5 text-body text-ink outline-none placeholder:text-muted',
@@ -147,6 +148,7 @@ export function DatePicker({
         {includeTime && (
           <input
             type="time"
+            data-picker-search
             className="mb-1.5 w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none"
             value={time}
             onChange={(e) => setTime(e.target.value)}

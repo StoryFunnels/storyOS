@@ -1,6 +1,6 @@
 ---
 title: The Dev Tracker pack
-description: What the built-in Dev Tracker pack creates, its four views, who gets told when an issue is assigned, what its Triage agent can and cannot do on its own, and when it cannot be installed.
+description: What the built-in Dev Tracker pack creates, its four views and the columns its Active board hides, who gets told when an issue is assigned, what its Triage agent can and cannot do on its own, and when it cannot be installed.
 sidebar:
   order: 13
 ---
@@ -39,12 +39,17 @@ A release's own page (the body of its record) is where you write its changelog.
 - **Projects** on Projects, a board grouped by the project's State, with Lead and Target date on each card.
   Projects keeps its own **All records** list as the view it opens on.
 
-### Active still shows empty columns
+### Active shows only its active columns
 
-On the Active board, the Triage, Backlog, Done and Canceled columns are drawn, and are empty, because the
-view's filter keeps only three states. The pack hides the empty "no value" column and nothing else. Board
-views can hide a column by option (`hidden_option_ids`), but this pack does not set it, so you hide the four
-columns yourself if you do not want them.
+The Active board draws three columns, **To Do**, **In Progress** and **In Review**. The pack's filter keeps
+only issues in those states, and the view also hides the other four State options (Triage, Backlog, Done and
+Canceled) with `hidden_option_ids`, so those columns are not drawn at all. It hides the empty "no value"
+column as well.
+
+- **Nothing is removed.** The four States are still options of State, so a new issue still lands in
+  Triage. It just is not drawn on this board; the Triage view lists it.
+- **Show one again** from the board's **Display** menu: under **Hidden columns**, choose **Show** beside it.
+  See [Hiding chosen columns](/concepts/views/#hiding-chosen-columns).
 
 ## Telling the assignee
 
@@ -76,8 +81,9 @@ like. It has read and write scope, and its target database is Issues.
   agent's instructions also tell it never to change an issue's State or Assignee, but that is an instruction
   to the AI, not something the platform enforces: the gate is what stops an update from landing unseen.
 - **Entering Triage can start it, once you switch it on.** The agent is bound to Issues entering the Triage
-  state. The binding installs switched off. In the install review, choose to wake the agent automatically, and
-  from then on a new issue in Triage starts a run by itself, with nobody starting it. Left off, nothing starts
+  state. The binding installs switched off. Switch it on when you install, with `enable_agent_triggers` (the
+  preview lists it as `Triage ← Issues.State = Triage`; the web install review does not show a switch for
+  it yet), and from then on a new issue in Triage starts a run by itself, with nobody starting it. Left off, nothing starts
   by itself, and you can still start a run yourself, for example with the MCP `run_agent` tool (see
   [MCP tools](/mcp/tools/)). The pack's binding is not a human gate; the human-gate option, "ask me before
   each run", stays available on bindings you create yourself.
@@ -117,6 +123,8 @@ somewhere else.
 
 ## Installing and uninstalling
 
+- **After an install in the web app** you land on Active, with the space open in the sidebar. See
+  [The install review, and where you land](/guides/creating-a-workspace/#the-install-review-and-where-you-land).
 - **Installing again** into the same space creates nothing new, and Active stays the one default view.
 - **Uninstalling** removes the automations. It does not delete the four databases or the issues in them.
   See [Uninstalling a pack](/mcp/tools/#uninstalling-a-pack).

@@ -36,7 +36,7 @@ import type { EffectiveRole } from '../access/access.service';
  * `agent_delete` job executor's body: it re-resolves the workspace and the acting member NOW (#1029: the ids and the actor in a frozen
  * snapshot are data, not authority), then runs the applier as that member with the agent and run stamped on what it writes.
  */
-export type AgentDeleteKind = 'record' | 'link' | 'comment' | 'attachment' | 'document' | 'source' | 'skill' | 'space_view' | 'sample_data';
+export type AgentDeleteKind = 'record' | 'link' | 'comment' | 'attachment' | 'document' | 'source' | 'skill' | 'space_view' | 'sample_data' | 'record_template';
 
 /** The held delete, as frozen on the `approvals` row. `params` is whatever the kind's applier needs (ids only: never values). */
 export interface AgentDeleteSnapshot {
@@ -80,7 +80,7 @@ export interface HoldAgentDeleteInput {
  * route asserted when it was staged. Kinds absent here are workspace-level (document, skill, space view, sample data) and re-check
  * inside their own service method, which already takes the membership.
  */
-const ROLE_ON_APPLY: Partial<Record<AgentDeleteKind, EffectiveRole>> = { record: 'editor', link: 'editor', comment: 'commenter', attachment: 'editor', source: 'creator' };
+const ROLE_ON_APPLY: Partial<Record<AgentDeleteKind, EffectiveRole>> = { record: 'editor', link: 'editor', comment: 'commenter', attachment: 'editor', source: 'creator', record_template: 'editor' };
 
 /** The delete inside `fn` is the one a person just APPROVED: it must not be held again (it would stage a second approval forever). */
 const approvedDelete = new AsyncLocalStorage<true>();

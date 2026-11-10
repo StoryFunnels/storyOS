@@ -182,6 +182,17 @@ const FIXTURES: Record<string, () => Promise<Fx>> = {
       doneStatus: 200,
     };
   },
+  'DELETE /workspaces/:ws/databases/:db/record-templates/:template': async () => {
+    const t = await w.as(w.admin.token, 'POST', `${base()}/databases/${w.ticketsDbId}/record-templates`, { name: `Tpl ${randomUUID()}`, values: {} });
+    expect(t.statusCode, t.body).toBe(201);
+    const id = t.json().id as string;
+    return {
+      method: 'DELETE',
+      url: `${base()}/databases/${w.ticketsDbId}/record-templates/${id}`,
+      alive: async () => (await count('select count(*)::int as n from record_templates where id = $1', [id])) === 1,
+      doneStatus: 204,
+    };
+  },
   'DELETE /workspaces/:ws/views/:view': async () => {
     const v = await w.as(w.admin.token, 'POST', `${base()}/spaces/${w.spaceId}/views`, { name: `Dash ${randomUUID()}`, type: 'dashboard', config: {} });
     expect(v.statusCode, v.body).toBe(201);

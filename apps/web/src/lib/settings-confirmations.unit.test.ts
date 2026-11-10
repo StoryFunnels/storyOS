@@ -60,7 +60,8 @@ describe('what each consequential Settings action asks (#1093)', () => {
 
   it('each of the eight actions awaits the dialog BEFORE it calls its mutation, so Cancel changes nothing', () => {
     const cases: Array<[string, RegExp]> = [
-      ['account/page.tsx', /if \(!\(await confirm\(confirmRemovePhoto\(\)\)\)\) return;\s*await fetch\(`\$\{API_URL\}\/api\/v1\/users\/me\/avatar`/],
+      // Ticket #1190: the removal now runs through removeProfilePhoto (so a failure toasts); the DELETE must still come after the awaited dialog.
+      ['account/page.tsx', /if \(!\(await confirm\(confirmRemovePhoto\(\)\)\)\) return;\s*(?:\/\/[^\n]*\s*)*const removed = await removeProfilePhoto\(\(\) => fetch\(`\$\{API_URL\}\/api\/v1\/users\/me\/avatar`/],
       ['account/page.tsx', /if \(await confirm\(confirmRevokeSession\([\s\S]*?\)\)\) revoke\.mutate\(s\.token\)/],
       ['members/page.tsx', /if \(await confirm\(confirmRoleChange\([^;]*\)\) updateMember\.mutate/],
       ['members/page.tsx', /if \(await confirm\(confirmRemoveMember\(member\.user\.name\)\)\) removeMember\.mutate\(member\.id\)/],

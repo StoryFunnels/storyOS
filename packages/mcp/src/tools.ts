@@ -674,6 +674,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   browse_pack_marketplace: 'read',
   list_pack_submissions: 'read',
   list_templates: 'read',
+  list_record_templates: 'read',
   export_pack: 'admin',
   uninstall_pack: 'admin',
   apply_template: 'admin',
@@ -913,6 +914,10 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   delete_records: 'write',
   restore_records: 'write',
   duplicate_record: 'write',
+  create_record_from_template: 'write',
+  create_record_template: 'write',
+  update_record_template: 'write',
+  delete_record_template: 'write',
   copy_records: 'write',
   move_record: 'write',
   update_comment: 'write',
@@ -3099,7 +3104,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       description:
-        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack that builds on another pack (preview `required_packs`: pack, installed, linked, fields_added, choices) is linked to that pack\'s databases when it is installed; when it is not, choose required_packs {"agency-os": "also_install"} to install it first and link, or "create_here" (the default) to make the linked databases inside this pack. Uninstalling never removes the other pack\'s databases. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
+        'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack that builds on another pack (preview `required_packs`: pack, installed, linked, fields_added, choices) is linked to that pack\'s databases when it is installed; when it is not, choose required_packs {"agency-os": "also_install"} to install it first and link, or "create_here" (the default) to make the linked databases inside this pack. If the install then fails, everything THIS request installed first is rolled back with it, its databases and records included (the error names it; a pack that was already installed before the request is never touched). Uninstalling never removes the other pack\'s databases. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
       inputSchema: {
         workspace: z.string(),
         slug: z.string().describe('Pack slug from list_packs.'),
@@ -5236,6 +5241,152 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<unknown>(client.GET('/api/v1/templates'));
       return text(res);
     }),
+  );
+
+  /*
+   * ticket #1218 - RECORD templates: a named starting point for a new record in one database (not the starter templates above, which
+   * are whole database shapes). Values are keyed by field api_name and hold option ids as get_record returns them; `body` is Markdown.
+   */
+  reg(
+    'list_record_templates',
+    {
+      title: 'List record templates',
+      description:
+        "A database's record templates (ticket #1218): name, preset field values keyed by api_name, and a Markdown body with its sections. Packs ship some (Dev Tracker: Bug, Feature, Improvement for Issues). NOT list_templates, which lists starter database shapes. Use create_record_from_template to make a record from one.",
+      inputSchema: { workspace: z.string(), database: z.string() },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<{ data: unknown[] }>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/record-templates', { params: { path: { ws: ws.id, db: db.id } } }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'create_record_template',
+    {
+      title: 'Create a record template',
+      description:
+        'Make a record template in a database. Either name it and give `values` (field api_name -> value; option ids as get_record shows them; "$me" and "$date:+3d" are decided when a record is made from it) and a Markdown `body`, OR pass `from_record` to save an existing record as a template: its values and description are copied (not its title, links or computed fields). Editor role on the database. Template names are unique per database.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        name: z.string().describe('The template\'s name, e.g. "Bug".'),
+        description: z.string().optional().describe('One line saying when to pick this template.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Preset field values keyed by api_name. Ignored with from_record.'),
+        body: z.string().optional().describe('The description the record starts with, as Markdown (use ## headings for sections). Ignored with from_record.'),
+        from_record: z.string().optional().describe('Record uuid or public number to save as a template.'),
+      },
+    },
+    handle<{ workspace: string; database: string; name: string; description?: string; values?: Record<string, unknown>; body?: string; from_record?: string }>(
+      async ({ workspace, database, name, description, values, body, from_record }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const path = { ws: ws.id, db: db.id };
+        if (from_record) {
+          const rec = await resolveRecordId(ws.id, db.id, from_record);
+          return text(
+            await unwrap<unknown>(
+              client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/from-record', {
+                params: { path },
+                body: { record_id: rec, name, ...(description !== undefined ? { description } : {}) },
+              }),
+            ),
+          );
+        }
+        return text(
+          await unwrap<unknown>(
+            client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates', {
+              params: { path },
+              body: { name, ...(description !== undefined ? { description } : {}), values: values ?? {}, ...(body !== undefined ? { body } : {}) },
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'update_record_template',
+    {
+      title: 'Edit a record template',
+      description:
+        'Change a record template\'s name, description, preset values or body (send only what changes; `values` replaces the whole preset set; null clears description or body). Works on a pack-installed template too; pack uninstall then keeps it as changed.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        values: z.record(z.string(), z.unknown()).optional(),
+        body: z.string().nullable().optional(),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; name?: string; description?: string | null; values?: Record<string, unknown>; body?: string | null }>(
+      async ({ workspace, database, template, ...patch }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        return text(
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+              params: { path: { ws: ws.id, db: db.id, template } },
+              body: patch,
+            }),
+          ),
+        );
+      },
+    ),
+  );
+
+  reg(
+    'delete_record_template',
+    {
+      title: 'Delete a record template',
+      description: 'Delete a record template. Records already made from it are untouched.',
+      inputSchema: { workspace: z.string(), database: z.string(), template: z.string() },
+    },
+    handle<{ workspace: string; database: string; template: string }>(async ({ workspace, database, template }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.DELETE('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}', {
+          params: { path: { ws: ws.id, db: db.id, template } },
+        }),
+      );
+      return heldDelete(res) ?? text({ deleted: template });
+    }),
+  );
+
+  reg(
+    'create_record_from_template',
+    {
+      title: 'Create a record from a template',
+      description:
+        'Create a record pre-filled from a record template: its preset values and its body (sections included). `values` overrides a preset, usually the title. A preset that no longer fits the schema (a deleted field or option) is dropped and listed in `skipped`, the record is still made. Returns the new record.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        template: z.string().describe('Template id from list_record_templates.'),
+        values: z.record(z.string(), z.unknown()).optional().describe('Field values keyed by api_name that win over the template\'s, e.g. { name: "Login fails on Safari" }.'),
+      },
+    },
+    handle<{ workspace: string; database: string; template: string; values?: Record<string, unknown> }>(
+      async ({ workspace, database, template, values }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const res = await unwrap<{ record: RecordRow; skipped: unknown[] }>(
+          client.POST('/api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}/records', {
+            params: { path: { ws: ws.id, db: db.id, template } },
+            body: { values: values ?? {} },
+          }),
+        );
+        const detail = await getDetail(ws.id, db.id);
+        return text({ template, record: await readRecord(detail, ws.id, db.id, res.record.id), skipped: res.skipped });
+      },
+    ),
   );
 
   reg(

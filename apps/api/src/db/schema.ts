@@ -2400,8 +2400,37 @@ export const packInstallItemKind = pgEnum('pack_install_item_kind', [
   'automation',
   'sample_record',
   'skill',
+  'record_template',
 ]);
 export const packInstallItemAction = pgEnum('pack_install_item_action', ['created', 'reused']);
+
+/**
+ * ticket #1218 - a record template: a named starting point for a new record in ONE database (a bug report, a feature request).
+ * `values` is keyed by field api_name and holds real option ids, plus the `$me` / `$date:+Nd` tokens resolved when a record is made
+ * from it; `body` is the record's description document as Markdown, sections and all. `origin` says where it came from ('pack' =
+ * installed by a pack, 'user' = authored or saved from a record); editing a pack's template does not change `origin`, because
+ * uninstall asks "did the content change", by hash, not "who made it". Deleting the database deletes its templates.
+ */
+export const recordTemplates = pgTable(
+  'record_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id')
+      .notNull()
+      .references(() => databases.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    values: jsonb('values').notNull().default({}),
+    body: text('body'),
+    origin: text('origin').notNull().default('user'),
+    createdBy: text('created_by'),
+    ...timestamps,
+  },
+  (t) => [index('record_templates_database_idx').on(t.databaseId)],
+);
 
 /**
  * One install (or re-install) of a Business Pack into a workspace (MN-219 /

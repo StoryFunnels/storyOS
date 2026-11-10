@@ -255,6 +255,46 @@ export const DEV_TRACKER_PACK: PackRegistryEntry = {
       { database: 'Issues', values: { name: 'Open me and put me in a project', state: optionRef('Issues', 'State', 'In Progress') } },
       { database: 'Issues', values: { name: 'Review me, then move me to Done', state: optionRef('Issues', 'State', 'In Review') } },
     ],
+    // ticket #1218 - the three issue templates Linear teams expect. There is no Type field here (Labels carry it), so each template presets
+    // the Label, a Medium Priority and Triage; the body is the sections a reporter fills in. All three are editable after install.
+    record_templates: [
+      {
+        database: 'Issues',
+        name: 'Bug',
+        description: 'Something is broken: what you did, what you expected, what happened.',
+        values: {
+          name: 'Bug: ',
+          labels: [optionRef('Issues', 'Labels', 'Bug')],
+          priority: optionRef('Issues', 'Priority', 'Medium'),
+          state: optionRef('Issues', 'State', 'Triage'),
+        },
+        body: '## Steps to reproduce\n\n1. \n\n## Expected\n\n\n## Actual\n\n\n## Environment\n\nBrowser or app version, OS, account:\n',
+      },
+      {
+        database: 'Issues',
+        name: 'Feature',
+        description: 'Something new: the problem, the proposal, and how we will know it works.',
+        values: {
+          name: 'Feature: ',
+          labels: [optionRef('Issues', 'Labels', 'Feature')],
+          priority: optionRef('Issues', 'Priority', 'Medium'),
+          state: optionRef('Issues', 'State', 'Triage'),
+        },
+        body: '## Problem\n\nWho is stuck, and on what?\n\n## Proposal\n\n\n## Acceptance criteria\n\n- [ ] \n',
+      },
+      {
+        database: 'Issues',
+        name: 'Improvement',
+        description: 'Something that works but could be better: what is there now and what should change.',
+        values: {
+          name: 'Improvement: ',
+          labels: [optionRef('Issues', 'Labels', 'Improvement')],
+          priority: optionRef('Issues', 'Priority', 'Medium'),
+          state: optionRef('Issues', 'State', 'Triage'),
+        },
+        body: '## Today\n\nWhat it does now.\n\n## Change\n\nWhat it should do instead, and why that is better.\n\n## Acceptance criteria\n\n- [ ] \n',
+      },
+    ],
     skills: [],
     suggested_sources: [],
   },
