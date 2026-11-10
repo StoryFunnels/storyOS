@@ -235,6 +235,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'PATCH /workspaces/:ws/runners/:id': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },
   'DELETE /workspaces/:ws/runners/:id': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },
   'GET /workspaces/:ws/runner-assignments/:agent': { verdict: 'internal', why: 'read: returns data to the caller only' },
+  'GET /workspaces/:ws/agents/:agent/catch-up': { verdict: 'internal', why: 'read: returns the waiting record titles to the caller only, the agent\'s owner or an admin, narrowed to what the caller can open (ticket #1224)' },
   'GET /workspaces/:ws/agents/:agent/budget': { verdict: 'internal', why: 'read: returns the agent\'s budget and this month\'s usage counts to the caller only' },
   'POST /workspaces/:ws/agents/:agent/catch-up': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, it queues wakes that run on the agent owner\'s own computer, so an agent cannot start itself on a backlog' },
   'PUT /workspaces/:ws/runner-assignments/:agent': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },

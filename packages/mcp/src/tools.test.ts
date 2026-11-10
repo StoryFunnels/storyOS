@@ -5588,6 +5588,7 @@ describe('agent wake queue tools (#1130)', () => {
         if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/by-number/{number}') return { data: { id: 'rec-uuid-7' } };
         if (path === '/api/v1/workspaces/{ws}/agent-wakes') return { data: { data: [{ id: 'w1', run_state: { state: 'waiting_for_runner' } }], next_cursor: null } };
         if (path === '/api/v1/workspaces/{ws}/agent-wakes/summary') return { data: { agents: [], waiting_total: 3, agents_that_cannot_run: 1 } };
+        if (path === '/api/v1/workspaces/{ws}/agents/{agent}/catch-up') return { data: { total: 7, listed_total: 7, not_listed: 0, items: [{ id: 'r1', title: 'Acme Co (sample)' }], limit: 1, offset: 0, truncated: true } };
         if (path === '/api/v1/workspaces/{ws}/agents/{agent}/budget') return { data: { state: 'paused', paused_reason: 'tokens', tokens: { limit: 1000, used: null, state: 'not_measured' } } };
         throw new Error(`unmocked GET ${path}`);
       },
@@ -5613,6 +5614,14 @@ describe('agent wake queue tools (#1130)', () => {
     const { handlers } = harness();
     const res = await call(handlers.get('get_agent_wake_summary')!, { workspace: 'JCM Agency' });
     expect(JSON.parse(res.content[0]!.text)).toMatchObject({ waiting_total: 3, agents_that_cannot_run: 1 });
+  });
+
+  it('list_agent_catch_up passes the page through and returns the server total and truncated flag untouched', async () => {
+    const { handlers, gets } = harness();
+    const res = await call(handlers.get('list_agent_catch_up')!, { workspace: 'JCM Agency', agent: 'agent-uuid', limit: 1, offset: 0 });
+    expect(res.isError).toBeUndefined();
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ total: 7, truncated: true, items: [{ title: 'Acme Co (sample)' }] });
+    expect(gets.find((g) => g.path.endsWith('/agents/{agent}/catch-up'))!.query).toEqual({ limit: 1, offset: 0 });
   });
 
   it('get_agent_budget asks for the agent by id and returns the server numbers untouched (a null stays null, never 0)', async () => {

@@ -7819,12 +7819,36 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Agent wake counts',
       description:
-        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), waiting (queued wakes), and `budget` (ticket #1138: its monthly token and run budget against this month's usage, for an agent that has one; null otherwise. get_agent_budget has the full detail, including tokens the tool did not report). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
+        "#1130: how much work is waiting for agents that run on your own AI. Per agent: its Runner (null = none assigned), can_run (it is enabled and its Runner is turned on), waiting (queued wakes), and `budget` (ticket #1138: its monthly token and run budget against this month's usage, for an agent that has one; null otherwise. get_agent_budget has the full detail, including tokens the tool did not report). Plus waiting_total and agents_that_cannot_run (enabled Your-own-AI agents with no working Runner: the number a sidebar shows). Counts only wakes whose record and agent you can read. A record that was ALREADY in the trigger state before the agent was hired is not a wake and is not in `waiting`; it is counted separately as `catch_up` on the agent (ticket #1152): how many records sit in the agent's trigger state(s) with no wake ever made, a real SQL count seen as the agent's owner, shown only to the agent's owner or an admin (null for anyone else, 0 means nothing to catch up). list_agent_catch_up names them. Starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. These are real counts from the queue: quote them, never estimate.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(client.GET('/api/v1/workspaces/{ws}/agent-wakes/summary', { params: { path: { ws: ws.id } } } as never));
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_agent_catch_up',
+    {
+      title: 'Records waiting for an agent (catch-up)',
+      description:
+        "ticket #1224: the records already sitting in an agent's trigger state(s) that no wake was ever made for, BY NAME (the list behind `catch_up` in get_agent_wake_summary). Returns total (exactly that count: a real SQL count seen as the agent's owner), listed_total, not_listed, items [{id, title, database_id, database_name}] oldest first, limit (default 5, max 100), offset and `truncated`. READ IT HONESTLY: when `truncated` is true you were shown a page, not all of them; quote `total` for how many and say \"and N more\", never count the items. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (a number, never an id). Only the agent's owner or an admin can read it (anyone else gets the same not-found as an unknown agent); an agent that cannot take wakes returns total 0. Read-only: starting the agent on them is a signed-in person's act (the Start on N waiting button), not an MCP tool. entered-state time is not returned because it is not reliably stored.",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid (from the Agents database; get_agent_wake_summary shows it)."),
+        limit: z.number().int().min(1).max(100).optional().describe('Page size, default 5.'),
+        offset: z.number().int().min(0).optional().describe('Skip this many, to page through when truncated is true.'),
+      },
+    },
+    handle<{ workspace: string; agent: string; limit?: number; offset?: number }>(async ({ workspace, agent, limit, offset }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/catch-up', {
+          params: { path: { ws: ws.id, agent }, query: { ...(limit !== undefined ? { limit } : {}), ...(offset !== undefined ? { offset } : {}) } },
+        } as never),
+      );
       return text(res);
     }),
   );

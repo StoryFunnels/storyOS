@@ -10992,6 +10992,53 @@
       }
     },
     "/api/v1/workspaces/{ws}/agents/{agent}/catch-up": {
+      "get": {
+        "operationId": "RunnersController_listWaiting",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 0,
+              "maximum": 1000000,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The records POST /agents/{agent}/catch-up would start on, by name (ticket #1224): {total, listed_total, not_listed, items:[{id, title, database_id, database_name}], limit, offset, truncated}. `total` is exactly the `catch_up` count in GET /agent-wakes/summary (a real SQL count seen as the agent's owner). Items are oldest first, the order one click wakes them in, paged with ?limit= (1-100, default 5) and ?offset=. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (never an id); `truncated` is true while more remain to page through. The agent's owner or an admin (a guest 403; anyone else, and an unknown agent, 404). An agent that cannot take wakes returns total 0.",
+        "tags": [
+          "runners"
+        ]
+      },
       "post": {
         "operationId": "RunnersController_startOnWaiting",
         "parameters": [

@@ -4443,7 +4443,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** The records POST /agents/{agent}/catch-up would start on, by name (ticket #1224): {total, listed_total, not_listed, items:[{id, title, database_id, database_name}], limit, offset, truncated}. `total` is exactly the `catch_up` count in GET /agent-wakes/summary (a real SQL count seen as the agent's owner). Items are oldest first, the order one click wakes them in, paged with ?limit= (1-100, default 5) and ?offset=. Titles are read as YOU: a record you cannot open is not listed and is counted only in `not_listed` (never an id); `truncated` is true while more remain to page through. The agent's owner or an admin (a guest 403; anyone else, and an unknown agent, 404). An agent that cannot take wakes returns total 0. */
+        get: operations["RunnersController_listWaiting"];
         put?: never;
         /** Start the agent on the records already waiting in its trigger state(s) that no wake was ever made for (ticket #1152): one wake per record through the normal queue, at most 25 per click. Returns {queued, already_waiting, remaining, skipped}; remaining is how many more a further click will queue. The agent's owner or an admin, signed in (a token, a connected AI or the agent's own run credential gets 403; anyone else, and an unknown agent, 404). The count that decides whether to offer this is `catch_up` in GET /agent-wakes/summary. */
         post: operations["RunnersController_startOnWaiting"];
@@ -14408,6 +14409,28 @@ export interface operations {
                 "application/json": components["schemas"]["RunnerAssignmentDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RunnersController_listWaiting: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
