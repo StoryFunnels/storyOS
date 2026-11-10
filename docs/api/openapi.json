@@ -9774,6 +9774,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "include_finished",
+            "required": false,
+            "in": "query",
+            "description": "true keeps Done/Canceled rows (the My work page renders them greyed out); default drops them.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9781,7 +9790,7 @@
             "description": ""
           }
         },
-        "summary": "Records across databases assigned to me or created by me (MN-049, #36)",
+        "summary": "My work: records assigned to me, created by me, assigned BY me, or waiting on me (approvals + unanswered mentions). Finished rows are dropped; every total is exact (MN-049, #36, #1250)",
         "tags": [
           "search"
         ]
