@@ -24,7 +24,7 @@ export interface PreviewRowItem {
 
 /** The slice of the manifest the rows read; everything optional, because a manifest arrives as `unknown`. */
 export interface RowManifest {
-  databases?: Array<{ name: string; space?: string }>;
+  databases?: Array<{ name: string; space?: string; fields?: Array<{ name: string }> }>;
   views?: Array<{ database: string; name: string; type?: string; default?: boolean }>;
   automations?: Array<{ database: string; name: string }>;
   agents?: Array<{ name: string; goal?: string; approval_policy?: string[] }>;
@@ -71,6 +71,23 @@ function firstSentence(goal: string | undefined): string {
   return (m ? m[0] : g).replace(/[.!?]$/, '');
 }
 
+/** How many field names a database row lists before it says "+N more". */
+export const ROW_FIELDS_MAX = 6;
+
+/** "Status, Assignee, Due date, +3 more": the first `max` names, then how many were left out. Empty list → ''. */
+export function fieldsLine(names: readonly string[], max: number = ROW_FIELDS_MAX): string {
+  const clean = names.map((n) => n.trim()).filter(Boolean);
+  if (clean.length <= max) return clean.join(', ');
+  return `${clean.slice(0, max).join(', ')}, +${clean.length - max} more`;
+}
+
+/** The muted line under a database row: "database · Status, Assignee, …" (just "database" when the manifest lists no fields). */
+function databaseSub(manifest: RowManifest | undefined, name: string): string {
+  const m = manifest?.databases?.find((d) => d.name === name);
+  const line = fieldsLine((m?.fields ?? []).map((f) => f.name));
+  return line ? `database · ${line}` : 'database';
+}
+
 export function buildInstallRows(
   preview: {
     databases: PreviewRowItem[];
@@ -86,7 +103,7 @@ export function buildInstallRows(
       key: item.name,
       kind: 'database',
       name: item.name,
-      sub: 'database',
+      sub: databaseSub(manifest, item.name),
       action: item.action,
       note: itemEffect('database', item.action, item.gains),
       item,

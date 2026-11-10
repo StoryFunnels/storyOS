@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   approvalSentence,
   buildInstallRows,
+  fieldsLine,
   notNew,
   packSpaceName,
   sampleRecordCount,
@@ -138,5 +139,32 @@ describe('the space and samples come from the manifest', () => {
   it('counts sample records, zero when there are none', () => {
     expect(sampleRecordCount(manifest)).toBe(2);
     expect(sampleRecordCount({})).toBe(0);
+  });
+});
+
+describe('database rows name their fields (ticket #1245)', () => {
+  it('fieldsLine lists up to max, then +N more', () => {
+    expect(fieldsLine(['Status', 'Assignee'], 3)).toBe('Status, Assignee');
+    expect(fieldsLine(['A', 'B', 'C'], 3)).toBe('A, B, C'); // exactly max: no "+0 more"
+    expect(fieldsLine(['A', 'B', 'C', 'D', 'E'], 3)).toBe('A, B, C, +2 more');
+    expect(fieldsLine([], 3)).toBe('');
+  });
+
+  it('a database row reads "database · fields"; no fields in the manifest keeps plain "database"', () => {
+    const m: RowManifest = {
+      databases: [
+        { name: 'Tickets', fields: [{ name: 'Status' }, { name: 'Assignee' }, { name: 'Due date' }] },
+        { name: 'Contacts' },
+      ],
+    };
+    const rows = buildInstallRows(preview({ databases: [item('Tickets'), item('Contacts')] }), m);
+    expect(rows[0]!.sub).toBe('database · Status, Assignee, Due date');
+    expect(rows[1]!.sub).toBe('database');
+  });
+
+  it('a long field list truncates on the row', () => {
+    const fields = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((name) => ({ name }));
+    const rows = buildInstallRows(preview(), { databases: [{ name: 'Tickets', fields }] });
+    expect(rows[0]!.sub).toBe('database · A, B, C, D, E, F, +2 more');
   });
 });
