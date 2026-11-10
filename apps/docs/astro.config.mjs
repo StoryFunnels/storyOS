@@ -136,6 +136,7 @@ export default defineConfig({
             { label: 'Copying a record into another database', slug: 'guides/copy-record' },
             { label: 'Sync with Google Calendar', slug: 'guides/google-calendar-sync' },
             { label: 'The StoryOS Runner', slug: 'guides/runner' },
+            { label: 'Hiring an agent', slug: 'guides/hiring-an-agent' },
             { label: 'Adding and removing a Runner', slug: 'guides/adding-and-removing-a-runner' },
             { label: 'Running the Runner on a small server', slug: 'guides/runner-on-a-server' },
           ],
