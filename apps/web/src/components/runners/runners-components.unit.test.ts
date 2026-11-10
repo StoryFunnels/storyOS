@@ -127,6 +127,9 @@ describe('the first-time moment', () => {
     expect(html(3)).toContain('3 records are waiting for it');
     expect(html(4)).toContain('4 records are waiting for it');
     expect(html(4)).not.toContain('1 record');
+    const withNoun = renderToStaticMarkup(createElement(FirstRunCard, { agentName: 'A', recordsWaiting: 4, noun: 'client', onAdd: () => {} }));
+    expect(withNoun).toContain('4 clients are waiting for it');
+    expect(withNoun).not.toContain('records');
     expect(html(0)).not.toMatch(/waiting for it/);
     expect(html(null)).not.toMatch(/waiting for it/);
   });

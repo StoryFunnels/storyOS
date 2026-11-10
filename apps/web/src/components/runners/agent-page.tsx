@@ -204,6 +204,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
               <FirstRunCard
                 agentName={agent.name}
                 recordsWaiting={recordsWaitingCount(row)}
+                noun={catchUpWords.noun}
                 onAdd={goAdd}
               />
             ) : (
