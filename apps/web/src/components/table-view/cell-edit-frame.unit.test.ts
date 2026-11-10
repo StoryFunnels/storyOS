@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isLongTextValue } from './cells';
+import { editorAlignClass, isLongTextValue, isOpeningClick, OPENING_CLICK_MS } from './cells';
 
 const here = __dirname;
 const src = (f: string) => readFileSync(join(here, f), 'utf8');
@@ -38,5 +38,25 @@ describe('#1232 one frame per cell', () => {
     expect(cells).toMatch(/data-picker-search\n\s*value=\{query\}/);
     expect(src('relation-cell.tsx')).toContain('data-picker-search');
     expect(readFileSync(join(here, '../ui/date-picker.tsx'), 'utf8')).toContain('data-picker-search');
+  });
+});
+
+describe('#1232 verify fixes', () => {
+  const cells = src('cells.tsx');
+  it('number editor aligns right like its read cell; others left', () => {
+    expect(editorAlignClass('number')).toBe('text-right');
+    expect(editorAlignClass('text')).toBe('text-left');
+    expect(cells).toMatch(/\$\{editorAlignClass\('number'\)\}/);
+  });
+  it('number stepper overlays instead of taking width', () => {
+    expect(cells).toMatch(/absolute right-0 top-1\/2/);
+  });
+  it('a press right after mount is the opening double-click; a later one is not', () => {
+    expect(isOpeningClick(1000, 1200)).toBe(true);
+    expect(isOpeningClick(1000, 1000 + OPENING_CLICK_MS)).toBe(false);
+    expect(isOpeningClick(1000, 5000)).toBe(false);
+  });
+  it('long-text editor swallows the opening press and re-places the caret', () => {
+    expect(cells).toMatch(/isOpeningClick\(mountedAt\.current, Date\.now\(\)\)\) \{\n\s*e\.preventDefault\(\);\n\s*e\.currentTarget\.focus\(\)/);
   });
 });

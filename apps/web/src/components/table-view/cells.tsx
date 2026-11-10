@@ -866,6 +866,17 @@ export function isLongTextValue(field: { type: string; config: Record<string, un
   return typeof value === 'string' && (value.includes('\n') || value.length > 120);
 }
 
+/** #1232 — an editor's text alignment must match the read cell's (number reads right-aligned). */
+export function editorAlignClass(type: string): string {
+  return type === 'number' ? 'text-right' : 'text-left';
+}
+
+/** #1232 — a mouse press this soon after the long-text editor mounts is the tail of the double-click that opened it. */
+export const OPENING_CLICK_MS = 500;
+export function isOpeningClick(mountedAt: number, now: number): boolean {
+  return now - mountedAt < OPENING_CLICK_MS;
+}
+
 /** Expanded editor: grows with the text up to this tall, then scrolls. */
 const LONG_TEXT_MAX_HEIGHT = 300;
 
@@ -888,6 +899,7 @@ function MultilineTextEditor({
   const [val, setVal] = useState(initial);
   const committed = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const mountedAt = useRef(0);
   const commit = () => {
     committed.current = true;
     onCommit(val.trim());
@@ -899,8 +911,11 @@ function MultilineTextEditor({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    mountedAt.current = Date.now();
     fit(el);
     el.focus();
+    el.setSelectionRange(0, 0);
+    window.getSelection()?.removeAllRanges();
     el.setSelectionRange(0, 0);
     el.scrollTop = 0;
   }, []);
@@ -913,7 +928,21 @@ function MultilineTextEditor({
       style={{ maxHeight: LONG_TEXT_MAX_HEIGHT }}
       value={val}
       onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
+      // #1232 — the second press of the double-click that opened this lands on the textarea and would select a word.
+      onMouseDown={(e) => {
+        if (isOpeningClick(mountedAt.current, Date.now())) {
+          e.preventDefault();
+          e.currentTarget.focus();
+          e.currentTarget.setSelectionRange(0, 0);
+        }
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (isOpeningClick(mountedAt.current, Date.now())) {
+          e.preventDefault();
+          e.currentTarget.setSelectionRange(0, 0);
+        }
+      }}
       onChange={(e) => {
         setVal(e.target.value);
         fit(e.target);
@@ -986,12 +1015,13 @@ function NumberEditor({
     setVal(String(next));
   };
   return (
-    <div className="flex h-full items-center gap-1 bg-card">
+    <div className="group relative flex h-full items-center bg-card">
       <input
         autoFocus
         inputMode="decimal"
         data-cell-input
-        className="h-full min-w-0 flex-1 bg-transparent px-0 text-body text-ink outline-none"
+        // #1232 — numbers read right-aligned (see CellDisplay); the editor keeps that alignment so the text does not move.
+        className={`h-full w-full min-w-0 bg-transparent px-0 text-body tabular-nums text-ink outline-none ${editorAlignClass('number')}`}
         value={val}
         onChange={(e) => setVal(e.target.value)}
         onFocus={(e) => e.target.select()}
@@ -1013,7 +1043,8 @@ function NumberEditor({
           e.stopPropagation();
         }}
       />
-      <div className="flex flex-col">
+      {/* #1232 — overlays the cell instead of taking width, so the right-aligned digits sit exactly where they read. */}
+      <div className="absolute right-0 top-1/2 flex -translate-y-1/2 flex-col bg-card opacity-0 transition-opacity group-hover:opacity-100">
         <button
           type="button"
           tabIndex={-1}
