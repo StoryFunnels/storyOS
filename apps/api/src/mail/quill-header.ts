@@ -36,9 +36,9 @@ export function quillAvatarPath(theme: 'light' | 'dark', px: 96 | 192): string {
 export function quillHeaderHtml(webUrl: string): string {
   const base = webUrl.replace(/\/$/, '');
   const img = (theme: 'light' | 'dark', hidden: boolean) =>
-    `<img src="${base}${quillAvatarPath(theme, 96)}" srcset="${base}${quillAvatarPath(theme, 96)} 1x, ${base}${quillAvatarPath(theme, 192)} 2x" width="48" height="48" alt="${QUILL_ALT}" class="d-quill-${theme}" style="display:${hidden ? 'none' : 'inline-block'};width:48px;height:48px;border:0;border-radius:10px;vertical-align:middle;font-family:${FONT};font-size:14px;color:${theme === 'dark' ? INK_DARK : INK}">`;
+    `<img src="${base}${quillAvatarPath(theme, 96)}" srcset="${base}${quillAvatarPath(theme, 96)} 1x, ${base}${quillAvatarPath(theme, 192)} 2x" width="48" height="48" alt="${QUILL_ALT}" class="d-quill-${theme}" style="display:${hidden ? 'none' : 'inline-block'};width:48px;max-width:100%;height:48px;border:0;border-radius:10px;vertical-align:middle;font-family:${FONT};font-size:14px;color:${theme === 'dark' ? INK_DARK : INK}">`;
   return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="d-quill-card" style="margin:0 auto"><tr>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="d-quill-card" style="margin:0 auto;max-width:100%"><tr>` +
     `<td style="padding:0 12px 0 0;vertical-align:middle">${img('light', false)}${img('dark', true)}</td>` +
     `<td class="d-quill-line" style="vertical-align:middle;font-family:${FONT};font-size:15px;line-height:20px;font-weight:700;color:${INK}">${QUILL_LINE}</td>` +
     `</tr></table>`

@@ -102,11 +102,11 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
     ? `
       <tr>
         <td style="padding: 8px 0 4px;">
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="max-width: 100%;">
             <tr>
               <td class="eo-cta-bg" style="border-radius: 8px; background: ${LIGHT.ctaBg};">
                 <a href="${opts.cta.url}" class="eo-cta-text"
-                   style="display: inline-block; padding: 12px 22px; font-family: ${font}; font-size: 15px; font-weight: 600; color: ${LIGHT.ctaText}; text-decoration: none; border-radius: 8px;">
+                   style="display: inline-block; padding: 12px 22px; font-family: ${font}; font-size: 15px; font-weight: 600; color: ${LIGHT.ctaText}; text-decoration: none; border-radius: 8px; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; word-break: break-word;">
                   ${opts.cta.label}
                 </a>
               </td>
@@ -137,19 +137,20 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
   ${QUILL_HEADER_CSS}
 </style>
 </head>
-<body class="eo-page" style="margin: 0; padding: 0; background: ${LIGHT.pageBg};">
+<body class="eo-page" style="margin: 0; padding: 0; background: ${LIGHT.pageBg}; overflow-wrap: anywhere; word-break: break-word;">
   <span style="display: none; max-height: 0; overflow: hidden; opacity: 0;">${preheader}</span>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="eo-page" style="background: ${LIGHT.pageBg};">
     <tr>
       <td align="center" style="padding: 32px 16px;">
-        <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="width: 480px; max-width: 100%;">
+        <!--[if mso]><table role="presentation" width="480" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%; max-width: 480px;">
           <tr>
             <td align="center" style="padding: 8px 0 20px;">
               <a href="${webUrl}" style="text-decoration: none;">${quillHeaderHtml(webUrl)}</a>
             </td>
           </tr>
           <tr>
-            <td class="eo-card" style="background: ${LIGHT.cardBg}; border: 1px solid ${LIGHT.border}; border-radius: 12px; padding: 32px;">
+            <td class="eo-card" style="background: ${LIGHT.cardBg}; border: 1px solid ${LIGHT.border}; border-radius: 12px; padding: 32px; overflow-wrap: anywhere; word-break: break-word;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td class="eo-heading" style="font-family: ${font}; font-size: 20px; font-weight: 700; color: ${LIGHT.textPrimary}; padding-bottom: 12px;">
@@ -172,6 +173,7 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
             </td>
           </tr>
         </table>
+        <!--[if mso]></td></tr></table><![endif]-->
       </td>
     </tr>
   </table>
