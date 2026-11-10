@@ -109,6 +109,66 @@ describe('the required pack IS installed (#1197)', () => {
   });
 });
 
+describe('a linked database is reported as linked, wherever it sits (#1257)', () => {
+  /** Deal Desk builds on Agency OS's Clients and Projects (the shape seen in the field). */
+  const twoDbs = () =>
+    dealDesk({
+      requires: { connections: [], ai: 'none', packs: [{ pack: 'agency-os', databases: ['Clients', 'Projects'] }] },
+      databases: [
+        { action: 'create', name: 'Clients', space: 'Deal Desk', fields: [{ name: 'Deal Value', type: 'number' }] },
+        { action: 'create', name: 'Projects', space: 'Deal Desk', fields: [{ name: 'Deal Ref', type: 'text' }] },
+        { action: 'create', name: 'Deals', space: 'Deal Desk', fields: [{ name: 'Amount', type: 'number' }] },
+      ],
+      relations: [{ from: 'Deals', to: 'Clients', cardinality: 'one_to_many', from_field: 'Client', to_field: 'Deals' }],
+    });
+
+  it('installed INTO the space that already holds them: preview and install result both say linked, and nothing was created', async () => {
+    const ws = await newWs('Same space');
+    expect((await install(ws, {}, await agencyOs())).statusCode).toBe(201);
+    const before = await dbs(ws);
+    const clients = before.find((d) => d.name === 'Clients')!;
+    const projects = before.find((d) => d.name === 'Projects')!;
+    expect(projects.spaceId, 'premise: Agency OS keeps both in one space').toBe(clients.spaceId);
+
+    const body = { target_space_id: clients.spaceId };
+    const pv = (await preview(ws, body, twoDbs())).json();
+    expect(pv.required_packs[0]).toMatchObject({ pack: 'agency-os', installed: true, linked: ['Clients', 'Projects'] });
+
+    const res = await install(ws, body, twoDbs());
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().required_packs, 'the result agrees with the preview').toEqual([
+      { pack: 'agency-os', outcome: 'linked', databases: ['Clients', 'Projects'] },
+    ]);
+    const after = await dbs(ws);
+    expect(after.filter((d) => d.name === 'Clients').map((d) => d.id)).toEqual([clients.id]);
+    expect(after.filter((d) => d.name === 'Projects').map((d) => d.id)).toEqual([projects.id]);
+    const made = res.json().databases as Array<{ name: string; action: string }>;
+    expect(made.find((d) => d.name === 'Deals')?.action, 'Deals is the one thing created').toBe('created');
+    expect(made.filter((d) => d.action === 'created').map((d) => d.name)).toEqual(['Deals']);
+  });
+
+  it('installed into ANOTHER space than the one Agency OS lives in: still linked in both views', async () => {
+    const ws = await newWs('Other space');
+    await install(ws, {}, await agencyOs());
+    const other = (await as('POST', `/workspaces/${ws}/spaces`, { name: 'Client Work' })).json().id as string;
+    const body = { target_space_id: other };
+    const pv = (await preview(ws, body, twoDbs())).json();
+    expect(pv.required_packs[0].linked).toEqual(['Clients', 'Projects']);
+    const res = await install(ws, body, twoDbs());
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().required_packs).toEqual([{ pack: 'agency-os', outcome: 'linked', databases: ['Clients', 'Projects'] }]);
+    expect((await dbs(ws)).filter((d) => d.name === 'Clients')).toHaveLength(1);
+  });
+
+  it('create_here with nothing to reuse is still reported created_here', async () => {
+    const ws = await newWs('Not there');
+    const other = (await as('POST', `/workspaces/${ws}/spaces`, { name: 'Empty' })).json().id as string;
+    const made = await install(ws, { target_space_id: other, required_packs: { 'agency-os': 'create_here' } }, twoDbs());
+    expect(made.statusCode, made.body).toBe(201);
+    expect(made.json().required_packs).toEqual([{ pack: 'agency-os', outcome: 'created_here', databases: ['Clients', 'Projects'] }]);
+  });
+});
+
 describe('the required pack is NOT installed (#1197)', () => {
   it('preview offers both choices, defaults to create_here and names no field it cannot know', async () => {
     const ws = await newWs('Offer');

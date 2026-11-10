@@ -158,6 +158,18 @@ export function describeRun(w: WakeDto, o: RunViewOpts = {}): RunLine {
       const at = s.until ? resumeWhen(s.until, o.now ?? new Date(), o) : null;
       return { tone: 'off', label: `Keeping your reserve${at ? `, resumes ${at}` : ''}`, sub: base, action: null };
     }
+    case 'waiting_for_budget': {
+      // Ticket #1248 / #1138. The AGENT's own monthly budget, not the Runner's limit. Calm grey like the other waits: a rule the
+      // person set. No figures: the row carries which budget ran out and when it resets, never how much was used.
+      const at = s.until ? resumeWhen(s.until, o.now ?? new Date(), o) : null;
+      const which = s.budget_metric === 'tokens' ? ' token' : s.budget_metric === 'runs' ? ' run' : '';
+      return {
+        tone: 'off',
+        label: `Monthly${which} budget reached${at ? `, resumes ${at}` : ''}`,
+        sub: 'This agent used its budget. It starts again when the budget resets or is raised.',
+        action: null,
+      };
+    }
     case 'waiting_for_turn':
       return { tone: 'off', label: 'Waiting for the Runner', sub: 'Waiting its turn: the Runner does one job at a time', action: null };
     case 'waiting_for_runner':

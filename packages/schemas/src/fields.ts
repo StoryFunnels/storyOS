@@ -594,7 +594,24 @@ export const rollupConfigSchema = z.object({
    */
   order_by_field_api_name: z.string().trim().min(1).nullish(),
   filter: filterSchema.optional(),
+  /**
+   * ticket #1256 — an EXPLICIT number format for a sum/avg/min/max rollup. Absent is the normal case and means
+   * "show it the way the field you aggregate is shown" (see `rollupInheritsFormat` / the read-time resolution in
+   * apps/api/src/fields/rollup-format.ts): the read path puts the inherited format into the returned config, and never
+   * stores it. Set here, it WINS over the inherited one. Refused on every other op (a count is a plain integer).
+   */
+  format: z.enum(['plain', 'percent', 'currency']).optional(),
+  currency_code: z.string().length(3).optional(),
+  precision: z.number().int().min(0).max(10).optional(),
 });
+
+/** ticket #1256 — the rollup ops whose result is a number that can wear a number format. count stays a plain integer. */
+export const FORMATTABLE_ROLLUP_OPS = ['sum', 'avg', 'min', 'max'] as const;
+export function rollupInheritsFormat(op: unknown): boolean {
+  return (FORMATTABLE_ROLLUP_OPS as readonly unknown[]).includes(op);
+}
+/** The three config keys that make up a number format; the unit the rollup inherits or overrides as a whole. */
+export const NUMBER_FORMAT_KEYS = ['format', 'currency_code', 'precision'] as const;
 
 /**
  * Title / computed name (MN-130). The title field (`type: 'title'`) is never

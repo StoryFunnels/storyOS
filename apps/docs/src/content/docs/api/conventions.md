@@ -195,6 +195,27 @@ existence.
 Values are keyed by stable **`api_name`** in requests and responses (field UUIDs are internal).
 Relation fields return `{id, title}` chips. System fields are read-only.
 
+### When an AI last changed a record
+
+Every record read (a list or a single record) carries `last_ai_change_at`: the time of the latest change
+made by an agent, an automation or an MCP client, or `null` if only people have ever changed it. It is
+set on create, update and restoring a version when the write's recorded source is anything other than a
+person's; a person editing afterwards does not clear it, and a write that changes nothing does not move
+it. The source is the credential's, not a header, so a session that claims to be an agent is still a
+person. Records that existed before the field was added were filled in from their history.
+
+### Marking a view as seen
+
+`POST /workspaces/{ws}/databases/{db}/views/{view}/seen` records that **you** opened the view now and
+returns `{ "seen_at", "previous_seen_at" }`. `previous_seen_at` is your last time before this call (`null`
+the first time), so "changed since you last looked" can compare it with `last_ai_change_at`.
+
+- **Per person.** There is no way to name another member, nothing lists these times, and an admin cannot
+  read someone else's.
+- **People only.** An agent, MCP or automation credential gets a 403, so an agent reading a board does not
+  clear what it caused.
+- **Another member's personal view** is a 404.
+
 ## Rate limiting
 
 Keyed per PAT / per session. Default 300 req/min, configurable via `RATE_LIMIT_PER_MINUTE`. Over
