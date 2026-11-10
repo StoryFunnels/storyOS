@@ -251,6 +251,8 @@ interface SliceDb {
 }
 
 /** #1112 — everything an install has created so far; `result` exists once the architect walk has returned. */
+type InstallArgs = Parameters<PacksService['installInner']> extends [unknown, ...infer R] ? R : never;
+
 interface InstallLedger {
   built: ArchitectBuildProgress;
   result?: PackInstallResult;
@@ -260,6 +262,18 @@ interface InstallLedger {
 interface AgentOsSnapshot {
   databaseIds: Set<string>;
   spaceIds: Set<string>;
+}
+
+/**
+ * #1246 - an install that COMPLETED inside one request (a pack `also_install`ed first), kept with its #1112 ledger so a later failure of
+ * the same request can be compensated by the same rollback as any failed install: one request is one install.
+ */
+interface CompletedInstall {
+  slug: string;
+  name: string;
+  installId: string;
+  ledger: InstallLedger;
+  agentOsBefore: AgentOsSnapshot | undefined;
 }
 
 /**
@@ -2021,8 +2035,65 @@ export class PacksService {
    * showed. Anything still unresolved is a 409, not a guess: installing on a
    * genuine name collision without an explicit decision is exactly the
    * silent-adoption bug `preview` exists to let a person catch first.
+   *
+   * #1246 — `required_packs: also_install` makes the request ONE install: when this install (or the nested one) fails, everything the
+   * request created is rolled back, the pack it installed first included and its databases too (`rollbackAlsoInstalled`). A required pack
+   * that was already installed before the request is never touched.
    */
-  async install(
+  async install(...args: InstallArgs): Promise<PackInstallResult> {
+    const completed: CompletedInstall[] = [];
+    try {
+      return await this.installInner(completed, ...args);
+    } catch (error) {
+      // `completed` holds only installs that finished: the failing install already rolled itself back (#1112).
+      if (completed.length === 0) throw error;
+      throw await this.rollbackAlsoInstalled(args[0], completed, error);
+    }
+  }
+
+  /**
+   * #1246 — compensate: undo every install this request completed (newest first) with the #1112 rollback, so everything it CREATED goes
+   * (databases, records and all: they were made seconds ago by this same request and hold only the pack's own sample data) and anything it
+   * merely reused stays. Then its install record goes, since the pack is no longer installed. Never swallows: a failed rollback is reported
+   * alongside the original failure.
+   */
+  private async rollbackAlsoInstalled(membership: Membership, packs: CompletedInstall[], cause: unknown): Promise<HttpException> {
+    const rolledBack: string[] = [];
+    const notes: string[] = [];
+    for (const p of [...packs].reverse()) {
+      const problems = await this.rollbackInstall(membership, p.ledger, p.agentOsBefore);
+      try {
+        await this.db.transaction(async (tx) => {
+          await tx.delete(packInstallItems).where(eq(packInstallItems.packInstallId, p.installId));
+          await tx.delete(packInstalls).where(and(eq(packInstalls.id, p.installId), eq(packInstalls.workspaceId, membership.workspaceId)));
+        });
+      } catch (e) {
+        problems.push(`its install record: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (problems.length === 0) rolledBack.push(`"${p.name}"`);
+      else notes.push(`rolling back "${p.name}" FAILED for ${problems.join('; ')} - delete those by hand before installing again`);
+    }
+    const status = cause instanceof HttpException && cause.getStatus() >= 400 ? cause.getStatus() : 500;
+    const reason = cause instanceof HttpException ? this.reasonOf(cause) : cause instanceof Error ? cause.message : String(cause);
+    const said =
+      rolledBack.length > 0
+        ? `Rolled back everything this request had installed first: ${rolledBack.join(', ')} - its databases, records and install are removed again.`
+        : 'No pack could be rolled back.';
+    const extra = notes.length > 0 ? ` ${notes.join('; ')}.` : '';
+    return new HttpException(`${reason} ${said}${extra}`, status);
+  }
+
+  private reasonOf(error: HttpException): string {
+    const response = error.getResponse();
+    if (typeof response === 'string') return response;
+    const m = (response as { message?: string | string[] }).message;
+    return Array.isArray(m) ? m.join('; ') : (m ?? error.message);
+  }
+
+  /** Not private only so `InstallArgs` can name its parameters; call `install`. */
+  async installInner(
+    /** #1246 - filled with each install that completes in this request (the pack an `also_install` made first, then this one). */
+    completed: CompletedInstall[],
     membership: Membership,
     rawManifest: unknown,
     resolutions: PackInstallResolutions = {},
@@ -2042,7 +2113,7 @@ export class PacksService {
     /**
      * #1197 - `{ "<pack slug>": "also_install" | "create_here" }` for each pack `requires.packs` names. A required pack that is installed
      * here is linked (databases reused) unless `create_here`; one that is not is installed first on `also_install` (its own all-or-nothing
-     * install, which stays if this pack's install then fails: it is a whole pack in its own right) and otherwise its databases are created
+     * install, which is rolled back with this one if this pack's install then fails, #1246) and otherwise its databases are created
      * inside this pack, as before.
      */
     requiredChoices: Record<string, PackRequiredChoice> = {},
@@ -2064,7 +2135,8 @@ export class PacksService {
       if (!entry) {
         throw new UnprocessableEntityException(`StoryOS has no built-in pack "${r.req.pack}" to install; choose create_here to make the linked databases inside "${manifest.name}".`);
       }
-      await this.install(membership, entry.manifest);
+      // The nested install appends itself to `completed` once it has finished, so this request can undo it if a later step fails.
+      await this.installInner(completed, membership, entry.manifest);
       alsoInstalled.add(r.req.pack);
     }
     if (alsoInstalled.size > 0) requiredPlan = await this.planRequiredPacks(membership, manifest, requiredChoices);
@@ -2167,6 +2239,8 @@ export class PacksService {
       await this.hashInstalledAgents(membership, result, hashes);
 
       await this.recordInstall(membership, manifest, result, existingInstall, hashes, untracked, agentProvenance);
+      const recorded = await this.findExistingInstall(membership.workspaceId, manifest.slug);
+      if (recorded) completed.push({ slug: manifest.slug, name: manifest.name, installId: recorded.id, ledger, agentOsBefore });
 
       return result;
     } catch (error) {
@@ -2300,7 +2374,12 @@ export class PacksService {
       for (const id of ids) {
         const databaseId = byId.get(id);
         if (!databaseId || createdDbIds.includes(databaseId)) continue; // gone already, or goes with its database
-        await attempt(`field ${id}`, () => this.fields.remove(databaseId, id));
+        // `fields.remove` soft-deletes (and tidies lookups and unique indexes); the row is then hard-deleted, like everything else a rollback
+        // removes, so a field this install added to a database that already existed leaves no trace.
+        await attempt(`field ${id}`, async () => {
+          await this.fields.remove(databaseId, id);
+          await this.db.delete(fieldsTable).where(eq(fieldsTable.id, id));
+        });
       }
     };
     await removeFields(created(result?.derived_fields).reverse());

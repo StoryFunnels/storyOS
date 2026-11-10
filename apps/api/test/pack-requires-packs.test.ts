@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { PacksService } from '../src/packs/packs.service';
 
 /**
  * Ticket #1197 - a manifest says which pack it builds on (`requires.packs`): the required pack's databases are LINKED when it is installed,
@@ -32,7 +33,9 @@ const dealDesk = (over: Record<string, unknown> = {}) => ({
 const agencyOs = async () => (await as('GET', '/packs/registry/agency-os')).json().manifest;
 const preview = (ws: string, body: Record<string, unknown> = {}, manifest = dealDesk()) => as('POST', `/workspaces/${ws}/packs/preview`, { manifest, ...body });
 const install = (ws: string, body: Record<string, unknown> = {}, manifest = dealDesk()) => as('POST', `/workspaces/${ws}/packs/install`, { manifest, ...body });
-const dbs = async (ws: string) => (await as('GET', `/workspaces/${ws}/databases`)).json() as Array<{ id: string; name: string; spaceId: string }>;
+const dbs = async (ws: string) => (await as('GET', `/workspaces/${ws}/databases`)).json() as Array<{ id: string; name: string; spaceId: string; isSystem: boolean }>;
+/** The pack-made databases: the workspace's Members projection is system-flagged and ambient (any member action provisions it lazily, so the install itself can create it), never pack debris. Keyed on the flag, not the name. */
+const packDbs = async (ws: string) => (await dbs(ws)).filter((d) => !d.isSystem);
 const installed = async (ws: string) => (await as('GET', `/workspaces/${ws}/packs/installed`)).json() as Array<{ id: string; slug: string }>;
 const fieldNames = async (ws: string, id: string) => ((await as('GET', `/workspaces/${ws}/databases/${id}`)).json().fields as Array<{ displayName: string }>).map((f) => f.displayName);
 
@@ -164,5 +167,66 @@ describe('refusals (#1197)', () => {
   it('a pack cannot require itself', async () => {
     const m = dealDesk({ requires: { connections: [], ai: 'none', packs: [{ pack: 'deal-desk', databases: ['Clients'] }] } });
     expect((await install(await newWs('Self'), {}, m)).statusCode).toBe(422);
+  });
+});
+
+describe('also_install rolls back when the dependent install fails (#1246)', () => {
+  const failDealDesk = () => {
+    const service = app.get(PacksService, { strict: false }) as unknown as { recordInstall: (...a: unknown[]) => Promise<unknown> };
+    const real = service.recordInstall.bind(service);
+    // Fail only the dependent pack's own install; Agency OS (the also_install pack) records normally.
+    return vi.spyOn(service as never, 'recordInstall' as never).mockImplementation(((m: unknown, manifest: { slug: string }, ...rest: unknown[]) =>
+      manifest.slug === 'deal-desk' ? Promise.reject(new Error('injected failure in recordInstall')) : real(m, manifest, ...rest)) as never);
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it('leaves no trace of anything this request created, databases included, and the error names what was rolled back', async () => {
+    const ws = await newWs('Rollback');
+    const dbsBefore = (await packDbs(ws)).map((d) => d.id).sort();
+    failDealDesk();
+    const res = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
+    expect(res.statusCode).toBe(500);
+    const msg = res.json().error.message as string;
+    expect(msg).toMatch(/Rolled back everything this request had installed first: "Agency OS"/);
+    expect(msg).toMatch(/Nothing was installed/);
+    expect(await installed(ws), 'no pack left installed').toEqual([]);
+    // One request is one install (#1246): Agency OS's databases were made seconds ago by this same request, so they go too.
+    expect((await packDbs(ws)).map((d) => d.id).sort(), 'the workspace has the databases it had before').toEqual(dbsBefore);
+    vi.restoreAllMocks();
+    const again = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
+    expect(again.statusCode, 'a re-install is not a name collision: nothing was left behind').toBe(201);
+    expect((await dbs(ws)).filter((d) => d.name === 'Clients')).toHaveLength(1);
+  });
+
+  it('a required pack installed BEFORE the request is untouched by the failure', async () => {
+    const ws = await newWs('Rollback keeps');
+    await install(ws, {}, await agencyOs());
+    const before = (await dbs(ws)).map((d) => d.id).sort();
+    failDealDesk();
+    const res = await install(ws, { required_packs: { 'agency-os': 'create_here' } });
+    expect(res.statusCode).toBe(500);
+    expect(res.body, 'nothing of this request was a separate pack install').not.toMatch(/Rolled back the pack/);
+    expect((await installed(ws)).map((i) => i.slug)).toEqual(['agency-os']);
+    expect((await dbs(ws)).map((d) => d.id).sort()).toEqual(before);
+    // the default (linked) path too
+    const linked = await install(ws);
+    expect(linked.statusCode).toBe(500);
+    expect((await installed(ws)).map((i) => i.slug)).toEqual(['agency-os']);
+    expect((await dbs(ws)).map((d) => d.id).sort()).toEqual(before);
+  });
+
+  it('a rollback that itself fails is reported next to the original error, not swallowed', async () => {
+    const ws = await newWs('Rollback fails');
+    failDealDesk();
+    const service = app.get(PacksService, { strict: false }) as unknown as { rollbackInstall: (...a: unknown[]) => Promise<string[]> };
+    const real = service.rollbackInstall.bind(service);
+    // The compensating rollback reports what it could not remove; fail it for the pack this request installed first (Deal Desk's own cleanup runs for real).
+    vi.spyOn(service as never, 'rollbackInstall' as never).mockImplementation(((m: unknown, ledger: { result?: { slug: string } }, ...rest: unknown[]) =>
+      ledger.result?.slug === 'agency-os' ? Promise.resolve(['injected failure in rollback']) : real(m, ledger, ...rest)) as never);
+    const res = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
+    expect(res.statusCode).toBe(500);
+    const msg = res.json().error.message as string;
+    expect(msg).toMatch(/Installing "Deal Desk" failed/);
+    expect(msg).toMatch(/rolling back "Agency OS" FAILED for injected failure in rollback/);
   });
 });
