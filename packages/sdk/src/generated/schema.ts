@@ -3841,7 +3841,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Records across databases assigned to me or created by me (MN-049, #36) */
+        /** My work: records assigned to me, created by me, assigned BY me, or waiting on me (approvals + unanswered mentions). Finished rows are dropped; every total is exact (MN-049, #36, #1250) */
         get: operations["SearchController_myWork"];
         put?: never;
         post?: never;
@@ -13591,6 +13591,8 @@ export interface operations {
         parameters: {
             query: {
                 tab: string;
+                /** @description true keeps Done/Canceled rows (the My work page renders them greyed out); default drops them. */
+                include_finished?: string;
             };
             header?: never;
             path?: never;

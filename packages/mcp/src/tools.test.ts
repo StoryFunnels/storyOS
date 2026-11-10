@@ -3760,6 +3760,8 @@ describe('#437/#440 — views and personal surfaces', () => {
       const cases: Array<[string, string]> = [
         ['assigned', '/api/v1/workspaces/{ws}/my-work'],
         ['created', '/api/v1/workspaces/{ws}/my-work'],
+        ['assigned_by_me', '/api/v1/workspaces/{ws}/my-work'],
+        ['waiting', '/api/v1/workspaces/{ws}/my-work'],
         ['recent', '/api/v1/workspaces/{ws}/recent'],
         ['favorites', '/api/v1/workspaces/{ws}/favorites'],
       ];

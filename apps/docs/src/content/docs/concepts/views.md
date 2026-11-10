@@ -268,6 +268,9 @@ sort instead.
 - **Click the title text** to open the record. On a wide screen it opens in the
   [split panel](/concepts/split-screen/) beside the table; ⌘/Ctrl-click or middle-click opens it in
   a new tab. Board, gallery, list, feed and timeline views open a record the same way — click it.
+- **Use the Open button.** Hovering a row, or moving the cursor onto its title cell, shows an **Open**
+  button at the right end of the cell. It opens the record the same way as clicking the title. On a
+  touch screen the button is always shown, as an icon without the label.
 - **Click the empty part of the title cell** to select it without opening anything.
 - **Rename** with a double-click on the empty part of the title cell, or select the cell and press
   **Enter**. A single click never starts a rename.
