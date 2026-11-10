@@ -1237,6 +1237,23 @@ export interface paths {
         patch: operations["RecordsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/branch-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The git branch name for this record, derived (never stored): [lane/]<number>-<title-slug> (ticket #1219) */
+        get: operations["RecordsController_branchName"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/duplicate": {
         parameters: {
             query?: never;
@@ -9380,6 +9397,28 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateRecordDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    RecordsController_branchName: {
+        parameters: {
+            query?: {
+                lane?: "docs" | "mcp" | "api" | "web" | "fix";
+            };
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

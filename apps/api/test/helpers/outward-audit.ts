@@ -104,6 +104,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'POST /workspaces/:ws/databases/:db/records/:rec/duplicate': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/databases/:db/records/:rec/watch': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'DELETE /workspaces/:ws/databases/:db/records/:rec/watch': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
+  'GET /workspaces/:ws/databases/:db/records/:rec/branch-name': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec/watchers': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'POST /workspaces/:ws/databases/:db/records/:rec/move': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/databases/:db/records/:rec/restore': { verdict: 'gated', why: FANOUT_WHY },

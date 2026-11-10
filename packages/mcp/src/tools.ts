@@ -631,6 +631,7 @@ const TOOL_SCOPE: Record<string, ToolScope> = {
   get_history: 'read',
   list_backlinks: 'read',
   list_watchers: 'read',
+  get_branch_name: 'read',
   list_linked_records: 'read',
   list_spaces: 'read',
   /*
@@ -2790,6 +2791,34 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       );
       return text({ record: rec, ...(res as Record<string, unknown>) });
     }),
+  );
+
+  reg(
+    'get_branch_name',
+    {
+      title: 'Get git branch name',
+      description:
+        'The git branch name for a record, derived from its number and title (never stored): [lane/]<number>-<slug>, e.g. api/1219-git-branch-names. Pass lane (docs, mcp, api, web or fix) for the repo\'s lane prefix. Open the PR from this branch and the GitHub integration links the PR back to the record by its number.',
+      inputSchema: {
+        workspace: z.string(),
+        database: z.string(),
+        record: z.string().describe('Record uuid or public number.'),
+        lane: z.enum(['docs', 'mcp', 'api', 'web', 'fix']).optional().describe('Branch lane prefix.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; lane?: 'docs' | 'mcp' | 'api' | 'web' | 'fix' }>(
+      async ({ workspace, database, record, lane }) => {
+        const ws = await resolveWorkspace(client, workspace);
+        const db = await resolveDatabase(client, ws.id, database);
+        const rec = await resolveRecordId(ws.id, db.id, record);
+        const res = await unwrap<unknown>(
+          client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/branch-name', {
+            params: { path: { ws: ws.id, db: db.id, rec }, query: { lane } },
+          }),
+        );
+        return text(res);
+      },
+    ),
   );
 
   reg(
