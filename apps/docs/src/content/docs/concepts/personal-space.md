@@ -29,6 +29,17 @@ belong to is untouched.
 personal view deletes it for everyone; deleting the view itself only removes your lens and touches
 nothing else.
 
+**StoryOS refuses to put a database there, whichever way you try.** Creating a database in your
+Personal space, moving one into it (including through the API or MCP), applying a database
+template, installing a pack into it, or having the Architect plan one there all fail with a `422`
+and the message *"A personal space holds documents and views only, so a database cannot live
+there."* Nothing is created and nothing moves; a rename sent alongside a refused move is refused
+with it. Naming **someone else's** personal space answers `404`, exactly as a space that does not
+exist would, so the refusal never confirms that the space is there. Moves between ordinary spaces
+and documents and views in Personal are unaffected. The check looks at the space's personal flag,
+not its name. It stops new placements only: a database that was moved into a personal space
+before this check existed is left where it is, and duplicating one is refused.
+
 ## Creating one
 
 The **+** on the Personal row opens a **New…** dropdown:
