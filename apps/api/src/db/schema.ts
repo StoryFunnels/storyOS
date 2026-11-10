@@ -581,6 +581,13 @@ export const records = pgTable(
     position: text('position').notNull().default('a0'),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
+    /**
+     * #1204 (gold means agency, #831) — the time of the latest change whose STORED provenance was agent, automation or mcp
+     * (`record_versions.source`, never a header). Kept current on write inside the writing transaction, so a list reads it
+     * as a plain column: no per-row aggregate over history at query time (#755). A human write leaves it untouched.
+     * NULL = never changed by anything but a person.
+     */
+    lastAiChangeAt: timestamp('last_ai_change_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },

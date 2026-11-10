@@ -34,6 +34,11 @@ export interface CoverageRule {
  */
 export const EXCLUDED: CoverageRule[] = [
   {
+    match: 'POST /api/v1/workspaces/{ws}/databases/{db}/views/{view}/seen',
+    reason:
+      "ticket #1204 - this records that a PERSON opened a view, so the web can show 'changed by an agent since you last looked'. The route refuses any credential whose stored provenance is not human (403): an agent marking a view seen would clear the very gold its own writes cause. A tool could never succeed, so it would only invite an agent to try. What an agent CAN read is the other half: last_ai_change_at on every record it lists.",
+  },
+  {
     match: 'GET /api/v1/workspaces/{ws}/databases/{db}/record-templates/{template}',
     reason:
       'ticket #1218 - reading one record template is already reachable: list_record_templates returns every template of the database in full (values and body), and a database holds a handful, so a by-id read would be the same data behind a second call.',

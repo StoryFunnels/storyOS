@@ -3454,6 +3454,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/views/{view}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark this view as seen by me now; returns when I last had seen it before this call (null the first time) */
+        post: operations["ViewSeenController_markSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/dismissed-hints": {
         parameters: {
             query?: never;
@@ -12992,6 +13009,26 @@ export interface operations {
             header?: never;
             path: {
                 db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ViewSeenController_markSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                view: string;
             };
             cookie?: never;
         };

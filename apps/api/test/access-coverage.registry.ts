@@ -316,6 +316,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/workspaces/:ws/databases/:db/views/:view/duplicate': scoped('assertSpace + assertAccess + effectiveForDatabase', 'views/views.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/views/:view/publish': scoped('assertSpace + assertAccess + effectiveForDatabase', 'views/views.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/views/:view/restore': scoped('assertSpace + assertAccess + effectiveForDatabase', 'views/views.controller.ts'),
+  'POST /api/v1/workspaces/:ws/databases/:db/views/:view/seen': scoped('assertAccess', 'viewer-state/viewer-state.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/views/:view/share': scoped('assertSpace + assertAccess + effectiveForDatabase', 'views/views.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/views/personal': scoped('assertSpace + assertAccess + effectiveForDatabase', 'views/views.controller.ts'),
   'POST /api/v1/workspaces/:ws/documents/:doc/copy-to-personal': scoped('assertSpace + assertAccess', 'documents/space-documents.controller.ts'),
