@@ -85,6 +85,40 @@ doesn't actually have (its own pack never created that option, only the one you 
 did), that one field's value is skipped and reported — the install still completes, rather than
 failing outright over a single sample value it can't carry over.
 
+## The install review, and where you land
+
+When you add a pack to an existing workspace from its gallery, an **install review** opens first and
+nothing is created until you confirm. It leads with what the pack is for:
+
+1. **Why**: the pack's one sentence, for example *Your team needs one place to see who is doing what this
+   week.*
+2. **Once it's in, you can**: up to three short lines of what you will be able to do.
+3. **How it fits together**: the database map, one row per link, drawn from the pack's own relations, such
+   as *Tasks → Projects*. A two-way link reads *↔*, and a database linked to itself is shown with *↺* and the
+   field it uses. A pack with no links says *One database, no links* or *N databases, no links*.
+4. What it would create, where it would reuse something you already have, and the automations it installs
+   switched off.
+
+A pack that declares no `why` or `can` (a community pack, say) simply shows none of this: there is no
+heading and no placeholder. The pack cards on a space's page carry the same sentence, falling back to the
+pack's summary, with the first four rows of the map, *+N more links* when there are more, and the pack's
+counts underneath. The pack's author writes these; see [Writing a pack
+manifest](/guides/pack-manifest/#why-and-can-what-a-pack-says-about-itself).
+
+Two choices in the review are yours to make, and both default to the cautious answer:
+
+- **Reusing a database you already have in another space.** The default is to create a new one. See
+  [Reuse in the web install review](/mcp/tools/#reuse-in-the-web-install-review), including what to do
+  when you have several with the same name.
+- **Automations that install off.** One that sends things outside the workspace or runs an agent reads
+  **Off until you turn it on**, with why and a switch. See [Automations that send things out install
+  switched off](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
+
+**After the install,** if the pack names a view its database opens on, you land on that view with the
+pack's space expanded in the sidebar, rather than on a list of what was installed. For Team Board that is
+the Board. A pack that names no such view, an update of a pack you already have, and an install that
+did not finish, keep the result screen instead.
+
 ## If a pack install fails partway
 
 Installing a pack is a series of steps: databases, fields and relations, agents, views, automations,

@@ -165,6 +165,23 @@ creates its own **Issues** in its space and does not touch another space's **Iss
 
 - **Re-installing into the same space adds nothing.** The install recognises the databases it created by
   the ids it recorded, so a database someone renamed is still found.
+
+#### Re-installing after a database moved
+
+An install records the databases it created or adopted. A re-install of a pack the workspace already has
+looks for those databases by their recorded ids first, wherever they live now, and only then by name in the
+space it installs into. So moving a pack's database to another space, or renaming the pack's space, does not
+make the next install build a second set; the relations and the install's tracked items stay with the
+original databases.
+
+- **A recorded database wins over a same-named one** that happens to sit in the pack's space.
+- **Only a database you can edit, and that is not in the trash, counts.** Anything else is treated as not
+  there, and the install falls back to matching by name in the space, building a fresh database if none is
+  found. A trashed database is not brought back.
+- **An explicit `space` is respected.** If the target space still holds at least one database the pack
+  created, the re-install is into where the pack lives and finds the ones that moved too. If it holds none,
+  that is you installing somewhere else, and the pack builds a new set there. A database the pack adopted
+  with `reuse` is kept either way.
 - **A same-named database the pack did not create, already in the target space, is a collision** the
   install does not decide for you: it is refused with a 409 naming it.
 
@@ -173,16 +190,30 @@ creates its own **Issues** in its space and does not touch another space's **Iss
 Sharing one database between packs is something you ask for, never something an install does on its own.
 To have a pack adopt an existing database wherever it lives, send a resolution of `reuse` for that database's
 name in `resolutions` on the workspace's `packs/preview` and `packs/install` calls, for example
-`{"resolutions": {"Clients": {"action": "reuse"}}}`. The MCP `install_pack` tool has no input for this
-choice; it takes `update_agents` for agent resolutions only.
+`{"resolutions": {"Clients": {"action": "reuse"}}}`. Over MCP, `install_pack` takes `reuse_databases` for the
+same choice, a map of database name to the id of the database to adopt, for example
+`{"Clients": "<database id>"}`; its `update_agents` input is for agent resolutions only.
+
+When more than one same-named database qualifies, say which one: add `database_id` to the resolution,
+`{"Issues": {"action": "reuse", "database_id": "<id>"}}`. The id must be one of the `candidates` the preview
+lists for that database (below). `database_id` is accepted only with `reuse`; sent with another action, or
+not a UUID, it is refused by validation.
 
 A database is adopted only when all of these hold:
 
 - **You can edit it.** A database you can only read, and one you cannot read at all, are treated as not
   there.
-- **Exactly one database with that name is editable by you.** With two or more, the install refuses to guess.
+- **It is the one you named, or the only one.** With a `database_id`, that database is adopted if it is one
+  of the candidates. Without one, exactly one database with that name must be editable by you; with two
+  or more, the install refuses to guess, with a 422 that says you have more than one and names their spaces.
+  An id that is not a candidate (not editable by you, in another workspace, built-in, unknown) is refused
+  the same way as a database that is not there, and nothing is changed.
 - **Its fields fit the pack.** A field the pack declares must have the same type in the existing database. A
   pack's workflow field, such as a Status, needs a select, so an existing Status of another type cannot be used.
+- **It is not synced from Linear.** A database that has the Linear importer's own `linear_id` field is never
+  adopted, with or without a `database_id`, because the sync rewrites its State, Priority and Estimate on
+  every run. The reason says so.
+- **It is not in a personal space.** A pack never lands in one, so such a database is not a candidate.
 
 If any of these fails, an install with `reuse` is refused with a 422 whose message is the reason, and nothing
 is written. Without a `reuse` the pack creates its own database and the existing one is not changed.
@@ -191,6 +222,22 @@ The `preview` reports each database that has a same-named one elsewhere as `exis
 `space_name` it lives in and its `database_id`, `reusable` (true or false), `adopted` (true when the
 install would use that database, which needs your `reuse` choice or an earlier adoption by the same pack) and, when it cannot be reused, a `reason` in plain words, such as
 `There is no Clients database you can edit.` or a note naming the field and both types.
+
+When the database is reusable and has a `database_id`, `existing_elsewhere` also carries:
+
+- `record_count`: how many live records it holds as you count them (the trash and records you cannot see
+  are not counted). `0` is a real answer and is present.
+- `fields_added`: the fields the pack would add to it if reused, each `{name, type}`, in install order.
+  A field it already has with the pack's type is not listed, and `[]` means it already has every field the
+  pack needs.
+
+Neither key is present when `database_id` is absent or `reusable` is false.
+
+`candidates` lists every same-named database you could pick, one entry each with `database_id`, `space_name`,
+`reusable`, a `reason` when it is not, and `record_count` and `fields_added` when it is. It lists only
+databases you can edit: a read-only, hidden, built-in or personal-space database is not in it. It is absent
+when there is none. Existing clients can keep reading the
+older single-database fields, which are unchanged.
 
 - **Re-installing a pack that adopted a database keeps using it**, with or without repeating the choice, and
   does not create a duplicate.
@@ -210,6 +257,20 @@ database's row in the review shows two options:
 Nothing is reused unless you pick it. When the preview says the database cannot be reused, the second option
 is shown disabled with the preview's reason as written, rather than left out. A choice is sent as the same
 `reuse` resolution described above.
+
+**When you have several.** If there is more than one same-named database in other spaces (for example three
+*Issues*), the row reads *You already have 3 Issues databases in other spaces.* and offers:
+
+- **Create a new *Name* database here**, the default.
+- **Use one of your *Name* databases**: opens a short list of the ones that can take the pack, each as
+  *Name in Space* with its record count. Pick one and the review shows what the pack adds to it, with the
+  same *Nothing in it is removed or renamed* line as above.
+
+The ones that cannot be used are summed up on one muted line, *N can't be used:*, each with its space and a
+short reason, for example *synced from Linear*. If none can be used, the row has no choice to make: it says
+*You have 2 Sprints databases, but both sync from Linear, so this pack makes its own.* (or *none can take
+this pack* when the reason is something else). Only databases you can edit are counted. If a pick stops
+being available, or the server refuses it, the review drops it and says the pack will make a new one.
 
 #### Built-in databases are never reused or changed
 
@@ -245,7 +306,8 @@ item carries a reason.
 
 A pack automation that sends email, Slack, webhook, HTTP or social-post actions, or runs an agent, installs
 **switched off**. Pass `enable_automations` (labels written `Database.Rule name`, as `preview` lists them) to
-switch chosen ones on. The preview and the install result say which rules are off and why. Details:
+switch chosen ones on; the web install review shows each rule that installs off as **Off until you turn it
+on**, with why and a switch. The preview and the install result say which rules are off and why. Details:
 [Writing a pack manifest](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
 
 ### Space-level views and groups

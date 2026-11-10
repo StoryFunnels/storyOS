@@ -57,8 +57,9 @@ curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/records/query \
     `category_is_not` matches everything. A name that is not one of the five is a `422`, and so is
     either op on a `multi_select`, whose options have no category.
   - Over MCP, `query_records` and `count_records` pass these values through as written; category
-    names are not option labels, so nothing is translated. The web filter builder does not author
-    these ops yet.
+    names are not option labels, so nothing is translated. The web filter builder authors and reads
+    them as **is in category** and **is not in category** on Status and select fields; see
+    [Filtering by state category](/concepts/views/#operators).
 - **User fields** accept the literal `"me"`.
 - **Cursors** — responses page with keyset cursors; pass `next_cursor` back as `cursor`.
 - **Relations** — relation fields return `[{id, title}]` chips; filter them with `has` / `is_empty`.
