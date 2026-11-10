@@ -4,7 +4,8 @@ import { createTestApp } from './helpers/app';
 import { connectTestDb } from './helpers/db';
 import { signUpUser } from './helpers/users';
 import { call, joinAs, setRestricted } from './helpers/members';
-import { approvals, comments, notifications } from '../src/db/schema';
+import { eq } from 'drizzle-orm';
+import { approvals, comments, databases, notifications } from '../src/db/schema';
 
 /**
  * Ticket #1250 — My work gains `waiting` (approvals the caller can decide + mentions they have not answered or read) and `assigned_by_me`,
@@ -250,6 +251,23 @@ describe('#1250 waiting', () => {
     const ids = w.mentions.items.map((m: { record: { id: string } }) => m.record.id);
     expect(ids).toContain(open);
     expect(ids).not.toContain(rec);
+  });
+
+  it('mentions: content in a PERSONAL space never surfaces, not even to an admin (private from admins too); a shared one does', async () => {
+    // The API refuses a database in a personal space (#1173), so the fixture re-homes one directly: the join must still hold for
+    // any such row that exists (legacy data, a future path), because "waiting on you" would otherwise leak personal content.
+    const space = (await as(bea.token, 'POST', `/workspaces/${ws}/spaces/personal`)).json().id as string;
+    const personalDb = (await as(owner.token, 'POST', `/workspaces/${ws}/databases`, { name: 'Bea private', space_id: (await as(owner.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id })).json().id as string;
+    await raw.update(databases).set({ spaceId: space } as never).where(eq(databases.id, personalDb));
+    const priv = await mk('personal mention', {}, personalDb);
+    const shared = await mk('shared mention control');
+    await mention(priv, bea.id, [cy.id, owner.id]);
+    await mention(shared, bea.id, [cy.id, owner.id]);
+    for (const who of [cy, owner]) {
+      const ids = (await tab(who.token, 'waiting')).mentions.items.map((m: { record: { id: string } }) => m.record.id);
+      expect(ids, 'the shared mention lists (control: the filter is not simply dropping everything)').toContain(shared);
+      expect(ids, 'a mention on a personal-space record never lists').not.toContain(priv);
+    }
   });
 
   it('totals are exact above 50 and say so', async () => {
