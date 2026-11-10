@@ -43,7 +43,7 @@ Inbox, all on by default: **Assigned to me**, **Mentions**, **Comments** (on rec
 **Status changes** (a status or priority change on a record you are assigned to) and **Record
 changes** (any field on records you watch). An admin also sees a note that GitHub review
 notifications are a workspace setting, on **Integrations → GitHub**. See
-[mentions and notifications](/concepts/mentions-and-notifications/).
+[mentions and notifications](/concepts/mentions-and-notifications/). A daily or weekly [My Work email](/concepts/mentions-and-notifications/#email-me-my-work) is a separate, off-by-default setting for you.
 
 **Referrals.** Offered on StoryOS Cloud only. A self-managed instance does not show it.
 
