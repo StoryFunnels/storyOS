@@ -326,6 +326,12 @@ export const packSampleRecordSchema = z.object({
    * validates. A wiki page's text is its description, so a starter page that installed with only a title would install empty.
    */
   description: z.string().max(20_000).optional(),
+  /**
+   * ticket #1242 — `false` marks the record STRUCTURE, not sample: other records point at it (Team Wiki's "Everyone" team, which every
+   * starter page is grouped under). It is created like any record in this list, but never registered as sample data, so "Remove sample data"
+   * leaves it. Omitted means sample, so every manifest written before this keeps its meaning.
+   */
+  sample: z.boolean().optional(),
 });
 export type PackSampleRecord = z.infer<typeof packSampleRecordSchema>;
 

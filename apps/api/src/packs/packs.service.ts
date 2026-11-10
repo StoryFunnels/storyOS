@@ -3368,7 +3368,8 @@ export class PacksService {
       }
       known.set(norm(title), created.id);
       result.sample_records.push({ name: label, action: 'created', id: created.id });
-      createdIds.push(created.id);
+      // #1242 — `sample: false` is structure (other records point at it): created, but never registered, so Remove sample data leaves it.
+      if (planned.sample !== false) createdIds.push(created.id);
     }
     await trackSampleRecords(this.db, membership.workspaceId, createdIds);
   }

@@ -129,8 +129,8 @@ export const TEAM_WIKI_PACK: PackRegistryEntry = {
       },
     ],
     sample_records: [
-      // Teams starts with one team; every starter page is on it.
-      { database: 'Teams', values: { name: 'Everyone' } },
+      // Teams starts with one team; every starter page is on it. It is structure, not sample (#1242): Remove sample data must not delete it.
+      { database: 'Teams', values: { name: 'Everyone' }, sample: false },
       starterPage('Home', HOME_BODY),
       starterPage('Onboarding', ONBOARDING_BODY, 'Home'),
       starterPage('How we work', HOW_WE_WORK_BODY, 'Home'),

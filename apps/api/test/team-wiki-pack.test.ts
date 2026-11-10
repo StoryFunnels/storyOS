@@ -320,3 +320,36 @@ describe('#1147 the rules: a Verified page older than 90 days becomes Needs revi
     }
   });
 });
+
+describe('#1242 "Remove sample data" leaves the Everyone team: it is structure, not sample', () => {
+  it('removes the four starter pages, keeps Everyone, and a re-install does not double it', async () => {
+    const ws = await newWs();
+    const inst = await as('POST', `/workspaces/${ws}/packs/install`, { manifest: entry.manifest });
+    expect(inst.statusCode, inst.body).toBe(201);
+    const teamsDb = await detail(ws, 'Teams');
+    const pagesDb = await detail(ws, 'Pages');
+    expect(await rows(ws, teamsDb.id)).toHaveLength(1);
+
+    const removed = await as('DELETE', `/workspaces/${ws}/templates/sample-data`);
+    expect(removed.statusCode, removed.body).toBe(200);
+    // Only the four starter pages are sample; before the fix this was 5 and Everyone went with them.
+    expect(removed.json().removed).toBe(4);
+
+    const teams = await rows(ws, teamsDb.id);
+    expect(teams.map((t) => t.title)).toEqual(['Everyone']);
+    expect(await rows(ws, pagesDb.id)).toHaveLength(0);
+
+    // A re-install reuses Everyone rather than duplicating it, and the pages it brings back are grouped under it.
+    const again = await as('POST', `/workspaces/${ws}/packs/install`, { manifest: entry.manifest });
+    expect(again.statusCode, again.body).toBe(201);
+    expect((await rows(ws, teamsDb.id)).map((t) => t.title)).toEqual(['Everyone']);
+    const pages = await rows(ws, pagesDb.id);
+    expect(pages.length).toBeGreaterThan(0);
+    for (const r of pages) expect(chips(r.values.team), String(r.title)).toEqual([teams[0]!.id]);
+  });
+
+  it('the flag is a manifest property: only Everyone carries it, every other sample record stays sample', () => {
+    const flagged = entry.manifest.sample_records.filter((r) => r.sample === false).map((r) => `${r.database}:${r.values['name']}`);
+    expect(flagged).toEqual(['Teams:Everyone']);
+  });
+});
