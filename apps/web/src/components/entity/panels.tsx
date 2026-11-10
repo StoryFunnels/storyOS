@@ -13,6 +13,8 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { api, API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
+import { AgentAvatar } from '@/components/tyron/agent-avatar';
+import { commentAuthorView } from './comment-author';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { isAiSource } from '@/lib/governance';
@@ -326,8 +328,21 @@ export function CommentsPanel({
         >
           <div className="mb-1 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-label font-medium text-ink">
-              <Avatar userId={comment.author.id} name={comment.author.name} image={comment.author.image} size={20} />
-              {comment.author.name}
+              {(() => {
+                // Ticket #1214 AC4 — an agent-posted comment shows the AGENT, not its manager.
+                const who = commentAuthorView(comment);
+                return who.kind === 'agent' ? (
+                  <>
+                    <AgentAvatar name={who.name} size="sm" />
+                    {who.name}
+                  </>
+                ) : (
+                  <>
+                    <Avatar userId={who.userId} name={who.name} image={who.image} size={20} />
+                    {who.name}
+                  </>
+                );
+              })()}
               {/* #762 — same SourceBadge ActivityPanel already uses (line ~451
                   below), so an agent/automation/MCP-authored comment reads
                   differently from a human one at a glance instead of the two
