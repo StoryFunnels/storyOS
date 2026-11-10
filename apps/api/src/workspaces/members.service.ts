@@ -16,7 +16,7 @@ import { EntitlementsService } from '../billing/entitlements.service';
 import { SalesSignalService } from '../billing/sales-signal.service';
 import { MembershipEventsService } from '../events/membership-events.service';
 
-/** admin/member are always billable; guest never is via role alone (grants decide — MN-121). */
+/** admin/member are billable; a guest never is, at any grant role (ticket #1258). */
 const BILLABLE_ROLES: MembershipRole[] = ['admin', 'member'];
 
 @Injectable()

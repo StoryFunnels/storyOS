@@ -5,28 +5,26 @@
  * Three surfaces (new-workspace, the template gallery, the share dialog) each
  * hand-built this URL, and they drifted: #106 fixed the grant on new-workspace
  * only, so the template gallery kept sending `grant=editor`. An editor guest is
- * BILLABLE — `access.service.ts` counts a guest as billable once any grant
- * ranks at or above `contributor`, and editor outranks it — so that link
- * silently cost a seat while FreeGuestTip promised guests are free.
- *
- * The default here is the load-bearing part: a caller that says nothing gets a
- * free tier. Billing a seat has to be a deliberate, visible choice at the call
- * site, never something you inherit by forgetting an argument.
+ * BILLABLE at the time (#327) — the server then counted a guest as a paid seat
+ * once any grant reached `contributor`, so that link silently cost a seat while
+ * FreeGuestTip promised guests are free. Since ticket #1258 a guest is free at
+ * every grant role, so the cost is gone; the default stays the least-privilege
+ * `viewer` because a caller that says nothing should not hand out edit access.
  */
 
 /**
- * Guest tiers that are never a paid seat. Mirrors the billing rule in
- * `apps/api/src/access/access.service.ts` (`isBillable`): a guest becomes
- * billable at `contributor` and above, so viewer and commenter stay free.
- * Keep this in step with that predicate — the server owns the real rule.
+ * Guest tiers that are never a paid seat: ALL of them (ticket #1258). A guest is
+ * free at every grant role; only admins and members pay. Mirrors the server rule
+ * in `apps/api/src/access/access.service.ts` (`isBillable`) — keep them in step,
+ * the server owns the real rule.
  */
-export const FREE_GUEST_GRANTS = ['viewer', 'commenter'] as const;
+export const FREE_GUEST_GRANTS = ['viewer', 'commenter', 'contributor', 'editor', 'creator'] as const;
 
-export type GuestGrant = 'viewer' | 'commenter' | 'contributor' | 'editor' | 'creator';
+export type GuestGrant = (typeof FREE_GUEST_GRANTS)[number];
 
-/** Whether a grant costs a seat. Mirrors the server's `isBillable`. */
-export function isBillableGuestGrant(grant: GuestGrant): boolean {
-  return !(FREE_GUEST_GRANTS as readonly string[]).includes(grant);
+/** Whether a guest grant costs a seat. Never: guests are always free. Mirrors the server's `isBillable`. */
+export function isBillableGuestGrant(_grant: GuestGrant): boolean {
+  return false;
 }
 
 export function guestInviteHref({
@@ -37,7 +35,7 @@ export function guestInviteHref({
   ws: string;
   /** Scopes the invite to one space. Omitted → the dialog opens unscoped. */
   spaceId?: string | null;
-  /** Defaults to the free `viewer` tier. Pass a billable tier only where the cost is stated. */
+  /** Defaults to the read-only `viewer` tier. Any tier is free; pass a wider one only where the person should be able to edit. */
   grant?: GuestGrant;
 }): string {
   const base = `/w/${ws}/settings/members?invite=guest`;

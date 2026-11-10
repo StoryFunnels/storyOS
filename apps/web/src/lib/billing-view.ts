@@ -50,7 +50,7 @@ export const BILLING_COPY = {
   lead: 'Plan, seats and invoices',
   trial: 'No card required. If it ends without upgrading, this workspace moves to Free — nothing is locked or deleted, and every feature stays reachable.',
   usageDescription: 'StoryOS never limits items — this is scale, not capability.',
-  seatsBefore: 'Admins, members, and guests with edit access or higher. Viewer and commenter guests, and pending invites, don’t count — see',
+  seatsBefore: 'Admins and members. Guests are always free, whatever access they have, and pending invites don’t count — see',
   seatsLink: 'Members',
   seatsAfter: 'for everyone with access.',
 } as const;

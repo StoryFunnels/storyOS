@@ -34,11 +34,9 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
-/** admin/member always count; a guest only counts once it can create/edit (MN-121). */
-function invitedRoleIsBillable(role: MembershipRole, grants: GrantInput[] | undefined): boolean {
-  if (role === 'admin' || role === 'member') return true;
-  if (role === 'guest') return (grants ?? []).some((g) => g.role === 'contributor' || g.role === 'editor' || g.role === 'creator');
-  return false;
+/** admin/member count; a guest never does, at any grant role (ticket #1258). Mirrors AccessService.billableUserIds. */
+function invitedRoleIsBillable(role: MembershipRole): boolean {
+  return role === 'admin' || role === 'member';
 }
 
 @Injectable()
@@ -69,7 +67,7 @@ export class InvitesService {
     }
     // MN-190: block at the moment the admin acts, not the invitee's accept —
     // Free has no seat-overage price, so this is the only real ceiling.
-    if (invitedRoleIsBillable(input.role, input.grants)) {
+    if (invitedRoleIsBillable(input.role)) {
       const allowed = await this.entitlements.can(workspaceId, 'add_seat');
       if (!allowed) {
         // #650 AC2 — hooked at the EXISTING rejection, not a new detection
@@ -262,7 +260,7 @@ export class InvitesService {
     // #650 AC2 — a billable role just became a real, active seat (billableUserIds
     // only counts active memberships, so this is the actual crossing point, not
     // invite creation). Never throws; fire-and-forget like the sync above.
-    if (invitedRoleIsBillable(invite.role, invite.grants as GrantInput[] | undefined)) {
+    if (invitedRoleIsBillable(invite.role)) {
       void this.salesSignal.checkSeatCrossing(invite.workspaceId);
     }
 

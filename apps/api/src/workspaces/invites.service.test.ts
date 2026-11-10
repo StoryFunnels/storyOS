@@ -146,4 +146,32 @@ describe('InvitesService.create — the invite email send point (MN-103)', () =>
     ).rejects.toThrow(/Free plan/);
     expect(emailService.send).not.toHaveBeenCalled();
   });
+
+  it('never treats a guest invite as a seat, at any grant role (ticket #1258)', async () => {
+    const emailService = { send: vi.fn() } as unknown as EmailService;
+    const entitlements = { can: vi.fn().mockResolvedValue(false) } as unknown as EntitlementsService;
+    const maybeFire = vi.fn();
+    const service = new InvitesService(
+      makeDb(),
+      { validateGrants: vi.fn() } as unknown as AccessService,
+      {} as unknown as BillingService,
+      entitlements,
+      { maybeFire } as unknown as SalesSignalService,
+      emailService,
+      membershipEvents,
+      notifications,
+    );
+
+    // The seat cap is full (can() => false): a seat-costing invite would be refused.
+    // A creator guest must sail past it with no seat check and no sales signal.
+    for (const role of ['viewer', 'contributor', 'editor', 'creator'] as const) {
+      await service.create('ws1', 'admin1', {
+        email: `guest-${role}@y.com`,
+        role: 'guest',
+        grants: [{ space_id: 's1', role }],
+      });
+    }
+    expect(entitlements.can).not.toHaveBeenCalled();
+    expect(maybeFire).not.toHaveBeenCalled();
+  });
 });

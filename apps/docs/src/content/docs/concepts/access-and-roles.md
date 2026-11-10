@@ -178,12 +178,16 @@ while every other client's work stays invisible.
 
 ## Who counts toward billing
 
-**Settings → Plan & billing** shows **Billable seats** — admins and members always count; a guest counts
-only once their grant reaches `contributor` or higher. **A viewer or commenter guest is free**,
-whatever the total member count on the Members page looks like — pending invites don't count
-either, whether they resolve to a paid role or not. The Plan & billing page names exactly this rule in
-its own caption, with a link to Members, precisely so the two numbers can be reconciled rather
-than left to look like a discrepancy.
+**Settings → Plan & billing** shows **Billable seats**: admins and members count, and nobody else
+does. **A guest is always free**, whatever access they hold — viewer, commenter, contributor,
+editor or creator. A guest who can edit is still not a paid seat; the people who pay are the
+members. Pending invites don't count either, whether they resolve to a paid role or not. The Plan &
+billing page names exactly this rule in its own caption, with a link to Members, precisely so the
+two numbers can be reconciled rather than left to look like a discrepancy.
+
+Promoting a guest to a member starts counting them from that moment; moving a member to guest stops
+it. A change in the count only affects the seat line going forward — invoices already issued are
+not rewritten.
 
 ## Pending invitations
 

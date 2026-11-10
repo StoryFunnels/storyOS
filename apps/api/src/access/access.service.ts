@@ -739,35 +739,30 @@ export class AccessService {
   // --- Billing boundary (MN-121) ---
 
   /**
-   * The ladder IS the billing boundary — no second concept (MN-121).
+   * Who pays (ticket #1258, Ievgen's ruling 2026-11-10): billable = workspace
+   * admin or member, and nobody else. A guest is NEVER billable, whatever grant
+   * role they hold (creator included). This supersedes MN-121's "a guest becomes
+   * billable at contributor"; the ladder is still the permission model, it is
+   * just no longer the billing boundary.
    *
-   * Billable = can create anything: a member/admin (workspace-wide creators), or a
-   * guest holding any grant at >= contributor on any scope. viewer/commenter-only
-   * guests are free, which is what makes "viewers and guests are always free"
-   * true rather than aspirational.
-   *
-   * Feeds MN-190 (seats), which cannot define a seat without this.
+   * Feeds seats (the Plan & billing count, the Stripe seat line, the sales
+   * signals). `invitedRoleIsBillable` in invites.service.ts is the same rule for
+   * a not-yet-accepted invite — change them together.
    */
   async isBillable(membership: Membership): Promise<boolean> {
-    if (membership.role === 'admin' || membership.role === 'member') return true;
-    const grants = await this.guestGrants(membership);
-    return grants.some((g) => ACCESS_RANK[g.role] >= ACCESS_RANK.contributor);
+    return membership.role === 'admin' || membership.role === 'member';
   }
 
-  /** Seat count for a workspace — the same predicate, evaluated in one pass. */
+  /** Seat count for a workspace — the same predicate, over ACTIVE memberships (a pending invite is never a seat). */
   async billableUserIds(workspaceId: string): Promise<string[]> {
     const members = await this.db.query.memberships.findMany({
-      where: and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')),
+      where: and(
+        eq(memberships.workspaceId, workspaceId),
+        eq(memberships.status, 'active'),
+        inArray(memberships.role, ['admin', 'member']),
+      ),
     });
-    const grants = await this.db.query.accessGrants.findMany({
-      where: eq(accessGrants.workspaceId, workspaceId),
-    });
-    const canCreate = new Set(
-      grants.filter((g) => ACCESS_RANK[g.role] >= ACCESS_RANK.contributor).map((g) => g.userId),
-    );
-    return members
-      .filter((m) => m.role === 'admin' || m.role === 'member' || canCreate.has(m.userId))
-      .map((m) => m.userId);
+    return members.map((m) => m.userId);
   }
 
   // --- Grants management (admin) ---
