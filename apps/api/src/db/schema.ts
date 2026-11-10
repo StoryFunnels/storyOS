@@ -1185,6 +1185,27 @@ export const userPreferences = pgTable('user_preferences', {
 });
 
 /**
+ * Ticket #1251 — one row per My work digest SLOT claimed for a person in a workspace. The row IS the compare-and-set: `source_key`
+ * (`my-work-digest:<user>:<workspace>:<slot ISO>`) is unique, so two sweeps, two API instances, or a restart mid-slot can claim a slot
+ * exactly once (the #1175 slot pattern). `outcome` records what the claim led to: 'sent', or 'empty' (nothing to say, nothing mailed).
+ */
+export const myWorkDigestSends = pgTable(
+  'my_work_digest_sends',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceKey: text('source_key').notNull(),
+    userId: text('user_id').notNull(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    slot: timestamp('slot', { withTimezone: true }).notNull(),
+    outcome: text('outcome').notNull().default('claimed'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('my_work_digest_sends_source_key_uq').on(t.sourceKey)],
+);
+
+/**
  * ADR-0019 / #973 — one row per PER-VIEWER OVERRIDE of a shared object: "this person's personal filter on that view", "this person's
  * view of that embedded collection", "this person's pinned tabs on that database". `kind` says which, `target_id` is the shared
  * object, `data` is the (small) override, validated by the kind's registry entry (`viewer-state/viewer-state.kinds.ts`).

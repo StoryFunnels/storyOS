@@ -27,6 +27,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { FilesModule } from './files/files.module';
 import { UsersModule } from './users/users.module';
 import { SearchModule } from './search/search.module';
+import { MyWorkDigestModule } from './my-work-digest/my-work-digest.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ImportModule } from './import/import.module';
 import { CopyRecordModule } from './copy-record/copy-record.module';
@@ -102,6 +103,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     FilesModule,
     UsersModule,
     SearchModule,
+    MyWorkDigestModule,
     NotificationsModule,
     ImportModule,
     CopyRecordModule,

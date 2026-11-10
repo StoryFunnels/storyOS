@@ -3868,6 +3868,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/my-work-digest/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stop the My work email: a signed link, no sign-in. Redirects to Settings › Notifications */
+        get: operations["MyWorkDigestController_unsubscribe"];
+        put?: never;
+        /** Stop the My work email (RFC 8058 one-click List-Unsubscribe-Post). Signed token, no sign-in */
+        post: operations["MyWorkDigestController_unsubscribeOneClick"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/import": {
         parameters: {
             query?: never;
@@ -5704,6 +5722,14 @@ export interface components {
             view_id?: string;
         };
         PreferencesPatchDto: {
+            myWorkEmail?: {
+                /** @enum {string} */
+                frequency?: "off" | "daily" | "weekly";
+                weekday?: number;
+                time?: string;
+                timezone?: string | null;
+                include_assigned_by_me?: boolean;
+            };
             notifications?: {
                 assigned?: boolean;
                 mentioned?: boolean;
@@ -13609,6 +13635,40 @@ export interface operations {
         };
     };
     SearchController_recent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MyWorkDigestController_unsubscribe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MyWorkDigestController_unsubscribeOneClick: {
         parameters: {
             query?: never;
             header?: never;

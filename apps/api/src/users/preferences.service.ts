@@ -10,7 +10,7 @@ import {
 } from './preferences.constants';
 
 /** The groups of the preferences blob a PATCH may write: the keys of `UserPreferences` (see `preferences.controller.ts`'s patch schema). */
-const PATCHABLE = ['notifications', 'regional', 'myWork', 'github', 'activation', 'sidebar'] as const;
+const PATCHABLE = ['notifications', 'regional', 'myWork', 'github', 'activation', 'sidebar', 'myWorkEmail'] as const;
 
 /**
  * The list-valued preferences that are edited by ADDING and REMOVING items (ticket #987), each at a fixed place in the blob. The client
