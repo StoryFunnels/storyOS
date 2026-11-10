@@ -70,8 +70,11 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
     }
     // And run_skill keeps the BYO-AI contract unmissable (#832 AC4).
     const run = skill.find((d) => d.tool === 'run_skill')!.text;
-    expect(run).toMatch(/YOU are the model/);
-    expect(run).toMatch(/StoryOS executes nothing/);
+    // #1260: the old wording ("no managed AI runtime yet … StoryOS executes nothing") was stale — a managed model exists for agents set
+    // to "StoryOS AI". What is still true, and pinned here, is that THIS call invokes no model and the caller carries the skill out.
+    expect(run).toMatch(/invokes NO model/);
+    expect(run).toMatch(/YOU — the connected AI/);
+    expect(run).not.toMatch(/no managed AI runtime/i);
   });
 
   it('#868 AC5: create_skill / update_skill descriptions match the visibility SCHEMA exactly (every accepted tier named, no tier claimed unavailable that the schema accepts)', () => {
