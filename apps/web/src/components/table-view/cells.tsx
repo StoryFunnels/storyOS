@@ -1015,7 +1015,7 @@ function NumberEditor({
     setVal(String(next));
   };
   return (
-    <div className="group relative flex h-full items-center bg-card">
+    <div className="group relative flex h-full w-full items-center bg-card">
       <input
         autoFocus
         inputMode="decimal"

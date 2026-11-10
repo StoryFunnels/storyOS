@@ -51,6 +51,9 @@ describe('#1232 verify fixes', () => {
   it('number stepper overlays instead of taking width', () => {
     expect(cells).toMatch(/absolute right-0 top-1\/2/);
   });
+  it('number editor wrapper is full width, so its right edge does not move on edit', () => {
+    expect(cells).toMatch(/<div className="group relative flex h-full w-full items-center bg-card">\s*<input\s+autoFocus\s+inputMode="decimal"/);
+  });
   it('a press right after mount is the opening double-click; a later one is not', () => {
     expect(isOpeningClick(1000, 1200)).toBe(true);
     expect(isOpeningClick(1000, 1000 + OPENING_CLICK_MS)).toBe(false);
