@@ -5,7 +5,7 @@ import { STRIP_PERSON, STRIP_PILL, useStripChip } from '@/components/entity/stri
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, Plus, Sigma } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, PanelRightOpen, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AttachmentEditor, formatBytes } from './attachment-cell';
 import type { AttachmentValue } from './attachment-cell';
@@ -1411,6 +1411,47 @@ export function PressButton({
       disabled={disabled || busy}
     >
       {busy ? '…' : field.displayName}
+    </button>
+  );
+}
+
+/**
+ * #1231 — the "Open" affordance on a title cell. Pinned right, over the truncated
+ * title, with the row's own ground behind it (the parent row is `group`). Shown on
+ * row hover, when the cell is the cursor (`active`, the keyboard path) or focused,
+ * and always on touch, where it drops the label.
+ */
+export function OpenRecordButton({
+  title,
+  active,
+  selected,
+  onOpen,
+}: {
+  title: string;
+  active: boolean;
+  selected: boolean;
+  onOpen: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${title || 'Untitled'}`}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(e);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={cn(
+        'absolute right-1 top-1/2 z-10 inline-flex h-5 -translate-y-1/2 items-center gap-1 rounded px-1.5 text-meta font-medium text-ink-secondary shadow-sm ring-1 ring-border-default hover:bg-hover hover:text-ink focus-visible:opacity-100 focus-visible:pointer-events-auto',
+        selected ? 'bg-active' : 'bg-card group-hover:bg-hover',
+        active
+          ? 'opacity-100'
+          : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100',
+      )}
+    >
+      <PanelRightOpen className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="[@media(hover:none)]:hidden">Open</span>
     </button>
   );
 }
