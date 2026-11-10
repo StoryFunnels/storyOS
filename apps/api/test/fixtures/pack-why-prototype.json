@@ -71,6 +71,14 @@
       "Let the Triage agent suggest a type and priority"
     ]
   },
+  "deal-desk": {
+    "why": "You sell services to other businesses and want every deal, quote and hand-off to delivery in one place.",
+    "can": [
+      "See the whole pipeline by stage and spot a deal that has gone quiet",
+      "Build a quote from your price list, line by line",
+      "Turn a won deal into an Agency OS project, after you approve it"
+    ]
+  },
   "team-board": {
     "why": "Your team needs one place to see who is doing what this week.",
     "can": [
