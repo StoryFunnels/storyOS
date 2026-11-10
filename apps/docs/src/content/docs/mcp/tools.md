@@ -332,7 +332,7 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 | Tool | What it does |
 |---|---|
 | `get_my_work` | For the identity the token belongs to: `kind` is `assigned` (default), `created`, `assigned_by_me`, `waiting` (approvals to decide and unanswered mentions), `recent` or `favorites`. Finished records are never returned; totals are exact and `truncated` says when a list was cut. See [My Work](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you). |
-| `list_notifications` / `get_unread_count` / `mark_notifications` | What's waiting for you (assignments, mentions, comments, state changes, approval requests); a single unread number; mark read or archive (`all: true` clears the inbox). |
+| `list_notifications` / `get_unread_count` / `mark_notifications` | What's waiting for you (assignments, mentions, comments, state changes, approval requests, and an agent's budget notices `agent_budget_warning` and `agent_budget_paused`); a single unread number; mark read or archive (`all: true` clears the inbox). |
 
 ## Agents, runs and automations
 
@@ -341,9 +341,18 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 | `get_agents` / `setup_agents` | Whether the Agentic OS space exists (with a summary), and provisioning it (idempotent). |
 | `run_agent` / `delegate_to_agent` | Run an agent by hand and get its Run back; hand one record to an agent, which posts its outcome back on the record as a comment linking to the Run. |
 | `create_agent_trigger` | Fire an agent when a record reaches a given state; it starts by itself by default. `human_gate: true` ("ask me before each run") means it never starts a run by itself: a person starts each run. |
+| `get_agent_budget` | One agent's monthly token and run budget against what it has used this UTC month, with each metric's state (unlimited, ok, warning, paused or not_measured). See [the Runner guide](/guides/runner/). |
 | `get_run` / `get_staged_action` / `rerun_action` / `get_run_quota` | One run in full (each action's attempts and artifacts); what a parked run is waiting to do (read-only — approving is human-only); retry one failed action with its original inputs; this month's run usage against your plan. |
 | `create_automation` / `update_automation` | Author or edit a rule (admin-scoped). In an automation's set, create and update-linked actions, a select, workflow or multi-select value can be an option label (any case) or id; an unknown label fails the run and names the valid ones. See [Setting a select field by its label](/concepts/automations/#setting-a-select-workflow-or-multi-select-field-by-its-label). |
 | `test_automation` / `get_automation_last_payload` | Dry-run a rule against one record before trusting it (no side effects unless you pass an `action_index`); the latest payload a webhook-triggered rule received. |
+
+**A held delete is not a failure, and not done.** When an agent's own approval policy holds a delete,
+the delete tools (`delete_record`, `unlink_records`, `delete_comment`, `delete_attachment`,
+`delete_document`, `delete_skill`, `delete_space_view`, `delete_source`, `delete_record_template`,
+`remove_sample_data`) answer `deleted: false` and `pending_approval: true`, with an `approval_id`.
+Nothing was deleted; a person decides it in the Approvals inbox. **Do not retry it**: a retry would
+hold a second approval. `delete_records` answers the same way with `deleted: 0` (a count) and
+`pending_approval: true`. See [approval gates](/concepts/approval-gates/).
 
 ## Conveniences
 
