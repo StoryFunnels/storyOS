@@ -10,7 +10,7 @@ Ievgen's brief for this folder: "a section inside the repo with docs about our v
 - [values.md](values.md): honesty, the customer's AI, open source, simplicity, people decide.
 - [product-principles.md](product-principles.md): rulings we keep re-ruling. Read before you design a gate, a color, a pack or a pricing line.
 - [voice.md](voice.md): how we write, and how Quill speaks.
-- [claims.md](claims.md): what we may say publicly. A dated mirror, not the live source.
+- [claims.md](claims.md): where the claims register lives, and the rules for using it.
 
 ## Five rules for agents
 

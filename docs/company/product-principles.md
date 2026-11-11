@@ -37,6 +37,6 @@ A designed surface is checked against the designer's spec, measured from the ren
 
 Open, not decided. Ievgen closed `map()` with a lambda as too complex, and asked for a plan to make formulas human. The plan (Issues #873) is in ToDo and awaits Ievgen's choice of direction. (Source: Issues #873.) Nothing shipped is removed.
 
-## Unsourced: needs an owner
+## Nothing hover-only
 
-- "Nothing hover-only": only the #1271 spec lists it.
+Anything a person needs must be reachable without hovering. (Source: ticket #1271, `details`, product-principles.md spec.)

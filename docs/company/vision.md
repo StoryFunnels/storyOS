@@ -17,7 +17,7 @@ The Runner runs the customer's own AI on their own subscription. It is early acc
 
 ## How it feels
 
-"Start simple. Grow into a real database." Boards, calendars and tasks on day one, connected databases underneath when needed. (Source: storyos/docs #11, section 2; marked there as a proposal that needs Ievgen's choice of headline.)
+"You run the business. Your AI crew does the work." and "One chef. Many hands." Boards, calendars and tasks on day one, connected databases underneath when needed. (Source: the live storyos.dev hero, as re-checked by Theo on 2026-11-11; claims register #7, 'Re-check 2026-11-11'.)
 
 It is built by an agency. (Source: Promotion Strategy, storyos/docs #5, section 2, 'Built by an agency'; July 2026.)
 

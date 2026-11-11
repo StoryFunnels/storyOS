@@ -18,7 +18,7 @@ We never meter or mark up the customer's own Claude or ChatGPT. (Source: claims 
 
 ## 3. Open source
 
-Self-host free under AGPL-3.0. Say "AGPL-3.0"; do not say no other license exists, because GitHub also shows a commercial license. (Source: claims register #7, 'Safe to claim'.)
+StoryOS is open source under AGPL-3.0, and you can self-host it free. (Source: claims register #7, 'Safe to claim'; the repository LICENSE.)
 
 ## 4. Simplicity
 
@@ -29,7 +29,3 @@ Trello/Notion-simple by default, power on demand. (Source: ticket #1271, `detail
 Approvals hold actions until a person decides. The AI cannot approve itself. Say "can hold actions", never "all". (Source: claims register #7, 'Re-check 2026-11-11'.)
 
 Every decision is for the person who uses StoryOS tomorrow, not the person who builds it today. (Source: house rules, 'Whose side you are on'.)
-
-## Not adopted
-
-- "Never paywalled" and "no asterisk" are pillars in the July 2026 Promotion Strategy (storyos/docs #5). "Ever" and "never cap" are promises about the future and are Ievgen's call. (Source: claims register #7, 'Plan and API claims'.)
