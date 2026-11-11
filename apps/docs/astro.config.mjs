@@ -108,6 +108,7 @@ export default defineConfig({
         ]),
       ],
       sidebar: [
+        { label: 'Changelog', slug: 'changelog' },
         {
           label: 'Getting Started',
           items: [
