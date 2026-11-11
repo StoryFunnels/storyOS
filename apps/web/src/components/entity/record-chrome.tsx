@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Copy, CopyPlus, Eye, FolderInput, History, LayoutTemplate, Link2, MoreHorizontal, SlidersHorizontal, Star, Trash2, Plus } from 'lucide-react';
+import { announceTrashed, requestTrash } from '@/lib/trash-record';
 import { api } from '@/lib/api';
 import { recordHref } from '@/lib/records';
 import { backOrParent } from '@/lib/nav-trail';
@@ -264,22 +265,28 @@ export function RecordActions({
     onError: () => toast.error('Could not duplicate'),
   });
 
+  // #1275 — same shared delete + Undo toast as the table row (lib/trash-record.ts), so the panel is no
+  // longer the one single-delete with no way back.
   const remove = useMutation({
-    mutationFn: async () => {
-      const { error } = await api.DELETE('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', {
-        params: { path: { ws, db, rec } },
-      });
-      if (error) throw error;
-    },
+    mutationFn: () => requestTrash(ws, db, rec),
     onSuccess: () => {
-      toast.success('Record moved to trash');
+      announceTrashed({
+        ws,
+        db,
+        rec,
+        title: recTitle,
+        onChanged: () => {
+          void qc.invalidateQueries({ queryKey: ['records', ws, db] });
+          void qc.invalidateQueries({ queryKey: ['record', ws, db] });
+        },
+      });
       if (onGone) onGone();
       else backOrParent(router, `/w/${ws}/d/${db}`);
       // Drop the deleted record's queries (don't refetch a 404); refresh the list.
       qc.removeQueries({ predicate: (query) => Array.isArray(query.queryKey) && query.queryKey.includes(rec) });
       void qc.invalidateQueries({ queryKey: ['records', ws, db] });
     },
-    onError: () => toast.error('Could not delete'),
+    onError: () => toast.error('Could not delete. Nothing was moved to the trash.'),
   });
 
   const [delegateOpen, setDelegateOpen] = useState(false);
