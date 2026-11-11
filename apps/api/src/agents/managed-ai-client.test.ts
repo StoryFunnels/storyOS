@@ -98,7 +98,8 @@ describe('callers that rely on JSON keep asking for it (#1109)', () => {
       await steps[Symbol.asyncIterator]().next();
     })().catch(() => undefined);
     const [prompt, options] = complete.mock.calls[0]!;
-    expect(prompt).toMatch(/json/i);
+    // #1074: the JSON instruction is part of the engine's rules, which now travel as the system message.
+    expect(`${options?.system ?? ''}\n${prompt}`).toMatch(/json/i);
     expect(options?.responseFormat ?? 'json').toBe('json');
   });
 });

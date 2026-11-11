@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -14,6 +15,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
   activityEvents,
+  automations as automationsTable,
   databases as databasesTable,
   fields as fieldsTable,
   memberships as membershipsTable,
@@ -281,8 +283,11 @@ export class AgentsService implements OnModuleInit {
           actorId: string;
           depth?: number;
           schedule?: { ruleId: string; firedFor: string; actionIndex: number };
+          ruleId?: string | null;
         };
         const run = await this.runFromAutomation({
+          // #1074: whose decision this run is — the rule's author (a button has no rule: the person who pressed it).
+          authorId: await this.automationAuthor(ctx.ruleId ?? ctx.schedule?.ruleId ?? null, ctx.actorId),
           workspaceId: ctx.workspaceId,
           agentRef: action.agent,
           // Phase A's only supported target: the record that fired the rule
@@ -1102,6 +1107,12 @@ export class AgentsService implements OnModuleInit {
    * dispatcher.
    */
   async runFromAutomation(input: {
+    /**
+     * #1074: the person who decided this run — the rule's author, or the presser of a button. The run acts with the agent OWNER's
+     * authority, so it is allowed only when that person is the owner or a workspace admin (whose access already covers the owner's):
+     * otherwise a member's rule could make an admin's agent act with the admin's access.
+     */
+    authorId: string | null;
     /** ticket #1130: whose action fired the rule (the wake's access subject). */
     requestedBy?: string | null;
     workspaceId: string;
@@ -1135,6 +1146,7 @@ export class AgentsService implements OnModuleInit {
         "This agent's owner is no longer an active member of this workspace",
       );
     }
+    await this.assertMayRunAs(input.workspaceId, input.authorId, owner.userId);
 
     return this.dispatchRun({
       workspaceId: input.workspaceId,
@@ -1158,6 +1170,32 @@ export class AgentsService implements OnModuleInit {
         dryRun: input.dryRun,
       },
     });
+  }
+
+  /** #1074: the author of the rule behind a run_agent job; without a rule (a button press, an old job) the person who fired it. */
+  private async automationAuthor(ruleId: string | null, actorId: string): Promise<string | null> {
+    if (ruleId) {
+      const rule = await this.db.query.automations.findFirst({ where: eq(automationsTable.id, ruleId), columns: { createdBy: true } });
+      if (rule?.createdBy) return rule.createdBy;
+    }
+    return actorId ?? null;
+  }
+
+  /**
+   * #1074: a run_agent action acts with the agent owner's authority, so only the owner or an active workspace admin may be the one
+   * deciding it. Re-checked at run time, so a rule written by someone who has since been demoted or removed stops working.
+   */
+  private async assertMayRunAs(workspaceId: string, authorId: string | null, ownerUserId: string): Promise<void> {
+    if (authorId === ownerUserId) return;
+    if (authorId) {
+      const m = await this.db.query.memberships.findFirst({
+        where: and(eq(membershipsTable.workspaceId, workspaceId), eq(membershipsTable.userId, authorId)),
+      });
+      if (m?.status === 'active' && m.role === 'admin') return;
+    }
+    throw new ForbiddenException(
+      "Only this agent's owner or a workspace admin can run it from an automation or button — ask its owner to set this up",
+    );
   }
 
   /**
