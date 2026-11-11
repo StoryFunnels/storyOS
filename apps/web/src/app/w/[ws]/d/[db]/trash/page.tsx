@@ -1,5 +1,7 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
+import { entityQueryOptions, entityState } from '@/lib/entity-state';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +28,7 @@ export default function TrashPage() {
 
   const trash = useQuery({
     queryKey: ['trash', ws, db],
+    ...entityQueryOptions,
     queryFn: async () => {
       const { data, error } = await api.GET(
         '/api/v1/workspaces/{ws}/databases/{db}/records/trash',
@@ -80,6 +83,10 @@ export default function TrashPage() {
     },
     onError: () => toast.error('Could not restore'),
   });
+
+  // #1291 — an unknown or forbidden database is the 404, and a failed load is a Retry; neither may read as "Nothing here".
+  const blocked = entityGateView(entityState(trash), () => void trash.refetch());
+  if (blocked) return blocked;
 
   const nothingAtAll = (trash.data ?? []).length === 0 && (viewsTrash.data ?? []).length === 0;
 

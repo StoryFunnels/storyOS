@@ -1,5 +1,7 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
+import { entityQueryOptions, entityState } from '@/lib/entity-state';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -42,6 +44,7 @@ export default function SpaceViewPage() {
       if (error) throw error;
       return data as unknown as ViewDetail;
     },
+    ...entityQueryOptions,
   });
 
   const save = useMutation({
@@ -58,18 +61,13 @@ export default function SpaceViewPage() {
 
   if (query.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
   /**
-   * A failed load says so. #346 fixed exactly this class of lie on the database
-   * views — a failed query rendering as "nothing here" — and a new route must not
-   * reintroduce it.
+   * A failed load says so (#346 fixed a failed query rendering as "nothing here"; a new route must not reintroduce it), and a view that
+   * is not there for this person is the 404 (#1291: 404 and 403 alike). Loading is its own, third answer.
    */
-  if (query.isError) {
-    return (
-      <p className="p-6 text-sm text-error">
-        This view could not be loaded. You may not have access to it, or it may have been deleted.
-      </p>
-    );
-  }
-  if (!query.data) return <p className="p-6 text-sm text-error">View not found.</p>;
+  const state = entityState(query);
+  const blocked = entityGateView(state, () => void query.refetch());
+  if (blocked) return blocked;
+  if (state.kind === 'loading' || !query.data) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
   const view = query.data;
   const config = (view.config ?? {}) as ViewConfig;

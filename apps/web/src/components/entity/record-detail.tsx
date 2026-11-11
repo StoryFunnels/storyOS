@@ -1,5 +1,7 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
+import { combineEntityStates, entityQueryOptions, entityState } from '@/lib/entity-state';
 import { databaseDisplayName } from '@/lib/system-databases';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -131,6 +133,8 @@ import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 export function useRecordQuery(ws: string, db: string, rec: string) {
   return useQuery({
     queryKey: ['record', ws, db, rec],
+    // #1291 — a record that is gone (404/403) is not retried or refetched by the next observer.
+    ...entityQueryOptions,
     // #620 — re-read while an AI recompute is in flight, so the field passes from "computing" to its result on its own.
     refetchInterval: (query) => (recordHasPendingAi(query.state.data) ? AI_POLL_MS : false),
     queryFn: async () => {
@@ -522,8 +526,15 @@ export function RecordDetail({
   // guard keeps this from firing at all until that id exists.
   const watchers = useWatchers(ws, db, record.data?.id ?? '');
 
-  if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
-  if (!record.data) return <p className="p-6 text-sm text-error">Item not found.</p>;
+  // #1291 — a record or a database that is not there for this person (404/403) is the 404 page; a failed load is a Retry; only a
+  // load in flight says Loading. A record's database counts: a record of a database you cannot see is not there for you either.
+  const recordGate = combineEntityStates(entityState(record), entityState(database));
+  const blocked = entityGateView(recordGate, () => {
+    void record.refetch();
+    void database.refetch();
+  });
+  if (blocked) return blocked;
+  if (recordGate.kind === 'loading' || !record.data) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
   // The route param can be a pretty `slug-{number}` (MN-087); every child + mutation
   // must use the resolved UUID, never the raw param.

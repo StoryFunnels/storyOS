@@ -1,5 +1,7 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
+import { entityState } from '@/lib/entity-state';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -40,6 +42,9 @@ export default function DatabaseRelationsPage() {
       return (data as unknown as { data: OntologyRelation[] }).data;
     },
   });
+
+  const blocked = entityGateView(entityState(database), () => void database.refetch());
+  if (blocked) return blocked;
 
   return (
     <div className="mx-auto max-w-3xl p-8">
