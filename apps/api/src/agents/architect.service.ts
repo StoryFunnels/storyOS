@@ -5,7 +5,7 @@ import type { ArchitectBuildResult, ArchitectPlan, InstalledTriggerState, PlanFi
 import { AgentWriteGatesService } from '../action-gates/agent-write-gates.service';
 import { assertSpaceCanHoldDatabases, spaceCanHoldDatabases } from '../access/access.service';
 import { AiCreditsService } from '../billing/ai-credits.service';
-import { decideField, decideState, isSystemDatabase, optionsMissing, relationExists } from './plan-decisions';
+import { decideField, decideRelation, decideState, fieldKeptReason, isSystemDatabase, optionsMissing } from './plan-decisions';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -332,7 +332,8 @@ export class ArchitectService {
     const label = `${dbName}.${field.name}`;
     if (decision.action === 'reuse') {
       const existing = live.find((f) => norm(f.displayName) === norm(field.name))!;
-      result.fields.push({ name: label, action: 'reused', id: existing.id });
+      // ticket #1222 - a same-named field of another type is kept, and the result says so rather than reading as a plain reuse.
+      result.fields.push({ name: label, action: 'reused', id: existing.id, ...(decision.clash ? { reason: fieldKeptReason(field.name, decision.clash) } : {}) });
       return existing;
     }
     const created = (await this.fields.create(databaseId, {
@@ -432,10 +433,15 @@ export class ArchitectService {
       // is already there the relation exists — creating it again would 422 on
       // the display-name uniqueness guard anyway, and reuse is the right answer.
       const live = await this.liveFields(membership, fromId);
-      const existing = relationExists(live, planned.from_field)
-        ? live.find((f) => f.type === 'relation' && norm(f.displayName) === norm(planned.from_field))
-        : undefined;
-      if (existing) {
+      // ticket #1222 - one decision (shared with the pack preview): reuse the relation that is there, or STOP naming the same-named field
+      // that is not a relation, before anything more is written - never a raw "a field named X already exists" from the relation service.
+      const decision = decideRelation(
+        { name: planned.from, fields: live, field: planned.from_field },
+        { name: planned.to, fields: toId === fromId ? live : await this.liveFields(membership, toId), field: planned.to_field },
+      );
+      if (decision.action === 'blocked') throw new UnprocessableEntityException(decision.reason);
+      if (decision.action === 'reuse') {
+        const existing = live.find((f) => f.type === 'relation' && norm(f.displayName) === norm(planned.from_field))!;
         result.relations.push({ name: label, action: 'reused', id: existing.id });
         continue;
       }

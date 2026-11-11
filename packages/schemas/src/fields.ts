@@ -772,6 +772,40 @@ export const changeFieldTypeSchema = z.object({
   confirm_dependent_rules: z.boolean().default(false),
 });
 
+/**
+ * Ticket #1263 — dry-run a formula: parse, type-check and evaluate it on up to 5 sample records, saving NOTHING.
+ * `field` (optional) is an existing formula field being edited, so the self-reference guard applies to it exactly as on save.
+ */
+export const FORMULA_PREVIEW_MAX_SAMPLES = 5;
+export const previewFormulaSchema = z.object({
+  expression: z.string().max(5000),
+  field: z.string().uuid().optional(),
+  samples: z.number().int().min(1).max(FORMULA_PREVIEW_MAX_SAMPLES).optional(),
+});
+
+export const formulaPreviewResponseSchema = z.object({
+  valid: z.boolean(),
+  return_type: z.enum(['text', 'number', 'checkbox', 'date']).nullable(),
+  samples: z.array(
+    z.object({
+      record_id: z.string(),
+      number: z.number().nullable(),
+      title: z.string(),
+      value: z.unknown(),
+    }),
+  ),
+  errors: z.array(
+    z.object({
+      message: z.string(),
+      position: z.object({ start: z.number().int(), end: z.number().int() }),
+      expected: z.string().nullable(),
+      got: z.string().nullable(),
+      suggestion: z.string().nullable(),
+    }),
+  ),
+});
+export type FormulaPreviewResponse = z.infer<typeof formulaPreviewResponseSchema>;
+
 export const createOptionSchema = z.object({
   label: z.string().trim().min(1).max(100),
   color: z.enum(OPTION_COLORS).default('gray'),

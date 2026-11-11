@@ -1835,6 +1835,52 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/formula-preview": {
+      "post": {
+        "operationId": "FieldsController_previewFormula",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewFormulaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormulaPreviewResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Dry-run a formula: parse, type-check and evaluate it on up to 5 recent records; returns the return type or positioned errors, and saves nothing (#1263)",
+        "tags": [
+          "fields"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}": {
       "patch": {
         "operationId": "FieldsController_update",
@@ -13495,6 +13541,127 @@
         "required": [
           "display_name",
           "type"
+        ]
+      },
+      "PreviewFormulaDto": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "field": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "samples": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      },
+      "FormulaPreviewResponseDto": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "return_type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "checkbox",
+              "date",
+              null
+            ],
+            "nullable": true
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "record_id": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "title": {
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "record_id",
+                "number",
+                "title",
+                "value"
+              ]
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "end"
+                  ]
+                },
+                "expected": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "got": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "suggestion": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "message",
+                "position",
+                "expected",
+                "got",
+                "suggestion"
+              ]
+            }
+          }
+        },
+        "required": [
+          "valid",
+          "return_type",
+          "samples",
+          "errors"
         ]
       },
       "UpdateFieldDto": {

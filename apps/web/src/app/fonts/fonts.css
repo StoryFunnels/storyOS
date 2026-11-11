@@ -321,3 +321,17 @@
   --font-embed-playfair-display: 'Playfair Display', 'Playfair Display Fallback';
   --font-embed-jetbrains-mono: 'JetBrains Mono', 'JetBrains Mono Fallback';
 }
+
+/* #1253 — Quill's captions are ONE italic Instrument Serif remark (Dara's prototype v72). Only the italic Latin face is vendored:
+   she says short English lines. Provenance and licence: README.md, OFL.txt. */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./instrument-serif-italic-latin.woff2') format('woff2');
+  unicode-range: U+??,U+131,U+152-153,U+2BB-2BC,U+2C6,U+2DA,U+2DC,U+304,U+308,U+329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+:root {
+  --font-quill: 'Instrument Serif', Georgia, serif;
+}

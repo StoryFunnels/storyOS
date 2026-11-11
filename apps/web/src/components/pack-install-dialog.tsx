@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -22,6 +22,11 @@ import { cn } from '@/lib/utils';
 import { PackVisual } from '@/components/pack-visual';
 import type { MarkManifest } from '@/lib/pack-marks';
 import { PackMap, PackWhy } from '@/components/pack-review';
+import { Quill } from '@/components/quill/quill';
+import { useQuillWait } from '@/lib/quill/use-quill-wait';
+import { useDismissedHints } from '@/lib/dismissed-hints';
+import { QUILL_TIPS_HINT, installFailureSurface, installFailureText, installSuccessSurface, shouldShowTips } from '@/lib/quill/install-moments';
+import { toastInstallFailed, toastInstallReady } from '@/components/quill/install-toasts';
 import { ReuseChoice } from '@/components/pack-reuse-choice';
 import {
   addRefusals,
@@ -34,6 +39,7 @@ import {
   refusalNotice,
   reuseRefusals,
   reuseResolutions,
+  reviewLead,
   singleReusable,
   type ExistingElsewhere,
   type PackRelation,
@@ -618,7 +624,7 @@ export function InstallDialog({
   source = 'registry',
   installed,
   target,
-  onOpenChange,
+  onOpenChange: onOpenChangeProp,
 }: {
   ws: string;
   slug: string;
@@ -648,6 +654,13 @@ export function InstallDialog({
   // #978 AC3 — an agent the person changed defaults to Keep mine; only an explicit 'update' reaches the API.
   const [agentChoices, setAgentChoices] = useState<Record<string, AgentChoice>>({});
   const [result, setResult] = useState<InstallResult | null>(null);
+  // #1253 — the install ran and FAILED while this dialog was open: the real error, then Retry. (The reuse refusals above are a different
+  // thing: a choice the server refused keeps the review open on its row, and never reaches here.)
+  const [failure, setFailure] = useState<string | null>(null);
+  // #1253 — set when the person closes the dialog WHILE an install is running. The install keeps going (nothing here aborts the POST);
+  // what changes is where its outcome is told: a toast, never a navigation they did not ask for.
+  const closedMidInstall = useRef(false);
+  const retryToastId = useRef<string | number | null>(null);
   // #978 — "Use my <X> database": a name that already exists is a decision, so Install waits for it.
   const [useMine, setUseMine] = useState<Record<string, boolean>>({});
   const spaces = useSpaces(ws);
@@ -849,8 +862,26 @@ export function InstallDialog({
       void qc.invalidateQueries({ queryKey: ['packs-installed', ws] });
       void qc.invalidateQueries({ queryKey: ['onboarding', ws] });
       void qc.invalidateQueries();
-      toast.success(`${data.name} installed`);
-      if (route) {
+      const surface = installSuccessSurface({ closedMidInstall: closedMidInstall.current, route });
+      if (surface === 'toast') {
+        // #1253 — the dialog is gone, so the outcome is a toast, and nobody is navigated anywhere they did not ask to go.
+        if (retryToastId.current !== null) toast.dismiss(retryToastId.current);
+        const spaceId = target?.id ?? data.spaces.find((x) => x.action !== 'skipped')?.id;
+        const goTo = route ?? (spaceId ? `/w/${ws}/s/${spaceId}` : null);
+        toastInstallReady({
+          packName: data.name,
+          spaceName: target ? (renamed ?? target.name) : packSpaceName(entry.data?.manifest as RowManifest | undefined),
+          intoExisting: Boolean(target),
+          goLabel: goTo ? 'Go there' : null,
+          onGo: () => {
+            if (spaceId) expandSpaceInSidebar(spaceId);
+            if (goTo) router.push(goTo);
+          },
+        });
+        return;
+      }
+      if (surface === 'navigate' && route) {
+        toast.success(`${data.name} installed`);
         setLanding(true);
         const spaceId = target?.id ?? data.spaces.find((x) => x.action !== 'skipped')?.id;
         if (spaceId) expandSpaceInSidebar(spaceId);
@@ -872,13 +903,34 @@ export function InstallDialog({
         requestAnimationFrame(() => document.querySelector('[data-testid="pack-reuse-stale"]')?.scrollIntoView({ block: 'nearest' }));
         return;
       }
-      toast.error(
-        target || Object.keys(picked).length > 0
-          ? apiErrorMessage(e, 'Install failed — try again')
-          : 'Install failed — see the collisions below and try again',
-      );
+      // #1253 — the real error, in the dialog (Retry first, Quill after) or, if it was closed, in a toast that stays.
+      const message = apiErrorMessage(e, 'The install failed');
+      if (installFailureSurface({ closedMidInstall: closedMidInstall.current }) === 'toast') {
+        if (retryToastId.current !== null) toast.dismiss(retryToastId.current);
+        toastInstallFailed({ packName: entry.data?.name ?? 'the pack', message, onRetry: () => retryClosedInstall() });
+        return;
+      }
+      setFailure(message);
     },
   });
+
+  // #1253 — every way out of the dialog goes through here, so closing DURING an install is noticed in one place.
+  const onOpenChange = (open: boolean) => {
+    if (!open && install.isPending) closedMidInstall.current = true;
+    onOpenChangeProp(open);
+  };
+  // Retry from the failure toast: the dialog is gone, so it is the same install, again, with a toast saying it is on its way.
+  const retryClosedInstall = () => {
+    retryToastId.current = toast.loading(`Installing ${entry.data?.name ?? 'the pack'}…`);
+    install.mutate();
+  };
+  // Hidden for good once dismissed; `undefined` (still loading) counts as hidden so the tips never flash for someone who dismissed them.
+  const hints = useDismissedHints(ws);
+  const tips = reviewLead(card ?? {}).can;
+  const showTips = shouldShowTips(tips, hints.isDismissed(QUILL_TIPS_HINT));
+  // #1253 — a wait Quill shows in only after a second, and then for at least 600ms. While she is held the waiting view stays up.
+  const wait = useQuillWait(install.isPending || landing);
+  const waiting = install.isPending || landing || !wait.settled;
 
   // #569 — a reuse-only row (any database collision) is never rendered a
   // control, so it never gets an explicit `resolutions[name]`; it's already
@@ -962,7 +1014,11 @@ export function InstallDialog({
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent
         title={
-          result && !update
+          waiting
+            ? `${update ? 'Updating' : 'Installing'} ${entry.data?.name ?? 'pack'}`
+            : failure
+              ? `Couldn’t install ${entry.data?.name ?? 'pack'}`
+              : result && !update
             ? `${result.name} is ready`
             : entry.data
               ? update
@@ -978,7 +1034,65 @@ export function InstallDialog({
             : 'max-h-[calc(100vh-32px)] max-w-[520px] overflow-auto p-[18px] pb-0'
         }
       >
-        {result && !update ? (
+        {waiting ? (
+          <div className="flex flex-col" data-testid="pack-installing">
+            <div className="flex items-center gap-4 pb-4 pt-1 max-[480px]:gap-2.5">
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <span role="status" className="flex items-center gap-2 text-body text-ink">
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted" aria-hidden />
+                  {update ? 'Updating' : 'Installing'} {entry.data?.name ?? 'the pack'}…
+                </span>
+                {spaceName && (
+                  <p className="m-0 text-label text-muted">
+                    {target ? 'Into' : 'Into a new space,'} <b className="font-medium text-ink">{spaceName}</b>.
+                  </p>
+                )}
+              </div>
+              {/* Her place is held from the start (invisible), so she appearing at one second moves nothing. */}
+              <Quill
+                pose="unpack"
+                size={88}
+                caption="Unpacking. Mind the jars."
+                animate
+                className={cn(wait.showQuill ? 'quill-fade-in' : 'invisible', 'max-[480px]:[&_svg]:h-auto max-[480px]:[&_svg]:w-16')}
+                captionClassName="max-w-[120px]"
+              />
+            </div>
+            <div className="-mx-[18px] flex items-center gap-3 border-t border-border-default px-[18px] pb-3.5 pt-2.5">
+              <p className="m-0 flex-1 text-label text-muted">Closing this won’t stop the install. You’ll see the result here.</p>
+              <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : failure ? (
+          // The real error first, then Retry; Quill is LAST in the DOM, so a screen reader reads the error before anything else.
+          <div className="flex items-start gap-3.5 pb-[18px]" data-testid="pack-install-failed">
+            <div className="min-w-0 flex-1">
+              <p
+                role="alert"
+                className="m-0 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] bg-[color-mix(in_srgb,var(--error)_8%,var(--card))] px-3 py-[9px] text-label text-ink"
+              >
+                {installFailureText(failure)}
+              </p>
+              <div className="mt-2.5 flex gap-2">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setFailure(null);
+                    install.mutate();
+                  }}
+                >
+                  Retry
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+            <Quill pose="drop" size={56} caption="That was the soup." captionClassName="max-w-[84px]" />
+          </div>
+        ) : result && !update ? (
           <div className="flex flex-col gap-3">
             <p className="text-body text-ink-secondary">
               {spaceName ? (
@@ -1002,6 +1116,26 @@ export function InstallDialog({
               />
             ) : (
               <p className="text-body text-muted">Everything already existed — nothing new was created.</p>
+            )}
+            {showTips && (
+              <div className="flex items-start gap-3.5 rounded-[var(--radius-control)] border border-border-default bg-canvas p-3" data-testid="pack-tips">
+                <Quill pose="order" size={64} caption="Order up." className="max-[480px]:[&_svg]:h-auto max-[480px]:[&_svg]:w-12" />
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 mb-1 text-label font-semibold text-ink">Try these first</p>
+                  <ol className="m-0 mb-1.5 flex list-decimal flex-col gap-0.5 pl-[18px] text-body leading-[1.5] text-ink-secondary">
+                    {tips.map((t) => (
+                      <li key={t}>{t}</li>
+                    ))}
+                  </ol>
+                  <button
+                    type="button"
+                    className="text-label text-muted underline underline-offset-2 hover:text-ink"
+                    onClick={() => hints.setDismissed(QUILL_TIPS_HINT, true)}
+                  >
+                    Don’t show these tips again
+                  </button>
+                </div>
+              </div>
             )}
             {result.unmet.length > 0 && (
               <div className="rounded-[var(--radius-card)] border border-border-default bg-canvas p-3">

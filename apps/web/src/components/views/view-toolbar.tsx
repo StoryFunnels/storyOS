@@ -34,6 +34,7 @@ import type { ViewMenuHandlers, ViewMenuTarget } from './view-menu';
 import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
+import { NewRecordButton } from '../record-templates/new-record-button';
 import {
   RELATIVE_DATE_KINDS,
   amountProblem,
@@ -46,8 +47,7 @@ import {
 } from './relative-date';
 import type { RelativeDateKind } from './relative-date';
 import { SORTABLE_FIELD_TYPES, isIncompleteCondition } from '@storyos/schemas';
-import { useRouter } from 'next/navigation';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowDownWideNarrow,
@@ -581,42 +581,6 @@ function ViewCount({
     <span className="tb-count whitespace-nowrap px-1 text-label tabular-nums text-faint" aria-live="polite">
       {narrowed ? `${shown.data} of ${total.data}` : String(total.data)}
     </span>
-  );
-}
-
-/**
- * #964 — the toolbar's ONE primary button. It makes a blank record and opens it (what the mobile
- * quick-add already does), on every view type. It also answers `storyos:new-record`, the event the
- * command palette's "New record here" has always dispatched and nothing used to listen for.
- */
-function NewRecordButton({ ws, db }: { ws: string; db: string }) {
-  const router = useRouter();
-  const create = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
-        params: { path: { ws, db } },
-        body: { values: {} },
-      });
-      if (error) throw error;
-      return data as unknown as { id: string };
-    },
-    onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`),
-    onError: () => toast.error('Could not create the record'),
-  });
-  useEffect(() => {
-    const onNew = () => create.mutate();
-    window.addEventListener('storyos:new-record', onNew);
-    return () => window.removeEventListener('storyos:new-record', onNew);
-  }, [create]);
-  return (
-    <button
-      type="button"
-      onClick={() => create.mutate()}
-      disabled={create.isPending}
-      className="inline-flex h-[27px] shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] border border-primary bg-primary px-[11px] text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60"
-    >
-      <Plus className="h-3.5 w-3.5" /> <span className="tb-new">New</span>
-    </button>
   );
 }
 

@@ -1,3 +1,4 @@
+import { portalDeadLink } from '../portal/portal-dead-link';
 import {
   ForbiddenException,
   Inject,
@@ -424,7 +425,7 @@ export class FormsService {
     if (!recipientToken) throw new ForbiddenException('recipient required');
     const recipient = await this.portalRecipients.resolveByToken(recipientToken);
 
-    const reject = async (reason: string) => {
+    const reject = async (reason: string, deadLink = false) => {
       await this.portalActivity.record({
         workspaceId: database.workspaceId,
         recipientId: recipient.id,
@@ -432,11 +433,13 @@ export class FormsService {
         outcome: 'rejected',
         reason,
       });
+      // ticket #536 — a link presented to the wrong workspace's portal is a dead link: the one response every dead link gets.
+      if (deadLink) throw portalDeadLink();
       throw new ForbiddenException('invalid recipient');
     };
     // Defense in depth, same check as the read path: a recipient token is
     // only ever minted for one workspace.
-    if (recipient.workspaceId !== database.workspaceId) await reject('recipient belongs to a different workspace');
+    if (recipient.workspaceId !== database.workspaceId) await reject('recipient belongs to a different workspace', true);
 
     const defs = await this.records.fieldDefs(database.id);
     const scopeField = defs.find((f) => f.api_name === scopeFieldApiName);

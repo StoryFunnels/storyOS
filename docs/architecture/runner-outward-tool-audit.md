@@ -320,6 +320,7 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `move_document_to_space` | gated | `POST /workspaces/:p/documents/:p/move` (gated) |
 | `move_record` | gated | `POST /workspaces/:p/databases/:p/records/:p/move` (gated) |
 | `nominate_workflows` | unreachable | `POST /workspaces/:p/workflow-nomination` (unreach:scope_admin) |
+| `preview_formula` | internal | `POST /workspaces/:p/databases/:p/fields/formula-preview` (internal) |
 | `propose_schema` | unreachable | `POST /workspaces/:p/architect/propose` (unreach:scope_admin) |
 | `publish_view` | unreachable | `POST /workspaces/:p/databases/:p/views/:p/publish` (unreach:scope_admin) |
 | `query_records` | internal | `POST /workspaces/:p/databases/:p/records/query` (internal) |

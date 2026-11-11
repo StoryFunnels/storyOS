@@ -277,6 +277,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/workspaces/:ws/databases/:db/automations/:id/test': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/duplicate': scoped('assertAccess', 'packs/database-duplicate.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/fields': scoped('assertAccess + visibleDatabaseIds', 'fields/fields.controller.ts'),
+  'POST /api/v1/workspaces/:ws/databases/:db/fields/formula-preview': scoped('assertAccess', 'fields/fields.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/fields/:field/change-type': scoped('assertAccess + visibleDatabaseIds', 'fields/fields.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/fields/:field/convert-to-members-relation': adminOnly(),
   'POST /api/v1/workspaces/:ws/databases/:db/fields/:field/convert-to-user': adminOnly(),

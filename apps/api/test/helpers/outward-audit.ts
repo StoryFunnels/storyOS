@@ -87,6 +87,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'POST /workspaces/:ws/databases/:db/records': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/databases/:db/records/upsert': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/databases/:db/records/query': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
+  'POST /workspaces/:ws/databases/:db/fields/formula-preview': { verdict: 'internal', why: 'read: evaluates a formula on the caller\'s own readable records and returns it to the caller only; writes nothing (ticket #1263)' },
   'POST /workspaces/:ws/databases/:db/records/aggregate': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'POST /workspaces/:ws/databases/:db/records/aggregate/grouped': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'POST /workspaces/:ws/databases/:db/records/batch': { verdict: 'gated', why: FANOUT_WHY },

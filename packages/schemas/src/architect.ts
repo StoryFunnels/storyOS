@@ -214,6 +214,8 @@ const builtEntitySchema = z.object({
   name: nameSchema,
   action: z.enum(['created', 'reused']),
   id: z.string(),
+  /** ticket #1222 - why a `reused` field was kept as it is (it exists with another type than the pack wants). Absent otherwise. */
+  reason: z.string().optional(),
 });
 export type BuiltEntity = z.infer<typeof builtEntitySchema>;
 

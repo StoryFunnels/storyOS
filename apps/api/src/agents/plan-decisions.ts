@@ -62,3 +62,38 @@ export function optionsMissing(have: Array<{ label: string }> | undefined, plann
 export function relationExists(liveFromFields: DecidableField[], fromField: string): boolean {
   return liveFromFields.some((f) => f.type === 'relation' && norm(f.displayName) === norm(fromField));
 }
+
+/**
+ * ticket #1222 - the words for a same-named field of another type that the install keeps as it is (the field is reported `reused`, with this
+ * as its reason). Shared by the install result and the preview so the two say the same thing.
+ */
+export const fieldKeptReason = (fieldName: string, clash: { live_type: string; planned_type: string }): string =>
+  `A "${fieldName}" field already exists as ${clash.live_type}; the pack wants ${clash.planned_type}, so it is kept as it is.`;
+
+export type RelationDecision =
+  /** The relation field is already there: reused as it is. */
+  | { action: 'reuse' }
+  /** Neither side has a field of that name: the relation is created. */
+  | { action: 'create' }
+  /** A same-named field that is not a relation sits where the relation's field would go: the install stops, naming the field and why. */
+  | { action: 'blocked'; reason: string };
+
+/**
+ * ticket #1222 - what an install does with a planned relation against live state. The relation is identified by its field on the "from"
+ * side (`relationExists`). A relation needs a free name on BOTH sides, and creating it over a field the person made is a raw "a field named X
+ * already exists" from deep inside the relation service, found only mid-install. This says which field, on which database, and what it is.
+ */
+export function decideRelation(
+  from: { name: string; fields: DecidableField[]; field: string },
+  to: { name: string; fields: DecidableField[] | undefined; field: string | undefined },
+): RelationDecision {
+  if (relationExists(from.fields, from.field)) return { action: 'reuse' };
+  const clash = (db: string, fields: DecidableField[] | undefined, name: string | undefined) => {
+    const hit = name ? fields?.find((f) => norm(f.displayName) === norm(name)) : undefined;
+    return hit
+      ? `"${db}.${name}" already exists as a ${hit.type} field, but the pack needs a relation field there. Rename or remove it, or install the pack onto a database without it.`
+      : undefined;
+  };
+  const reason = clash(from.name, from.fields, from.field) ?? clash(to.name, to.fields, to.field);
+  return reason ? { action: 'blocked', reason } : { action: 'create' };
+}

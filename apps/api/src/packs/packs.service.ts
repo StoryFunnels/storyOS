@@ -74,7 +74,7 @@ import { spaceCanHoldDatabases } from '../access/access.service';
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
 import { ArchitectService, type ArchitectBuildProgress } from '../agents/architect.service';
-import { decideField, decideState, isSystemDatabase, relationExists } from '../agents/plan-decisions';
+import { decideField, decideRelation, decideState, fieldKeptReason, isSystemDatabase } from '../agents/plan-decisions';
 import { AutomationsService } from '../automations/automations.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
@@ -1944,7 +1944,7 @@ export class PacksService {
           gains.get(norm(d.name))!.not_applied.push({
             kind: 'field',
             name: `${d.name}.${f.name}`,
-            reason: `A "${f.name}" field already exists as ${decision.clash.live_type}; the pack wants ${decision.clash.planned_type}, so it is kept as it is.`,
+            reason: fieldKeptReason(f.name, decision.clash),
           });
         }
       }
@@ -1954,7 +1954,15 @@ export class PacksService {
       const from = sim.get(norm(r.from));
       // The relation exists when the "from" database is live and already has that relation field; otherwise it is created, adding a field
       // on each side that is a live database (a side that is itself created has no gains entry to report on).
-      if (from && relationExists(from, r.from_field)) continue;
+      // ticket #1222 - the install's own decision: a same-named non-relation field blocks the install, and the preview says so up front.
+      const decision = decideRelation({ name: r.from, fields: from ?? [], field: r.from_field }, { name: r.to, fields: sim.get(norm(r.to)), field: r.to_field });
+      if (decision.action === 'reuse') continue;
+      if (decision.action === 'blocked') {
+        // reported on the database that is live (the "from" side first): the one a person adopted
+        const on = from ? r.from : r.to;
+        gains.get(norm(on))?.not_applied.push({ kind: 'relation', name: `${r.from}.${r.from_field}`, reason: `${decision.reason} The install would stop here.`, blocks_install: true });
+        continue;
+      }
       add(r.from, r.from_field, 'relation');
       if (r.to_field) add(r.to, r.to_field, 'relation');
     }

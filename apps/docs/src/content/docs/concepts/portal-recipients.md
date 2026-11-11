@@ -24,8 +24,10 @@ the whole thing unaffordable.
 - A **signed token** (HMAC), never a bare random string — it embeds the recipient's id and a
   version number, verified without a database read before the request ever reaches the row, so a
   tampered or forged token is rejected outright rather than merely failing to match.
-- An optional **expiry**: an expired token is refused the exact same way a revoked one is — no
-  visible difference in the error, so a caller can't distinguish "revoked" from "simply timed out."
+- An optional **expiry**: an expired token is refused the exact same way a revoked one is. Every
+  dead link (revoked, expired, replaced by a rotation, tampered with, malformed, unknown, or
+  presented to another workspace's portal) gets the identical **404** response, so a caller can't
+  tell which it was, or whether such a recipient ever existed.
 - Creating a recipient never creates a user, never sends an invitation, and never changes your
   billable seat count — whether you create one recipient or fifty.
 
@@ -46,7 +48,14 @@ There's no web UI for this yet — it's API and MCP only:
 **Revoking is immediate — every access path closes at once**, not on the next cache expiry or the
 next login attempt, because there is no session to expire: every request re-resolves the token
 against the live row. The row itself stays after revoking, for audit; only a new recipient gets a
-new token; revoking one is not reversible as a credential.
+new token; revoking one is not reversible as a credential. Revoking a recipient that is already
+revoked changes nothing: it answers the same way and keeps the original revocation time.
+
+**Creating, rotating and revoking a recipient are written to the workspace [audit
+log](/concepts/record-history/#workspace-wide-the-admin-audit-log)** (`portal_recipient.created`, `portal_recipient.rotated`,
+`portal_recipient.revoked`), attributed to the member who did it and to how the call arrived
+(person, agent or MCP). An entry names the recipient by id and label only; the token and its
+signature are never written to the log. A repeated revoke adds no second entry.
 
 ## Scoping a portal to its recipient
 
@@ -78,7 +87,7 @@ knowing which recipient is filling it in.
 
 - **Submitting** is `POST /api/v1/public/forms/:token` with `{ values, recipient, record_id? }` —
   `recipient` is the recipient's own bearer token (same one used for reads), required the moment the
-  form's view carries a scope field. Missing or garbage tokens both get **403**, with no anonymous
+  form's view carries a scope field. A missing token gets **403** and a garbage, revoked or expired one gets the same **404** as a read, with no anonymous
   fallthrough to a plain, unscoped submission.
 - **The scope field is never client-controlled.** Whatever a submission sends for it — nothing, the
   right value, or a forged one — is discarded and replaced with the resolving recipient's own value

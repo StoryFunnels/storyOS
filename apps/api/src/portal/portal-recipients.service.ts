@@ -1,10 +1,12 @@
-import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { portalRecipients } from '../db/schema';
 import type { CreatePortalRecipientInput } from '@storyos/schemas';
 import { EntitlementsService } from '../billing/entitlements.service';
+import { recordPortalRecipientEvent } from '../activity/structural-events';
+import { portalDeadLink } from './portal-dead-link';
 import { mintPortalRecipientToken, parsePortalRecipientToken, verifyPortalRecipientSignature } from './portal-recipient-token';
 
 type PortalRecipientRow = typeof portalRecipients.$inferSelect;
@@ -47,6 +49,7 @@ export class PortalRecipientsService {
         expiresAt: input.expires_at ? new Date(input.expires_at) : null,
       })
       .returning();
+    await recordPortalRecipientEvent(this.db, { workspaceId, action: 'created', id: row!.id, label: row!.label });
     return withToken(row!);
   }
 
@@ -63,6 +66,11 @@ export class PortalRecipientsService {
     return rows.length;
   }
 
+  /**
+   * Ticket #536 — idempotent. Only a row that is not yet revoked is written to (one guarded UPDATE, so two concurrent revokes
+   * cannot both win): revoking an already-revoked recipient changes nothing, keeps the ORIGINAL `revokedAt`, answers the same
+   * shape, and writes no audit entry — the audit log records the revoke that happened, not every repeat of it.
+   */
   async revoke(workspaceId: string, recipientId: string) {
     const row = await this.db.query.portalRecipients.findFirst({
       where: and(eq(portalRecipients.id, recipientId), eq(portalRecipients.workspaceId, workspaceId)),
@@ -71,9 +79,14 @@ export class PortalRecipientsService {
     const [updated] = await this.db
       .update(portalRecipients)
       .set({ revokedAt: new Date() })
-      .where(eq(portalRecipients.id, recipientId))
+      .where(and(eq(portalRecipients.id, recipientId), isNull(portalRecipients.revokedAt)))
       .returning();
-    return withToken(updated!);
+    if (!updated) {
+      const current = await this.db.query.portalRecipients.findFirst({ where: eq(portalRecipients.id, recipientId) });
+      return withToken(current ?? row);
+    }
+    await recordPortalRecipientEvent(this.db, { workspaceId, action: 'revoked', id: updated.id, label: updated.label });
+    return withToken(updated);
   }
 
   /**
@@ -92,6 +105,7 @@ export class PortalRecipientsService {
       .set({ tokenVersion: sql`${portalRecipients.tokenVersion} + 1` })
       .where(eq(portalRecipients.id, recipientId))
       .returning();
+    await recordPortalRecipientEvent(this.db, { workspaceId, action: 'rotated', id: updated!.id, label: updated!.label });
     return withToken(updated!);
   }
 
@@ -111,7 +125,7 @@ export class PortalRecipientsService {
   async resolveByToken(token: string) {
     const parsed = parsePortalRecipientToken(token);
     if (!parsed || !verifyPortalRecipientSignature(parsed.recipientId, parsed.tokenVersion, parsed.signature)) {
-      throw new ForbiddenException('invalid, expired, or revoked recipient token');
+      throw portalDeadLink(); // ticket #536: one response for every dead link
     }
     const row = await this.db.query.portalRecipients.findFirst({
       where: and(
@@ -121,7 +135,7 @@ export class PortalRecipientsService {
         or(isNull(portalRecipients.expiresAt), gt(portalRecipients.expiresAt, new Date())),
       ),
     });
-    if (!row) throw new ForbiddenException('invalid, expired, or revoked recipient token');
+    if (!row) throw portalDeadLink(); // ticket #536: one response for every dead link
     return row;
   }
 }

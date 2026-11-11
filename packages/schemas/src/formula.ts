@@ -179,14 +179,96 @@ export function usesRelationAggregate(node: FormulaNode): boolean {
   return false;
 }
 
+export interface FormulaErrorDetails {
+  /** Exclusive end offset of the offending span in the source (ticket #1263). */
+  end?: number;
+  /** What would have been valid here, e.g. "number". */
+  expected?: string;
+  /** What was found instead, e.g. "text". */
+  got?: string;
+  /** The nearest valid name or a concrete fix, e.g. `{Amount}` or `round`. */
+  suggestion?: string;
+}
+
 export class FormulaError extends Error {
+  public end?: number;
+  public expected?: string;
+  public got?: string;
+  public suggestion?: string;
   constructor(
     message: string,
-    public readonly position?: number,
+    public position?: number,
+    details: FormulaErrorDetails = {},
   ) {
     super(message);
+    this.end = details.end;
+    this.expected = details.expected;
+    this.got = details.got;
+    this.suggestion = details.suggestion;
   }
 }
+
+/** The shape an agent reads (ticket #1263): every field always present, null when not applicable. */
+export interface FormulaDiagnostic {
+  message: string;
+  position: { start: number; end: number };
+  expected: string | null;
+  got: string | null;
+  suggestion: string | null;
+}
+
+export function formulaErrorToDiagnostic(err: FormulaError, src: string): FormulaDiagnostic {
+  const start = Math.max(0, Math.min(err.position ?? 0, src.length));
+  const end = Math.max(start, Math.min(err.end ?? (err.position === undefined ? src.length : start + 1), src.length));
+  return {
+    message: err.message,
+    position: { start, end },
+    expected: err.expected ?? null,
+    got: err.got ?? null,
+    suggestion: err.suggestion ?? null,
+  };
+}
+
+/**
+ * Ticket #1263 — the candidate nearest to `input` by edit distance (case-insensitive), or undefined when nothing is close enough to be a
+ * plausible typo. The threshold keeps "nearest" honest: suggesting `round` for `zzzz` would send a model somewhere wrong with confidence.
+ */
+export function nearestName(input: string, candidates: readonly string[]): string | undefined {
+  const a = input.toLowerCase();
+  let best: string | undefined;
+  let bestDist = Infinity;
+  for (const c of candidates) {
+    const b = c.toLowerCase();
+    if (a === b) return c;
+    const d = editDistance(a, b);
+    if (d < bestDist) {
+      bestDist = d;
+      best = c;
+    }
+  }
+  const limit = Math.max(2, Math.floor(a.length / 3));
+  return best !== undefined && bestDist <= limit ? best : undefined;
+}
+
+function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0]!;
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j]!;
+      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length]!;
+}
+
+/**
+ * Ticket #1263 — where each parsed node sat in the source. A side table, NOT a property of the node: the stored AST (fields.config.ast)
+ * must not change shape, and `typecheck` only needs the span to position an error it throws.
+ */
+const NODE_SPANS = new WeakMap<object, { start: number; end: number }>();
 
 /* ---------- function table (docs + autocomplete generate from this) ---------- */
 
@@ -668,19 +750,26 @@ export const FORMULA_OPERATORS: Array<{ op: string; doc: string; example: string
 
 /* ---------- tokenizer ---------- */
 
-type Token =
+type Token = (
   | { t: 'num'; v: number; pos: number }
   | { t: 'str'; v: string; pos: number }
   | { t: 'bool'; v: boolean; pos: number }
   | { t: 'ref'; v: string; pos: number }
   | { t: 'ident'; v: string; pos: number }
   | { t: 'op'; v: string; pos: number }
-  | { t: 'lparen' | 'rparen' | 'comma'; pos: number };
+  | { t: 'lparen' | 'rparen' | 'comma'; pos: number }
+) & { end?: number };
 
 function tokenize(src: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
+  let stamped = 0;
   while (i < src.length) {
+    // Ticket #1263 — every token learns its end offset: the loop re-enters right after each push, with `i` just past it.
+    if (tokens.length > stamped) {
+      tokens[tokens.length - 1]!.end = i;
+      stamped = tokens.length;
+    }
     const c = src[i]!;
     if (/\s/.test(c)) {
       i++;
@@ -688,7 +777,7 @@ function tokenize(src: string): Token[] {
     }
     if (c === '{') {
       const end = src.indexOf('}', i);
-      if (end < 0) throw new FormulaError('Unclosed field reference — missing }', i);
+      if (end < 0) throw new FormulaError('Unclosed field reference — missing }', i, { end: src.length, expected: '}' });
       tokens.push({ t: 'ref', v: src.slice(i + 1, end).trim(), pos: i });
       i = end + 1;
       continue;
@@ -700,7 +789,7 @@ function tokenize(src: string): Token[] {
         out += src[j];
         j++;
       }
-      if (j >= src.length) throw new FormulaError('Unclosed string', i);
+      if (j >= src.length) throw new FormulaError('Unclosed string', i, { end: src.length, expected: c });
       tokens.push({ t: 'str', v: out, pos: i });
       i = j + 1;
       continue;
@@ -760,8 +849,9 @@ function tokenize(src: string): Token[] {
       i++;
       continue;
     }
-    throw new FormulaError(`Unexpected character "${c}"`, i);
+    throw new FormulaError(`Unexpected character "${c}"`, i, { end: i + 1 });
   }
+  if (tokens.length > stamped) tokens[tokens.length - 1]!.end = i;
   return tokens;
 }
 
@@ -799,13 +889,43 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
   const next = () => tokens[pos++];
   const expect = (t: string): Token => {
     const token = next();
-    if (!token || token.t !== t) throw new FormulaError(`Expected ${t}`, token?.pos ?? src.length);
+    if (!token || token.t !== t) {
+      if (t === 'rparen') {
+        // Ticket #1263 — an unbalanced "(" is the commonest model slip; point at the end of what was written, not at a token name.
+        throw new FormulaError('Missing closing parenthesis ")" — a "(" is never closed', token?.pos ?? src.length, {
+          end: token ? (token.end ?? token.pos + 1) : src.length,
+          expected: ')',
+          got: token ? src.slice(token.pos, token.end ?? token.pos + 1) : 'end of formula',
+          suggestion: 'add ")" to close the call or group',
+        });
+      }
+      throw new FormulaError(`Expected ${t}`, token?.pos ?? src.length, {
+        end: token ? (token.end ?? token.pos + 1) : src.length,
+        expected: t === 'lparen' ? '(' : t,
+        got: token ? src.slice(token.pos, token.end ?? token.pos + 1) : 'end of formula',
+      });
+    }
     return token;
   };
+  const setSpan = (n: FormulaNode, start: number, end: number): FormulaNode => {
+    NODE_SPANS.set(n, { start, end });
+    return n;
+  };
+  const refSpan = (token: Token) => ({ end: token.end ?? token.pos + 1 });
+  // Ticket #1263 — the names a model could have meant: display names, which is what the docs tell people to write.
+  const fieldNames = fields.filter((f) => !f.unsupported_reason).map((f) => f.display_name);
 
   function parsePrimary(): FormulaNode {
+    const startPos = peek()?.pos ?? src.length;
+    const node = parsePrimaryInner();
+    // `pos - 1` is the last token consumed by this primary (a call's closing paren, a literal itself, ...).
+    const last = tokens[pos - 1];
+    return setSpan(node, startPos, last?.end ?? src.length);
+  }
+
+  function parsePrimaryInner(): FormulaNode {
     const token = next();
-    if (!token) throw new FormulaError('Unexpected end of formula', src.length);
+    if (!token) throw new FormulaError('Unexpected end of formula', src.length, { expected: 'a value, field {Name} or function' });
     if (token.t === 'num' || token.t === 'str' || token.t === 'bool') return { kind: 'lit', value: token.v };
     if (token.t === 'ref') {
       /*
@@ -820,12 +940,13 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
         const left = token.v.slice(0, dot).trim();
         const right = token.v.slice(dot + 1).trim();
         const relApi = resolveApiName(left);
-        if (!relApi) throw new FormulaError(`Unknown field "{${left}}"`, token.pos);
+        if (!relApi) throw unknownField(left, token);
         const relField = fields.find((f) => f.api_name === relApi);
         if (!relField || relField.formula_type !== 'relation') {
           throw new FormulaError(
             `"{${left}}" is not a link to another database, so "{${token.v}}" has nothing to look through`,
             token.pos,
+            { ...refSpan(token), expected: 'a link field' },
           );
         }
         const related = relField.related ?? [];
@@ -840,19 +961,23 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
           throw new FormulaError(
             `"${right}" is not a field on the records "{${left}}" links to`,
             token.pos,
+            (() => {
+              const near = nearestName(right, related.filter((f) => !f.unsupported_reason).map((f) => f.display_name));
+              return { ...refSpan(token), expected: `a field of the database "{${left}}" links to`, ...(near ? { suggestion: `{${left}.${near}}` } : {}) };
+            })(),
           );
         }
         // #615 criterion 5 — a field that exists but was deliberately excluded
         // (unsupported type) gets its own error naming the reason, not the
         // "not a field" message a genuinely absent name gets.
         if (target.unsupported_reason) {
-          throw new FormulaError(`"${right}" ${target.unsupported_reason}`, token.pos);
+          throw new FormulaError(`"${right}" ${target.unsupported_reason}`, token.pos, refSpan(token));
         }
         return { kind: 'rel', relation: relApi, field: target.api_name };
       }
 
       const apiName = resolveApiName(token.v);
-      if (!apiName) throw new FormulaError(`Unknown field "{${token.v}}"`, token.pos);
+      if (!apiName) throw unknownField(token.v, token);
       // A bare reference to a relation field is only meaningful as an
       // aggregate's subject; `rel` with no `field` is exactly that, and the
       // typechecker is what refuses it anywhere else.
@@ -866,7 +991,14 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
       const name = token.v.toLowerCase();
       // hasOwn, not `in`: `in` also matches Object.prototype keys, so
       // `toString(1)` parsed as a call and then crashed on an undefined spec.
-      if (!Object.hasOwn(FORMULA_FUNCTIONS, name)) throw new FormulaError(`Unknown function "${token.v}"`, token.pos);
+      if (!Object.hasOwn(FORMULA_FUNCTIONS, name)) {
+        const near = nearestName(name, Object.keys(FORMULA_FUNCTIONS));
+        throw new FormulaError(
+          `Unknown function "${token.v}"${near ? ` — did you mean ${near}()?` : ''}`,
+          token.pos,
+          { ...refSpan(token), expected: 'a function name', got: token.v, ...(near ? { suggestion: near } : {}) },
+        );
+      }
       expect('lparen');
       const args: FormulaNode[] = [];
       if (peek()?.t !== 'rparen') {
@@ -887,7 +1019,20 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
       expect('rparen');
       return inner;
     }
-    throw new FormulaError('Unexpected token', token.pos);
+    throw new FormulaError('Unexpected token', token.pos, {
+      ...refSpan(token),
+      expected: 'a value, field {Name} or function',
+      got: src.slice(token.pos, token.end ?? token.pos + 1),
+    });
+  }
+
+  function unknownField(raw: string, token: Token): FormulaError {
+    const near = nearestName(raw, fieldNames);
+    return new FormulaError(
+      `Unknown field "{${raw}}"${near ? ` — did you mean {${near}}?` : ''}`,
+      token.pos,
+      { ...refSpan(token), expected: 'the name of a field in this database', got: raw, ...(near ? { suggestion: `{${near}}` } : {}) },
+    );
   }
 
   function parseExpr(minPrec: number): FormulaNode {
@@ -897,13 +1042,22 @@ export function parseFormula(src: string, fields: FormulaFieldInfo[]): FormulaNo
       if (!token || token.t !== 'op' || !(token.v in PRECEDENCE) || PRECEDENCE[token.v]! < minPrec) break;
       next();
       const right = parseExpr(PRECEDENCE[token.v]! + 1);
-      left = { kind: 'binary', op: token.v, left, right };
+      const start = NODE_SPANS.get(left)?.start ?? token.pos;
+      const end = NODE_SPANS.get(right)?.end ?? token.end ?? token.pos + 1;
+      left = setSpan({ kind: 'binary', op: token.v, left, right }, start, end);
     }
     return left;
   }
 
   const ast = parseExpr(0);
-  if (pos < tokens.length) throw new FormulaError('Unexpected trailing input', tokens[pos]!.pos);
+  if (pos < tokens.length) {
+    const t = tokens[pos]!;
+    throw new FormulaError('Unexpected trailing input', t.pos, {
+      end: src.length,
+      got: src.slice(t.pos),
+      suggestion: t.t === 'rparen' ? 'remove this ")" — there is no matching "("' : 'join the pieces with an operator (+, and, ...) or wrap them in a function',
+    });
+  }
   return ast;
 }
 
@@ -918,7 +1072,26 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
       .map((f) => [f.api_name, new Map((f.related ?? []).map((r) => [r.api_name, r.formula_type]))]),
   );
 
+  /*
+   * Ticket #1263 — an error thrown while checking a node that has no position of its own gets the span of the INNERMOST node that was
+   * being checked (the deepest check throws first, so it wins). Without this a typecheck error said what was wrong but never where.
+   */
   function check(n: FormulaNode): FormulaType {
+    try {
+      return checkNode(n);
+    } catch (e) {
+      if (e instanceof FormulaError && e.position === undefined) {
+        const span = NODE_SPANS.get(n);
+        if (span) {
+          e.position = span.start;
+          e.end = span.end;
+        }
+      }
+      throw e;
+    }
+  }
+
+  function checkNode(n: FormulaNode): FormulaType {
     switch (n.kind) {
       case 'lit':
         if (n.value === null) return 'null';
@@ -932,8 +1105,8 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
         return relatedTypes.get(n.relation)?.get(n.field) ?? 'text';
       case 'unary': {
         const t = check(n.operand);
-        if (n.op === 'not' && t !== 'checkbox' && t !== 'null') throw new FormulaError('"not" needs a true/false value');
-        if (n.op === 'neg' && t !== 'number' && t !== 'null') throw new FormulaError('Negation needs a number');
+        if (n.op === 'not' && t !== 'checkbox' && t !== 'null') throw new FormulaError('"not" needs a true/false value', undefined, { expected: 'checkbox', got: t });
+        if (n.op === 'neg' && t !== 'number' && t !== 'null') throw new FormulaError('Negation needs a number', undefined, { expected: 'number', got: t });
         return n.op === 'not' ? 'checkbox' : 'number';
       }
       case 'binary': {
@@ -949,20 +1122,20 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
         }
         const both = (t: FormulaType) => (l === t || l === 'null') && (r === t || r === 'null');
         if (['and', 'or'].includes(n.op)) {
-          if (!both('checkbox')) throw new FormulaError(`"${n.op}" needs true/false on both sides`);
+          if (!both('checkbox')) throw new FormulaError(`"${n.op}" needs true/false on both sides`, undefined, { expected: 'checkbox on both sides', got: `${l} and ${r}` });
           return 'checkbox';
         }
         if (['==', '!='].includes(n.op)) return 'checkbox';
         if (['>', '>=', '<', '<='].includes(n.op)) {
-          if (!both('number') && !both('date') && !both('text')) throw new FormulaError(`"${n.op}" needs matching comparable types`);
+          if (!both('number') && !both('date') && !both('text')) throw new FormulaError(`"${n.op}" needs matching comparable types`, undefined, { expected: 'both sides number, both date or both text', got: `${l} and ${r}` });
           return 'checkbox';
         }
         if (n.op === '+') {
           if (both('number')) return 'number';
           if (l === 'text' || r === 'text') return 'text'; // + concatenates when text is involved
-          throw new FormulaError('"+" needs numbers or text');
+          throw new FormulaError('"+" needs numbers or text', undefined, { expected: 'number or text', got: `${l} and ${r}` });
         }
-        if (!both('number')) throw new FormulaError(`"${n.op}" needs numbers`);
+        if (!both('number')) throw new FormulaError(`"${n.op}" needs numbers`, undefined, { expected: 'number on both sides', got: `${l} and ${r}` });
         return 'number';
       }
       case 'call': {
@@ -1084,14 +1257,14 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
         }
         if (n.name === 'if') {
           if (n.args.length !== 3) throw new FormulaError('if() takes exactly 3 arguments');
-          if (argTypes[0] !== 'checkbox' && argTypes[0] !== 'null') throw new FormulaError('if() condition must be true/false');
+          if (argTypes[0] !== 'checkbox' && argTypes[0] !== 'null') throw new FormulaError('if() condition must be true/false', undefined, { expected: 'checkbox', got: argTypes[0] });
           const a = argTypes[1]!;
           const b = argTypes[2]!;
-          if (a !== b && a !== 'null' && b !== 'null') throw new FormulaError('if() branches must have the same type');
+          if (a !== b && a !== 'null' && b !== 'null') throw new FormulaError('if() branches must have the same type', undefined, { expected: `both branches ${a}`, got: `${a} and ${b}` });
           return a === 'null' ? b : a;
         }
         if (spec.args === 'variadic-number') {
-          argTypes.forEach((t) => { if (t !== 'number' && t !== 'null') throw new FormulaError(`${n.name}() takes numbers`); });
+          argTypes.forEach((t) => { if (t !== 'number' && t !== 'null') throw new FormulaError(`${n.name}() takes numbers`, undefined, { expected: 'number', got: t }); });
         } else if (Array.isArray(spec.args)) {
           if (n.args.length > spec.args.length || n.args.length < spec.args.filter((a) => a !== 'null').length - (n.name === 'round' ? 1 : 0)) {
             // round's second arg optional; general arity check below is lenient for optional tails
@@ -1100,7 +1273,14 @@ export function typecheck(node: FormulaNode, fields: FormulaFieldInfo[]): Formul
             if (i >= argTypes.length) return;
             const got = argTypes[i]!;
             if (expected !== 'null' && got !== expected && got !== 'null') {
-              throw new FormulaError(`${n.name}() argument ${i + 1} should be ${expected}, got ${got}`);
+              const span = NODE_SPANS.get(n.args[i]!);
+              throw new FormulaError(`${n.name}() argument ${i + 1} should be ${expected}, got ${got}`, span?.start, {
+                ...(span ? { end: span.end } : {}),
+                expected,
+                got,
+                suggestion:
+                  expected === 'text' ? 'wrap it in format(...)' : expected === 'number' && got === 'text' ? 'wrap it in to_number(...)' : undefined,
+              });
             }
           });
         }
