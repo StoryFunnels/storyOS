@@ -104,7 +104,7 @@ describe('#537 — recipient access is recorded: recipient, view, timestamp, out
     const token = await shareScoped(dbId, viewId, ownerApiName);
 
     const view = await pub(`/public/views/${token}?recipient=${foreignToken}`);
-    expect(view.statusCode).toBe(403);
+    expect(view.statusCode).toBe(404);
 
     // The rejection is logged under the FOREIGN workspace's own activity log
     // (workspaceId comes from the accessed view's database, per the ticket's
@@ -127,7 +127,7 @@ describe('#537 — recipient access is recorded: recipient, view, timestamp, out
     const beforeCount = (before.json().data as unknown[]).length;
 
     const garbage = await pub(`/public/views/${token}?recipient=not-a-real-token`);
-    expect(garbage.statusCode).toBe(403);
+    expect(garbage.statusCode).toBe(404);
 
     const after = await as('GET', `/workspaces/${wsId}/portal-activity?view=${viewId}`);
     expect((after.json().data as unknown[]).length).toBe(beforeCount);

@@ -121,7 +121,7 @@ describe('#538 portal form write-back', () => {
     const noToken = await pub('POST', '/public/forms/tok-538-notoken', { values: {} });
     expect(noToken.statusCode, noToken.body).toBe(403);
     const garbage = await pub('POST', '/public/forms/tok-538-notoken', { values: {}, recipient: 'not-a-real-token' });
-    expect(garbage.statusCode, garbage.body).toBe(403);
+    expect(garbage.statusCode, garbage.body).toBe(404);
   });
 
   it('ADVERSARIAL: a submitted scope value is discarded and stamped/attributed instead — the recipient\'s own scope always wins', async () => {

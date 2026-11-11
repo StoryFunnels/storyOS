@@ -1,3 +1,4 @@
+import { portalDeadLink } from '../portal/portal-dead-link';
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FilterNode, ViewConfig } from '@storyos/schemas';
@@ -149,7 +150,7 @@ export class PublicViewsService {
           outcome: 'rejected',
           reason: 'recipient belongs to a different workspace',
         });
-        throw new ForbiddenException('invalid recipient');
+        throw portalDeadLink(); // ticket #536: the same response as every other dead link
       }
 
       const scopeField = defs.find((f) => f.api_name === scopeFieldName);

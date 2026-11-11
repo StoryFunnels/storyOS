@@ -102,7 +102,7 @@ describe('#535 recipient-scoped rows — text/email match', () => {
 
     // A garbage/foreign recipient token: rejected, not silently treated as "no scope".
     const garbage = await pub(`/public/views/${token}?recipient=not-a-real-token`);
-    expect(garbage.statusCode).toBe(403);
+    expect(garbage.statusCode).toBe(404); // ticket #536: a dead link is a 404
 
     // An arbitrary/garbage cursor under A's own recipient token must never surface
     // B's row — the scope filter is ANDed server-side on every page regardless of
