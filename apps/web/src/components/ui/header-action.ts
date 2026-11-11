@@ -17,3 +17,13 @@ export const HEADER_MENU_TRIGGER = `${HEADER_ACTION_BOX} text-faint hover:bg-hov
 
 /** A header's + (add a card): same box as the ⋯ beside it, its own resting colour. */
 export const HEADER_ADD_BUTTON = `${HEADER_ACTION_BOX} text-muted hover:bg-active`;
+
+/**
+ * #1225 — a 24 x 24 hit area for a ⋯ whose VISIBLE box is smaller (a sidebar row's 17px, a field's 18px, My Work's 20px).
+ *
+ * An invisible `::before` centred on the button, so a click, tap or pointer landing within 12px of its centre is the button's.
+ * It is out of flow: the button keeps its size, so no row changes height and nothing overflows. The glyph and the hover
+ * wash stay as drawn. Use it on any menu trigger that is not already a HEADER_ACTION_BOX; the guard test derives the set.
+ */
+export const HIT_AREA_24 =
+  "relative before:absolute before:left-1/2 before:top-1/2 before:h-6 before:w-6 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']";

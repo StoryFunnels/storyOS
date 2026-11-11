@@ -49,6 +49,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
+import { HIT_AREA_24 } from '@/components/ui/header-action';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
 import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
@@ -1898,7 +1899,7 @@ function SpaceSection({
             <DropdownMenu open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
               <Tooltip label="Options">
                 <DropdownMenuTrigger asChild>
-                  <button className={cn(SPACE_ACT, PHONE_TAP)} aria-label={`Options for ${space.name}`}>
+                  <button className={cn(SPACE_ACT, PHONE_TAP, HIT_AREA_24)} aria-label={`Options for ${space.name}`}>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </button>
                 </DropdownMenuTrigger>
