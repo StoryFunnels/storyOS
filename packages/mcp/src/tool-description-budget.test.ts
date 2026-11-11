@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { MCP_TOOL_NAMES } from '@storyos/schemas';
-import { SHORT_DESCRIPTION_CAP, TOOL_NOTES_HEADING, registerTools, shortenDescription } from './tools.js';
+import { SHORT_DESCRIPTION_CAP, registerTools, shortenDescription, toolNotesSection } from './tools.js';
 import { AGENT_RUN_BASE_TOOLS, AGENT_RUN_PROFILE, INTERNAL_PROFILE, INTERNAL_TOOLS, resolveToolProfile } from './tool-profiles.js';
 import type { Ctx, EffectiveScope } from './client.js';
 
@@ -20,7 +20,7 @@ const PER_TOOL_CAP = 1_500;
 const ctx = { client: {} as never, baseUrl: 'http://t', token: 't' } as Ctx;
 const ADMIN: EffectiveScope = { scope: 'admin', allowRunButton: true };
 
-type Registered = { descriptions: Map<string, string>; notes: ReadonlyMap<string, string>; started: () => Promise<string> };
+type Registered = { descriptions: Map<string, string>; notes: ReadonlyMap<string, string>; started: (section?: string) => Promise<string> };
 function register(effective: EffectiveScope): Registered {
   const descriptions = new Map<string, string>();
   const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ text: string }> }>>();
@@ -34,19 +34,16 @@ function register(effective: EffectiveScope): Registered {
     ctx,
     effective,
   );
-  return { descriptions, notes, started: async () => (await handlers.get('get_started')!({})).content[0]!.text };
+  return { descriptions, notes, started: async (section?: string) => (await handlers.get('get_started')!(section === undefined ? {} : { section })).content[0]!.text };
 }
 
 const customer = register(ADMIN);
 const internal = register({ ...ADMIN, internal: true });
 
-/** The text under `[tool]` in get_started's TOOL NOTES. */
-function noteIn(started: string, tool: string): string {
-  const at = started.indexOf(`\n[${tool}]\n`);
-  if (at < 0) return '';
-  const rest = started.slice(at + tool.length + 4);
-  const next = rest.search(/\n\[[a-z_0-9]+\]\n|\nICONS /);
-  return next < 0 ? rest : rest.slice(0, next);
+/** ticket #1262 (section): a tool's full text is its own get_started section, headed `[tool]`. */
+async function noteIn(r: Registered, tool: string): Promise<string> {
+  const text = await r.started(toolNotesSection(tool));
+  return text.startsWith(`[${tool}]\n`) ? text.slice(tool.length + 3) : '';
 }
 
 describe('ticket #1262 - the description budget', () => {
@@ -114,14 +111,12 @@ describe('ticket #1262 - maintainer tools are not on any customer profile', () =
 
 describe('ticket #1262 - a short description carries its pointer, and the grammar is in get_started', () => {
   it('every shortened tool points at get_started, and every pointer has a note to land on', async () => {
-    const started = await customer.started();
     expect(customer.notes.size).toBeGreaterThan(80);
-    expect(started).toContain(TOOL_NOTES_HEADING);
     for (const [tool, full] of customer.notes) {
       const listed = customer.descriptions.get(tool)!;
-      expect(listed, `${tool}: listed description must point at get_started`).toContain('get_started');
+      expect(listed, `${tool}: listed description must point at its own section`).toContain(`get_started section='${toolNotesSection(tool)}'`);
       expect(listed.length, `${tool}: a shortened description is shorter than the full one`).toBeLessThan(full.length);
-      expect(noteIn(started, tool).trim(), `${tool}: get_started must carry its full text`).toBe(full.trim());
+      expect((await noteIn(customer, tool)).trim(), `${tool}: get_started must carry its full text`).toBe(full.trim());
     }
   });
 
@@ -133,7 +128,7 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
 
   it('the four reference grammars the ticket names point at their own section by name', () => {
     for (const tool of ['create_automation', 'install_pack', 'add_field', 'create_source']) {
-      expect(customer.descriptions.get(tool)!, tool).toContain(`call get_started, section TOOL NOTES [${tool}]`);
+      expect(customer.descriptions.get(tool)!, tool).toContain(`call get_started section='TOOL NOTES ${tool}'`);
       expect(customer.descriptions.get(tool)!.length, tool).toBeLessThan(1_000);
     }
   });
@@ -201,15 +196,15 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
 
   for (const [tool, phrases] of Object.entries(GRAMMAR)) {
     it(`get_started carries ${tool}'s whole grammar (${phrases.length} key phrases)`, async () => {
-      const note = noteIn(await customer.started(), tool);
+      const note = await noteIn(customer, tool);
       expect(note.length, `${tool} has a note`).toBeGreaterThan(1_000);
       for (const re of phrases) expect(note, `${tool}: ${re}`).toMatch(re);
     });
   }
 
-  it('the long grammars come FIRST in get_started, so a client that cuts a long result cuts the generated tail', async () => {
+  it('the long grammars come FIRST in the index, so a client that lists it in order meets them before the generated tail', async () => {
     const started = await customer.started();
-    const at = (t: string) => started.indexOf(`\n[${t}]\n`);
+    const at = (t: string) => started.indexOf(`\n${toolNotesSection(t)}\n`);
     const generated = [...customer.notes.keys()].find((t) => !/^(create_automation|install_pack|add_field|create_source|create_agent_trigger|create_skill|update_skill|run_skill|get_history|get_my_work|list_agent_wakes|list_runners|list_ai_connections|get_agent_budget|list_agent_write_gates)$/.test(t))!;
     for (const t of ['create_automation', 'install_pack', 'add_field', 'create_source']) expect(at(t), t).toBeGreaterThan(0);
     for (const t of ['create_automation', 'install_pack', 'add_field', 'create_source']) expect(at(t), `${t} before ${generated}`).toBeLessThan(at(generated));
@@ -234,8 +229,8 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
     registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, ctx, ADMIN);
     // What a client actually receives: the JSON schema the SDK derives from the registered zod object.
     const json = z.toJSONSchema(cfgs.get('create_automation')!.inputSchema as never, { io: 'input', unrepresentable: 'any' }) as { properties: Record<string, { description?: string }> };
-    expect(json.properties.trigger!.description).toContain('get_started, TOOL NOTES [create_automation]');
-    expect(json.properties.actions!.description).toContain('get_started, TOOL NOTES [create_automation]');
+    expect(json.properties.trigger!.description).toContain(`get_started section="TOOL NOTES create_automation"`);
+    expect(json.properties.actions!.description).toContain(`get_started section="TOOL NOTES create_automation"`);
   });
 });
 
@@ -255,7 +250,7 @@ describe('ticket #1262 - a profile without get_started is never given a pointer 
 
 describe('ticket #1262 - ICONS replaces list_icon_set for a customer', () => {
   it('get_started lists the icon names the icon param takes, so the tool the param used to name is not missed', async () => {
-    const started = await customer.started();
+    const started = await customer.started('ICONS');
     expect(started).toMatch(/ICONS - |ICONS — /);
     expect(started).toContain('set:');
     expect(started).toContain('brand:');

@@ -312,7 +312,7 @@ describe('buildIconCatalog brand set (list_icon_set, #298)', () => {
 describe('icon param description (create_database/update_database/create_space, #251)', () => {
   it('advertises set: refs and points at the ICONS section of get_started (list_icon_set is a maintainer tool, ticket #1262)', () => {
     expect(ICON_PARAM_DESCRIPTION).toContain('set:');
-    expect(ICON_PARAM_DESCRIPTION).toContain('get_started (ICONS)');
+    expect(ICON_PARAM_DESCRIPTION).toContain('get_started section="ICONS"');
     expect(ICON_PARAM_DESCRIPTION).not.toContain('list_icon_set');
   });
 
@@ -5105,7 +5105,7 @@ describe('get_started\'s filter cheat-sheet documents workflow (#558)', () => {
     const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
     const server = { registerTool: (n: string, _c: unknown, h: (a: unknown) => Promise<unknown>) => handlers.set(n, h) };
     registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
-    const res = (await handlers.get('get_started')!({})) as { content: Array<{ text: string }> };
+    const res = (await handlers.get('get_started')!({ section: 'FILTERS' })) as { content: Array<{ text: string }> };
     const intro = res.content[0]!.text;
     expect(intro).toMatch(/workflow\s+:/);
   });
@@ -5163,7 +5163,7 @@ describe('deprecated system fields are omitted from enumeration, not from resolu
 
   it('get_started\'s cheat sheet does not list `number` as a system-field row, but does list `id`', async () => {
     const { handlers } = harness();
-    const res = (await handlers.get('get_started')!({})) as { content: Array<{ text: string }> };
+    const res = (await handlers.get('get_started')!({ section: 'FILTERS' })) as { content: Array<{ text: string }> };
     const intro = res.content[0]!.text;
     // The generated system-field row is "  <api_name padded> : <ops>" — match
     // that exact shape rather than a bare substring, since "number" also

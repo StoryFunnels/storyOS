@@ -14,7 +14,7 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 **Read**
 | Tool | What it does |
 |---|---|
-| `get_started` | Orientation + a workspace map + the filter cheat-sheet. Call first. |
+| `get_started` | Orientation + a workspace map; `section='<name>'` returns one reference section (the filter cheat-sheet, icons, a tool's full notes). Call first. |
 | `list_workspaces` | Workspaces the token can access. |
 | `list_databases` | Databases in a workspace. |
 | `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets. **Read before writing.** |
@@ -92,16 +92,21 @@ is the remaining phase — it lands with the cloud tier (see MN-069).
 Every listed tool description is billed on every request of every session, so the listing is kept small:
 **under 60,000 characters in total and no description over 1,500** (`src/tool-description-budget.test.ts`
 enforces both against the live registry). A description in the source can be as long as the tool needs;
-`tools/list` carries a short lead plus `[Full notes: get_started, TOOL NOTES]`, and `get_started` returns the
-full text (the long reference grammars of `create_automation`, `install_pack`, `add_field` and
-`create_source` first). A `get_started` result is only loaded when called, so it costs a capped client nothing
-up front. Where a lead must say something at call time, it is hand-written with a `short:` key next to the
+`tools/list` carries a short lead plus `[Full notes: get_started section='TOOL NOTES <tool>']`, naming the exact
+section. `get_started` with no argument returns only the overview and an index of section names (under 10,000
+characters, so no client truncates it); `get_started` with `section='<name>'` returns that one section: the
+full text of one tool (the long reference grammars are `TOOL NOTES create_automation`, `install_pack`,
+`add_field`, `create_source`), `FILTERS` or `ICONS`. Matching is exact first, then case-insensitive; an unknown
+name returns a text answer listing the valid names. One 85,000-character result was the alternative, and a client
+that truncates a single result would have silently dropped the grammars. A section is only loaded when called,
+so it costs a capped client nothing up front (`src/get-started-sections.test.ts` checks every lead points at a
+section that exists). Where a lead must say something at call time, it is hand-written with a `short:` key next to the
 `description`. A profile that does not offer `get_started` (`?profile=agent-run`) keeps every description whole.
 
 Maintainer-only tools (`get_branch_name`, `get_pinned_tabs`, `set_pinned_tabs`, `get_dismissed_hints`,
 `set_dismissed_hints`, `list_icon_set`; `INTERNAL_TOOLS` in `src/tool-profiles.ts`) are not offered on any customer
 connection. They appear with `?profile=internal` over HTTP, or `STORYOS_MCP_PROFILE=internal` for a stdio server.
-The icon names `list_icon_set` used to return are in `get_started` (ICONS).
+The icon names `list_icon_set` used to return are in `get_started` section `ICONS`.
 
 ## Why it doesn't hallucinate
 
@@ -109,7 +114,7 @@ The icon names `list_icon_set` used to return are in `get_started` (ICONS).
 - **Validation-as-teacher**: the API's typed error is surfaced verbatim, so a wrong
   field/value comes back naming the problem and the model self-corrects in one turn.
 - **Structured filters, not a query language**: nothing to invent; the op×type matrix
-  ships in `get_started`.
+  ships in `get_started` section `FILTERS`.
 - **Never invent ids**: they come only from `search` / `list_*` / a prior result;
   names and slugs are accepted and resolved server-side.
 
