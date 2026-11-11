@@ -194,12 +194,12 @@ export function RunDetailPane({
       )}
 
       {run.error && (
-        <p className="mb-3 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] bg-[color-mix(in_srgb,var(--error)_8%,var(--card))] px-3 py-[9px] text-label text-ink">
+        <p className="mb-3 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] bg-[color-mix(in_srgb,var(--error)_8%,var(--bg-card))] px-3 py-[9px] text-label text-ink">
           {run.error}
         </p>
       )}
       {failed.some((a) => a.last_error) && (
-        <p className="mb-3 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] bg-[color-mix(in_srgb,var(--error)_8%,var(--card))] px-3 py-[9px] text-label text-ink">
+        <p className="mb-3 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] bg-[color-mix(in_srgb,var(--error)_8%,var(--bg-card))] px-3 py-[9px] text-label text-ink">
           A step didn’t go through. The exact error is under Technical details.
         </p>
       )}
@@ -290,7 +290,7 @@ function ApprovalCard({
   const fmt = useDateFormat();
   const [now] = useState(() => new Date());
   return (
-    <div className="mt-3 rounded-[var(--radius-card)] border border-[color-mix(in_srgb,var(--accent)_45%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_6%,var(--card))] p-3">
+    <div className="mt-3 rounded-[var(--radius-card)] border border-[color-mix(in_srgb,var(--accent)_45%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_6%,var(--bg-card))] p-3">
       <div className="flex items-center gap-[7px] text-label">
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent)_25%,transparent)] text-accent-text">
           <Rocket className="h-3 w-3" aria-hidden />

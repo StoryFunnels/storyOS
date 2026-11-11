@@ -1,5 +1,6 @@
 import type { AgentView } from './agents';
-import type { WakeDto } from './types';
+import { RUN_STATE_NAMES } from './types';
+import type { RunStateName, WakeDto } from './types';
 import { clockTime, shortDate } from './words';
 import type { TimeOpts } from './words';
 
@@ -8,8 +9,33 @@ import type { TimeOpts } from './words';
  * has a test; the page only draws what these return.
  */
 
-/** The run states that mean a run EXISTS (it started, or finished): not "waiting for a Runner", not cancelled. */
-const RAN_STATES = new Set(['done', 'failed', 'running', 'needs_approval', 'waiting_for_limit', 'waiting_for_hours', 'waiting_for_reserve']);
+/**
+ * One entry per run state, and the type is `Record<RunStateName, …>`, so a state added to RUN_STATE_NAMES that is not decided
+ * here fails to compile (it was a hand-typed Set that silently missed `waiting_for_budget`).
+ *  - `ran`: the state means a run EXISTS (it started, or finished). Not "waiting for a Runner", not cancelled.
+ *  - `word`: what the Last run column says under the time. Empty for `done` (the time says it) and for states that are not shown.
+ * The words are the column's short form of describeRun (status.ts); they carry no figures: which budget ran out and when it
+ * resets belong to the run's own row, never to a guessed number here.
+ */
+const RUN_STATE_COLUMN: Record<RunStateName, { ran: boolean; word: string }> = {
+  done: { ran: true, word: '' },
+  failed: { ran: true, word: 'Failed' },
+  running: { ran: true, word: 'Running' },
+  needs_approval: { ran: true, word: 'Needs approval' },
+  waiting_for_limit: { ran: true, word: 'Waiting for limit' },
+  waiting_for_hours: { ran: true, word: 'Waiting for hours' },
+  waiting_for_reserve: { ran: true, word: 'Waiting for reserve' },
+  waiting_for_budget: { ran: true, word: 'Budget reached' },
+  canceled: { ran: false, word: '' },
+  waiting_for_runner: { ran: false, word: '' },
+  runner_offline: { ran: false, word: '' },
+  waiting_for_turn: { ran: false, word: '' },
+};
+
+/** Exported for the coverage test: the states the Last run column treats as "a run exists". */
+export function isRanState(state: string): boolean {
+  return RUN_STATE_NAMES.includes(state as RunStateName) && RUN_STATE_COLUMN[state as RunStateName].ran;
+}
 
 export type LastRun = { kind: 'at'; iso: string; state: string } | { kind: 'ranUnknown' } | { kind: 'never' } | { kind: 'unknown' };
 
@@ -43,7 +69,7 @@ export function lastRunsByAgent(agentIds: readonly string[], wakes: readonly Wak
   const fromWake = new Map<string, Extract<LastRun, { kind: 'at' }>>();
   for (const w of wakes ?? []) {
     const state = w.run_state?.state;
-    if (!state || !RAN_STATES.has(state)) continue;
+    if (!state || !isRanState(state)) continue;
     const iso = w.finished_at ?? w.run_state.since ?? w.created_at;
     const prev = fromWake.get(w.agent.id);
     if (!prev || new Date(iso) > new Date(prev.iso)) fromWake.set(w.agent.id, { kind: 'at', iso, state });
@@ -68,9 +94,7 @@ export function lastRunsByAgent(agentIds: readonly string[], wakes: readonly Wak
 /** The words under the time for a run that is not simply done. Empty for done (the time says it). */
 export function lastRunState(last: LastRun): string {
   if (last.kind !== 'at') return '';
-  return (
-    { failed: 'Failed', running: 'Running', needs_approval: 'Needs approval', waiting_for_limit: 'Waiting for limit', waiting_for_hours: 'Waiting for hours', waiting_for_reserve: 'Waiting for reserve' } as Record<string, string>
-  )[last.state] ?? '';
+  return RUN_STATE_COLUMN[last.state as RunStateName]?.word ?? '';
 }
 
 /** "Never", "18:40" for today, "29 Oct" earlier this year, "29 Oct 2025" in another year. "—" when it could not be read. */
