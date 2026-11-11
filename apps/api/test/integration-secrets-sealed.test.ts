@@ -119,4 +119,14 @@ describe('#1239 integration secrets are sealed at rest', () => {
     });
     expect(res.statusCode, res.body).toBe(200);
   });
+
+  it('one workspace with an unreadable Linear key does not stop the scheduled sync pass', async () => {
+    const broken = (await fx('POST', '/workspaces', { name: 'Broken linear WS' })).id;
+    await db
+      .update(workspaces)
+      .set({ settings: { linear: { api_key: 'sealed:v1.AAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA==.AAAA', auto_sync: { enabled: true } } } })
+      .where(eq(workspaces.id, broken));
+    await expect(app.get(LinearService).tick(new Date())).resolves.toBeUndefined();
+  });
 });
+

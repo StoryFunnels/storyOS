@@ -974,7 +974,15 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       sql`SELECT id FROM workspaces WHERE settings->'linear'->'auto_sync'->>'enabled' = 'true'`,
     )) as unknown as { rows?: Array<{ id: string }> };
     for (const { id: workspaceId } of rows.rows ?? []) {
-      const linear = await this.readLinear(workspaceId);
+      let linear: LinearSettings;
+      try {
+        linear = await this.readLinear(workspaceId);
+      } catch (error) {
+        // #1239 — a key that cannot be opened (damaged, or sealed under another key) is that workspace's problem; it must not
+        // stop the pass for every workspace after it.
+        this.logger.warn(`linear scheduled sync for ${workspaceId} skipped: its settings cannot be read (${String(error)})`);
+        continue;
+      }
       const interval = linear.auto_sync?.interval_minutes ?? DEFAULT_SYNC_INTERVAL_MINUTES;
       // Due by last ATTEMPT, so a broken key is retried each interval, not every minute.
       const last = linear.sync_status?.last_attempt_at ?? null;
