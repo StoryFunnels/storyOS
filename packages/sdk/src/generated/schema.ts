@@ -854,6 +854,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/fields/formula-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dry-run a formula: parse, type-check and evaluate it on up to 5 recent records; returns the return type or positioned errors, and saves nothing (#1263) */
+        post: operations["FieldsController_previewFormula"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/fields/{field}": {
         parameters: {
             query?: never;
@@ -5455,6 +5472,33 @@ export interface components {
                 category?: "backlog" | "unstarted" | "started" | "completed" | "canceled";
             }[];
         };
+        PreviewFormulaDto: {
+            expression: string;
+            /** Format: uuid */
+            field?: string;
+            samples?: number;
+        };
+        FormulaPreviewResponseDto: {
+            valid: boolean;
+            /** @enum {string|null} */
+            return_type: "text" | "number" | "checkbox" | "date" | null;
+            samples: {
+                record_id: string;
+                number: number | null;
+                title: string;
+                value: unknown;
+            }[];
+            errors: {
+                message: string;
+                position: {
+                    start: number;
+                    end: number;
+                };
+                expected: string | null;
+                got: string | null;
+                suggestion: string | null;
+            }[];
+        };
         UpdateFieldDto: {
             display_name?: string;
             config?: {
@@ -8875,6 +8919,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    FieldsController_previewFormula: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewFormulaDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormulaPreviewResponseDto"];
+                };
             };
         };
     };

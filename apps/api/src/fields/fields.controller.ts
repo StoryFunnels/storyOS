@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -10,12 +11,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ResourceScopable } from '../access/resource-scope';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import {
   changeFieldTypeSchema,
   createFieldSchema,
   createOptionSchema,
+  formulaPreviewResponseSchema,
+  previewFormulaSchema,
   deleteOptionSchema,
   reorderOptionsSchema,
   updateFieldSchema,
@@ -31,6 +34,8 @@ import { FieldsService } from './fields.service';
 class CreateFieldDto extends createZodDto(createFieldSchema) {}
 class UpdateFieldDto extends createZodDto(updateFieldSchema) {}
 class ChangeFieldTypeDto extends createZodDto(changeFieldTypeSchema) {}
+class PreviewFormulaDto extends createZodDto(previewFormulaSchema) {}
+class FormulaPreviewResponseDto extends createZodDto(formulaPreviewResponseSchema) {}
 class CreateOptionDto extends createZodDto(createOptionSchema) {}
 class UpdateOptionDto extends createZodDto(updateOptionSchema) {}
 class DeleteOptionDto extends createZodDto(deleteOptionSchema) {}
@@ -62,6 +67,27 @@ export class FieldsController {
     @Body() body: CreateFieldDto,
   ) {
     return this.fieldsService.create(await this.db(req, databaseId), body, req.membership);
+  }
+
+  /**
+   * Ticket #1263 — dry-run a formula. A READ: viewer access (the caller can already read every value it will see), scope `read`,
+   * 404 for a caller who cannot read the database, and nothing is saved. A sibling of `POST /fields` rather than a `dry_run` flag on
+   * it: the write routes are admin-scope and creator-role, so a flag there would put the safe check behind the dangerous permission.
+   */
+  @RequiresScope('read')
+  @Post('formula-preview')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Dry-run a formula: parse, type-check and evaluate it on up to 5 recent records; returns the return type or positioned errors, and saves nothing (#1263)',
+  })
+  @ApiOkResponse({ type: FormulaPreviewResponseDto })
+  async previewFormula(
+    @Req() req: WorkspaceRequest,
+    @Param('db') databaseId: string,
+    @Body() body: PreviewFormulaDto,
+  ) {
+    await this.databases.assertAccess(req.membership, databaseId, 'viewer');
+    return this.fieldsService.previewFormula(databaseId, body, req.membership);
   }
 
   @Patch(':field')

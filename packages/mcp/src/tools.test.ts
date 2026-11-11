@@ -5654,3 +5654,114 @@ describe('agent wake queue tools (#1130)', () => {
     expect(posted[posted.length - 1]!.body).toEqual({ agent: '7', database_id: 'db-1', state_field_id: 'f-state', state_option_id: 'opt-todo' });
   });
 });
+
+/*
+ * ticket #1263 - preview_formula: the dry-run an agent runs before add_field / update_field. It is a READ tool (the API route is
+ * viewer + scope read), it resolves a formula field by NAME for `field`, it posts nothing but the preview, and the write tools point at it.
+ */
+describe('preview_formula (#1263)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = {
+    id: 'db-1',
+    name: 'Lines',
+    apiSlug: 'lines',
+    fields: [
+      { id: 'f-qty', apiName: 'qty', displayName: 'Qty', type: 'number' },
+      { id: 'f-total', apiName: 'total', displayName: 'Line Total', type: 'formula' },
+    ],
+  };
+  const OK = { valid: true, return_type: 'number', samples: [{ record_id: 'r1', number: 1, title: 'A', value: 4 }], errors: [] };
+
+  function harness(scope: 'read' | 'write' | 'admin', answer: unknown = OK) {
+    const posted: Array<{ path: string; body: unknown }> = [];
+    const defs = new Map<string, { description: string }>();
+    const handlers = new Map<string, (a: unknown) => Promise<unknown>>();
+    const server = {
+      registerTool: (n: string, c: { description: string }, h: (a: unknown) => Promise<unknown>) => {
+        handlers.set(n, h);
+        defs.set(n, c);
+      },
+    };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+        throw new Error(`unmocked GET ${path}`);
+      },
+      POST: async (path: string, o: { body?: unknown }) => {
+        posted.push({ path, body: o?.body });
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/fields/formula-preview') return { data: answer };
+        throw new Error(`unmocked POST ${path}`);
+      },
+    } as never;
+    const notes = registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope, allowRunButton: true });
+    return { handlers, defs, posted, notes };
+  }
+  const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
+    (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
+
+  it('is offered to a READ token (the add_field it guards is not)', () => {
+    const { handlers } = harness('read');
+    expect(handlers.has('preview_formula')).toBe(true);
+    expect(handlers.has('add_field')).toBe(false);
+  });
+
+  it('posts only the expression to the preview route and returns its answer verbatim', async () => {
+    const { handlers, posted } = harness('read');
+    const res = await call(handlers.get('preview_formula')!, { workspace: 'JCM Agency', database: 'lines', expression: '{Qty} * 2' });
+    expect(res.isError).toBeUndefined();
+    expect(JSON.parse(res.content[0]!.text)).toEqual(OK);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.path).toBe('/api/v1/workspaces/{ws}/databases/{db}/fields/formula-preview');
+    expect(posted[0]!.body).toEqual({ expression: '{Qty} * 2' });
+  });
+
+  it('resolves `field` by display name to the field id, and passes `samples`', async () => {
+    const { handlers, posted } = harness('read');
+    await call(handlers.get('preview_formula')!, { workspace: 'JCM Agency', database: 'lines', expression: '{Qty}', field: 'Line Total', samples: 2 });
+    expect(posted[0]!.body).toEqual({ expression: '{Qty}', field: 'f-total', samples: 2 });
+  });
+
+  it('refuses a `field` that is not a formula field, naming the formula fields there are, without calling the API', async () => {
+    const { handlers, posted } = harness('read');
+    const res = await call(handlers.get('preview_formula')!, { workspace: 'JCM Agency', database: 'lines', expression: '1', field: 'Qty' });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/No formula field matches "Qty"\. Available: total/);
+    expect(posted).toHaveLength(0);
+  });
+
+  it('an invalid-formula answer (valid:false with positioned errors) is returned to the model as DATA, not as a tool error', async () => {
+    const bad = {
+      valid: false,
+      return_type: null,
+      samples: [],
+      errors: [{ message: 'Unknown field "{Qtty}"', position: { start: 0, end: 6 }, expected: 'a field', got: 'Qtty', suggestion: '{Qty}' }],
+    };
+    const { handlers } = harness('read', bad);
+    const res = await call(handlers.get('preview_formula')!, { workspace: 'JCM Agency', database: 'lines', expression: '{Qtty}' });
+    expect(res.isError).toBeUndefined();
+    expect(JSON.parse(res.content[0]!.text).errors[0].suggestion).toBe('{Qty}');
+  });
+
+  it('is described: the lead says it saves nothing and points at its section; the full notes name the result shape; add_field points at it', () => {
+    const { defs, notes } = harness('admin');
+    // ticket #1262: the LISTED text is a short lead; the full text is what get_started serves under 'TOOL NOTES <tool>'.
+    const lead = defs.get('preview_formula')!.description;
+    expect(lead).toMatch(/Saves NOTHING/);
+    expect(lead).toContain("call get_started section='TOOL NOTES preview_formula'");
+    const full = notes.get('preview_formula')!;
+    expect(full).toMatch(/Saves NOTHING/);
+    expect(full).toMatch(/return_type/);
+    expect(full).toMatch(/samples/);
+    expect(full).toMatch(/position:\{start,end\}/);
+    expect(full).toMatch(/expected, got, `?suggestion/);
+    expect(defs.get('add_field')!.description).toMatch(/preview_formula/);
+    expect(notes.get('add_field')!).toMatch(/preview_formula/);
+  });
+
+  it('is in the agent tool catalogue', async () => {
+    const { MCP_TOOL_NAMES } = await import('@storyos/schemas');
+    expect(MCP_TOOL_NAMES).toContain('preview_formula');
+  });
+});
