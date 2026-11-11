@@ -60,7 +60,7 @@ export function undefinedVarUses(text: string, defined: ReadonlySet<string>): st
 describe('every var(--x) names a custom property that exists', () => {
   const defined = runtimeVars(readFileSync(join(src, 'app/globals.css'), 'utf8'));
   // layout.tsx also imports app/fonts/fonts.css, which declares the font variables (--font-quill, #1253): those are real too.
-  for (const [, name] of readFileSync(join(src, 'app/fonts/fonts.css'), 'utf8').matchAll(/(--[\w-]+)\s*:/g)) defined.add(name);
+  for (const m of readFileSync(join(src, 'app/fonts/fonts.css'), 'utf8').matchAll(/(--[\w-]+)\s*:/g)) defined.add(m[1] as string);
 
   it('globals.css emits the real tokens, and the Tailwind-only names are not among them', () => {
     expect(defined.has('--bg-card')).toBe(true);
