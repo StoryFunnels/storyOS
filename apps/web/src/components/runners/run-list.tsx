@@ -53,8 +53,8 @@ export function RunList({
         </p>
       ) : wakes.length === 0 ? (
         <div className="flex flex-col items-center gap-2.5 px-4 py-[18px] text-center" data-testid="runs-empty">
-          <p className="m-0 text-body text-muted">No runs yet. They show up here when an agent wakes.</p>
           <Quill pose="ready" size={56} caption="Yes, chef." />
+          <p className="m-0 text-body leading-[normal] text-muted">No runs yet. They show up here when an agent wakes.</p>
         </div>
       ) : (
         <ul className="m-0 list-none p-0">

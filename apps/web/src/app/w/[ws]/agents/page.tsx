@@ -8,11 +8,12 @@ import { HireDialog } from '@/components/runners/hire-dialog';
 import { StatusMark } from '@/components/runners/status-mark';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { Button } from '@/components/ui/button';
-import { Quill } from '@/components/quill/quill';
+import { AgentsEmpty } from '@/components/runners/agents-empty';
+import { apiErrorMessage } from '@/lib/api';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { agentCountLine, lastRunLabel, lastRunState, lastRunTitle, lastRunsByAgent, managerLabel, needsDirectory, runsOnCell } from '@/lib/runners/agent-list';
 import { summaryFor } from '@/lib/runners/agents';
-import { useAgents, useLastRuns, useMembersDirectory, useRunners, useWakeSummary } from '@/lib/runners/queries';
+import { useAgents, useLastRuns, useMembersDirectory, useRunners, useSetupAgents, useWakeSummary } from '@/lib/runners/queries';
 import { canHireAgents, canSeeRunnerDetails } from '@/lib/runners/access';
 import { useWorkspace } from '@/lib/queries';
 import { describeRunner } from '@/lib/runners/status';
@@ -36,6 +37,7 @@ export default function AgentsIndexPage() {
   const lastRuns = lastRunsByAgent(agents.map((a) => a.id), lastRunData.wakes, lastRunData.runs);
   const directory = useMembersDirectory(ws, needsDirectory(agents, members.data));
   const [hireOpen, setHireOpen] = useState(false);
+  const setup = useSetupAgents(ws);
   const workspace = useWorkspace(ws).data;
   const role = workspace?.role;
   const showMachine = canSeeRunnerDetails(role);
@@ -67,16 +69,14 @@ export default function AgentsIndexPage() {
           Could not load your agents. Try again in a moment.
         </p>
       ) : agents.length === 0 ? (
-        <div className="flex flex-col items-center gap-2.5 rounded-[var(--radius-card)] border border-border-default bg-card px-4 pb-6 pt-7 text-center" data-testid="agents-empty">
-          <Quill pose="stool" size={88} caption="Nothing to cook yet." captionClassName="max-w-[160px]" />
-          <h3 className="m-0 text-prose font-semibold text-ink">No agents yet</h3>
-          {dbId && canHireAgents(role) && (
-            <Button type="button" size="sm" onClick={() => setHireOpen(true)}>
-              <Plus className="h-[13px] w-[13px]" aria-hidden />
-              Hire an agent
-            </Button>
-          )}
-        </div>
+        <AgentsEmpty
+          role={role}
+          hasAgentsDb={Boolean(dbId)}
+          onHire={() => setHireOpen(true)}
+          onSetup={() => setup.mutate()}
+          setupPending={setup.isPending}
+          setupError={setup.isError ? apiErrorMessage(setup.error, 'Could not set up agents. Nothing was created. Try again.') : null}
+        />
       ) : (
         <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card" data-testid="agents-list">
           <div className={`${COLS} py-2.5 text-label font-semibold text-muted max-[700px]:hidden`} role="presentation">

@@ -1059,7 +1059,7 @@ export function InstallDialog({
               />
             </div>
             <div className="-mx-[18px] flex items-center gap-3 border-t border-border-default px-[18px] pb-3.5 pt-2.5">
-              <p className="m-0 flex-1 text-label text-muted">Closing this won’t stop the install. You’ll see the result in a message when it’s done.</p>
+              <p className="m-0 flex-1 text-label text-muted">Closing this won’t stop the install. You’ll see the result here.</p>
               <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
                 Close
               </Button>

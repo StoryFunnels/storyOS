@@ -23,6 +23,8 @@ import {
 } from '@/lib/quill/install-moments';
 import { QUILL_POSES } from './quill-poses';
 import { Quill } from './quill';
+import { AgentsEmpty } from '@/components/runners/agents-empty';
+import { canSetupAgents } from '@/lib/runners/access';
 
 const toastCalls = vi.hoisted(() => ({ success: [] as unknown[][], custom: [] as unknown[][] }));
 vi.mock('sonner', () => ({
@@ -271,26 +273,65 @@ describe('run outcomes: Quill beside the pill, never instead of it', () => {
     const two = list([wake('done', { id: 'b', finished_at: '2026-10-20T10:00:00Z' }), wake('done', { id: 'a', finished_at: '2026-10-02T10:00:00Z' })]);
     expect(two.match(/Order up\./g)).toHaveLength(1);
   });
-  it('an empty Runs box says so in plain words with “Yes, chef.” under the words, and loading or failed-to-load draw no Quill', () => {
+  it('an empty Runs box says so in plain words with Quill first and the sentence after her (as the prototype draws it), and loading or failed-to-load draw no Quill', () => {
     const empty = list([]);
     expect(empty).toContain('No runs yet. They show up here when an agent wakes.');
     expect(empty).toContain('data-pose="ready"');
-    expect(empty.indexOf('No runs yet')).toBeLessThan(empty.indexOf('data-pose="ready"'));
+    expect(empty.indexOf('data-pose="ready"')).toBeLessThan(empty.indexOf('No runs yet'));
     expect(list([], { loading: true })).not.toContain('data-testid="quill"');
     expect(list([], { error: true })).not.toContain('data-testid="quill"');
   });
 });
 
 describe('empty Agents list and the 404', () => {
-  it('the Agents list draws her only in its empty branch, with the one action, and hides the header button there', () => {
+  it('the Agents list draws her only in its empty branch (AgentsEmpty), and hides the header button there', () => {
     const src = read('../../app/w/[ws]/agents/page.tsx');
-    expect(src.match(/<Quill\b/g)).toHaveLength(1);
-    const from = src.indexOf('agents.length === 0 ? (');
-    const branch = src.slice(from, src.indexOf(') : (', from));
-    expect(branch).toContain('<Quill pose="stool"');
-    expect(branch).toContain('No agents yet');
-    expect(branch).toContain('Hire an agent');
+    expect(src.match(/<Quill\b/g)).toBeNull();
+    expect(src).toContain('<AgentsEmpty');
     expect(src).toContain('canHireAgents(role) && agents.length > 0');
+    expect(read('../runners/agents-empty.tsx').match(/<Quill\b/g)).toHaveLength(1);
+  });
+  const empty = (o: Partial<Parameters<typeof AgentsEmpty>[0]> = {}) =>
+    renderToStaticMarkup(createElement(AgentsEmpty, { role: 'admin', hasAgentsDb: true, onHire: () => {}, onSetup: () => {}, setupPending: false, setupError: null, ...o }));
+  it('with an Agents database the one action is Hire an agent (members and admins, never a guest)', () => {
+    for (const role of ['admin', 'member']) {
+      const html = empty({ role });
+      expect(html).toContain('No agents yet');
+      expect(html).toContain('Hire an agent');
+      expect(html).not.toContain('Set up agents');
+    }
+    expect(empty({ role: 'guest' })).not.toContain('<button');
+  });
+  it('a fresh workspace (NO Agents database): an admin gets ONE action, Set up agents, and no Hire and no pack hint', () => {
+    const html = empty({ hasAgentsDb: false });
+    expect(html).toContain('Set up agents');
+    expect(html.match(/<button/g)).toHaveLength(1);
+    expect(html).not.toContain('Hire an agent');
+    expect(html).not.toMatch(/pack/i);
+    expect(empty({ hasAgentsDb: false, setupPending: true })).toMatch(/<button[^>]*disabled[^>]*>Setting up…/);
+  });
+  it('a failed setup shows the real reason and a Retry, still one button; a non-admin is told whom to ask, never a dead end', () => {
+    const failed = empty({ hasAgentsDb: false, setupError: 'The workspace is read-only.' });
+    expect(failed).toContain('role="alert"');
+    expect(failed).toContain('The workspace is read-only.');
+    expect(failed).toContain('Retry');
+    expect(failed.match(/<button/g)).toHaveLength(1);
+    const member = empty({ hasAgentsDb: false, role: 'member' });
+    expect(member).toContain('Ask a workspace admin');
+    expect(member).not.toContain('<button');
+    expect(empty({ hasAgentsDb: false, role: undefined })).not.toContain('Ask a workspace admin');
+  });
+  it('the setup action is the one the MCP tool uses: POST /agents/ensure, then the databases list is refetched', () => {
+    const src = read('../../lib/runners/queries.ts');
+    const hook = src.slice(src.indexOf('export function useSetupAgents'), src.indexOf('export function useRunnerMutations'));
+    expect(hook).toContain("'/api/v1/workspaces/{ws}/agents/ensure'");
+    expect(hook).toContain("queryKey: ['databases', ws]");
+    expect(canSetupAgents('admin')).toBe(true);
+    expect(canSetupAgents('member')).toBe(false);
+    expect(canSetupAgents(undefined)).toBe(false);
+  });
+  it('the install dialog’s background note is the prototype’s words, exactly', () => {
+    expect(read('../pack-install-dialog.tsx')).toContain('Closing this won’t stop the install. You’ll see the result here.');
   });
   it('the 404 reads plainly, has one way back, and no search link', async () => {
     const { QuillNotFound, homeHrefFor } = await import('./not-found-view');
