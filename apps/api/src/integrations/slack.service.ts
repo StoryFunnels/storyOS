@@ -5,6 +5,7 @@ import type { Db } from '../db/client';
 import { workspaces } from '../db/schema';
 import { isIP } from 'node:net';
 import { guardedFetch } from '../common/net-guard';
+import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 
 /** Slack block-kit block — passed through untouched (see Slack's Block Kit docs). */
 export type SlackBlock = Record<string, unknown>;
@@ -89,7 +90,8 @@ export class SlackService {
 
   private async readConfig(workspaceId: string): Promise<SlackConfig> {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    return (((ws?.settings ?? {}) as Record<string, unknown>).slack as SlackConfig | undefined) ?? {};
+    const slack = (((ws?.settings ?? {}) as Record<string, unknown>).slack as SlackConfig | undefined) ?? {};
+    return openFields(slack, SEALED_SETTING_FIELDS.slack);
   }
 
   async saveConfig(
@@ -111,7 +113,7 @@ export class SlackService {
     };
     await this.db
       .update(workspaces)
-      .set({ settings: { ...settings, slack } })
+      .set({ settings: { ...settings, slack: sealFields(slack, SEALED_SETTING_FIELDS.slack) } })
       .where(eq(workspaces.id, workspaceId));
     return this.present(slack);
   }

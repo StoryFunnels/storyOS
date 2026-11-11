@@ -31,6 +31,7 @@ import { SlackService } from './slack.service';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyCatalogueSubscriber } from './shopify-catalogue.subscriber';
 import { ShopifyWebhookController } from './shopify-webhook.controller';
+import { SettingsSecretsBackfillSubscriber } from './settings-secrets-backfill.subscriber';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { ShopifyWebhookController } from './shopify-webhook.controller';
     LinearService,
     LinearWriteBackService,
     SlackService,
+    SettingsSecretsBackfillSubscriber,
     ShopifyCatalogueService,
     ShopifyCatalogueSubscriber,
   ],

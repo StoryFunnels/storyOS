@@ -21,6 +21,7 @@ import { BACKLINK_COMMENT_API, DEFAULT_STATE_AUTOMATION, GithubService } from '.
 import type { GithubConfig, GithubStateAutomation } from './github.service';
 import { resolveGithubActor } from './github-actor';
 import { extractRecordNumbers } from './git-refs';
+import { openSetting } from '../common/settings-secret';
 
 /**
  * The inbound delivery path. Exported so app.setup.ts can put exactly this path
@@ -256,8 +257,15 @@ export class GithubWebhookService {
       .where(sql`${workspaces.settings}->'github'->>'webhook_secret' IS NOT NULL`);
 
     for (const candidate of candidates) {
-      const secret = ((candidate.settings as Record<string, unknown>).github as GithubConfig)
-        ?.webhook_secret;
+      let secret: string | undefined;
+      try {
+        secret = openSetting(((candidate.settings as Record<string, unknown>).github as GithubConfig)?.webhook_secret);
+      } catch {
+        // #1239 — a value that cannot be opened (sealed under another key, or damaged) is that one workspace's problem; it must
+        // not turn every other workspace's deliveries into a 500.
+        this.logger.warn(`github webhook: workspace ${candidate.id} has an unreadable webhook secret; skipped`);
+        continue;
+      }
       if (secret && verifySignature(rawBody, secret, signature)) return candidate.id;
     }
     // Covers all three of: no workspace has a secret, wrong secret, tampered body.
