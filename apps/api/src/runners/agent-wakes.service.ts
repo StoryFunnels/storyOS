@@ -1013,12 +1013,16 @@ export class AgentWakesService {
   /**
    * Which wakes this viewer may see: the agent must be in a database they can read AND the record (if any) must be readable.
    * Anything else is omitted AND not counted, so a count never reveals what a 404 would hide (ADR-0018 (b)).
+   *
+   * ticket #1228: it also says whether any were left out. A viewer who cannot read a wake's record gets an empty
+   * list from the queue, and "empty" reads as "nothing happened": a falsehood. `hidden` is a yes/no, never a number, so the answer
+   * does not count what the viewer may not open.
    */
-  private async visibleFilter(membership: Membership, rows: WakeRow[]): Promise<WakeRow[]> {
-    if (rows.length === 0) return rows;
+  private async partition(membership: Membership, rows: WakeRow[]): Promise<{ visible: WakeRow[]; hidden: boolean }> {
+    if (rows.length === 0) return { visible: rows, hidden: false };
     const info = await this.agentsDbInfo(membership.workspaceId);
-    if (!info) return [];
-    if ((await this.access.effectiveForDatabase(membership, { id: info.id, spaceId: info.spaceId })) === null) return [];
+    if (!info) return { visible: [], hidden: true };
+    if ((await this.access.effectiveForDatabase(membership, { id: info.id, spaceId: info.spaceId })) === null) return { visible: [], hidden: true };
     const recordIds = [...new Set(rows.map((r) => r.recordId).filter((id): id is string => Boolean(id)))];
     const readable = new Set<string>();
     if (recordIds.length > 0) {
@@ -1031,7 +1035,14 @@ export class AgentWakesService {
       const roles = await this.access.effectiveForRecords(membership, recs.filter((r) => !r.personal || r.ownerUserId === membership.userId));
       for (const r of recs) if (roles.get(r.id)) readable.add(r.id);
     }
-    return rows.filter((r) => !r.recordId || readable.has(r.recordId));
+    const visible = rows.filter((r) => !r.recordId || readable.has(r.recordId));
+    return { visible, hidden: visible.length < rows.length };
+  }
+
+  /** Can this viewer read the Agents database at all (the door to every wake)? */
+  private async agentsReadable(membership: Membership): Promise<boolean> {
+    const info = await this.agentsDbInfo(membership.workspaceId);
+    return Boolean(info && (await this.access.effectiveForDatabase(membership, { id: info.id, spaceId: info.spaceId })) !== null);
   }
 
   private async runStatuses(workspaceId: string, runIds: string[]): Promise<Map<string, string>> {
@@ -1079,6 +1090,7 @@ export class AgentWakesService {
     if (q.agent) conds.push(uuid.test(q.agent) ? eq(agentWakes.agentId, q.agent) : sql`false`);
     if (q.record) conds.push(uuid.test(q.record) ? eq(agentWakes.recordId, q.record) : sql`false`);
     const visible: WakeRow[] = [];
+    let anyHidden = !(await this.agentsReadable(membership));
     let exhausted = false;
     for (let batch = 0; batch < 6 && visible.length < limit + 1 && !exhausted; batch++) {
       const page = await this.db
@@ -1088,7 +1100,9 @@ export class AgentWakesService {
         .orderBy(desc(agentWakes.createdAt), desc(agentWakes.id))
         .limit(limit * 2);
       if (page.length < limit * 2) exhausted = true;
-      visible.push(...(await this.visibleFilter(membership, page)));
+      const part = await this.partition(membership, page);
+      visible.push(...part.visible);
+      if (part.hidden) anyHidden = true;
       const last = page[page.length - 1];
       if (last) after = { t: last.createdAt, id: last.id };
     }
@@ -1098,7 +1112,11 @@ export class AgentWakesService {
     const next = hasMore && last ? Buffer.from(JSON.stringify({ t: last.createdAt.toISOString(), id: last.id })).toString('base64url') : null;
     const data = await this.presentRows(membership.workspaceId, shown, now);
     // ticket #1215: a guest is told THAT a Runner serves the agent, never which machine or tool (the web's `canSeeRunnerDetails`).
-    return { data: membership.role === 'guest' ? data.map((w) => ({ ...w, run_state: maskRunState(w.run_state) })) : data, next_cursor: next };
+    // ticket #1228: `visibility` says whether this list is everything the queue holds ('full') or only what THIS viewer may read
+    // ('limited': a wake about a record, or an Agents database, they cannot open was left out). An empty list is only "nothing has
+    // woken it" when this is 'full'. A yes/no, never a count: a number would reveal how much sits behind a door they cannot open.
+    const visibility: WakeVisibility = anyHidden ? 'limited' : 'full';
+    return { data: membership.role === 'guest' ? data.map((w) => ({ ...w, run_state: maskRunState(w.run_state) })) : data, next_cursor: next, visibility };
   }
 
   private async presentRows(workspaceId: string, rows: WakeRow[], now: Date) {
@@ -1177,14 +1195,15 @@ export class AgentWakesService {
   /** The waiting counts the web and MCP show ("N waiting", the sidebar number). Hidden wakes are not counted. */
   async summary(membership: Membership) {
     const info = await this.agentsDbInfo(membership.workspaceId);
-    const empty = { agents: [] as Array<{ agent_id: string; name: string; runner: { id: string | null; name: string } | null; can_run: boolean; waiting: number; budget: BudgetStatus | null }>, waiting_total: 0, agents_that_cannot_run: 0 };
+    const empty = { agents: [] as Array<{ agent_id: string; name: string; runner: { id: string | null; name: string } | null; can_run: boolean; waiting: number; waiting_visibility: WakeVisibility; budget: BudgetStatus | null }>, waiting_total: 0, agents_that_cannot_run: 0, visibility: 'limited' as WakeVisibility };
     if (!info || (await this.access.effectiveForDatabase(membership, { id: info.id, spaceId: info.spaceId })) === null) return empty;
-    const queued = await this.visibleFilter(
-      membership,
-      await this.db.select().from(agentWakes).where(and(eq(agentWakes.workspaceId, membership.workspaceId), eq(agentWakes.status, 'queued'))),
-    );
+    const allQueued = await this.db.select().from(agentWakes).where(and(eq(agentWakes.workspaceId, membership.workspaceId), eq(agentWakes.status, 'queued')));
+    const { visible: queued } = await this.partition(membership, allQueued);
     const waiting = new Map<string, number>();
     for (const w of queued) waiting.set(w.agentId, (waiting.get(w.agentId) ?? 0) + 1);
+    // ticket #1228: an agent whose queue holds a wake this viewer cannot read has a `waiting` that is a floor, not a measurement.
+    const shownIds = new Set(queued.map((w) => w.id));
+    const limitedAgents = new Set(allQueued.filter((w) => !shownIds.has(w.id)).map((w) => w.agentId));
     const agentRows = await this.db.select({ id: records.id, title: records.title, values: records.values }).from(records).where(and(eq(records.databaseId, info.id), isNull(records.deletedAt)));
     const assigned = await this.assignments(membership.workspaceId);
     const out = [];
@@ -1203,9 +1222,9 @@ export class AgentWakesService {
       if (facts.enabled && facts.ownAi && !canRun) cannot++;
       // ticket #1215: a guest learns that the agent HAS a Runner (so "can it run" still reads right), not whose machine it is.
       const shownRunner = runner ? (membership.role === 'guest' ? { id: null, name: MASKED_RUNNER_NAME } : { id: runner.id, name: runner.name }) : null;
-      out.push({ agent_id: a.id, name: a.title, runner: shownRunner, can_run: canRun, waiting: w, budget: budgets.get(a.id)?.status ?? null });
+      out.push({ agent_id: a.id, name: a.title, runner: shownRunner, can_run: canRun, waiting: w, waiting_visibility: (limitedAgents.has(a.id) ? 'limited' : 'full') as WakeVisibility, budget: budgets.get(a.id)?.status ?? null });
     }
-    return { agents: out, waiting_total: queued.length, agents_that_cannot_run: cannot };
+    return { agents: out, waiting_total: queued.length, agents_that_cannot_run: cannot, visibility: (limitedAgents.size > 0 ? 'limited' : 'full') as WakeVisibility };
   }
 
   /** Test/diagnostic: the run_state a Runner's connection implies, without a wake. */
@@ -1214,4 +1233,6 @@ export class AgentWakesService {
   }
 }
 
+/** ticket #1228: 'full' = everything the queue holds; 'limited' = only what this viewer may read (an omitted wake is never counted). */
+export type WakeVisibility = 'full' | 'limited';
 export type { RunState };
