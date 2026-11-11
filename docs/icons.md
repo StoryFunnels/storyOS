@@ -16,8 +16,9 @@ tile, but nothing in the product writes one anymore.
 Set an icon over the API or MCP by writing the `icon` field on a database or
 space, e.g. `{ "icon": "set:rocket", "color": "purple" }`. Colours are the fixed
 palette: gray, brown, gold, orange, red, pink, purple, blue, teal, green. The
-MCP's `list_icon_set` tool returns the full catalog, grouped by category, so
-an agent can pick a real name rather than guessing.
+MCP's `get_started` has an ICONS section (call it with `section='ICONS'`) with the full catalog, grouped by
+category, so an agent can pick a real name rather than guessing (the
+maintainer-only `list_icon_set` tool returns the same catalog as JSON).
 
 In the app, use the icon picker (sidebar → a database/space → **Icon & color**,
 or click the icon directly in a database's header): search, browse by
@@ -71,6 +72,5 @@ CC0-licensed marks in the same category rather than hand-drawn from scratch.
 _The name/category/keyword data is curated in `packages/schemas/src/icons.ts`
 (the source of truth, shared by the web app, the migration backfill, and the
 MCP); `apps/web/src/components/ui/icon-set.tsx` pairs each name with its
-lucide-react component. This list is a snapshot — `list_icon_set` (MCP) is
-always current, and now also returns the `brand:` catalog under its `brands`
-key._
+lucide-react component. This list is a snapshot — the ICONS section of `get_started` (MCP) is
+always current, and also lists the `brand:` slugs._

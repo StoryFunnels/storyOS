@@ -89,6 +89,10 @@ export interface EffectiveScope {
    * never registered. Absent = no filter (every person's connection).
    */
   onlyTools?: ReadonlySet<string>;
+  /** ticket #1262 — the internal profile (tool-profiles.ts): also offer INTERNAL_TOOLS. Absent = a customer surface. */
+  internal?: boolean;
+  /** ticket #1262 — keep every listed description WHOLE even though get_started is offered (the agent-run profile; see tool-profiles.ts WHOLE_DESCRIPTION_PROFILES). */
+  wholeDescriptions?: boolean;
 }
 
 /**

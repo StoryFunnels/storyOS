@@ -26,7 +26,7 @@ const profile = (qs: string) => {
 describe('a person keeps the full tool set', () => {
   it('no profile = no filter: the same set as before this ticket, for a human with any scope', () => {
     const r = resolveToolProfile(new URLSearchParams(''));
-    expect(r).toEqual({ ok: true, allow: undefined });
+    expect(r).toEqual({ ok: true, allow: undefined, internal: false });
     const all = advertised(FULL);
     expect(all.size).toBeGreaterThan(150);
     // the whole write-scoped set a run credential would see WITHOUT the profile is still large (this is the cost being removed)
@@ -47,9 +47,9 @@ describe('the agent-run profile', () => {
     expect([...offered].sort()).toEqual([...AGENT_RUN_BASE_TOOLS].sort());
   });
 
-  it('#1180: the default set is the 8 intended tools, create_record among them, and a write run credential is offered exactly those', () => {
+  it('#1180: the default set is the 9 intended tools, create_record and get_started among them, and a write run credential is offered exactly those', () => {
     expect([...AGENT_RUN_BASE_TOOLS].sort()).toEqual(
-      ['add_comment', 'count_records', 'create_record', 'describe_database', 'get_record', 'list_comments', 'query_records', 'update_record'],
+      ['add_comment', 'count_records', 'create_record', 'describe_database', 'get_record', 'get_started', 'list_comments', 'query_records', 'update_record'],
     );
     expect(advertised({ ...RUN_CRED, onlyTools: allow }).has('create_record')).toBe(true);
   });

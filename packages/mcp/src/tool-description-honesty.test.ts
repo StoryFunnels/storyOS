@@ -31,12 +31,20 @@ const SURFACES: Array<{ tool: string; claim: RegExp; path: string; why: string }
   { tool: 'delete_webhook', claim: /made in the app/i, path: 'apps/web/src/app/w/[ws]/settings/webhooks/page.tsx', why: 'webhook subscriptions are created here' },
 ];
 
-function descriptions(): Array<{ tool: string; text: string }> {
+function descriptions(withFullText = false): Array<{ tool: string; text: string }> {
   const out: Array<{ tool: string; text: string }> = [];
-  registerTools(
+  const notes = registerTools(
     { registerTool: (name: string, config: { description?: string }) => out.push({ tool: name, text: config.description ?? '' }) } as never,
     { client: {} as never, baseUrl: 'http://test', token: 'tok' },
   );
+  // ticket #1262: a claim hidden in the part of a description that moved to get_started is still a claim; scan the FULL text, and the
+  // listed lead too (the lead can say something the full text does not, e.g. a hand-written short).
+  if (withFullText) {
+    for (const [tool, text] of notes) {
+      const entry = out.find((d) => d.tool === tool)!;
+      entry.text = `${entry.text}\n${text}`;
+    }
+  }
   return out;
 }
 
@@ -49,7 +57,7 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
 
   it('every claim about an app surface is backed by a surface that exists', () => {
     const unbacked: string[] = [];
-    for (const { tool, text } of descriptions()) {
+    for (const { tool, text } of descriptions(true)) {
       for (const m of text.matchAll(CLAIM)) {
         const entry = SURFACES.find((s) => s.tool === tool && s.claim.test(text.slice(Math.max(0, m.index! - 40), m.index! + m[0].length + 40)));
         if (!entry) unbacked.push(`${tool}: "${m[0]}"`);
@@ -79,11 +87,13 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
 
   it('#868 AC5: create_skill / update_skill descriptions match the visibility SCHEMA exactly (every accepted tier named, no tier claimed unavailable that the schema accepts)', () => {
     const cfgs = new Map<string, { description?: string; inputSchema?: Record<string, unknown> }>();
-    registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, {
+    const notes = registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, {
       client: {} as never,
       baseUrl: 'http://test',
       token: 'tok',
     });
+    // ticket #1262: the listed description is a short lead; the tier-by-tier wording is in the full text get_started returns.
+    for (const [n, full] of notes) cfgs.set(n, { ...cfgs.get(n)!, description: full });
     type Arg = { safeParse: (v: unknown) => { success: boolean } };
     const ALL = ['personal', 'members', 'shared', 'public'];
     for (const tool of ['create_skill', 'update_skill']) {
@@ -114,6 +124,24 @@ describe('#832 AC7 — no tool description points at a surface that does not exi
     expect(by.get('list_ai_connections')).not.toMatch(/^.*\. A connection has no access level of its own/);
     // (2) A member-only send_email is the one outward step an agent's write does not stage (action-classes.ts:101-104).
     expect(by.get('create_agent_trigger')).toContain("a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email");
+  });
+
+  it('#1260 (ticket #1262): the same corrections hold in the FULL text get_started returns, where the long wording now lives', () => {
+    // The listed description is a short lead; the pinned sentences are kept in BOTH places. Moving a phrase out of one must not
+    // quietly leave the other stale, and neither may name the Cursor editor.
+    const full = new Map<string, string>();
+    const notes = registerTools({ registerTool: (n: string, c: { description?: string }) => void full.set(n, c.description ?? '') } as never, {
+      client: {} as never,
+      baseUrl: 'http://test',
+      token: 'tok',
+    });
+    for (const [n, text] of notes) full.set(n, text);
+    for (const [tool, text] of full) expect(text, `${tool} must not mention Cursor`).not.toMatch(/\bCursor\b/);
+    expect(full.get('list_runners')).toMatch(/Claude Code/);
+    expect(full.get('create_automation')).toContain('a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled)');
+    expect(full.get('list_ai_connections')).toContain('A personal access token (connected: token) DOES carry a scope, read, write or admin');
+    expect(full.get('list_ai_connections')).not.toMatch(/^.*\. A connection has no access level of its own/);
+    expect(full.get('create_agent_trigger')).toContain("a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email");
   });
 
   it('the guard can fail: it flags the exact sentence that misled the agent', () => {

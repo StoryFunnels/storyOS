@@ -26,7 +26,9 @@ describe('MCP_TOOL_NAMES (packages/schemas/src/agent-tools.ts) is the live regis
 
 describe("the settings screen's constants are the server's", () => {
   it('the essentials preset in @storyos/schemas equals the profile here, includes the two tools a run cannot do without, and every name is a live tool', () => {
-    expect([...AGENT_RUN_PRESET_TOOLS]).toEqual([...AGENT_RUN_BASE_TOOLS]);
+    // ticket #1262: the profile is the settings screen's 8 essentials PLUS get_started, an always-on orientation tool that is not a
+    // capability a manager picks (so it is not a chip on the settings screen, and the preset in schemas is unchanged).
+    expect([...AGENT_RUN_BASE_TOOLS]).toEqual([...AGENT_RUN_PRESET_TOOLS, 'get_started']);
     expect(AGENT_RUN_PRESET_TOOLS).toEqual(expect.arrayContaining(['get_record', 'add_comment']));
     for (const n of AGENT_RUN_PRESET_TOOLS) expect(MCP_TOOL_NAMES).toContain(n);
     expect(MCP_TOOL_NAMES).not.toContain(AGENT_TOOLS_ALL); // `all` is a value of the setting, never a tool
@@ -46,17 +48,17 @@ describe('#1180: the default is the 8 essentials; chosen extras are ADDED; `all`
     return advertised(r.allow ? { ...eff, onlyTools: r.allow } : eff);
   };
 
-  it('NO saved Tools = exactly the 8 essentials (create_record among them), against a registry of 150+', () => {
+  it('NO saved Tools = exactly the 8 essentials plus get_started (create_record among them), against a registry of 150+', () => {
     const offered = offeredFor('');
-    expect([...offered].sort()).toEqual([...AGENT_RUN_PRESET_TOOLS].sort());
-    expect(offered.size).toBe(8);
+    expect([...offered].sort()).toEqual([...AGENT_RUN_PRESET_TOOLS, 'get_started'].sort());
+    expect(offered.size).toBe(9);
     expect(advertised(FULL).size).toBeGreaterThan(150);
   });
 
   it('chosen extras are ADDED to the essentials, which are never lost; without the name the same credential is not offered it', () => {
     const offered = offeredFor('link_records, unlink_records');
     for (const base of AGENT_RUN_PRESET_TOOLS) expect(offered.has(base), base).toBe(true);
-    expect(offered.size).toBe(AGENT_RUN_PRESET_TOOLS.length + 2);
+    expect(offered.size).toBe(AGENT_RUN_PRESET_TOOLS.length + 1 + 2); // + get_started
     expect(offeredFor('unlink_records').has('link_records')).toBe(false);
     expect(offeredFor('').has('link_records')).toBe(false);
   });

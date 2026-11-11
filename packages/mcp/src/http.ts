@@ -285,7 +285,7 @@ export function createRequestListener(
       }
     }
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    const mcp = await buildServer(makeClientFor(token), profile.allow ? { onlyTools: profile.allow } : {});
+    const mcp = await buildServer(makeClientFor(token), { ...(profile.allow ? { onlyTools: profile.allow } : {}), ...(profile.internal ? { internal: true } : {}), ...(profile.wholeDescriptions ? { wholeDescriptions: true } : {}) });
     res.on('close', () => {
       void transport.close();
       void mcp.close();

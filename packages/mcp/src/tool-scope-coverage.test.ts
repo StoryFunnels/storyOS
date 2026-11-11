@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MCP_TOOL_NAMES } from '@storyos/schemas';
 import { TOOL_SCOPE, registerTools } from './tools.js';
+import { INTERNAL_TOOLS } from './tool-profiles.js';
 import type { Ctx, EffectiveScope } from './client.js';
 
 /**
@@ -16,10 +17,14 @@ const offered = (effective: EffectiveScope): string[] => {
 };
 
 describe('every MCP tool has a scope, and every scope names a tool', () => {
-  const live = offered({ scope: 'admin', allowRunButton: true });
+  // ticket #1262: the customer surface leaves out INTERNAL_TOOLS, but every tool that EXISTS needs a scope, so the sweeps run on the
+  // internal-inclusive registry (a tool nobody offers a customer can still be offered to a maintainer, and defaults to admin the same way).
+  const live = offered({ scope: 'admin', allowRunButton: true, internal: true });
+  const customer = offered({ scope: 'admin', allowRunButton: true });
 
   it('the live registry is exactly the name list (so the sweep below is not a prefix of reality)', () => {
-    expect([...live].sort()).toEqual([...MCP_TOOL_NAMES].sort());
+    expect([...customer].sort()).toEqual([...MCP_TOOL_NAMES].sort());
+    expect(live.filter((n) => !customer.includes(n)).sort()).toEqual([...INTERNAL_TOOLS].sort());
   });
 
   it('every registered tool has a TOOL_SCOPE entry', () => {

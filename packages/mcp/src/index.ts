@@ -6,10 +6,11 @@ import { buildServer } from './server.js';
  * stdio entrypoint for Claude Desktop / Claude Code (MN-076). Configure with:
  *   STORYOS_URL   (default http://localhost:3001)
  *   STORYOS_TOKEN (a personal access token, mn_pat_…)
+ *   STORYOS_MCP_PROFILE=internal (optional, ticket #1262: also offer the maintainer-only tools; never for a customer)
  * Logs go to stderr only — stdout is the MCP protocol channel.
  */
 async function main() {
-  const server = await buildServer();
+  const server = await buildServer(undefined, process.env.STORYOS_MCP_PROFILE === 'internal' ? { internal: true } : {});
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write('storyos-mcp: connected over stdio\n');
