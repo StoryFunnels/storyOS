@@ -13,6 +13,7 @@ import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { Textarea } from '@/components/ui/textarea';
 import { MyWorkEmailOffer } from '@/components/my-work/my-work-email-offer';
 import { cn } from '@/lib/utils';
+import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
 import {
   NOTIFICATION_VERBS,
   StagedActionView,
@@ -180,21 +181,22 @@ export default function InboxPage() {
               {archived ? 'Nothing archived.' : "You're all caught up 🎉"}
             </p>
           )}
-          {rows.map((n) => (
+          {rows.map((n) => {
+            const unread = isUnreadRow(n, { archivedView: archived });
+            return (
             <button
               key={n.id}
               onClick={() => setSelectedId(n.id)}
               className={cn(
                 'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
-                selected?.id === n.id && 'bg-active',
-                !n.read_at && !archived && 'bg-hover-soft',
+                notificationRowStateClass({ unread, selected: selected?.id === n.id }),
               )}
             >
               <WhoAvatar who={notificationWho(n)} size={24} />
               <span className="min-w-0 flex-1">
                 <span className="block text-body text-ink">
                   {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
-                  <span className="font-medium">{notificationWho(n).name}</span>{' '}
+                  <span className={notificationActorClass(unread)}>{notificationWho(n).name}</span>{' '}
                   {NOTIFICATION_VERBS[n.type]}
                   {n.count > 1 ? ` · ${n.count}×` : ''}
                   {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
@@ -209,9 +211,13 @@ export default function InboxPage() {
                   n.snippet && <span className="block truncate text-label text-muted">{n.snippet}</span>
                 )}
               </span>
-              <span className="text-meta text-faint">{relativeTime(n.created_at)}</span>
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                <span className="text-meta text-faint">{relativeTime(n.created_at)}</span>
+                {unread && <UnreadDot />}
+              </span>
             </button>
-          ))}
+            );
+          })}
           {list.hasNextPage && (
             <button
               onClick={() => list.fetchNextPage()}
