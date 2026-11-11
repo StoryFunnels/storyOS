@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { eq } from 'drizzle-orm';
@@ -97,5 +98,25 @@ describe('#1239 integration secrets are sealed at rest', () => {
     // global count is not asserted.
     await backfillSealedSettings(db);
     expect(await rawSettings(ws)).toEqual(raw);
+  });
+
+  it('one workspace with an unreadable sealed secret does not break GitHub deliveries for the others', async () => {
+    const broken = (await fx('POST', '/workspaces', { name: 'Broken key WS' })).id;
+    await db.update(workspaces).set({ settings: { github: { webhook_secret: 'sealed:v1.AAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA==.AAAA' } } }).where(eq(workspaces.id, broken));
+    const good = (await fx('POST', '/workspaces', { name: 'Good key WS' })).id;
+    const secret = `good-${good}`;
+    await fx('POST', `/workspaces/${good}/integrations/github`, { webhook_secret: secret, repos: ['acme/sealed'] });
+    const body = JSON.stringify({ ref: 'refs/heads/main', repository: { full_name: 'acme/not-selected' }, commits: [] });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/integrations/github/webhook',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-event': 'push',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`,
+      },
+      payload: body,
+    });
+    expect(res.statusCode, res.body).toBe(200);
   });
 });
