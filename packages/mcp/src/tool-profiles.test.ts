@@ -47,9 +47,9 @@ describe('the agent-run profile', () => {
     expect([...offered].sort()).toEqual([...AGENT_RUN_BASE_TOOLS].sort());
   });
 
-  it('#1180: the default set is the 8 intended tools, create_record among them, and a write run credential is offered exactly those', () => {
+  it('#1180: the default set is the 9 intended tools, create_record and get_started among them, and a write run credential is offered exactly those', () => {
     expect([...AGENT_RUN_BASE_TOOLS].sort()).toEqual(
-      ['add_comment', 'count_records', 'create_record', 'describe_database', 'get_record', 'list_comments', 'query_records', 'update_record'],
+      ['add_comment', 'count_records', 'create_record', 'describe_database', 'get_record', 'get_started', 'list_comments', 'query_records', 'update_record'],
     );
     expect(advertised({ ...RUN_CRED, onlyTools: allow }).has('create_record')).toBe(true);
   });

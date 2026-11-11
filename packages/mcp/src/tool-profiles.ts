@@ -61,14 +61,23 @@ export const AGENT_RUN_BASE_TOOLS = [
   'add_comment',
   // #1180: agents routinely file a task or a note. A role EXTRA used to be needed for this; it is the one write that is almost always wanted.
   'create_record',
+  // ticket #1262: the FILTERS / ICONS / TOOL NOTES pointers in parameter hints say `get_started section=...`; a run must be able to call it. Not one of the settings screen's essentials (AGENT_RUN_PRESET_TOOLS), so it stays LAST: agent-tools.test.ts pins preset + get_started.
+  'get_started',
 ] as const;
+
+/**
+ * ticket #1262: profiles whose tools keep their descriptions WHOLE even though get_started is offered. For the agent-run profile the
+ * whole text of its 9 tools is ~3k characters, about 1k more than leads would cost, and every lead is a round trip to get_started
+ * (each request of a run re-bills all tool definitions). get_started is still there because parameter hints (FILTERS, ICONS) point at it.
+ */
+const WHOLE_DESCRIPTION_PROFILES: ReadonlySet<string> = new Set([AGENT_RUN_PROFILE]);
 
 const PROFILES: Record<string, readonly string[]> = { [AGENT_RUN_PROFILE]: AGENT_RUN_BASE_TOOLS };
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 export type ProfileResult =
-  | { ok: true; allow: ReadonlySet<string> | undefined; internal: boolean }
+  | { ok: true; allow: ReadonlySet<string> | undefined; internal: boolean; wholeDescriptions?: true }
   | { ok: false; error: string };
 
 /**
@@ -95,5 +104,5 @@ export function resolveToolProfile(query: URLSearchParams): ProfileResult {
       allow.add(name);
     }
   }
-  return { ok: true, allow, internal: false };
+  return { ok: true, allow, internal: false, ...(WHOLE_DESCRIPTION_PROFILES.has(profile) ? { wholeDescriptions: true as const } : {}) };
 }

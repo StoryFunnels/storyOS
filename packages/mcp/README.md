@@ -101,7 +101,7 @@ name returns a text answer listing the valid names. One 85,000-character result 
 that truncates a single result would have silently dropped the grammars. A section is only loaded when called,
 so it costs a capped client nothing up front (`src/get-started-sections.test.ts` checks every lead points at a
 section that exists). Where a lead must say something at call time, it is hand-written with a `short:` key next to the
-`description`. A profile that does not offer `get_started` (`?profile=agent-run`) keeps every description whole.
+`description`. The `agent-run` profile (`?profile=agent-run`, the Runner's runs) offers `get_started` too, because parameter hints (`FILTERS`, `ICONS`) name it, but keeps every description WHOLE (`WHOLE_DESCRIPTION_PROFILES` in `src/tool-profiles.ts`): its 9 tools total about 3k characters, only ~1k more than leads would cost, and a lead is a round trip. `src/profile-pointers.test.ts` checks, for every profile, that a pointer names a tool the profile offers and a section its own index lists.
 
 Maintainer-only tools (`get_branch_name`, `get_pinned_tabs`, `set_pinned_tabs`, `get_dismissed_hints`,
 `set_dismissed_hints`, `list_icon_set`; `INTERNAL_TOOLS` in `src/tool-profiles.ts`) are not offered on any customer

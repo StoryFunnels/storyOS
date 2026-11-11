@@ -147,10 +147,10 @@ describe('every lead points at the EXACT section that exists', () => {
     for (const [tool, listed] of reg.descriptions) if (!reg.notes.has(tool)) expect(listed, tool).not.toContain('[Full notes: get_started');
   });
 
-  it('the agent-run profile (no get_started) keeps every description whole and carries no notes pointer', () => {
+  it('the agent-run profile (get_started offered, whole descriptions) keeps every description whole and carries no notes pointer', () => {
     const r = resolveToolProfile(new URLSearchParams(`profile=${AGENT_RUN_PROFILE}`));
     if (!r.ok) throw new Error(r.error);
-    const run = register({ scope: 'write', allowRunButton: false, role: 'member', onlyTools: r.allow });
+    const run = register({ scope: 'write', allowRunButton: false, role: 'member', onlyTools: r.allow, ...(r.wholeDescriptions ? { wholeDescriptions: true } : {}) });
     expect(run.notes.size).toBe(0);
     for (const [tool, d] of run.descriptions) {
       expect(d, tool).not.toContain('[Full notes: get_started');

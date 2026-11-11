@@ -234,11 +234,13 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
   });
 });
 
-describe('ticket #1262 - a profile without get_started is never given a pointer to it', () => {
-  it('the agent-run profile keeps each description whole (a dangling pointer would be a false instruction)', () => {
+describe('ticket #1262 - the agent-run profile keeps each description whole', () => {
+  it('and offers get_started (parameter hints point at it), so a Runner run never reads a pointer to a tool it lacks', () => {
     const r = resolveToolProfile(new URLSearchParams(`profile=${AGENT_RUN_PROFILE}`));
     if (!r.ok) throw new Error(r.error);
-    const run = register({ scope: 'write', allowRunButton: false, role: 'member', onlyTools: r.allow });
+    const run = register({ scope: 'write', allowRunButton: false, role: 'member', onlyTools: r.allow, ...(r.wholeDescriptions ? { wholeDescriptions: true } : {}) });
+    expect(r.wholeDescriptions).toBe(true);
+    expect(run.descriptions.has('get_started')).toBe(true);
     expect(run.notes.size).toBe(0);
     for (const [tool, d] of run.descriptions) {
       expect(d, tool).not.toContain('[Full notes: get_started');

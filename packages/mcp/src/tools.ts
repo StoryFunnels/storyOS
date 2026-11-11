@@ -1168,7 +1168,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     // ticket #1262: the listed description is a short lead + pointer; the full text goes to get_started (only where get_started is offered).
     const { short, ...listed } = config as { short?: string } & Record<string, unknown>;
     const full = typeof listed.description === 'string' ? listed.description : '';
-    const canPoint = !effective.onlyTools || effective.onlyTools.has('get_started');
+    const canPoint = !effective.wholeDescriptions && (!effective.onlyTools || effective.onlyTools.has('get_started'));
     const lead = canPoint && full ? (short ?? shortenDescription(full)) : null;
     if (lead !== null && full) {
       toolNotes.set(name, full);
