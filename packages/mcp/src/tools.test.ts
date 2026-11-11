@@ -5695,8 +5695,8 @@ describe('preview_formula (#1263)', () => {
         throw new Error(`unmocked POST ${path}`);
       },
     } as never;
-    registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope, allowRunButton: true });
-    return { handlers, defs, posted };
+    const notes = registerTools(server as never, { client, baseUrl: 'x', token: 't' } as Ctx, { scope, allowRunButton: true });
+    return { handlers, defs, posted, notes };
   }
   const call = async (h: (a: unknown) => Promise<unknown>, a: unknown) =>
     (await h(a)) as { isError?: boolean; content: Array<{ text: string }> };
@@ -5744,14 +5744,20 @@ describe('preview_formula (#1263)', () => {
     expect(JSON.parse(res.content[0]!.text).errors[0].suggestion).toBe('{Qty}');
   });
 
-  it('is described: says it saves nothing, names the result shape, and add_field points at it', () => {
-    const { defs } = harness('admin');
-    const d = defs.get('preview_formula')!.description;
-    expect(d).toMatch(/Saves NOTHING/);
-    expect(d).toMatch(/return_type/);
-    expect(d).toMatch(/position:\{start,end\}/);
-    expect(d).toMatch(/suggestion/);
+  it('is described: the lead says it saves nothing and points at its section; the full notes name the result shape; add_field points at it', () => {
+    const { defs, notes } = harness('admin');
+    // ticket #1262: the LISTED text is a short lead; the full text is what get_started serves under 'TOOL NOTES <tool>'.
+    const lead = defs.get('preview_formula')!.description;
+    expect(lead).toMatch(/Saves NOTHING/);
+    expect(lead).toContain("call get_started section='TOOL NOTES preview_formula'");
+    const full = notes.get('preview_formula')!;
+    expect(full).toMatch(/Saves NOTHING/);
+    expect(full).toMatch(/return_type/);
+    expect(full).toMatch(/samples/);
+    expect(full).toMatch(/position:\{start,end\}/);
+    expect(full).toMatch(/expected, got, `?suggestion/);
     expect(defs.get('add_field')!.description).toMatch(/preview_formula/);
+    expect(notes.get('add_field')!).toMatch(/preview_formula/);
   });
 
   it('is in the agent tool catalogue', async () => {

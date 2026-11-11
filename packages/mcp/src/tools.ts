@@ -3579,6 +3579,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'preview_formula',
     {
       title: 'Preview formula',
+      short:
+        "Dry-run a formula BEFORE saving it with add_field / update_field: checks `expression` against the database's fields and evaluates it on up to 5 recent records. Saves NOTHING. Returns valid, return_type, samples and positioned errors with a suggestion; fix and call again until valid. Full result shape and rules: call get_started section='TOOL NOTES preview_formula'.",
       description:
         'Dry-run a formula BEFORE saving it with add_field / update_field: parses and type-checks `expression` against the database\'s ' +
         'fields and evaluates it on up to 5 of the most recent records you can read. Saves NOTHING. Returns ' +
@@ -3618,7 +3620,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Add field',
       short:
-        "Add a field to a database. select/multi_select/workflow take options as labels; use `workflow` (not `select`) for the one lifecycle status field a database is tracked by (at most ONE; board grouping and My Work key off it). lookup/rollup/formula/ai need `config`. Relations are not added here (use create_relation). Full config grammar (formula format and currency, rollup ops and filters, AI field prompt/output): call get_started section='TOOL NOTES add_field'.",
+        "Add a field to a database. select/multi_select/workflow take options as labels; use `workflow` (not `select`) for the one lifecycle status field a database is tracked by (at most ONE; board grouping and My Work key off it). lookup/rollup/formula/ai need `config`; dry-run a formula with preview_formula first (it saves nothing). Relations are not added here (use create_relation). Full config grammar (formula format and currency, rollup ops and filters, AI field prompt/output): call get_started section='TOOL NOTES add_field'.",
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
