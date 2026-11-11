@@ -48,3 +48,33 @@ export async function recordStructuralEvent(
     agentName: actor?.agentName ?? null,
   });
 }
+
+/**
+ * Ticket #536 — a portal recipient's link created, rotated or revoked. Same table, same query, same actor attribution as the
+ * structural events above (actor = the member, `source` as the call came), typed `portal_recipient.<action>` with the object in
+ * the payload. Deliberately NOT in STRUCTURAL_KINDS: that is the space/database/view vocabulary and is crossed with its actions to
+ * build STRUCTURAL_EVENT_TYPES, which would mint `portal_recipient.deleted` and friends that never happen.
+ *
+ * The payload is the recipient's id and label ONLY. The token, its signature and its version are never written here: a log row
+ * that carried the credential would make the audit log a second place to steal a live link from.
+ */
+export const PORTAL_RECIPIENT_ACTIONS = ['created', 'rotated', 'revoked'] as const;
+export type PortalRecipientAction = (typeof PORTAL_RECIPIENT_ACTIONS)[number];
+export const PORTAL_RECIPIENT_EVENT_TYPES: string[] = PORTAL_RECIPIENT_ACTIONS.map((a) => `portal_recipient.${a}`);
+
+export async function recordPortalRecipientEvent(
+  db: Db | Tx,
+  event: { workspaceId: string; action: PortalRecipientAction; id: string; label: string },
+): Promise<void> {
+  const actor = currentActor();
+  await db.insert(activityEvents).values({
+    workspaceId: event.workspaceId,
+    recordId: null,
+    actorId: actor?.userId ?? null,
+    type: `portal_recipient.${event.action}`,
+    payload: { object: { kind: 'portal_recipient', id: event.id, name: event.label } },
+    source: actor?.source ?? null,
+    agentId: actor?.agentId ?? null,
+    agentName: actor?.agentName ?? null,
+  });
+}
