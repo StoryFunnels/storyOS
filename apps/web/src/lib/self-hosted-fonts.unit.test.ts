@@ -80,7 +80,7 @@ describe('every font the app offers has a vendored face and its variable (#797)'
 
 describe('the OFL licence travels with the font files (ticket #856)', () => {
   const ofl = readFileSync(join(fontsDir, 'OFL.txt'), 'utf8');
-  const families = ['Figtree', 'Inter', 'Source Sans 3', 'DM Sans', 'Source Serif 4', 'Playfair Display', 'JetBrains Mono'];
+  const families = ['Figtree', 'Inter', 'Source Sans 3', 'DM Sans', 'Source Serif 4', 'Playfair Display', 'JetBrains Mono', 'Instrument Serif'];
 
   it('carries the licence text itself and one copyright notice per family, not a link', () => {
     expect(ofl).toMatch(/SIL OPEN FONT LICENSE Version 1\.1/);

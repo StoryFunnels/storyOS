@@ -173,9 +173,10 @@ describe('the space page wiring (#1094)', () => {
   });
   it('shows the server refusal text verbatim, not a generic error (the 409 names the database and the space)', () => {
     expect(dialog).toContain("apiErrorMessage(preview.error, 'This pack cannot be installed into this space.')");
-    // #1149: a refused reuse (422) says why in its own words too, so the condition also covers a reuse the person picked.
-    expect(dialog).toContain('target || Object.keys(picked).length > 0');
-    expect(dialog).toContain('? apiErrorMessage(e,');
+    // #1149: a refused reuse (422) says why in its own words too. #1253: and so does EVERY other failure: the failed state shows the real
+    // error first, so the old split (server text only with a target or a pick, a generic line otherwise) is gone.
+    expect(dialog).toContain("apiErrorMessage(e, 'The install failed')");
+    expect(dialog).not.toContain('target || Object.keys(picked).length > 0');
   });
   it('installs the pack INTO the space the page is showing', () => {
     expect(page).toMatch(/<InstallDialog[\s\S]*target=\{\{ id: space\.id, name: space\.name \}\}/);

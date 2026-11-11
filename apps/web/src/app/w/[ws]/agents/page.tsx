@@ -8,6 +8,7 @@ import { HireDialog } from '@/components/runners/hire-dialog';
 import { StatusMark } from '@/components/runners/status-mark';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { Button } from '@/components/ui/button';
+import { Quill } from '@/components/quill/quill';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { agentCountLine, lastRunLabel, lastRunState, lastRunTitle, lastRunsByAgent, managerLabel, needsDirectory, runsOnCell } from '@/lib/runners/agent-list';
 import { summaryFor } from '@/lib/runners/agents';
@@ -49,7 +50,8 @@ export default function AgentsIndexPage() {
             The AI teammates working in {workspace?.name ?? 'this workspace'}. Each one has a job, a manager, and asks before anything you say it must.
           </p>
         </div>
-        {dbId && canHireAgents(role) && (
+        {/* With no agents the empty state below carries the ONE action, so the header's button is not a second one. */}
+        {dbId && canHireAgents(role) && agents.length > 0 && (
           <Button type="button" size="sm" onClick={() => setHireOpen(true)}>
             <Plus className="h-[13px] w-[13px]" aria-hidden />
             Hire an agent
@@ -65,7 +67,16 @@ export default function AgentsIndexPage() {
           Could not load your agents. Try again in a moment.
         </p>
       ) : agents.length === 0 ? (
-        <p className="text-body text-muted">No agent is hired yet. Hire one above, or install a Business Pack that includes agents.</p>
+        <div className="flex flex-col items-center gap-2.5 rounded-[var(--radius-card)] border border-border-default bg-card px-4 pb-6 pt-7 text-center" data-testid="agents-empty">
+          <Quill pose="stool" size={88} caption="Nothing to cook yet." captionClassName="max-w-[160px]" />
+          <h3 className="m-0 text-prose font-semibold text-ink">No agents yet</h3>
+          {dbId && canHireAgents(role) && (
+            <Button type="button" size="sm" onClick={() => setHireOpen(true)}>
+              <Plus className="h-[13px] w-[13px]" aria-hidden />
+              Hire an agent
+            </Button>
+          )}
+        </div>
       ) : (
         <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card" data-testid="agents-list">
           <div className={`${COLS} py-2.5 text-label font-semibold text-muted max-[700px]:hidden`} role="presentation">

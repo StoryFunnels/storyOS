@@ -3,6 +3,8 @@ import { describeRun, isFinishedRun } from '@/lib/runners/status';
 import type { TimeOpts } from '@/lib/runners/words';
 import type { WakeDto } from '@/lib/runners/types';
 import { StatusMark } from './status-mark';
+import { Quill, QuillBeside } from '@/components/quill/quill';
+import { firstSuccessfulRunId, runQuill } from '@/lib/quill/run-outcome';
 
 /**
  * Ticket #1139 AC5 — an agent's runs, one row each, the state exactly as drawn.
@@ -31,6 +33,8 @@ export function RunList({
   masked?: boolean;
 }) {
   const finished = wakes.filter(isFinishedRun).length;
+  // #1253 — Quill celebrates the agent's FIRST success only, and only when this list holds its whole history.
+  const firstSuccess = firstSuccessfulRunId(wakes, more);
   return (
     <section className="rounded-[var(--radius-card)] border border-border-default bg-card" data-testid="run-list">
       <div className="flex items-center gap-2 border-b border-border-default px-3.5 py-[11px] text-body font-[650] leading-[15px] text-ink">
@@ -48,7 +52,10 @@ export function RunList({
           Could not load this agent’s runs. Try again in a moment.
         </p>
       ) : wakes.length === 0 ? (
-        <p className="px-3.5 py-3 text-body text-muted">Nothing has woken this agent yet. When a record does, it shows here.</p>
+        <div className="flex flex-col items-center gap-2.5 px-4 py-[18px] text-center" data-testid="runs-empty">
+          <p className="m-0 text-body text-muted">No runs yet. They show up here when an agent wakes.</p>
+          <Quill pose="ready" size={56} caption="Yes, chef." />
+        </div>
       ) : (
         <ul className="m-0 list-none p-0">
           {wakes.map((w) => {
@@ -76,6 +83,11 @@ export function RunList({
                     Review
                   </Link>
                 )}
+                {/* After the pill and the action, never before them: the real state and what to do about it come first. */}
+                {(() => {
+                  const q = runQuill(w, firstSuccess);
+                  return q ? <QuillBeside pose={q.pose} caption={q.caption} /> : null;
+                })()}
               </li>
             );
           })}
