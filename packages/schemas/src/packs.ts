@@ -567,6 +567,8 @@ const installedEntitySchema = z.object({
   /** `updated` (#977): a reused agent whose pack-defined content was brought up to this version. */
   action: z.enum(['created', 'reused', 'updated', 'skipped']),
   id: z.string(),
+  /** ticket #1222 - why a `reused` field was kept as it is (it exists with another type than the pack wants). Absent otherwise. */
+  reason: z.string().optional(),
 });
 
 /**
@@ -700,7 +702,8 @@ export type PackAgentUpdate = z.infer<typeof packAgentUpdateSchema>;
  *   options      options it would add to an existing select that is a workflow state, per field
  *   views        views it would add (a view that already exists, including the default "All records", is not listed)
  *   not_applied  what the pack asks for that it will NOT do to what is there, with the reason: a field that exists with another
- *                type is kept as it is; a workflow state that exists as a non-select field STOPS the install (`blocks_install`)
+ *                type is kept as it is; a workflow state that exists as a non-select field, or a relation whose field name is taken by a
+ *                non-relation field, STOPS the install (`blocks_install`)
  */
 export const packDatabaseGainsSchema = z.object({
   fields: z.array(z.object({ name: z.string(), type: z.string() })),
@@ -715,7 +718,7 @@ export const packDatabaseGainsSchema = z.object({
   views: z.array(z.string()),
   not_applied: z.array(
     z.object({
-      kind: z.enum(['field', 'state']),
+      kind: z.enum(['field', 'state', 'relation']),
       name: z.string(),
       reason: z.string(),
       blocks_install: z.boolean().optional(),
