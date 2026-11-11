@@ -23,6 +23,7 @@ import { RelationLinkerService } from '../migration-framework/relation-linker.se
 import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
+import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 
 export interface LinearTeam {
   id: string;
@@ -485,13 +486,14 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   private async readLinear(workspaceId: string): Promise<LinearSettings> {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    return (((ws?.settings ?? {}) as Record<string, unknown>).linear as LinearSettings | undefined) ?? {};
+    const linear = (((ws?.settings ?? {}) as Record<string, unknown>).linear as LinearSettings | undefined) ?? {};
+    return openFields(linear, SEALED_SETTING_FIELDS.linear);
   }
 
   private async writeLinear(workspaceId: string, linear: LinearSettings) {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-    await this.db.update(workspaces).set({ settings: { ...settings, linear } }).where(eq(workspaces.id, workspaceId));
+    await this.db.update(workspaces).set({ settings: { ...settings, linear: sealFields(linear, SEALED_SETTING_FIELDS.linear) } }).where(eq(workspaces.id, workspaceId));
   }
 
   /** What an admin sees (never the key): config, the schedule, and how the mirror is doing right now (#906). */
@@ -972,7 +974,15 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       sql`SELECT id FROM workspaces WHERE settings->'linear'->'auto_sync'->>'enabled' = 'true'`,
     )) as unknown as { rows?: Array<{ id: string }> };
     for (const { id: workspaceId } of rows.rows ?? []) {
-      const linear = await this.readLinear(workspaceId);
+      let linear: LinearSettings;
+      try {
+        linear = await this.readLinear(workspaceId);
+      } catch (error) {
+        // #1239 — a key that cannot be opened (damaged, or sealed under another key) is that workspace's problem; it must not
+        // stop the pass for every workspace after it.
+        this.logger.warn(`linear scheduled sync for ${workspaceId} skipped: its settings cannot be read (${String(error)})`);
+        continue;
+      }
       const interval = linear.auto_sync?.interval_minutes ?? DEFAULT_SYNC_INTERVAL_MINUTES;
       // Due by last ATTEMPT, so a broken key is retried each interval, not every minute.
       const last = linear.sync_status?.last_attempt_at ?? null;

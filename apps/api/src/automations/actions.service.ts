@@ -1163,6 +1163,8 @@ export class AutomationActionsService implements OnModuleInit {
               databaseId: ctx.databaseId,
               recordId: ctx.record?.id ?? null,
               actorId: ctx.actorId,
+              // #1074 — the rule behind this job, so a run_agent executor can check its AUTHOR (null for a button press).
+              ruleId: ctx.ruleId ?? null,
               // MN-109: carried so a run_agent executor's own record writes
               // (via AgentsService.dispatchRun's applyProposedAction) inherit
               // THIS call's depth rather than resetting to 0 across the queue

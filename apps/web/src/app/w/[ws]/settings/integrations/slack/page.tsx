@@ -13,6 +13,7 @@ const SLACK_METHOD_OPTIONS = [
 ];
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { SetupDisclosure } from '@/components/settings/setup-disclosure';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -104,8 +105,8 @@ export default function SlackIntegrationPage() {
         <ProviderConnectionCard ws={ws} id="slack" />
       </div>
 
+      <SetupDisclosure label="Slack" connected={Boolean(connected)}>
       <IntegrationSetupGuide
-        className="mb-5"
         steps={[
           {
             label: 'Connect Slack',
@@ -258,6 +259,7 @@ export default function SlackIntegrationPage() {
           </Button>
         </div>
       </div>
+      </SetupDisclosure>
     </div>
   );
 }

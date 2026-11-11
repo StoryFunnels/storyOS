@@ -36,7 +36,9 @@ boundary when there is one past the midpoint). For example, `api/1219-git-branch
 - **API:** `GET /api/v1/…/records/:rec/branch-name?lane=api` returns `record_id`, `number` and
   `branch_name`. An unknown lane is a 400, and a database without record numbers is a 400. You need
   at least viewer access to the record.
-- **MCP:** the `get_branch_name` tool takes the workspace, database, record and an optional lane.
+- **MCP:** the `get_branch_name` tool takes the workspace, database, record and an optional lane. It is a
+  maintainer tool, so it is only offered on the internal profile (`?profile=internal`), not on a customer's
+  connection; everyone else uses the API route above.
 
 **How a pull request links.** When a `pull_request` delivery arrives, StoryOS looks for a record
 number in this order and links the first one that exists:

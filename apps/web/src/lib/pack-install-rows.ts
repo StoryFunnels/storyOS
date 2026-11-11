@@ -25,7 +25,15 @@ export interface PreviewRowItem {
 
 /** The slice of the manifest the rows read; everything optional, because a manifest arrives as `unknown`. */
 export interface RowManifest {
-  databases?: Array<{ name: string; space?: string }>;
+  databases?: Array<{
+    name: string;
+    space?: string;
+    fields?: Array<{ name: string; options?: Array<{ label: string }> }>;
+  }>;
+  /** Workflow state fields live apart from `databases[].fields` (planStateSchema). */
+  states?: Array<{ database: string; field: string; options?: Array<{ label: string }> }>;
+  /** `from_field` is created on the `from` database, `to_field` on the `to` database; each database has the name it is given. */
+  relations?: Array<{ from: string; to?: string; from_field: string; to_field?: string }>;
   views?: Array<{ database: string; name: string; type?: string; default?: boolean }>;
   automations?: Array<{ database: string; name: string }>;
   agents?: Array<{ name: string; goal?: string; approval_policy?: string[] }>;
@@ -42,6 +50,8 @@ export interface InstallRow {
   name: string;
   /** Muted line under the name: "view of Tickets". */
   sub: string;
+  /** A database's relations on their OWN line, "Links to Project, Sprint"; null for everything else and for a database with none. */
+  links: string | null;
   action: PreviewRowItem['action'];
   /** Present only when something is NOT new. Null for a new item and for an agent, whose note is `agentEffect`. */
   note: string | null;
@@ -61,7 +71,9 @@ export function approvalSentence(policy: string[] | undefined): string | null {
   const words = (policy ?? []).map((p) => GATE_WORDS[p] ?? p);
   if (words.length === 0) return null;
   const list =
-    words.length === 1 ? words[0]! : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+    words.length === 1
+      ? words[0]!
+      : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
   return `It asks before ${list}.`;
 }
 
@@ -70,6 +82,85 @@ function firstSentence(goal: string | undefined): string {
   const g = (goal ?? '').trim();
   const m = /^[^.!?]*[.!?](?=\s|$)/.exec(g);
   return (m ? m[0] : g).replace(/[.!?]$/, '');
+}
+
+/** How many field names a database row lists before it says "+N more". */
+export const ROW_FIELDS_MAX = 6;
+
+/** "Status, Assignee, Due date, +3 more": the first `max` names, then how many were left out. Empty list → ''. */
+export function fieldsLine(names: readonly string[], max: number = ROW_FIELDS_MAX): string {
+  const clean = names.map((n) => n.trim()).filter(Boolean);
+  if (clean.length <= max) return clean.join(', ');
+  return `${clean.slice(0, max).join(', ')}, +${clean.length - max} more`;
+}
+
+/** At most this many options are spelled out; more than this reads as a range, "Triage → Canceled". */
+export const OPTIONS_LISTED_MAX = 6;
+
+/** "State (Backlog, Planned)" for a few options, "State (Triage → Canceled)" for many; a field with no options is its bare name. */
+export function fieldLabel(name: string, options: readonly string[] | undefined): string {
+  const opts = (options ?? []).map((o) => o.trim()).filter(Boolean);
+  if (opts.length === 0) return name;
+  if (opts.length <= OPTIONS_LISTED_MAX) return `${name} (${opts.join(', ')})`;
+  return `${name} (${opts[0]} → ${opts[opts.length - 1]})`;
+}
+
+/**
+ * The plain and workflow-state fields a person will see on a database, in order: state fields first, then plain fields
+ * (manifest order). Relation fields are NOT here: they get their own line (`relationNames`), outside the cap. Derived
+ * fields (formula/rollup/lookup) live in `derived_fields`, outside everything read here, and are left out.
+ */
+export function databaseFieldLabels(manifest: RowManifest | undefined, name: string): string[] {
+  const m = manifest?.databases?.find((d) => d.name === name);
+  const states = (manifest?.states ?? []).filter((s) => s.database === name);
+  const stateNames = new Set(states.map((s) => s.field));
+  return [
+    ...states.map((s) =>
+      fieldLabel(
+        s.field,
+        s.options?.map((o) => o.label),
+      ),
+    ),
+    ...(m?.fields ?? [])
+      .filter((f) => !stateNames.has(f.name))
+      .map((f) =>
+        fieldLabel(
+          f.name,
+          f.options?.map((o) => o.label),
+        ),
+      ),
+  ];
+}
+
+/**
+ * The relation fields a database actually has: its own `from_field` names (where `from === db`) plus the `to_field` names
+ * the other side creates on it (where `to === db`), so a database that only GAINS a relation (Clients' "Sales accounts")
+ * lists it. Manifest order, de-duplicated (a self-relation or a repeated name is listed once). A relation with no
+ * `to_field` simply contributes no to-side name; it is never dropped from the from side.
+ */
+export function relationNames(manifest: RowManifest | undefined, name: string): string[] {
+  const out: string[] = [];
+  const add = (n: string | undefined) => {
+    const t = n?.trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+  for (const r of manifest?.relations ?? []) {
+    if (r.from === name) add(r.from_field);
+    if (r.to === name) add(r.to_field);
+  }
+  return out;
+}
+
+/** "Links to Project, Sprint, Release"; null when the database owns no relation. Never capped: a relation is the connection, not a column. */
+export function linksLine(names: readonly string[]): string | null {
+  const clean = names.map((n) => n.trim()).filter(Boolean);
+  return clean.length ? `Links to ${clean.join(', ')}` : null;
+}
+
+/** The muted line under a database row: "database · State (Triage → Canceled), Lead, …" (just "database" when no plain field is listed). */
+function databaseSub(manifest: RowManifest | undefined, name: string): string {
+  const line = fieldsLine(databaseFieldLabels(manifest, name));
+  return line ? `database · ${line}` : 'database';
 }
 
 export function buildInstallRows(
@@ -87,7 +178,8 @@ export function buildInstallRows(
       key: item.name,
       kind: 'database',
       name: item.name,
-      sub: 'database',
+      sub: databaseSub(manifest, item.name),
+      links: linksLine(relationNames(manifest, item.name)),
       action: item.action,
       note: itemEffect('database', item.action, item.gains),
       item,
@@ -99,6 +191,7 @@ export function buildInstallRows(
       kind: 'view',
       name: m?.name ?? item.name,
       sub: m ? `view of ${m.database}` : 'view',
+      links: null,
       viewType: m?.type,
       action: item.action,
       note: itemEffect('view', item.action),
@@ -112,6 +205,7 @@ export function buildInstallRows(
       kind: 'automation',
       name: m?.name ?? item.name,
       sub: m ? `automation · on ${m.database}` : 'automation',
+      links: null,
       action: item.action,
       note: itemEffect('automation', item.action),
       item,
@@ -125,6 +219,7 @@ export function buildInstallRows(
       key: item.name,
       kind: 'agent',
       name: item.name,
+      links: null,
       sub: `agent · ${goal ? `${goal}. ` : ''}It works through your own AI.${gate ? ` ${gate}` : ''}`,
       action: item.action,
       // An agent this pack installed before is described by `agentEffect` (the dialog), not here.

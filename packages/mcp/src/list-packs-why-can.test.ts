@@ -21,7 +21,7 @@ function setup() {
   const client = {
     GET: async (path: string) => (path === '/api/v1/packs/registry' ? { data: [card] } : { error: { message: `unexpected ${path}` } }),
   };
-  registerTools(
+  const notes = registerTools(
     {
       registerTool: (n: string, c: never, h: never) => {
         configs.set(n, c);
@@ -30,6 +30,8 @@ function setup() {
     } as never,
     { client: client as never, baseUrl: 'http://test', token: 'tok' } as never,
   );
+  // ticket #1262: assert on the FULL description (the listed one is a short lead; get_started carries the rest).
+  for (const [n, full] of notes) configs.set(n, { ...(configs.get(n) ?? {}), description: full });
   return { configs, handlers };
 }
 

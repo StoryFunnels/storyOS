@@ -20,6 +20,33 @@
 export const AGENT_RUN_PROFILE = 'agent-run';
 
 /**
+ * ticket #1262: the INTERNAL profile (`?profile=internal`, or STORYOS_MCP_PROFILE=internal for a stdio server) is the full tool set PLUS the
+ * tools below. It is for the people building StoryOS, never for a customer's connection.
+ */
+export const INTERNAL_PROFILE = 'internal';
+
+/**
+ * ticket #1262: tools that are not part of any CUSTOMER surface, because a customer's AI can do nothing useful with them and each costs
+ * every session its description:
+ *  - get_branch_name: the git lane prefixes (docs/mcp/api/web/fix) of THIS repo's own workflow;
+ *  - get_pinned_tabs / set_pinned_tabs / get_dismissed_hints / set_dismissed_hints: a person's own UI state (tab strip, one-time hint
+ *    cards), which an AI has no business reading or rewriting;
+ *  - list_icon_set: a picker catalogue (an icon NAME is what a call needs, and get_started now carries that list).
+ * list_youtube_channels is deliberately NOT here: the web app's sources dialog calls the same endpoint (apps/web sources-dialog.tsx) and
+ * create_source for a youtube.* provider needs its channel_id, so it is a customer feature.
+ * Not registered unless the profile is internal, whatever the scope, role or `tools=` extras say.
+ * tool-description-budget.test.ts fails if a customer profile lists one.
+ */
+export const INTERNAL_TOOLS: ReadonlySet<string> = new Set([
+  'get_branch_name',
+  'get_pinned_tabs',
+  'set_pinned_tabs',
+  'get_dismissed_hints',
+  'set_dismissed_hints',
+  'list_icon_set',
+]);
+
+/**
  * Record work: read the record and its comments, find related records, check a count, change a field, comment, file a new record. `describe_database` is
  * here because `update_record` needs the field names and select-option ids; `count_records` because an agent must never state a count it
  * did not get from a tool (CLAUDE.md, Tyron rules). Everything else (delete/link/schema/skills/webhooks/...) is a role EXTRA.
@@ -34,14 +61,23 @@ export const AGENT_RUN_BASE_TOOLS = [
   'add_comment',
   // #1180: agents routinely file a task or a note. A role EXTRA used to be needed for this; it is the one write that is almost always wanted.
   'create_record',
+  // ticket #1262: the FILTERS / ICONS / TOOL NOTES pointers in parameter hints say `get_started section=...`; a run must be able to call it. Not one of the settings screen's essentials (AGENT_RUN_PRESET_TOOLS), so it stays LAST: agent-tools.test.ts pins preset + get_started.
+  'get_started',
 ] as const;
+
+/**
+ * ticket #1262: profiles whose tools keep their descriptions WHOLE even though get_started is offered. For the agent-run profile the
+ * whole text of its 9 tools is ~3k characters, about 1k more than leads would cost, and every lead is a round trip to get_started
+ * (each request of a run re-bills all tool definitions). get_started is still there because parameter hints (FILTERS, ICONS) point at it.
+ */
+const WHOLE_DESCRIPTION_PROFILES: ReadonlySet<string> = new Set([AGENT_RUN_PROFILE]);
 
 const PROFILES: Record<string, readonly string[]> = { [AGENT_RUN_PROFILE]: AGENT_RUN_BASE_TOOLS };
 
 const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 export type ProfileResult =
-  | { ok: true; allow: ReadonlySet<string> | undefined }
+  | { ok: true; allow: ReadonlySet<string> | undefined; internal: boolean; wholeDescriptions?: true }
   | { ok: false; error: string };
 
 /**
@@ -52,10 +88,13 @@ export function resolveToolProfile(query: URLSearchParams): ProfileResult {
   const profile = query.get('profile');
   const extras = query.get('tools');
   if (profile === null) {
-    return extras === null ? { ok: true, allow: undefined } : { ok: false, error: 'tools= needs a profile= (it adds tools to a profile)' };
+    return extras === null ? { ok: true, allow: undefined, internal: false } : { ok: false, error: 'tools= needs a profile= (it adds tools to a profile)' };
+  }
+  if (profile === INTERNAL_PROFILE) {
+    return extras === null ? { ok: true, allow: undefined, internal: true } : { ok: false, error: 'tools= does not apply to profile=internal (it already offers every tool)' };
   }
   const base = PROFILES[profile];
-  if (!base) return { ok: false, error: `unknown tool profile "${profile.slice(0, 40)}"; known: ${Object.keys(PROFILES).join(', ')}` };
+  if (!base) return { ok: false, error: `unknown tool profile "${profile.slice(0, 40)}"; known: ${[...Object.keys(PROFILES), INTERNAL_PROFILE].join(', ')}` };
   const allow = new Set<string>(base);
   if (extras) {
     for (const raw of extras.split(',')) {
@@ -65,5 +104,5 @@ export function resolveToolProfile(query: URLSearchParams): ProfileResult {
       allow.add(name);
     }
   }
-  return { ok: true, allow };
+  return { ok: true, allow, internal: false, ...(WHOLE_DESCRIPTION_PROFILES.has(profile) ? { wholeDescriptions: true as const } : {}) };
 }

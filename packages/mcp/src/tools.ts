@@ -6,6 +6,7 @@ import { ROLE_RANK } from './role-gates.js';
 import { TOOL_MIN_ROLE } from './role-gates.generated.js';
 import { unwrap, uploadAttachment } from './client.js';
 import { SCHEMA_VERSION_NOTICE } from './schema-version.js';
+import { INTERNAL_TOOLS } from './tool-profiles.js';
 // Subpath, not the barrel: markdown/icons are zod-free, and pulling the whole
 // schemas index into this ESM bundle inlines a CJS require('zod') that throws
 // at boot.
@@ -127,7 +128,7 @@ const COLOR_PARAM =
  * (#251: emoji retired as the picker option in-app; the MCP surface keeps
  * accepting it for back-compat but no longer advertises it as the default). */
 export const ICON_PARAM_DESCRIPTION =
-  'A curated icon ref, e.g. "set:rocket" or a brand/logo ref like "brand:github" (#298) — call list_icon_set for the full catalog. ' +
+  'A curated icon ref, e.g. "set:rocket" or a brand/logo ref like "brand:github" (#298) — the full catalog is in get_started section="ICONS". ' +
   'A raw emoji (e.g. "📁") still works for backward compatibility with older data, but is not the preferred form.';
 
 /** Curated icon names grouped by category label, plus the brand/logo set
@@ -157,6 +158,61 @@ export function buildIconCatalog(): {
 }
 
 /** MCP text result. */
+/**
+ * ticket #1262 — a tool's LISTED description is billed on every request of every session, so a client that caps tools or context
+ * cannot afford 214 paragraphs. The long text is the tool's reference: it stays in the source as `description` (one place to edit),
+ * but what `tools/list` carries is a short lead plus a pointer, and the full text is returned by `get_started` (loaded only when
+ * called, so it costs a capped client nothing up front). Two rules keep that honest:
+ *  - a tool whose lead was written by hand (`short`) says its own essentials there, because that is all a model reads at call time;
+ *  - the pointer is only added where `get_started` is actually offered (a profile without it keeps the full text, which is small).
+ * The generated lead is whole sentences, never a mid-sentence cut. Caps are enforced by description-budget.test.ts.
+ */
+export const SHORT_DESCRIPTION_CAP = 340;
+export const TOOL_NOTES_HEADING = 'TOOL NOTES';
+/** The exact section string get_started's `section` argument accepts for one tool's full text. */
+export const toolNotesSection = (tool: string): string => `${TOOL_NOTES_HEADING} ${tool}`;
+/** The pointer a shortened description ends on: names the exact section, so a model never has to guess or fetch everything. */
+export const toolNotesPointer = (tool: string): string => ` [Full notes: get_started section='${toolNotesSection(tool)}']`;
+export const FILTERS_SECTION = 'FILTERS';
+export const ICONS_SECTION = 'ICONS';
+
+const CALL_TIME_WARNING = /cannot be undone|irreversib|permanently|\bconfirm\b|do not retry|\bGuardrail\b/i;
+
+export function shortenDescription(full: string, cap: number = SHORT_DESCRIPTION_CAP): string | null {
+  if (full.length <= cap) return null;
+  // Split after a sentence end that is followed by a new sentence; never after e.g. / i.e. / etc. / vs. / No.
+  const parts = full.split(/(?<!\be\.g|\bi\.e|\betc|\bvs|\bNo)(?<=[.!?])\s+(?=[A-Z"`(#{<[])/);
+  let lead = parts[0] ?? full;
+  let used = 1;
+  for (let i = 1; i < parts.length; i++) {
+    const next = `${lead} ${parts[i]}`;
+    if (next.length > cap) break;
+    lead = next;
+    used = i + 1;
+  }
+  if (lead.length > cap + 160) {
+    // One enormous first sentence: cut at the last clause break inside the cap rather than mid-word.
+    const cut = Math.max(lead.lastIndexOf('; ', cap), lead.lastIndexOf(' \u2014 ', cap), lead.lastIndexOf(', ', cap), lead.lastIndexOf(' ', cap));
+    lead = `${lead.slice(0, cut > 80 ? cut : cap).trimEnd()} \u2026`;
+  }
+  // A sentence that warns about something irreversible or that needs a confirmation is what a model must see AT CALL TIME, so it is
+  // carried into the lead even when it came late (at most two, each short).
+  const warns = parts.slice(used).filter((sentence) => sentence.length <= 240 && CALL_TIME_WARNING.test(sentence)).slice(0, 2);
+  if (warns.length) lead = `${lead} ${warns.join(' ')}`;
+  // Shortening that saves nothing (the lead plus its pointer is not shorter than the whole text) is not shortening.
+  return lead.length + toolNotesPointer('x'.repeat(24)).length >= full.length ? null : lead;
+}
+
+/** ticket #1262: the icon names the `icon` param accepts, as get_started's ICONS section (replaces the list_icon_set call for customers). */
+export function iconCatalogText(): string {
+  const c = buildIconCatalog();
+  return [
+    `ICONS — the \`icon\` param of create_database / update_database / create_space / update_space takes "${c.prefix}<name>" or "${c.brands.prefix}<slug>". Pick a name from these lists; do not invent one.`,
+    ...Object.entries(c.categories).map(([label, names]) => `${label}: ${names.join(', ')}`),
+    `Brand logos (${c.brands.prefix}<slug>): ${c.brands.icons.map((b) => b.slug).join(', ')}`,
+  ].join('\n');
+}
+
 function text(value: unknown) {
   return { content: [{ type: 'text' as const, text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] };
 }
@@ -1052,8 +1108,12 @@ function skillVisibilityNote(visibility: string, pendingApprovalId?: string): st
     : 'Personal to you and recorded as agent-authored. Teammates cannot see it (an admin switched AI publishing off, or you asked for personal).';
 }
 
-export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveScope = { scope: 'admin', allowRunButton: true }) {
+export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveScope = { scope: 'admin', allowRunButton: true }): ReadonlyMap<string, string> {
   const { client } = ctx;
+  // ticket #1262: tool name -> full description, for every tool whose LISTED description is a short lead. get_started returns them.
+  const toolNotes = new Map<string, string>();
+  // The tools whose lead was written by hand carry the long reference grammars; they come FIRST in get_started so a client that cuts a long result cuts the generated tail, not them.
+  const handWritten = new Set<string>();
 
   /**
    * Gate registration on scope: a tool above the token's ceiling is never advertised,
@@ -1068,6 +1128,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     const need = TOOL_SCOPE[name] ?? 'admin';
     // #1177: a profile (an agent run) is an allowlist: what is not named is not offered, new tools included.
     if (effective.onlyTools && !effective.onlyTools.has(name)) return;
+    // ticket #1262: a tool for maintainers (INTERNAL_TOOLS) is not part of the customer surface, whatever the profile.
+    if (INTERNAL_TOOLS.has(name) && !effective.internal) return;
     if (SCOPE_RANK[effective.scope] < SCOPE_RANK[need]) return;
     if (RUN_BUTTON_TOOLS.has(name) && !effective.allowRunButton) return;
     // #1081: a tool the person's role cannot use is not advertised (the API still answers 403 if it is called anyway).
@@ -1105,18 +1167,34 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
      */
     const keys = Object.keys(shape);
     const sdkInputSchema = keys.length ? z.object(shape as z.ZodRawShape).catchall(z.unknown()) : shape;
-    server.registerTool(name as string, { ...config, inputSchema: sdkInputSchema } as never, wrapped as never);
+    // ticket #1262: the listed description is a short lead + pointer; the full text goes to get_started (only where get_started is offered).
+    const { short, ...listed } = config as { short?: string } & Record<string, unknown>;
+    const full = typeof listed.description === 'string' ? listed.description : '';
+    const canPoint = !effective.wholeDescriptions && (!effective.onlyTools || effective.onlyTools.has('get_started'));
+    const lead = canPoint && full ? (short ?? shortenDescription(full)) : null;
+    if (lead !== null && full) {
+      toolNotes.set(name, full);
+      if (short !== undefined) handWritten.add(name);
+      listed.description = lead.includes(`section='${toolNotesSection(name)}'`) ? lead : lead + toolNotesPointer(name);
+    }
+    server.registerTool(name as string, { ...listed, inputSchema: sdkInputSchema } as never, wrapped as never);
   };
   reg(
     'get_started',
     {
       title: 'Get started',
       description:
-        'Orientation for these tools + a map of a workspace (spaces → databases → fields) + the filter cheat-sheet. Call this first when working in a new workspace.',
-      inputSchema: { workspace: z.string().optional().describe('Workspace name or id to map (optional).') },
+        "Orientation for these tools + a workspace map (spaces → databases → fields). Call first in a new workspace. No `section`: the overview and an index of section names. section='<name>' from that index returns one reference section (FILTERS, ICONS, TOOL NOTES <tool>).",
+      inputSchema: {
+        workspace: z.string().optional().describe('Workspace name or id to map (optional).'),
+        section: z
+          .string()
+          .optional()
+          .describe("Optional. One section name from the index this tool returns when called without it, e.g. 'TOOL NOTES create_automation', 'FILTERS', 'ICONS'. Exact name first, then case-insensitive. Omit for the overview and the index."),
+      },
     },
-    handle<{ workspace?: string }>(async ({ workspace }) => {
-      const intro = [
+    handle<{ workspace?: string; section?: string }>(async ({ workspace, section }) => {
+      const overview = [
         'StoryOS MCP — read AND build a workspace of user-defined relational databases.',
         '',
         'READ:  list_workspaces → list_databases → describe_database (READ THE SCHEMA first) → query_records / search / get_record.',
@@ -1170,8 +1248,31 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         // did not help: knowing it in advance is not the same as reading it at
         // the moment writes start failing.
         SCHEMA_VERSION_NOTICE,
+      ].join('\n');
+      // ticket #1262 (section): the reference text is NOT in this result. One 85k result is truncated by some clients, silently dropping the
+      // moved grammars, so each piece is its own section, fetched by name. A tool's section is its full description, verbatim.
+      const sections = new Map<string, string>();
+      sections.set(FILTERS_SECTION, FILTER_GUIDE);
+      for (const [toolName, full] of [...toolNotes].sort(([x], [y]) => Number(handWritten.has(y)) - Number(handWritten.has(x)))) {
+        sections.set(toolNotesSection(toolName), `[${toolName}]\n${full}`);
+      }
+      // list_icon_set is a maintainer tool now (tool-profiles.ts INTERNAL_TOOLS); an icon NAME is all a call needs.
+      sections.set(ICONS_SECTION, iconCatalogText());
+      if (section !== undefined && section.trim() !== '') {
+        const wanted = section.trim();
+        const found = sections.has(wanted) ? wanted : [...sections.keys()].find((name) => name.toLowerCase() === wanted.toLowerCase());
+        if (found === undefined) {
+          return text(
+            `Unknown section '${wanted}'. Nothing was returned. Valid sections (pass one exactly, as get_started section='<name>'):\n${[...sections.keys()].join('\n')}`,
+          );
+        }
+        return text(sections.get(found)!);
+      }
+      const intro = [
+        overview,
         '',
-        FILTER_GUIDE,
+        `SECTIONS — the reference text is fetched one section at a time: call get_started with section='<name>' (exactly one of the names below, one per line). ${TOOL_NOTES_HEADING} <tool> is that tool's full description; the long grammars are TOOL NOTES create_automation, install_pack, add_field, create_source.`,
+        ...sections.keys(),
       ].join('\n');
       if (!workspace) return text(intro);
       const ws = await resolveWorkspace(client, workspace);
@@ -1341,7 +1442,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .optional()
           .describe('Default "count". The others need `field` and aggregate its numeric values.'),
         field: z.string().optional().describe('Field api_name to aggregate. Required for everything except count.'),
-        filter: z.any().optional().describe('Same filter AST as query_records — see get_started.'),
+        filter: z.any().optional().describe('Same filter AST as query_records — see get_started section="FILTERS".'),
         q: z.string().optional().describe('Free-text match on the title, same as query_records.'),
       },
     },
@@ -1408,7 +1509,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .optional()
           .describe('Default "count". The others need `field` and aggregate its numeric values within each group.'),
         field: z.string().optional().describe('Field api_name to aggregate. Required for everything except count.'),
-        filter: z.any().optional().describe('Same filter AST as query_records — see get_started.'),
+        filter: z.any().optional().describe('Same filter AST as query_records — see get_started section="FILTERS".'),
         q: z.string().optional().describe('Free-text match on the title, same as query_records.'),
       },
     },
@@ -1448,7 +1549,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Query records',
       description:
-        'List/filter/sort records in a database. filter is the structured AST (see get_started for the ' +
+        'List/filter/sort records in a database. filter is the structured AST (see get_started section="FILTERS" for the ' +
         'full op cheat-sheet). Both a grouped filter — { "and": [{ "field": "priority", "op": "eq", ' +
         '"value": "Urgent" }] } — and a bare single condition — { "field": "priority", "op": "eq", ' +
         '"value": "Urgent" } — are accepted; no group wrapper is required for one condition. Returns ' +
@@ -1462,7 +1563,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Filter AST — grouped { and: [{ field, op, value }] }/{ or: [...] }, or a bare ' +
               '{ field, op, value } condition. Example: { "field": "priority", "op": "eq", "value": "Urgent" }. ' +
-              'See get_started for the op-by-field-type cheat sheet.',
+              'See get_started section="FILTERS" for the op-by-field-type cheat sheet.',
           ),
         sorts: z
           .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
@@ -2612,6 +2713,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'get_history',
     {
       title: 'Get record history',
+      short:
+        "What happened to a record, newest first, through one of four lenses (`kind`): \"fields\" (default; per-field changes with before/after, for \"who changed the status and when\"), \"versions\" (whole-record snapshots; a version id goes to restore_version), \"activity\" (the full trail including comments, links and attachments) and \"document_versions\" (snapshots of the description document; an id goes to restore_document_version). Pick one lens by what you are answering. Every row carries `source` (human/agent/automation/mcp). Full notes: call get_started section='TOOL NOTES get_history'.",
       description:
         'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four. Every row carries `source` (human/agent/automation/mcp); an agent-made row also carries `agent_id` and `agent_name` (null otherwise), so "which agent did that" needs no second call.',
       inputSchema: {
@@ -3140,6 +3243,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'install_pack',
     {
       title: 'Install a pack',
+      short:
+        "Install a Business Pack by slug (from list_packs): creates its databases, fields, relations and views in one call. Idempotent. Pass preview:true first to see, changing nothing, per database create / reuse / collision and what it would add. Automations that send anything outside the workspace or run an agent, and state-bound agent triggers, install SWITCHED OFF: name them in enable_automations / enable_agent_triggers to switch one on. A failed install rolls back everything that request installed. Full syntax (reuse_databases, required_packs, update_agents, existing_elsewhere, scheduled pack agents): call get_started section='TOOL NOTES install_pack'.",
       description:
         'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack that builds on another pack (preview `required_packs`: pack, installed, linked, fields_added, choices) is linked to that pack\'s databases when it is installed; when it is not, choose required_packs {"agency-os": "also_install"} to install it first and link, or "create_here" (the default) to make the linked databases inside this pack. If the install then fails, everything THIS request installed first is rolled back with it, its databases and records included (the error names it; a pack that was already installed before the request is never touched). Uninstalling never removes the other pack\'s databases. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
       inputSchema: {
@@ -3458,7 +3563,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     z.object({
       label: z.string(),
       color: z.string().optional(),
-      icon: z.string().max(120).optional().describe('Curated icon ref: "set:<name>" or "brand:<slug>" (see list_icon_set).'),
+      icon: z.string().max(120).optional().describe('Curated icon ref: "set:<name>" or "brand:<slug>" (names: get_started section="ICONS").'),
       category: z.enum(STATE_CATEGORIES).optional().describe(STATE_CATEGORY_PARAM),
     }),
   ]);
@@ -3512,6 +3617,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'add_field',
     {
       title: 'Add field',
+      short:
+        "Add a field to a database. select/multi_select/workflow take options as labels; use `workflow` (not `select`) for the one lifecycle status field a database is tracked by (at most ONE; board grouping and My Work key off it). lookup/rollup/formula/ai need `config`. Relations are not added here (use create_relation). Full config grammar (formula format and currency, rollup ops and filters, AI field prompt/output): call get_started section='TOOL NOTES add_field'.",
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
@@ -4013,7 +4120,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
-        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started).'),
+        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started section="FILTERS").'),
         sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
         form_title: z.string().max(200).optional().describe('form: heading shown to the visitor (defaults to the database name).'),
         form_description: z.string().max(2000).optional().describe('form: helper text shown under the title.'),
@@ -4065,7 +4172,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
-        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started).'),
+        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started section="FILTERS").'),
         sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
       },
     },
@@ -6204,6 +6311,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'create_skill',
     {
       title: 'Create skill',
+      short:
+        "Save a reusable skill: a named instruction bundle you or another agent can run later with run_skill. Call list_skill_templates first for a worked example. The skill is recorded as authored by an agent, and unless you pass `visibility: \"personal\"` it is created SHARED with the whole workspace (every member's AI can find and run it), so write it as instructions you would be content for a teammate's AI to follow. `visibility: \"members\"` (with `members`) shares with only the named people; you can ASK for `public`, but that only raises an approval a person must give in the app Inbox and it is never public until they do. Full notes: call get_started section='TOOL NOTES create_skill'.",
       description:
         'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
         'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and unless you pass `visibility: "personal"` it is created SHARED with the whole workspace, like a person\'s skill: every member\'s AI can find it with list_skills and may run it, so write it as instructions you would be content for a teammate\'s AI to follow. (An admin can switch AI publishing off for a workspace in Settings > General; then it is created personal and a request for shared is refused.) You can ASK for `public` (anyone with a link), but that only raises an approval a person must give in the app Inbox; it is never public until they do. You can also pass `visibility: "members"` with `members` to share with only the named people.',
@@ -6283,6 +6392,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'update_skill',
     {
       title: 'Update skill',
+      short:
+        "Edit a skill you own (each field you pass REPLACES that field whole, so read it with get_skill first; editing someone else's skill is refused). Pass `visibility` to move it between `personal`, `members` (only the people in `members`; that list REPLACES the whole set), `shared` (the whole workspace) and `public` (only raises an approval a person must give in the app Inbox). Full notes: call get_started section='TOOL NOTES update_skill'.",
       description:
         'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. Pass `visibility` to move your skill between `personal`, `members` (only the people in `members`; that list REPLACES the whole set, so get_skill first to add or remove one person), `shared` (the whole workspace; refused only if an admin switched AI publishing off), and `public` (only raises an approval a person must give in the app Inbox; see create_skill).',
       inputSchema: {
@@ -6444,6 +6555,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'run_skill',
     {
       title: 'Run skill',
+      short:
+        "Run a saved skill by name or id (from list_skills). This call invokes NO model: it resolves the skill's instructions and records the run, and YOU — the connected AI, on your own subscription, never metered — are the one who carries out `instructions` against `inputs`. To have an agent apply a skill instead, name it in that agent's Skills field. Full notes: call get_started section='TOOL NOTES run_skill'.",
       description:
         'Run a saved skill by name or id (from list_skills). This call invokes NO model: it resolves the skill\'s ' +
         'instructions/when_to_use and records the run (last_run_at/last_run_status), and ' +
@@ -6631,6 +6744,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'create_agent_trigger',
     {
       title: 'Create agent trigger',
+      short:
+        "Fire an agent whenever a record reaches a given state (or, with relation_field instead of a state, whenever a record's relation field is linked to the agent). By default it starts the agent by itself, so create one only for an agent you want to run on its own. A run is not held for approval as a whole: outward actions its writes set off (email, Slack, webhook, HTTP, social post) are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email. human_gate:true means it NEVER fires by itself (a person starts each run). describe_database first: the state field must be a select/workflow and the option one of its own. Full notes: call get_started section='TOOL NOTES create_agent_trigger'.",
       description:
         'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. By default the trigger starts the agent by itself the moment a record reaches the state, so only create one for an agent you want to run on its own (a run is not held for approval as a whole: outward automation actions its record writes set off — email, Slack, webhook, HTTP, social post — are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent\'s approval_policy lists email, and its deletes and own outward steps are held only when its approval_policy or an action gate says so). With human_gate:true the trigger NEVER fires by itself: it is \'ask me before each run\', a person has to start each run, and it is stored enabled but starts nothing on its own. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) A pack\'s own triggers are created for you by install_pack, switched OFF until a person turns one on in the install review. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
@@ -6781,6 +6896,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_ai_connections',
     {
       title: 'List my connected AI clients',
+      short:
+        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens, each with its `reaches`: all_workspaces, one_workspace, needs_reconnect or this_workspace. An OAuth connection has no access level of its own: it acts as the person, so their workspace role and grants decide what it can do. A personal access token (connected: token) DOES carry a scope, read, write or admin, set when it was created and enforced on every call: a read token is refused a write. Lists only the caller's own connections; read-only (disconnecting is a person's act in Settings). Full field list: call get_started section='TOOL NOTES list_ai_connections'.",
       description:
         "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). Each row says what it `reaches`: all_workspaces (the default for an OAuth connection: every workspace the person belongs to), one_workspace (limited to the one in `approved`), needs_reconnect (refused until the client is reconnected), or this_workspace (a token). An OAuth connection has no access level of its own: it acts as the person, so their workspace role and grants decide what it can do (a guest's AI reaches only what that guest has been granted). A personal access token (connected: token) DOES carry a scope, read, write or admin, set when it was created and enforced on every call: a read token is refused a write, and it can never exceed the person's own role. It needs no admin role and lists only the caller's own connections, never a colleague's. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
       inputSchema: { workspace: z.string() },
@@ -7561,6 +7678,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'get_my_work',
     {
       title: 'What I am working on',
+      short:
+        "The surfaces a person actually opens, for the identity this token belongs to, as `kind`: \"assigned\" (default; open records assigned to them, with who set them and when), \"created\", \"assigned_by_me\", \"waiting\" (approvals they can decide and unanswered mentions), \"recent\", \"favorites\". Finished records are never returned; lists are per database, at most 50 rows each, with an exact `total` and `truncated: true` when cut, so a count is never the size of one page. Worth calling at the START of a session. Your own surfaces only. Full notes: call get_started section='TOOL NOTES get_my_work'.",
       description:
         'The surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = open records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = open records they made (assigned_by is null there); kind:"assigned_by_me" = open records whose current assignee THEY set to someone else, with `assigned_at` (what they are waiting on from others); kind:"waiting" = what waits on THEM: `approvals` they can decide (pending, not expired) and `mentions` of them they have neither replied to nor read, each list with its own exact `total`; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
         'Finished records (a completed or canceled state) are never returned. Record lists come per database, ordered overdue, due within a week, in progress, then the rest, each by most recently changed, at most 50 rows per database; every group and the top level carry the exact `total`, and `truncated: true` when rows were cut, so a count is never the size of one page. ' +
@@ -7847,6 +7966,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_runners',
     {
       title: 'List my Runners',
+      short:
+        "The StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code, on your own subscription), each with status, connection (online, offline, paused, outdated, tool_missing, revoked), working hours, reserve and hold. Read this to see why an agent is not running: an agent set to \"Your own AI\" with no active, online Runner waits. Only your own, never a colleague's. Adding or changing a Runner is done by a person in StoryOS (Settings, Runners); there is deliberately no tool for it. Full field list: call get_started section='TOOL NOTES list_runners'.",
       description:
         '#1131: the StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code, on your own subscription). Only your own, never a colleague\'s, even for an admin. Each has status (pending = paired but not turned on yet; active; a removed Runner is not listed), connection (online, offline, paused, outdated = needs an update, tool_missing = the chosen tool is no longer found, revoked), tools (what it found on that computer), chosen_tool, runner_version, protocol_version, last_seen_at, offline_since (derived: set only while the Runner is active and has not been heard from for 2 minutes), paused_until and agents (the agents assigned to it). #1137: how the person shares their subscription: working_hours (days, start, end, timezone; null = any hour), reserve_percent ("leave me X%"), reserve_measurable (false = the tool does not report plan usage, so the reserve cannot be kept: say so, never claim it is) and hold (why it is not claiming right now: limit_reached, working_hours or reserve, and when it resumes). ' +
         'Read this to see why an agent is not running: an agent set to "Your own AI" with no active, online Runner waits. Adding, turning on, changing and removing a Runner are done by a person in StoryOS (Settings, Runners); there is deliberately no tool for them, because a Runner decides where your agents\' instructions and the workspace\'s data go.',
@@ -7865,6 +7986,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_agent_wakes',
     {
       title: 'List the agent wake queue',
+      short:
+        "The queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason), how many events merged into it (coalesced_count) and ONE derived run_state you should read and never recompute (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_hours, waiting_for_reserve, waiting_for_budget, waiting_for_turn). Filter with agent and record. Only wakes whose record and agent you can read are listed. Waking, claiming and finishing a wake are not tools. Full notes: call get_started section='TOOL NOTES list_agent_wakes'.",
       description:
         "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_hours (until the Runner's working hours open), waiting_for_reserve (the person's reserve, where the tool reports it), waiting_for_budget (the agent used its monthly token budget or run cap, ticket #1138: `until` is when the UTC month resets and `budget_metric` says tokens or runs; raising the budget resumes it sooner), waiting_for_turn (one job at a time). " +
         "Newest first. Filter with agent (the Agents-database record's uuid) and record (a record uuid, or its number together with `database`). Only wakes whose record and agent YOU can read are listed; a hidden one is neither shown nor counted. Use it to answer \"is the agent working on this?\" after setting an agent in a record's agent field or @-mentioning it. Waking, claiming and finishing a wake are not tools: they happen when something changes in the workspace, or are done by a Runner.",
@@ -7938,6 +8061,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'get_agent_budget',
     {
       title: "An agent's monthly budget and usage",
+      short:
+        "One agent's monthly token budget and run cap and what it has used this UTC month, counted from its Run records (state: unlimited, ok, warning, paused, not_measured). `tokens.used` is null, never 0, when the runs' tool reported no usage, and a partial total is a lower bound: say \"at least\". Quote these numbers, never estimate them. Raise a budget with update_record on the agent's record (a person can; an agent cannot change its own). Full field list: call get_started section='TOOL NOTES get_agent_budget'.",
       description:
         "#1138: one agent's monthly budget (tokens, and a cap on runs) and what it has used this UTC calendar month, counted from its Run records. `limits` are the two number fields on the agent's record (`Monthly token budget`, `Monthly run cap`; null = no limit). `tokens` and `runs` each carry limit, used, percent (whole number, rounded down) and state: unlimited, ok, warning (80% or more: its manager was told once), paused (100%: the agent is not given new work until the budget is raised or the month resets, and its queued work waits) or not_measured. READ `tokens.used` CAREFULLY: it is null, never 0, when the finished runs' tool did not report token usage (the Claude Code CLI may not), and `tokens.measurement` (full, partial, not_reported, no_finished_runs) with `unmeasured_runs` says how much of the total is real. A partial total is a lower bound: say \"at least\". `tokens.used` also includes the tokens AI fields used when THIS agent's write caused the recompute (`tokens.ai_field`: tokens (null when the calls finished and the vendor reported none), calls, unmeasured_calls); a person's write and another agent's are not counted, and a call that failed is not counted. `state` is the worst of the two, `paused_reason` names which, and `resumes_at` is the month reset. To SET or RAISE a budget, update those fields on the agent's record with update_record (a person can; the API refuses an agent changing its own budget, so do not try to raise yours). You can read it only if you can read both the Agents and the Runs databases. Quote these numbers, never estimate them.",
       inputSchema: { workspace: z.string(), agent: z.string().describe("The agent record's uuid (from the Agents database; list_agent_wakes and get_agent_wake_summary show it).") },
@@ -8335,6 +8460,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'create_source',
     {
       title: 'Create source',
+      short:
+        "Configure a scheduled sync from an external provider INTO a database, and start it running. CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and pass its `connection_id` (from list_connections, or from list_sources). Run list_source_providers then discover_source_fields first; field_mapping maps provider keys to this database's fields, and external_key_field (one of its targets) is what makes a re-sync update instead of duplicate. Full syntax (field_mapping directions, conflict_policy, write_back and push approval, defaults): call get_started section='TOOL NOTES create_source'.",
       description:
         'Configure a scheduled sync from an external provider INTO this database, and start it running. ' +
         'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id` — get one from list_connections (#491), or from list_sources if the target database already has a source. ' +
@@ -9033,6 +9160,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'create_automation',
     {
       title: 'Create automation',
+      short:
+        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Full syntax (every trigger and action shape, templates, top-N sort/limit): call get_started section='TOOL NOTES create_automation'.",
       description:
 /*
          * #393 — the capability sentence comes FIRST, in words.
@@ -9094,8 +9223,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id (the rule\'s home database).'),
         name: z.string().describe('Human name for the rule.'),
-        trigger: z.any().describe('Trigger object — see the tool description for the shapes. record_linked accepts direction:"link"|"unlink".'),
-        actions: z.any().describe('Array of 1–10 action objects — see the tool description. Each may carry its own optional `condition` (api_names).'),
+        trigger: z.any().describe('Trigger object — shapes: get_started section="TOOL NOTES create_automation". record_linked accepts direction:"link"|"unlink".'),
+        actions: z.any().describe('Array of 1–10 action objects — shapes: get_started section="TOOL NOTES create_automation". Each may carry its own optional `condition` (api_names).'),
         condition: z
           .any()
           .optional()
@@ -9468,4 +9597,6 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       return text(res);
     }),
   );
+  // ticket #1262: the full text behind every shortened description, so a test can read what get_started returns without a client.
+  return toolNotes as ReadonlyMap<string, string>;
 }

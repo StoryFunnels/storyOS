@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   approvalSentence,
   buildInstallRows,
+  fieldLabel,
+  fieldsLine,
   notNew,
   packSpaceName,
   sampleRecordCount,
@@ -114,7 +116,9 @@ describe('buildInstallRows (#978)', () => {
   it('an agent this pack installed before gets its note from agentEffect, not here', () => {
     const rows = buildInstallRows(
       preview({
-        agents: [item('Triage', 'reuse', { agent_update: { status: 'unchanged', changed_fields: [] } })],
+        agents: [
+          item('Triage', 'reuse', { agent_update: { status: 'unchanged', changed_fields: [] } }),
+        ],
       }),
       manifest,
     );
@@ -138,5 +142,170 @@ describe('the space and samples come from the manifest', () => {
   it('counts sample records, zero when there are none', () => {
     expect(sampleRecordCount(manifest)).toBe(2);
     expect(sampleRecordCount({})).toBe(0);
+  });
+});
+
+describe('database rows name their fields (ticket #1245)', () => {
+  it('fieldsLine lists up to max, then +N more', () => {
+    expect(fieldsLine(['Status', 'Assignee'], 3)).toBe('Status, Assignee');
+    expect(fieldsLine(['A', 'B', 'C'], 3)).toBe('A, B, C'); // exactly max: no "+0 more"
+    expect(fieldsLine(['A', 'B', 'C', 'D', 'E'], 3)).toBe('A, B, C, +2 more');
+    expect(fieldsLine([], 3)).toBe('');
+  });
+
+  it('a database row reads "database · fields"; no fields in the manifest keeps plain "database"', () => {
+    const m: RowManifest = {
+      databases: [
+        {
+          name: 'Tickets',
+          fields: [{ name: 'Status' }, { name: 'Assignee' }, { name: 'Due date' }],
+        },
+        { name: 'Contacts' },
+      ],
+    };
+    const rows = buildInstallRows(preview({ databases: [item('Tickets'), item('Contacts')] }), m);
+    expect(rows[0]!.sub).toBe('database · Status, Assignee, Due date');
+    expect(rows[1]!.sub).toBe('database');
+  });
+
+  it('a long field list truncates on the row', () => {
+    const fields = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((name) => ({ name }));
+    const rows = buildInstallRows(preview(), { databases: [{ name: 'Tickets', fields }] });
+    expect(rows[0]!.sub).toBe('database · A, B, C, D, E, F, +2 more');
+  });
+
+  const opts = (...l: string[]) => l.map((label) => ({ label }));
+  const sub = (m: RowManifest) => buildInstallRows(preview(), m)[0]!.sub;
+
+  it('lists a select/state field’s options, and a range when there are many', () => {
+    expect(
+      sub({
+        databases: [
+          {
+            name: 'Tickets',
+            fields: [{ name: 'Labels', options: opts('Bug', 'Feature') }, { name: 'Lead' }],
+          },
+        ],
+        states: [
+          {
+            database: 'Tickets',
+            field: 'State',
+            options: opts(
+              'Triage',
+              'Backlog',
+              'To Do',
+              'In Progress',
+              'In Review',
+              'Done',
+              'Canceled',
+            ),
+          },
+        ],
+      }),
+    ).toBe('database · State (Triage → Canceled), Labels (Bug, Feature), Lead');
+    expect(
+      fieldLabel(
+        'State',
+        opts('A', 'B', 'C', 'D', 'E', 'F').map((o) => o.label),
+      ),
+    ).toBe('State (A, B, C, D, E, F)');
+    expect(fieldLabel('Status', [])).toBe('Status');
+  });
+
+  const links = (m: RowManifest) => buildInstallRows(preview(), m)[0]!.links;
+
+  it('relations go on their OWN line, not in the fields line; own from_field names then to_field names pointing at it', () => {
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
+      relations: [
+        { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
+        { from: 'Projects', to: 'Tickets', from_field: 'Owner ticket', to_field: 'Projects' },
+      ],
+    };
+    expect(sub(m)).toBe('database · Title');
+    expect(links(m)).toBe('Links to Project, Projects');
+  });
+
+  it('a database that only GAINS a relation from the other side lists it (Deal Desk Clients, "Sales accounts")', () => {
+    // Shape from apps/api/src/packs/deal-desk.ts: Clients is declared with no fields; Accounts.Client links to it.
+    const m: RowManifest = {
+      databases: [
+        { name: 'Accounts', fields: [] },
+        { name: 'Clients', fields: [] },
+        { name: 'Projects', fields: [] },
+        { name: 'Deals', fields: [] },
+      ],
+      relations: [
+        { from: 'Accounts', to: 'Clients', from_field: 'Client', to_field: 'Sales accounts' },
+        { from: 'Projects', to: 'Deals', from_field: 'Source deal', to_field: 'Projects' },
+      ],
+    };
+    const row = (n: string) =>
+      buildInstallRows(preview({ databases: [item(n)] }), m).find((r) => r.name === n)!;
+    expect(row('Clients').links).toBe('Links to Sales accounts');
+    expect(row('Clients').sub).toBe('database');
+    expect(row('Accounts').links).toBe('Links to Client');
+    expect(row('Deals').links).toBe('Links to Projects');
+  });
+
+  it('a self-relation is listed once per name; a relation with no to_field keeps its from side', () => {
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets' }],
+      relations: [
+        { from: 'Tickets', to: 'Tickets', from_field: 'Parent', to_field: 'Sub-issues' },
+        { from: 'Tickets', to: 'Tickets', from_field: 'Related', to_field: 'Related' },
+        { from: 'Tickets', to: 'Projects', from_field: 'Project' },
+        { from: 'Projects', to: 'Tickets', from_field: 'Lead' },
+      ],
+    };
+    expect(links(m)).toBe('Links to Parent, Sub-issues, Related, Project');
+  });
+
+  it('a database with only relations shows only the Links line (sub stays bare "database")', () => {
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets' }],
+      relations: [
+        { from: 'Tickets', to: 'Projects', from_field: 'Project', to_field: 'Tickets' },
+        { from: 'Tickets', to: 'Sprints', from_field: 'Sprint', to_field: 'Tickets' },
+      ],
+    };
+    expect(sub(m)).toBe('database');
+    expect(links(m)).toBe('Links to Project, Sprint');
+  });
+
+  it('a database with no relations has no Links line, and non-database rows never do', () => {
+    expect(links({ databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }] })).toBeNull();
+    const rows = buildInstallRows(preview(), {
+      databases: [{ name: 'Tickets' }],
+      relations: [{ from: 'Tickets', from_field: 'Project' }],
+    });
+    expect(rows.slice(1).every((r) => r.links === null)).toBe(true);
+  });
+
+  it('derived fields (outside fields/states/relations) are never listed', () => {
+    const m = {
+      databases: [{ name: 'Tickets', fields: [{ name: 'Title' }] }],
+      derived_fields: [{ database: 'Tickets', name: 'Open count', type: 'rollup' }],
+      relations: [{ from: 'Tickets', from_field: 'Project' }],
+    } as RowManifest;
+    expect(sub(m)).toBe('database · Title');
+    expect(links(m)).toBe('Links to Project');
+  });
+
+  it('the cap and +N count plain/state fields only; relations never consume the cap and are never cut', () => {
+    const fields = ['A', 'B', 'C', 'D', 'E'].map((name) => ({ name }));
+    const m: RowManifest = {
+      databases: [{ name: 'Tickets', fields }],
+      relations: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7'].map((from_field) => ({
+        from: 'Tickets',
+        from_field,
+      })),
+    };
+    expect(sub(m)).toBe('database · A, B, C, D, E'); // 5 fields + 7 relations: no "+N more"
+    expect(links(m)).toBe('Links to R1, R2, R3, R4, R5, R6, R7');
+    const eight = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((name) => ({ name }));
+    expect(sub({ ...m, databases: [{ name: 'Tickets', fields: eight }] })).toBe(
+      'database · A, B, C, D, E, F, +2 more',
+    );
   });
 });

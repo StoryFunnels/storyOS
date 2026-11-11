@@ -240,8 +240,8 @@ describe('each wake source creates exactly one queued wake, and a repeat coalesc
     const agent = await mkAgent(owner, 'Rule bot');
     const ticket = await mkTicket('Rule ticket');
     const svc = app.get(AgentsService);
-    const a = await svc.runFromAutomation({ workspaceId: ws, agentRef: agent, inputRecordId: ticket, prompt: 'Summarise it', requestedBy: adminId });
-    const b = await svc.runFromAutomation({ workspaceId: ws, agentRef: agent, inputRecordId: ticket, requestedBy: null });
+    const a = await svc.runFromAutomation({ workspaceId: ws, agentRef: agent, inputRecordId: ticket, prompt: 'Summarise it', requestedBy: adminId, authorId: adminId });
+    const b = await svc.runFromAutomation({ workspaceId: ws, agentRef: agent, inputRecordId: ticket, requestedBy: null, authorId: adminId });
     expect(b.id).toBe(a.id);
     const rows = await wakeRows(agent);
     expect(rows).toHaveLength(1);

@@ -1,4 +1,5 @@
 import { escapeHtml } from '../mail/templates';
+import { QUILL_HEADER_CSS, quillHeaderHtml } from '../mail/quill-header';
 
 /**
  * Ticket #1251 — the My work digest, rendered to Dara's approved template (v4, artifact "My Work Digest"): one column, tables and inline
@@ -35,6 +36,8 @@ export interface DigestInput {
   recipientEmail: string;
   /** "every weekday (Mon–Fri) at 08:00" / "every Monday at 08:00" */
   cadenceText: string;
+  /** App origin (WEB_URL); the Quill header's avatar PNGs are served from it. */
+  webUrl: string;
   myWorkUrl: string;
   customizeUrl: string;
   stopUrl: string;
@@ -171,11 +174,12 @@ export function renderDigest(input: DigestInput): { subject: string; html: strin
 
   const html =
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(subject)}</title>` +
-    `<style>${DARK_CSS}</style></head>\n` +
-    `<body class="d-page" style="margin:0;padding:0;background:#f4efe5;font-family:Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%">\n` +
+    `<style>${DARK_CSS}${QUILL_HEADER_CSS}</style></head>\n` +
+    `<body class="d-page" style="margin:0;padding:0;background:#f4efe5;font-family:Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%;overflow-wrap:anywhere;word-break:break-word">\n` +
     `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(preheader)}.</div>\n` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4efe5" class="d-page"><tr><td align="center" style="padding:24px 12px">\n` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="d-card" style="max-width:600px;background:#ffffff;border:1px solid #e8e5df;border-radius:8px">\n` +
+    `<tr><td align="center" style="padding:20px 24px 0">${quillHeaderHtml(input.webUrl)}</td></tr>\n` +
     `<tr><td style="padding:22px 24px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
     `<td class="d-ink" style="font-size:13px;line-height:18px;font-weight:700;color:#0f1729"><span class="d-mono" style="display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:4px;background:#2f3b63;color:#fff;font-size:10px;font-weight:700;vertical-align:-4px;margin-right:6px">${escapeHtml(initials(input.workspaceName))}</span>${escapeHtml(input.workspaceName)}</td>` +
     `<td align="right" class="d-mute" style="font-size:12px;line-height:18px;color:#6b6658;white-space:nowrap">${escapeHtml(input.dateLabel)}</td></tr></table></td></tr>\n` +

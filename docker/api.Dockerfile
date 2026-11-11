@@ -40,6 +40,11 @@ RUN pnpm install --frozen-lockfile --prod --filter @storyos/api... \
   && rm -rf /pnpm/store
 
 WORKDIR /app/apps/api
+# #1239: the server runs as `node`, not root. The directory is created owned by node so a fresh named volume mounted
+# here starts out writable; the entrypoint fixes up volumes left root-owned by older images, then drops to `node`.
+RUN mkdir -p /data/attachments data/attachments && chown -R node:node /data/attachments data
+COPY --chmod=755 docker/api-entrypoint.sh /usr/local/bin/storyos-api-entrypoint
 ENV RUN_MIGRATIONS=true
 EXPOSE 3001
+ENTRYPOINT ["storyos-api-entrypoint"]
 CMD ["node", "dist/main.js"]

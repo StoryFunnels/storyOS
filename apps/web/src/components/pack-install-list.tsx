@@ -64,6 +64,11 @@ export function InstallList({
           <span className="flex min-w-0 flex-1 flex-col gap-px text-body leading-[1.4]">
             <b className="font-medium text-ink">{row.name}</b>
             <span className="text-label text-muted">{row.sub}</span>
+            {row.links && (
+              <span className="text-label text-muted" data-testid="pack-install-links">
+                {row.links}
+              </span>
+            )}
             {row.note && <em className="mt-0.5 text-label not-italic text-ink-secondary">{row.note}</em>}
             {renderExtra?.(row)}
           </span>

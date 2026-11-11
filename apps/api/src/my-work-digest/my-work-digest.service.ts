@@ -152,6 +152,7 @@ export class MyWorkDigestService implements OnModuleInit, OnModuleDestroy {
       sections,
       recipientEmail,
       cadenceText: cadenceText(prefs),
+      webUrl: web,
       myWorkUrl: `${base}/me`,
       customizeUrl: `${base}/settings/notifications`,
       stopUrl,

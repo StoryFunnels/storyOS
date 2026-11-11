@@ -65,7 +65,7 @@ export const TOOLS_ALL = 'all';
 const MCP_TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 /**
- * The MCP address for a run (#1177, #1180). The DEFAULT is the essentials profile (8 tools, ~12k input tokens a run); the agent's saved
+ * The MCP address for a run (#1177, #1180). The DEFAULT is the essentials profile (9 tools, get_started among them, ~12k input tokens a run); the agent's saved
  * Tools are EXTRAS added to it (`tools=a,b`); the explicit value `all` sends NO profile, so the server offers every tool the credential's
  * role and scope allow (~97k a run). Every tool definition is billed on every request of the run, which is why the default is small.
  * An older MCP server ignores the query and offers its full set: more tokens, never fewer tools than before. A name that is not a tool name

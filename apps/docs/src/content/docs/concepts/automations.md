@@ -53,6 +53,10 @@ schedule** and the agent works while nobody is signed in. Two things to know:
 
 - **It runs once for each matching record.** A scheduled rule acts on every record its filter selects (up to 500 each
   time), so add a filter, or a sort and limit, to narrow it. The editor warns you when a scheduled rule has none.
+- **The rule's author must be the agent's owner or a workspace admin.** A **Run an agent** action, from a rule or a
+  button, runs with the agent owner's authority, so StoryOS checks each time it runs that the person who wrote the rule
+  (or pressed the button) is the owner or an active workspace admin. Otherwise the run is refused. A rule whose author
+  has since been demoted or removed stops running the agent.
 - **What runs overnight depends on the agent's AI mode.** A **Non-AI** agent runs by itself. An agent set to
   **Your own AI** does its work when a **Runner** (a program on its owner's computer that drives the owner's own AI
   tool) picks up its job. When the rule fires for a record, StoryOS queues a job for that agent and record. Until a

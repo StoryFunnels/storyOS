@@ -66,8 +66,10 @@ SMTP_HOST=smtp.resend.com
 SMTP_PORT=465
 SMTP_USER=resend
 SMTP_PASS=re_your_resend_api_key_here
-MAIL_FROM=StoryOS <noreply@your-domain.com>
+MAIL_FROM=Quill from StoryOS <quill@your-domain.com>
 ```
+
+Every email opens with a small header card, Quill's picture and the line "Quill from StoryOS". The pictures are served from your web app at `/brand/email/`, so `WEB_URL` must be reachable from your recipients' mail apps, or they see the alt text "Quill" instead.
 
 That is the server's own mail. A workspace can also connect its own SMTP server (Settings → Integrations) for the
 send-email automation. Such a connection must use port 25, 465, 587 or 2525 and a host that resolves to a public address.
