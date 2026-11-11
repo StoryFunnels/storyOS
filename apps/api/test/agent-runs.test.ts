@@ -567,7 +567,12 @@ describe('Run classification at dispatch (#205, ADR-0010 §3)', () => {
     }
 
     expect(complete).toHaveBeenCalledTimes(1);
-    expect(complete.mock.calls[0]![0]).toContain('Effective authorization scope: write');
+    // #1074: the engine's rules travel as the system message; the member-written Goal stays in the user message, apart from them.
+    const [userPrompt, options] = complete.mock.calls[0]! as [string, { system?: string }];
+    expect(options.system).toContain('Effective authorization scope: write');
+    expect(userPrompt).toContain('Goal: Triage incoming work');
+    expect(userPrompt).not.toContain('Effective authorization scope');
+    expect(options.system).not.toContain('Triage incoming work');
     expect(steps).toHaveLength(2);
     expect(steps[1]?.action?.kind).toBe('set_values');
     expect(runtime.usage).toEqual({ tokensIn: 123, tokensOut: 45 });

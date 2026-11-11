@@ -24,6 +24,7 @@ import type { AgentRuntime } from '../src/agents/agent-runtime';
  */
 let app: NestFastifyApplication;
 let admin: { token: string; email: string };
+let adminId: string;
 let wsId: string;
 let contentDbId: string;
 let stageFieldId: string;
@@ -98,6 +99,7 @@ function pipelineAdvanceRuntime(toStageOptionId: string): AgentRuntime {
 beforeAll(async () => {
   app = await createTestApp();
   admin = await signUpUser(app, 'RunAgentAuto');
+  adminId = (await as('GET', '/me')).json().id;
   wsId = (await as('POST', '/workspaces', { name: 'Run Agent WS' })).json().id;
   const spaceId = (await as('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
 
@@ -211,6 +213,7 @@ describe('run_agent guardrails (MN-109 Phase A)', () => {
 
       const run = await agentsService.runFromAutomation({
         workspaceId: wsId,
+        authorId: adminId,
         agentRef: agent.id,
         inputRecordId: record.id,
         dryRun: true,
@@ -245,6 +248,7 @@ describe('run_agent guardrails (MN-109 Phase A)', () => {
     try {
       const run = await agentsService.runFromAutomation({
         workspaceId: wsId,
+        authorId: adminId,
         agentRef: agent.id,
         maxSteps: 3,
       });
@@ -271,6 +275,7 @@ describe('run_agent guardrails (MN-109 Phase A)', () => {
     try {
       await agentsService.runFromAutomation({
         workspaceId: wsId,
+        authorId: adminId,
         agentRef: agent.id,
         toolScope: ['read'],
       });

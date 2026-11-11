@@ -39,6 +39,11 @@ export interface ManagedAiCallOptions {
    * its stored value is a bare string, not a JSON document (#1109).
    */
   responseFormat?: 'json' | 'text';
+  /**
+   * #1074 — the caller's own rules, sent as the SYSTEM message. User-controlled text (an agent's Goal, a rule's prompt) goes in
+   * `prompt` only, so it is never in the same message as the rules it might try to rewrite.
+   */
+  system?: string;
 }
 
 export interface ManagedAiClient {
@@ -61,11 +66,11 @@ export interface ChatMessageBody {
 }
 
 /** The `messages` array for a call: the user prompt, plus the JSON instruction when JSON mode is requested and the prompt does not already mention JSON. */
-export function buildMessages(prompt: string, responseFormat: 'json' | 'text'): ChatMessageBody[] {
+export function buildMessages(prompt: string, responseFormat: 'json' | 'text', system?: string): ChatMessageBody[] {
   const messages: ChatMessageBody[] = [{ role: 'user', content: prompt }];
-  if (responseFormat === 'json' && !/json/i.test(prompt)) {
-    messages.unshift({ role: 'system', content: JSON_MODE_INSTRUCTION });
-  }
+  const needsJsonWord = responseFormat === 'json' && !/json/i.test(prompt) && !/json/i.test(system ?? '');
+  const systemText = [system, needsJsonWord ? JSON_MODE_INSTRUCTION : undefined].filter(Boolean).join('\n');
+  if (systemText) messages.unshift({ role: 'system', content: systemText });
   return messages;
 }
 
@@ -94,7 +99,7 @@ export class OpenAiManagedAiClient implements ManagedAiClient {
       },
       body: JSON.stringify({
         model: this.model,
-        messages: buildMessages(prompt, responseFormat),
+        messages: buildMessages(prompt, responseFormat, options.system),
         ...(responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
         temperature: 0.2,
       }),
