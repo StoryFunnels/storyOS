@@ -22,6 +22,7 @@ import {
   webhookSubscriptions,
   workspaces,
 } from '../db/schema';
+import { openSetting, sealSetting } from '../common/settings-secret';
 import {
   MAX_ATTEMPTS,
   defaultWebhookFetcher,
@@ -662,12 +663,12 @@ export class WebhooksService implements OnModuleInit, OnModuleDestroy {
     if (!ws) return null;
     const settings = (ws.settings ?? {}) as Record<string, unknown>;
     const existing = settings['webhook_signing_secret'];
-    if (typeof existing === 'string' && existing.length > 0) return existing;
+    if (typeof existing === 'string' && existing.length > 0) return openSetting(existing);
 
     const secret = `whsec_${randomBytes(24).toString('hex')}`;
     await this.db
       .update(workspaces)
-      .set({ settings: { ...settings, webhook_signing_secret: secret } })
+      .set({ settings: { ...settings, webhook_signing_secret: sealSetting(secret) } })
       .where(eq(workspaces.id, workspaceId));
     return secret;
   }

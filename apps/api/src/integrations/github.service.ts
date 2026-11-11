@@ -12,6 +12,7 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { GithubAppService } from './github-app.service';
 import { resolveGithubActor } from './github-actor';
+import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 
 interface GithubIssue {
   number: number;
@@ -335,7 +336,8 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
   /** The full config, secrets included. Server-side only — never hand this to a client. */
   async readConfig(workspaceId: string): Promise<GithubConfig> {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    return (((ws?.settings ?? {}) as Record<string, unknown>).github as GithubConfig | undefined) ?? {};
+    const github = (((ws?.settings ?? {}) as Record<string, unknown>).github as GithubConfig | undefined) ?? {};
+    return openFields(github, SEALED_SETTING_FIELDS.github);
   }
 
   async saveConfig(
@@ -373,7 +375,7 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
     };
     await this.db
       .update(workspaces)
-      .set({ settings: { ...settings, github } })
+      .set({ settings: { ...settings, github: sealFields(github, SEALED_SETTING_FIELDS.github) } })
       .where(eq(workspaces.id, workspaceId));
     return this.present(github);
   }
@@ -454,7 +456,7 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
     const github: GithubConfig = { ...existing, installation_id: installationId };
     await this.db
       .update(workspaces)
-      .set({ settings: { ...settings, github } })
+      .set({ settings: { ...settings, github: sealFields(github, SEALED_SETTING_FIELDS.github) } })
       .where(eq(workspaces.id, workspaceId));
     return this.present(github);
   }
@@ -493,7 +495,7 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
     const github: GithubConfig = { ...existing, reviews_settings: next };
     await this.db
       .update(workspaces)
-      .set({ settings: { ...settings, github } })
+      .set({ settings: { ...settings, github: sealFields(github, SEALED_SETTING_FIELDS.github) } })
       .where(eq(workspaces.id, workspaceId));
     return next;
   }

@@ -21,6 +21,7 @@ import { BACKLINK_COMMENT_API, DEFAULT_STATE_AUTOMATION, GithubService } from '.
 import type { GithubConfig, GithubStateAutomation } from './github.service';
 import { resolveGithubActor } from './github-actor';
 import { extractRecordNumbers } from './git-refs';
+import { openSetting } from '../common/settings-secret';
 
 /**
  * The inbound delivery path. Exported so app.setup.ts can put exactly this path
@@ -256,8 +257,8 @@ export class GithubWebhookService {
       .where(sql`${workspaces.settings}->'github'->>'webhook_secret' IS NOT NULL`);
 
     for (const candidate of candidates) {
-      const secret = ((candidate.settings as Record<string, unknown>).github as GithubConfig)
-        ?.webhook_secret;
+      const secret = openSetting(((candidate.settings as Record<string, unknown>).github as GithubConfig)
+        ?.webhook_secret);
       if (secret && verifySignature(rawBody, secret, signature)) return candidate.id;
     }
     // Covers all three of: no workspace has a secret, wrong secret, tampered body.

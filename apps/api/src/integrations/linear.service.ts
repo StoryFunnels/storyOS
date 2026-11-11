@@ -23,6 +23,7 @@ import { RelationLinkerService } from '../migration-framework/relation-linker.se
 import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
+import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 
 export interface LinearTeam {
   id: string;
@@ -485,13 +486,14 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   private async readLinear(workspaceId: string): Promise<LinearSettings> {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
-    return (((ws?.settings ?? {}) as Record<string, unknown>).linear as LinearSettings | undefined) ?? {};
+    const linear = (((ws?.settings ?? {}) as Record<string, unknown>).linear as LinearSettings | undefined) ?? {};
+    return openFields(linear, SEALED_SETTING_FIELDS.linear);
   }
 
   private async writeLinear(workspaceId: string, linear: LinearSettings) {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-    await this.db.update(workspaces).set({ settings: { ...settings, linear } }).where(eq(workspaces.id, workspaceId));
+    await this.db.update(workspaces).set({ settings: { ...settings, linear: sealFields(linear, SEALED_SETTING_FIELDS.linear) } }).where(eq(workspaces.id, workspaceId));
   }
 
   /** What an admin sees (never the key): config, the schedule, and how the mirror is doing right now (#906). */
