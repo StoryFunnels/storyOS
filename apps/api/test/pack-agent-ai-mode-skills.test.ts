@@ -232,9 +232,9 @@ describe('skills attached to a pack agent are loaded at run time (ticket #1106)'
     expect(run.status).toBe('Failed');
     expect(run.steps).toContain('Lead triage');
     expect(run.steps).toMatch(/skills\.missing/);
-    // Otto's ruling (b): it must say HOW to fix it, not just that it is missing.
-    expect(run.steps).toContain('rename the skill back to "Lead triage"');
-    expect(run.steps).toMatch(/re-attach/i);
+    // Otto's ruling (b): it must say HOW to fix it, not just that it is missing. (ticket #1110: no longer "rename it back": the agent
+    // follows the skill by id, so a rename is not what breaks it, and a deleted skill is not replaced by a same-named one.)
+    expect(run.steps).toMatch(/restore the skill, or re-attach/i);
   }, 60_000);
 
   it('a StoryOS-AI run puts the skill in the prompt the model reads', async () => {
