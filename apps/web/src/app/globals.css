@@ -1351,3 +1351,31 @@ html[data-modality='pointer'] :focus-visible:not(input, textarea, select, [conte
     align-self: stretch;
   }
 }
+
+/* #1253 — Quill. Her body is ink and her paper edge is invisible on a light surface; on dark the edge is the cream the art was
+   drawn with, so she does not vanish into the card (prototype's --q-edge). */
+.quill-art {
+  --q-edge: transparent;
+}
+:root[data-theme='dark'] .quill-art {
+  --q-edge: #fbf6ea;
+}
+/* She bobs only while a wait is on screen, and only for people who have not asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .quill-bob {
+    animation: quill-bob 1.6s ease-in-out infinite;
+  }
+  .quill-fade-in {
+    animation: quill-fade-in 0.25s ease-out;
+  }
+}
+@keyframes quill-bob {
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes quill-fade-in {
+  from {
+    opacity: 0;
+  }
+}

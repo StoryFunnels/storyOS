@@ -53,3 +53,11 @@ export function canDeclareWriteGates(role: string | undefined): boolean {
   return role === 'admin';
 }
 export const canBindAgentToAssignment = canDeclareWriteGates;
+
+/**
+ * Ticket #1253 — who is offered "Set up agents". `POST /workspaces/{ws}/agents/ensure` is admin-only (the Agents controller is
+ * `@MinRole('admin')`), so this is the admin role and nothing wider; anyone else is told whom to ask, never shown a dead button.
+ */
+export function canSetupAgents(role: string | undefined): boolean {
+  return role === 'admin';
+}

@@ -5,6 +5,7 @@ Seven families, vendored so the build and the running app make **no** request to
 | Family | Used for | Files |
 |---|---|---|
 | Figtree | the app's own UI font (`--font-figtree`) | latin, latin-ext |
+| Instrument Serif (italic, Latin only) | Quill's captions (`--font-quill`, #1253) | latin italic |
 | Inter, Source Sans 3, DM Sans, Source Serif 4, Playfair Display, JetBrains Mono | the embedded-form font control (#720), via `--font-embed-*` | latin plus whichever of latin-ext / cyrillic / cyrillic-ext / greek / greek-ext / vietnamese the family ships |
 
 All are **variable** fonts (one file per subset covers the weight range declared in `fonts.css`).
@@ -19,3 +20,6 @@ The licence text and each family's own copyright notice are in [`OFL.txt`](./OFL
 
 ## Changing a font
 Edit `fonts.css`, add or replace the woff2 here, and keep the `--font-*` variable names: `lib/embed-fonts.ts` and `globals.css` read them. `lib/embed-fonts.unit.test.ts` fails if an embed family offered in the builder has no face here.
+
+## Instrument Serif (#1253)
+One file, `instrument-serif-italic-latin.woff2` (400 italic, Latin), copied from the `@fontsource/instrument-serif` build the marketing site already ships. Not fetched for this change. Licence: SIL OFL 1.1, the notice is the last block of `OFL.txt` (and its `public/licenses` copy).

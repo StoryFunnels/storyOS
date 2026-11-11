@@ -231,6 +231,22 @@ export function useSaveAgentSettings(ws: string, dbId: string | null) {
   });
 }
 
+/**
+ * Ticket #1253 — "Set up agents" on a workspace with no Agents database yet. The same call the `setup_agents` MCP tool makes
+ * (`POST /agents/ensure`, idempotent, admin-only): it provisions the Agentic OS space and its three databases. On success the
+ * databases list is refetched, so `useAgents` finds the Agents database and the screen moves on to "Hire an agent".
+ */
+export function useSetupAgents(ws: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => unwrap<unknown>(await api.POST('/api/v1/workspaces/{ws}/agents/ensure', { params: { path: { ws } } } as never)),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['databases', ws] });
+      await qc.invalidateQueries({ queryKey: runnerKeys.agents(ws) });
+    },
+  });
+}
+
 export function useRunnerMutations(ws: string) {
   const qc = useQueryClient();
   const refresh = () => {

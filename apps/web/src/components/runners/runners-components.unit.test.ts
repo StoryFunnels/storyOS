@@ -103,7 +103,7 @@ describe('the run list renders every state as drawn', () => {
     }
   });
   it('empty, loading and failed-to-load each say so; a page of rows claims no total', () => {
-    expect(runList([])).toContain('Nothing has woken this agent yet');
+    expect(runList([])).toContain('No runs yet. They show up here when an agent wakes.');
     expect(runList([], { loading: true })).toContain('Loading');
     expect(runList([], { error: true })).toContain('Could not load');
     expect(runList([wake('done'), wake('running')])).toContain('1 finished so far');
@@ -229,9 +229,10 @@ describe('a guest with a grant on the Agents database is not told which computer
     expect(member).toContain('Waiting for your Claude limit to reset at 14:00');
   });
   it('Hire is wrapped in the predicate on both screens that offer it (a guest gets neither the button nor the card)', () => {
-    for (const rel of ['./agent-page.tsx', '../../app/w/[ws]/agents/page.tsx']) {
+    // The Agents page's empty-state button moved into AgentsEmpty (ticket #1253): its one gated site is there, the dialog's stays on the page.
+    for (const [rel, n] of [['./agent-page.tsx', 2], ['../../app/w/[ws]/agents/page.tsx', 1], ['./agents-empty.tsx', 1]] as const) {
       const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-      expect(src.match(/canHireAgents\(role\) && \(?\s*<(Button|HireDialog)/g) ?? [], rel).toHaveLength(2);
+      expect(src.match(/canHireAgents\(role\) && \(?\s*<(Button|HireDialog)/g) ?? [], rel).toHaveLength(n);
     }
   });
   it('the Agents page gives the "Runs on" cell the viewer’s own can-see-machines answer (ticket #1196 moved the wording into runsOnCell, whose guest case is tested in lib/runners/agent-list.unit.test.ts)', () => {
