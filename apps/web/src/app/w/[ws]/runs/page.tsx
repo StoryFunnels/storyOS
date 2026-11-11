@@ -90,7 +90,7 @@ export default function RunsPage() {
         </div>
 
         {waiting > 0 && (
-          <div className="mx-5 mb-3 flex items-center gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--accent)_35%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))] px-2.5 py-2 text-label leading-[normal]! text-ink">
+          <div className="mx-5 mb-3 flex items-center gap-2 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--accent)_35%,var(--border-default))] bg-[color-mix(in_srgb,var(--accent)_10%,var(--bg-card))] px-2.5 py-2 text-label leading-[normal]! text-ink">
             <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-micro font-bold tabular-nums text-on-accent">
               {waiting}
             </span>

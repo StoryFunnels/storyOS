@@ -4,9 +4,10 @@ import { cn } from '@/lib/utils';
 
 /** Tint + text per tone — the prototype's `.stp.st-*`: a 15–20% wash of the tone with the tone mixed into ink for text. */
 const PILL_TONE: Record<RunTone, string> = {
-  ok: 'bg-[color-mix(in_srgb,var(--success)_16%,transparent)] text-[color-mix(in_srgb,var(--success)_65%,var(--ink))]',
-  fail: 'bg-[color-mix(in_srgb,var(--error)_15%,transparent)] text-[color-mix(in_srgb,var(--error)_65%,var(--ink))]',
-  wait: 'bg-[color-mix(in_srgb,var(--accent)_20%,transparent)] text-[color-mix(in_srgb,var(--accent)_60%,var(--ink))] dark:text-ink',
+  ok: 'bg-[color-mix(in_srgb,var(--success)_16%,transparent)] text-[color-mix(in_srgb,var(--success)_65%,var(--text-primary))]',
+  fail: 'bg-[color-mix(in_srgb,var(--error)_15%,transparent)] text-[color-mix(in_srgb,var(--error)_65%,var(--text-primary))]',
+  // AA floor: the text mixes from --accent-text (the same gold, darkened for text), not --accent (4.17:1 on --bg-app). run-status-pill.unit.test.ts measures it.
+  wait: 'bg-[color-mix(in_srgb,var(--accent)_20%,transparent)] text-[color-mix(in_srgb,var(--accent-text)_70%,var(--text-primary))] dark:text-ink',
   run: 'bg-[color-mix(in_srgb,var(--info,var(--accent))_16%,transparent)] text-ink',
   skip: 'bg-hover text-muted',
 };

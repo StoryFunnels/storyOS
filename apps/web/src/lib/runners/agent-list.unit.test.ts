@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { agentCountLine, lastRunLabel, lastRunState, lastRunTitle, lastRunsByAgent, managerLabel, needsDirectory, runsOnCell, shortPersonName } from './agent-list';
+import { agentCountLine, isRanState, lastRunLabel, lastRunState, lastRunTitle, lastRunsByAgent, managerLabel, needsDirectory, runsOnCell, shortPersonName } from './agent-list';
+import { RUN_STATE_NAMES } from './types';
 import { everyOptions, runsNote, scheduleTrigger, zoneLabel } from './wake-rules';
 import type { SchedRule } from './wake-rules';
 
@@ -159,5 +160,32 @@ describe('counts and the runs-a-day sentence', () => {
     expect(zoneLabel('America/New_York', new Date('2026-07-15T12:00:00Z'))).toBe('America/New York (UTC−4)');
     expect(zoneLabel('UTC', NOW)).toBe('UTC (UTC)');
     expect(scheduleTrigger(s({ every: 'day' }), 'America/New_York')).toMatchObject({ timezone: 'America/New_York' });
+  });
+});
+
+describe('Last run knows every run state the API can emit', () => {
+  const wake = (state: string) => ({ agent: { id: 'a' }, run_state: { state }, finished_at: null, created_at: '2026-11-01T00:00:00Z' }) as never;
+  const NOT_A_RUN = ['canceled', 'waiting_for_runner', 'runner_offline', 'waiting_for_turn'];
+
+  it.each([...RUN_STATE_NAMES])('%s has a decided place in the column', (state) => {
+    const r = lastRunsByAgent(['a'], [wake(state)], { counts: {}, latest: [] })['a']!;
+    if (NOT_A_RUN.includes(state)) {
+      expect(isRanState(state)).toBe(false);
+      expect(r).toEqual({ kind: 'never' });
+    } else {
+      expect(isRanState(state)).toBe(true);
+      expect(r).toMatchObject({ kind: 'at', state });
+      // every state that ran and is not simply done says so in words
+      expect(lastRunState(r) === '').toBe(state === 'done');
+    }
+  });
+  it('a budget-paused run shows as a run, with words and no invented figure', () => {
+    const r = lastRunsByAgent(['a'], [wake('waiting_for_budget')], { counts: {}, latest: [] })['a']!;
+    expect(lastRunState(r)).toBe('Budget reached');
+    expect(lastRunState(r)).not.toMatch(/\d/);
+  });
+  it('a state this build does not know is not claimed as a run', () => {
+    expect(isRanState('waiting_for_something_new')).toBe(false);
+    expect(lastRunState({ kind: 'at', iso: 'x', state: 'waiting_for_something_new' })).toBe('');
   });
 });
