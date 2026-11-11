@@ -1071,7 +1071,7 @@ export function InstallDialog({
             <div className="min-w-0 flex-1">
               <p
                 role="alert"
-                className="m-0 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] bg-[color-mix(in_srgb,var(--error)_8%,var(--card))] px-3 py-[9px] text-label text-ink"
+                className="m-0 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--error)_30%,transparent)] bg-[color-mix(in_srgb,var(--error)_8%,var(--bg-card))] px-3 py-[9px] text-label text-ink"
               >
                 {installFailureText(failure)}
               </p>
