@@ -241,3 +241,66 @@ describe('access: it is a read, with a read\'s rules (#1263)', () => {
     expect((await call(app, null, 'POST', `/workspaces/${ws}/databases/${linesDb}/fields/formula-preview`, { expression: '1' })).statusCode).toBe(401);
   });
 });
+
+describe('a GUEST with RECORD-scoped grants previews ONLY the records they can read (#1263, #472)', () => {
+  let dealsDb: string;
+  const ids: string[] = []; // ids[i] is "Deal i+1"; Deal 7 is the newest
+  let guest: Person;
+  let grantless: Person;
+
+  beforeAll(async () => {
+    const space = (await inject('GET', `/workspaces/${ws}/spaces`)).json()[0].id;
+    dealsDb = (await inject('POST', `/workspaces/${ws}/databases`, { space_id: space, name: 'Deals' })).json().id;
+    expect((await inject('POST', `/workspaces/${ws}/databases/${dealsDb}/fields`, { display_name: 'Amount', type: 'number' })).statusCode).toBe(201);
+    // Amount = i * 1000 so every record's value is distinct: a leak shows as a number the guest has no grant for.
+    for (let i = 1; i <= 7; i++) {
+      const r = await inject('POST', `/workspaces/${ws}/databases/${dealsDb}/records`, { values: { name: `Deal ${i}`, amount: i * 1000 } });
+      expect(r.statusCode, r.body).toBe(201);
+      ids.push(r.json().id);
+    }
+    const invite = async (name: string, grants: Array<{ record_id: string; role: string }>) => {
+      const user = await signUpUser(app, name);
+      const inv = await call(app, owner.token, 'POST', `/workspaces/${ws}/invites`, { email: user.email, role: 'guest', grants });
+      expect(inv.statusCode, inv.body).toBe(201);
+      const ok = await call(app, user.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+      expect(ok.statusCode, ok.body).toBe(201);
+      return { token: user.token, email: user.email, id: (await call(app, user.token, 'GET', '/me')).json().id } as Person;
+    };
+    // Deals 2 and 4 only: no database grant, no space grant. Deal 4 is inside the newest-5 window, Deal 2 is outside it.
+    guest = await invite('Record Guest', [{ record_id: ids[1], role: 'viewer' }, { record_id: ids[3], role: 'viewer' }]);
+    // A guest whose only grant is a record in a DIFFERENT database: no access at all to Deals.
+    const quoteRecs = (await inject('GET', `/workspaces/${ws}/databases/${quotesDb}/records`)).json();
+    grantless = await invite('Elsewhere Guest', [{ record_id: (quoteRecs.data ?? quoteRecs.records ?? quoteRecs)[0].id, role: 'viewer' }]);
+  }, 60_000);
+
+  it('the guest\'s samples are exactly their two records; an admin\'s are the newest five, the others included', async () => {
+    const mine = await preview(dealsDb, { expression: '{Amount} * 2' }, guest.token);
+    expect(mine.statusCode, mine.body).toBe(200);
+    const got = mine.json();
+    expect(got.valid).toBe(true);
+    expect(got.samples.map((s: { record_id: string }) => s.record_id).sort()).toEqual([ids[1], ids[3]].sort());
+    expect(got.samples.length).toBeLessThan(5);
+    expect(got.samples.map((s: { value: number }) => s.value).sort((a: number, b: number) => a - b)).toEqual([4000, 8000]);
+    for (const other of [0, 2, 4, 5, 6]) expect(mine.body).not.toContain(ids[other]);
+    // values computed from records the guest cannot read appear nowhere in the response
+    for (const secret of [2000, 6000, 10000, 12000, 14000]) expect(mine.body).not.toContain(`"value":${secret}`);
+    expect(mine.body).not.toMatch(/Deal [13567]/);
+
+    // CONTROLS: without these a route that returned nothing, or only 2 rows, would pass.
+    const adminView = await preview(dealsDb, { expression: '{Amount} * 2' });
+    expect(adminView.statusCode, adminView.body).toBe(200);
+    expect(adminView.json().samples.map((s: { record_id: string }) => s.record_id)).toEqual([ids[6], ids[5], ids[4], ids[3], ids[2]]);
+    const member = await joinAs(app, owner.token, ws, 'Plain Member', 'member');
+    const memberView = await preview(dealsDb, { expression: '{Amount} * 2' }, member.token);
+    expect(memberView.json().samples).toHaveLength(5);
+  });
+
+  it('a guest with no grant on this database gets the same 404 as for a database that does not exist', async () => {
+    const hidden = await preview(dealsDb, { expression: '{Amount}' }, grantless.token);
+    const absent = await preview('11111111-1111-4111-8111-111111111111', { expression: '{Amount}' }, grantless.token);
+    expect(hidden.statusCode).toBe(404);
+    expect(absent.statusCode).toBe(404);
+    expect(hidden.body.replace(/"request_id":"[^"]*"/, '')).toBe(absent.body.replace(/"request_id":"[^"]*"/, ''));
+    for (const id of ids) expect(hidden.body).not.toContain(id);
+  });
+});
