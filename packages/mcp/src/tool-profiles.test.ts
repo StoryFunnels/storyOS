@@ -26,7 +26,7 @@ const profile = (qs: string) => {
 describe('a person keeps the full tool set', () => {
   it('no profile = no filter: the same set as before this ticket, for a human with any scope', () => {
     const r = resolveToolProfile(new URLSearchParams(''));
-    expect(r).toEqual({ ok: true, allow: undefined });
+    expect(r).toEqual({ ok: true, allow: undefined, internal: false });
     const all = advertised(FULL);
     expect(all.size).toBeGreaterThan(150);
     // the whole write-scoped set a run credential would see WITHOUT the profile is still large (this is the cost being removed)

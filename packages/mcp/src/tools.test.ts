@@ -310,9 +310,10 @@ describe('buildIconCatalog brand set (list_icon_set, #298)', () => {
 });
 
 describe('icon param description (create_database/update_database/create_space, #251)', () => {
-  it('advertises set: refs and points at list_icon_set', () => {
+  it('advertises set: refs and points at the ICONS section of get_started (list_icon_set is a maintainer tool, ticket #1262)', () => {
     expect(ICON_PARAM_DESCRIPTION).toContain('set:');
-    expect(ICON_PARAM_DESCRIPTION).toContain('list_icon_set');
+    expect(ICON_PARAM_DESCRIPTION).toContain('get_started (ICONS)');
+    expect(ICON_PARAM_DESCRIPTION).not.toContain('list_icon_set');
   });
 
   it('mentions emoji only as legacy-tolerated, not as the preferred form', () => {
@@ -1664,8 +1665,9 @@ describe('option icons round-trip through the MCP (#216)', () => {
 
   it('the add_field description tells an agent what an option-less workflow field contains', async () => {
     const descriptions = new Map<string, string>();
-    registerTools({ registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') } as never, { client: {} as never, baseUrl: 'http://t', token: 't' } as never);
-    expect(descriptions.get('add_field')).toContain('To do / In progress / Done');
+    const notes = registerTools({ registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') } as never, { client: {} as never, baseUrl: 'http://t', token: 't' } as never);
+    // ticket #1262: add_field's listed description is a short lead; the config grammar is the full text get_started returns.
+    expect(notes.get('add_field') ?? descriptions.get('add_field')).toContain('To do / In progress / Done');
   });
 });
 
@@ -4028,10 +4030,12 @@ describe('#441 — membership reads, and the writes that must not exist', () => 
 describe('#393 — a reader can tell that rules email, call APIs and post to Slack', () => {
   function descriptions() {
     const configs = new Map<string, { description?: string }>();
-    registerTools(
+    const notes = registerTools(
       { registerTool: (n: string, c: { description?: string }) => configs.set(n, c) } as never,
       { client: { GET: async () => ({ data: [] }) } as never, baseUrl: '', token: '' } as never,
     );
+    // ticket #1262: these tests pin the FULL description (what get_started returns for a tool whose listed one is a short lead).
+    for (const [n, full] of notes) configs.set(n, { ...(configs.get(n) ?? {}), description: full });
     return configs;
   }
 
@@ -4536,7 +4540,8 @@ describe('webhooks: manage and debug, never mint (#443)', () => {
         descriptions.set(n, c.description ?? '');
       },
     };
-    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    const notes = registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    for (const [n, full] of notes) descriptions.set(n, full);
     // #393's failure was a reviewer concluding automations could not call an API.
     // A missing create_webhook must not recreate that wrong conclusion.
     expect(descriptions.get('list_webhooks')).toContain('create_automation');
@@ -4796,7 +4801,8 @@ describe('list_connection_providers: what COULD be connected (#507)', () => {
   it('describes itself as distinct from list_connections, not a synonym for it', () => {
     const descriptions = new Map<string, string>();
     const server = { registerTool: (n: string, c: { description?: string }) => descriptions.set(n, c.description ?? '') };
-    registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    const notes = registerTools(server as never, { client: {} as never, baseUrl: 'x', token: 't' } as Ctx, { scope: 'admin', allowRunButton: true });
+    for (const [n, full] of notes) descriptions.set(n, full);
     expect(descriptions.get('list_connection_providers')).toContain('list_connections');
     expect(descriptions.get('list_connection_providers')).toContain('what CAN be connected');
   });

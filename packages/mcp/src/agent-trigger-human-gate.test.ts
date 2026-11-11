@@ -17,7 +17,7 @@ import type { Ctx, EffectiveScope } from './client.js';
 function describeTool(name: string): { description: string; inputSchema: Record<string, { description?: string }> } {
   let found: { description: string; inputSchema: Record<string, { description?: string }> } | undefined;
   const effective: EffectiveScope = { scope: 'admin', allowRunButton: true };
-  registerTools(
+  const notes = registerTools(
     {
       registerTool: (n: string, cfg: { description: string; inputSchema: Record<string, { description?: string }> }) => {
         if (n === name) found = cfg;
@@ -27,7 +27,9 @@ function describeTool(name: string): { description: string; inputSchema: Record<
     effective,
   );
   if (!found) throw new Error(`tool ${name} is not registered`);
-  return found;
+  // ticket #1262: the listed description is a short lead; the wording pinned here is in the full text get_started returns (the short
+  // lead's own essentials are pinned in tool-description-budget.test.ts).
+  return { ...found, description: notes.get(name) ?? found.description };
 }
 
 describe('create_agent_trigger wording about human_gate (#1183, #1212)', () => {

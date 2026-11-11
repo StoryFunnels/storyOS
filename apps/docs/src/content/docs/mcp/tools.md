@@ -8,6 +8,13 @@ sidebar:
 The MCP server exposes three families of tools: **read**, **write**, and **build/schema**. Agents
 design the workspace, not just fill it. Always call `get_started` first.
 
+`get_started` also carries the long reference text that the tool list leaves out, so a client that
+caps tools or context stays light: each tool's listed description is a short lead, and the full
+grammar (every automation trigger and action, pack install options, field config, source setup, the
+icon names for the `icon` parameter) is in its **TOOL NOTES** and **ICONS** sections. The
+list above is the customer tool set; a few maintainer tools (git branch names, a person's pinned
+tabs and dismissed hints) are only offered on the internal profile.
+
 ## Read
 
 | Tool | What it does |
@@ -130,7 +137,6 @@ plan instead of cramming prose into a record or inventing a database for one pag
 | `unlink_records` / `move_record` | Remove specific links without touching the relation; reposition a record in manual order (`before` or `after`). |
 | `create_records` | Create up to 100 records in one atomic call — all succeed or none do. |
 | `set_default_view` / `set_favorite` | Which view people land on; star a record or database for the calling identity. |
-| `list_icon_set` | The curated icon names usable as `icon` on databases and spaces. |
 
 ### Installing a pack into an existing space
 

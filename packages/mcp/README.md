@@ -87,6 +87,22 @@ Conveniences: `query_records` / `get_record` return select values as **labels** 
 Hosted Streamable HTTP (for ChatGPT / claude.ai connectors without a local process)
 is the remaining phase — it lands with the cloud tier (see MN-069).
 
+## Light enough for capped clients (ticket #1262)
+
+Every listed tool description is billed on every request of every session, so the listing is kept small:
+**under 60,000 characters in total and no description over 1,500** (`src/tool-description-budget.test.ts`
+enforces both against the live registry). A description in the source can be as long as the tool needs;
+`tools/list` carries a short lead plus `[Full notes: get_started, TOOL NOTES]`, and `get_started` returns the
+full text (the long reference grammars of `create_automation`, `install_pack`, `add_field` and
+`create_source` first). A `get_started` result is only loaded when called, so it costs a capped client nothing
+up front. Where a lead must say something at call time, it is hand-written with a `short:` key next to the
+`description`. A profile that does not offer `get_started` (`?profile=agent-run`) keeps every description whole.
+
+Maintainer-only tools (`get_branch_name`, `get_pinned_tabs`, `set_pinned_tabs`, `get_dismissed_hints`,
+`set_dismissed_hints`, `list_icon_set`; `INTERNAL_TOOLS` in `src/tool-profiles.ts`) are not offered on any customer
+connection. They appear with `?profile=internal` over HTTP, or `STORYOS_MCP_PROFILE=internal` for a stdio server.
+The icon names `list_icon_set` used to return are in `get_started` (ICONS).
+
 ## Why it doesn't hallucinate
 
 - **Schema-first**: `describe_database` gives exact `api_name`s; you read before you write.

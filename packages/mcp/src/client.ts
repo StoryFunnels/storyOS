@@ -89,6 +89,8 @@ export interface EffectiveScope {
    * never registered. Absent = no filter (every person's connection).
    */
   onlyTools?: ReadonlySet<string>;
+  /** ticket #1262 — the internal profile (tool-profiles.ts): also offer INTERNAL_TOOLS. Absent = a customer surface. */
+  internal?: boolean;
 }
 
 /**
