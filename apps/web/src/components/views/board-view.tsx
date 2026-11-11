@@ -37,6 +37,7 @@ import { StateGlyph } from './state-glyph';
 import { API_URL } from '@/lib/api';
 import { coverImageUrl, isUrlCoverField } from './cover-fields';
 import { Avatar } from '@/components/ui/avatar';
+import { HEADER_ADD_BUTTON, HEADER_MENU_TRIGGER } from '@/components/ui/header-action';
 import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue, formatNumberValue } from '../table-view/cells';
 import { isPercentField } from '../table-view/cell-text';
 import {
@@ -794,7 +795,7 @@ function BoardColumn({
                   aria-label={`Column actions for ${column.label}`}
                   data-column-menu={column.id}
                   /* #1162/#900 — rests at --faint and darkens on hover/focus/open; never hover-only. */
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink focus-visible:text-ink aria-expanded:bg-hover aria-expanded:text-ink"
+                  className={HEADER_MENU_TRIGGER}
                 >
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
@@ -807,7 +808,7 @@ function BoardColumn({
             </DropdownMenu>
           )}
           {!readOnly && (
-            <button onClick={onAdd} className="rounded p-0.5 text-muted hover:bg-active" title="Add card">
+            <button onClick={onAdd} className={HEADER_ADD_BUTTON} title="Add card">
               <Plus className="h-3.5 w-3.5" />
             </button>
           )}
