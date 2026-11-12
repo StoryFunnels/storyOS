@@ -253,6 +253,12 @@ interface DisplayProps {
    * When set, text-carrying types wrap and break instead of truncating.
    */
   wrap?: boolean;
+  /**
+   * #1275 item 4 — the card-meta size of a DATE: 10px muted, the way the design draws a due date next to a label chip. A
+   * date at body size (13px) was as large as the card's title and outweighed the chip beside it. Only the date reads
+   * it; the table, the record page and the list keep the body-size date.
+   */
+  compact?: boolean;
   /** #620: an ai field's reported state (from `aiFieldState`). Only read for `ai` fields. */
   aiState?: AiFieldState;
   /** #293: workspace slug, threaded down so a relation chip can build a link to
@@ -363,7 +369,7 @@ export function AttachmentChips({ value, wrap }: { value: unknown; wrap?: boolea
   );
 }
 
-export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiState, ws }: DisplayProps) {
+export function CellDisplay({ field, value, memberNames, memberImages, wrap, compact, aiState, ws }: DisplayProps) {
   const fmt = useDateFormat();
   const strip = useStripChip();
   // The prose class: wrap+break in the sidebar (MN-132), truncate in a grid row.
@@ -501,7 +507,11 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
       // System timestamps carry a time; plain date fields show the day only. The raw value goes to the formatter, which
       // knows a day-only string is a calendar day and not an instant (#1005).
       const shown = field.type === 'date' ? fmt.date(value) : fmt.dateTime(value);
-      return <span className="truncate text-body tabular-nums text-ink-secondary">{shown}</span>;
+      return compact ? (
+        <span className="truncate text-micro tabular-nums text-muted">{shown}</span>
+      ) : (
+        <span className="truncate text-body tabular-nums text-ink-secondary">{shown}</span>
+      );
     }
     case 'color':
       return (

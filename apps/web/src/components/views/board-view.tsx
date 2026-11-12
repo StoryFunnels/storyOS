@@ -27,7 +27,7 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { EyeOff, Lock, MoreHorizontal, Plus } from 'lucide-react';
+import { CalendarDays, EyeOff, Lock, MoreHorizontal, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
@@ -947,6 +947,7 @@ export function Card({
               value={value}
               memberNames={memberNames}
               memberImages={memberImages}
+              surface="card"
             />
           ))}
         </div>
@@ -1049,16 +1050,34 @@ export function CardFieldChip({
   memberNames,
   memberImages,
   status,
+  surface = 'row',
 }: {
   field: Field;
   value: unknown;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
+  /**
+   * #1275 item 4 — `card` is the board / gallery card's meta row: people are an 18px initials avatar (the full name on
+   * hover, the Avatar's own title) and a date is a glyph with a 10px muted figure. `row` (default) is the list and the
+   * feed, which have a row's width to name people in: the name pill and the body-size date stay. Both draw through the
+   * shared `ui/avatar` and CellDisplay controls.
+   */
+  surface?: 'card' | 'row';
   /** #1115 — the row's state (or the group's), so a percent draws that state's glyph (a pie while in progress) in its colour. */
   status?: { color: string; category?: StateCategory | null };
 }) {
   if (field.type === 'select' || field.type === 'multi_select' || field.type === 'workflow') {
     return <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />;
+  }
+  if (field.type === 'user' && surface === 'card') {
+    const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
+    return (
+      <span className="inline-flex items-center -space-x-1">
+        {ids.map((id) => (
+          <Avatar key={id} userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={18} />
+        ))}
+      </span>
+    );
   }
   if (field.type === 'user') {
     const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
@@ -1085,6 +1104,17 @@ export function CardFieldChip({
       <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">
         <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
         {field.displayName}
+      </span>
+    );
+  }
+
+  // #1275 item 4 — a date on a card is meta, not content: a calendar glyph and a 10px muted figure (CellDisplay's
+  // `compact` date), so it no longer outweighs the label chip beside it. The FORMAT is not touched here (item 5).
+  if (field.type === 'date' && surface === 'card') {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted">
+        <CalendarDays className="h-2.5 w-2.5 shrink-0" aria-hidden />
+        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} compact />
       </span>
     );
   }
