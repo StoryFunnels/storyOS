@@ -14,6 +14,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
+import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
 
 export type NotificationType =
   | 'assigned'
@@ -339,6 +340,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
             <button
               className="rounded p-1 text-muted hover:bg-hover"
               title="Open full inbox"
+              aria-label="Open full inbox"
               onClick={() => {
                 onClose();
                 router.push(`/w/${ws}/inbox`);
@@ -346,7 +348,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
             >
               <Maximize2 className="h-3.5 w-3.5" />
             </button>
-            <button className="rounded p-1 text-muted hover:bg-hover" onClick={onClose}>
+            <button className="rounded p-1 text-muted hover:bg-hover" title="Close" aria-label="Close inbox" onClick={onClose}>
               <X className="h-4 w-4" />
             </button>
           </span>
@@ -396,7 +398,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                   tabIndex={0}
                   className={cn(
                     'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
-                    !n.read_at && 'bg-hover-soft',
+                    notificationRowStateClass({ unread: isUnreadRow(n) }),
                   )}
                   onClick={() => {
                     markRead.mutate(n.id);
@@ -419,7 +421,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                   <span className="min-w-0 flex-1">
                     <span className="block text-body text-ink">
                       {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
-                      <span className="font-medium">{notificationWho(n).name}</span>{' '}
+                      <span className={notificationActorClass(isUnreadRow(n))}>{notificationWho(n).name}</span>{' '}
                       {VERBS[n.type]}
                       {n.count > 1 ? ` · ${n.count}×` : ''}
                       {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
@@ -538,7 +540,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
                     <span className="text-meta text-muted">{relativeTime(n.created_at)}</span>
-                    {!n.read_at && <span className="h-1.5 w-1.5 rounded-full bg-primary-text" />}
+                    {isUnreadRow(n) && <UnreadDot />}
                   </span>
                 </div>
               </div>
