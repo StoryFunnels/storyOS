@@ -24,6 +24,7 @@ import {
   type ApprovalDto,
   type GatePolicyDto,
 } from '@/lib/governance';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const SCOPE_WORDS = { read: 'Read only', write: 'Read and change', admin: 'Admin' } as const;
 const WHERE_WORDS = { workspace: 'Whole workspace', space: 'One space', database: 'One database' } as const;
@@ -173,10 +174,11 @@ export default function AgentRulesPage() {
 
           <Section title="Agents" lead="What each agent declares it may do. When StoryOS runs an agent, the run is held to this.">
             {!agentsDbId || agents.length === 0 ? (
-              <p className="text-body text-muted">
-                No agents are set up in this workspace. This page lists agents defined here; it does not list API
-                tokens or connected AI clients, which can still act as the person who created them.
-              </p>
+              <EmptyState
+                variant="list"
+                className="px-0"
+                title="No agents are set up in this workspace. This page lists agents defined here; it does not list API tokens or connected AI clients, which can still act as the person who created them."
+              />
             ) : (
               <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
                 {agents.map((a) => (

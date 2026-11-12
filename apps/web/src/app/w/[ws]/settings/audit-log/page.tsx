@@ -15,6 +15,7 @@ import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader } fr
 import { AUDIT_TYPE_FILTERS, describeStructuralEvent } from '@/lib/audit-events';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface AuditLogEntry {
   kind: 'event' | 'field_change';
@@ -116,9 +117,11 @@ export default function AuditLogPage() {
           <p className="text-body text-muted">Loading…</p>
         ) : entries.length === 0 ? (
           <SettingsBox>
-            <p className="px-3.5 py-3 text-body text-muted" data-testid="audit-empty">
-              {resolved.applied > 0 ? 'Nothing matches these filters. Open Filter below to change them.' : 'Nothing in this range.'}
-            </p>
+            {resolved.applied > 0 ? (
+              <EmptyState variant="filtered" data-testid="audit-empty" title="Nothing matches these filters" body="Open Filter below to change them." />
+            ) : (
+              <EmptyState variant="list" data-testid="audit-empty" title="Nothing in this range." />
+            )}
           </SettingsBox>
         ) : (
           <SettingsBox>
