@@ -21,6 +21,12 @@ import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/date
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
 import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
+import { chipClass } from './toolbar-chip';
+
+/** #1275 item 8 — every control on the calendar's navigation row is 26px, the toolbar chip's height. */
+const CAL_CONTROL_HEIGHT = 'h-[26px]';
+/** The square (prev / next) form of a toolbar chip. */
+const CAL_NAV_ICON = 'w-[26px] justify-center px-0';
 
 /* #738 — hoisted so the array identity is stable across renders; Segmented
    takes a readonly list, and a literal here would be a new array every time. */
@@ -287,17 +293,19 @@ export function CalendarView({
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border-default px-4 py-2">
         <span className="text-sm font-semibold text-ink">{headerLabel}</span>
-        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(-1)}>
-          <ChevronLeft className="h-4 w-4" />
+        {/* #1275 item 8 — the calendar's navigation is drawn at the toolbar's 26px, from the toolbar's own chip class
+            (toolbar-chip.ts), so the two rows share a height and a border. Prev / next are the square form of it. */}
+        <button className={cn(chipClass(), CAL_NAV_ICON)} onClick={() => shiftAnchor(-1)} aria-label="Previous">
+          <ChevronLeft className="h-3.5 w-3.5" />
         </button>
-        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(1)}>
-          <ChevronRight className="h-4 w-4" />
+        <button className={cn(chipClass(), CAL_NAV_ICON)} onClick={() => shiftAnchor(1)} aria-label="Next">
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
         {/* #808 — Today was correct and still read as broken: pressed while the view
             already shows today, it changed nothing and said nothing. It is disabled in
             exactly that state, and says why. */}
         <button
-          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+          className={cn(chipClass(), 'disabled:cursor-default disabled:opacity-40 disabled:hover:border-border-default disabled:hover:text-ink-secondary')}
           onClick={() => setAnchorDate(today)}
           disabled={showingToday}
           title={showingToday ? 'Already showing today' : undefined}
@@ -312,13 +320,14 @@ export function CalendarView({
           onChange={(m) => onPatch?.({ calendar_mode: m })}
           options={CALENDAR_MODE_OPTIONS}
           itemClassName="capitalize"
+          className={CAL_CONTROL_HEIGHT}
         />
         {/* #471 AC3/AC4 — day/week-only settings; the month grid has no
             concept of a time increment or an hour window. */}
         {mode !== 'month' && (
           <>
             <select
-              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink-secondary"
+              className={cn('rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink-secondary', CAL_CONTROL_HEIGHT)}
               value={config.calendar_increment_minutes ?? 15}
               onChange={(e) => onPatch?.({ calendar_increment_minutes: Number(e.target.value) as 10 | 15 | 30 | 60 })}
               title="Drag and create snap to this increment"
