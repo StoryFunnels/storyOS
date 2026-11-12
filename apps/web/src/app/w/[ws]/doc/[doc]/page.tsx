@@ -1,5 +1,7 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
+import { entityQueryOptions, entityState } from '@/lib/entity-state';
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -43,10 +45,14 @@ export default function SpaceDocumentPage() {
       return data as unknown as SpaceDoc;
     },
     staleTime: Infinity,
+    ...entityQueryOptions,
   });
 
-  if (query.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
-  if (!query.data) return <p className="p-6 text-sm text-error">Document not found.</p>;
+  // #1291 — 404/403 is the one not-found page; a failed load is a Retry; only a load in flight says Loading.
+  const state = entityState(query);
+  const blocked = entityGateView(state, () => void query.refetch());
+  if (blocked) return blocked;
+  if (state.kind === 'loading' || !query.data) return <p className="p-6 text-sm text-muted">Loading…</p>;
   return <DocEditor ws={ws} doc={doc} initial={query.data} onRenamed={() => qc.invalidateQueries({ queryKey: ['space-docs'] })} />;
 }
 

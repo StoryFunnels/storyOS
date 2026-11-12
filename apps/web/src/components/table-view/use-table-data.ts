@@ -1,5 +1,6 @@
 'use client';
 
+import { entityQueryOptions } from '@/lib/entity-state';
 import type { StateCategory } from '@storyos/schemas';
 import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 import {
@@ -99,6 +100,8 @@ interface RecordsPage {
 export function databaseQuery(ws: string, db: string) {
   return {
     queryKey: ['database', ws, db] as const,
+    // #1291 — a database that is gone (404/403) is not retried or refetched by the next observer: that refetch is what kept the page loading.
+    ...entityQueryOptions,
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}', {
         params: { path: { ws, db } },

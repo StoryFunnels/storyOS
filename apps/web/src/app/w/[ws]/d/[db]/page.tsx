@@ -1,4 +1,6 @@
 'use client';
+import { entityGateView } from '@/components/quill/entity-gate';
+import { entityState } from '@/lib/entity-state';
 import { databaseDisplayName } from '@/lib/system-databases';
 import { OPEN_PARAM } from '@/components/entity/split-screen';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -161,7 +163,12 @@ function DatabasePageInner() {
     strip.filter((t) => t.pinned).map((t) => t.view.id),
   );
 
-  if (database.isLoading) return <DatabasePageSkeleton ws={ws} db={db} />;
+  // #1291 — a database that is not there for this person (404 or 403, the same page, so a guest cannot tell the two apart) gets the 404;
+  // a failed load gets a Retry; only a load that is still in flight gets the skeleton. It used to wait on an error forever.
+  const dbState = entityState(database);
+  const blocked = entityGateView(dbState, () => void database.refetch());
+  if (blocked) return blocked;
+  if (dbState.kind === 'loading') return <DatabasePageSkeleton ws={ws} db={db} />;
 
   return (
     <div className="@container flex h-full flex-col">

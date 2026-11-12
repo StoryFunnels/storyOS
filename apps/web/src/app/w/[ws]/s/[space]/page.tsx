@@ -1,4 +1,5 @@
 'use client';
+import { entityGateView } from '@/components/quill/entity-gate';
 import { Tooltip } from '@/components/ui/tooltip';
 
 import { useParams } from 'next/navigation';
@@ -181,15 +182,10 @@ export default function SpacePage() {
   if (spaces.isLoading || (!space && spaces.isFetching)) {
     return <div className="p-4 sm:p-8 text-body text-muted">Loading…</div>;
   }
-  if (!space) {
-    return (
-      <div className="p-4 sm:p-8">
-        <p className="max-w-md rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
-          Nothing here you can access, or this space does not exist.
-        </p>
-      </div>
-    );
-  }
+  // #1291 — a space that is not in the list this person may see is the 404 (one page for "does not exist" and "not yours"); a list
+  // that FAILED to load says nothing about the space, so it is a Retry, never the 404.
+  if (!space && spaces.isError) return entityGateView({ kind: 'failed', error: spaces.error }, () => void spaces.refetch());
+  if (!space) return entityGateView({ kind: 'gone' });
 
   // #1094 — "empty" needs every list to have answered (a full space must never flash the empty state) and a person who may add.
   const known = !databases.isLoading && contents.settled;
