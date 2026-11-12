@@ -66,6 +66,7 @@ const NOT_SETTINGS_CONTROLS: Record<string, string> = {
   'components/pack-install-dialog.tsx': 'the Packs marketplace install dialog: it opens from Settings > Packs for an update, but it is the marketplace\'s own dialog (ticket #1186 reuses it)',
   'components/integration-setup-guide.tsx': 'a read-only "how setup works" checklist, no controls',
   'components/connect-ai-logos.tsx': 'logos only',
+  'components/entity/source-badge.tsx': 'a read-only source label shared with the record Activity (ticket #1287: the audit log wears it); its hover only restates the visible label, and the audit row prints the agent\'s name as text, so nothing is tooltip-only',
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

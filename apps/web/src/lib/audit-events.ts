@@ -68,3 +68,84 @@ export function describeStructuralEvent(type: string | undefined, payload: unkno
   }
   return { kind, action, name, verb: VERBS[action], noun: kind, suffix: action === 'unrestricted' ? ' to everyone' : '', detail };
 }
+
+/**
+ * Ticket #1287 — what an audit row SAYS. One mapping from the API's event code to a person's sentence, so no row shows `record.updated`.
+ *
+ * A sentence is `lead`, then the bold `name` when the event honestly carries one, then `tail`, then a muted `detail`. The name is only
+ * ever a name the event ITSELF carries (a title in its payload, an object's snapshot name): never a guess, never an id. The API does
+ * not send a record's current title or database with an audit row (ticket #1287's gap), so a record event says "a record".
+ *
+ * An event code this table has no case for is not hidden and not guessed at: "Something changed", with the code as muted detail.
+ * `audit-events.unit.test.ts` derives every code the API can emit from its source and fails on one with no case here.
+ */
+export interface AuditSentence {
+  lead: string;
+  /** Drawn bold, in curly quotes, by the caller. */
+  name: string | null;
+  tail: string;
+  /** Muted, after a middle dot. */
+  detail: string | null;
+  /** False only for a code with no case: the caller may style it as unexplained. */
+  known: boolean;
+}
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const sentence = (lead: string, extra: Partial<Omit<AuditSentence, 'lead' | 'known'>> = {}): AuditSentence => ({
+  lead,
+  name: extra.name ?? null,
+  tail: extra.tail ?? '',
+  detail: extra.detail ?? null,
+  known: true,
+});
+
+type PhraseFn = (payload: Record<string, unknown>) => AuditSentence;
+
+const other = (p: Record<string, unknown>) => str(asRecord(p.other).title);
+
+/** Every event type that is not a space/database/view structural event (those go through `describeStructuralEvent`). */
+const PHRASES: Record<string, PhraseFn> = {
+  'record.created': (p) => sentence('Created a record', { name: str(p.title) }),
+  'record.updated': () => sentence('Updated a record'),
+  'record.deleted': () => sentence('Moved a record to Trash'),
+  'record.restored': () => sentence('Restored a record from Trash'),
+  'relation.linked': (p) => (other(p) ? sentence('Linked a record to', { name: other(p) }) : sentence('Linked two records')),
+  'relation.unlinked': (p) => (other(p) ? sentence('Unlinked a record from', { name: other(p) }) : sentence('Unlinked two records')),
+  'comment.created': () => sentence('Commented on a record'),
+  'reference.created': () => sentence('Mentioned another record'),
+  'document.edited': (p) => sentence(p.restored_from_version_id ? 'Restored an earlier version of a record’s description' : 'Edited a record’s description'),
+  'attachment.added': (p) => sentence('Added an attachment', { name: str(p.filename) }),
+  'button.pressed': (p) => (str(p.button) ? sentence('Pressed the button', { name: str(p.button) }) : sentence('Pressed a button')),
+  'portal_recipient.created': (p) => sentence('Created a portal link for', { name: str(asRecord(p.object).name) }),
+  'portal_recipient.rotated': (p) => sentence('Replaced the portal link for', { name: str(asRecord(p.object).name) }),
+  'portal_recipient.revoked': (p) => sentence('Revoked the portal link for', { name: str(asRecord(p.object).name) }),
+  'runner.paired': (p) => sentence('Paired the Runner', { name: str(asRecord(p.object).name) }),
+  'runner.activated': (p) => sentence('Activated the Runner', { name: str(asRecord(p.object).name) }),
+  'runner.assigned': (p) => sentence('Assigned an agent to the Runner', { name: str(asRecord(p.object).name) }),
+  'runner.unassigned': (p) => sentence('Removed an agent from the Runner', { name: str(asRecord(p.object).name) }),
+  'runner.revoked': (p) => sentence('Revoked the Runner', { name: str(asRecord(p.object).name) }),
+  'outward.slack_mention_mirror': (p) => sentence('Mirrored a mention to Slack', { detail: str(p.summary) }),
+  'outward.mention_email': (p) => sentence('Emailed a member about a mention', { detail: str(p.summary) }),
+  'outward.watcher_email': (p) => sentence('Emailed a watcher about a change', { detail: str(p.summary) }),
+  'outward.calendar_sync': (p) => sentence('Synced a record to the calendar', { detail: str(p.summary) }),
+  'outward.linear_comment': (p) => sentence('Posted a comment to Linear', { detail: str(p.summary) }),
+  'outward.ai_field': (p) => sentence('Recomputed an AI field', { detail: str(p.summary) }),
+};
+
+/** The non-structural event codes this table has a sentence for (the test compares it with what the API can emit). */
+export const AUDIT_PHRASE_TYPES: readonly string[] = Object.keys(PHRASES);
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+export function describeAuditEvent(type: string | undefined, payload: unknown): AuditSentence {
+  const structural = describeStructuralEvent(type, payload);
+  if (structural) {
+    return sentence(capitalise(`${structural.verb} the ${structural.noun}`), { name: structural.name, tail: structural.suffix, detail: structural.detail });
+  }
+  const phrase = type ? PHRASES[type] : undefined;
+  if (phrase) return phrase(asRecord(payload));
+  return { lead: 'Something changed', name: null, tail: '', detail: type ?? null, known: false };
+}
+
+/** The kinds and actions the web knows as structural: the test pins them to the API's own lists. */
+export const STRUCTURAL_VOCABULARY = { kinds: KINDS, actions: ACTIONS } as const;

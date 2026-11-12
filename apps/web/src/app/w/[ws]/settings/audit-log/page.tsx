@@ -12,7 +12,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MenuSelect } from '@/components/ui/menu-select';
 import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader } from '@/components/settings/settings-chrome';
-import { AUDIT_TYPE_FILTERS, describeStructuralEvent } from '@/lib/audit-events';
+import { SourceBadge } from '@/components/entity/source-badge';
+import { REMOVED_MEMBER_LABEL } from '@/components/entity/activity-format';
+import { AUDIT_TYPE_FILTERS, describeAuditEvent } from '@/lib/audit-events';
+import { describeFieldChange } from '@/lib/audit-values';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
 
@@ -26,7 +29,9 @@ interface AuditLogEntry {
   field?: string;
   actor_id: string | null;
   actor_name: string | null;
-  source: string;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  /** The agent's name when an agent made the write (a snapshot taken then). Null for everything else. */
+  agent_name?: string | null;
   payload?: unknown;
   old_value?: unknown;
   new_value?: unknown;
@@ -37,12 +42,6 @@ interface AuditLogPage {
   data: AuditLogEntry[];
   next_cursor: string | null;
   has_more: boolean;
-}
-
-function renderValue(v: unknown): string {
-  if (v === null || v === undefined) return '—';
-  if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
 }
 
 /** The Settings pages' field label: the prototype's 12px semibold, one step under the field it labels (#974 design). */
@@ -70,6 +69,9 @@ export default function AuditLogPage() {
   const set = (patch: Partial<typeof EMPTY_AUDIT_FILTERS>) => setInput((cur) => ({ ...cur, ...patch }));
 
   const members = useMembers(ws, isAdmin);
+
+  const memberNames = useMemo(() => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])), [members.data]);
+  const memberName = (id: string) => memberNames.get(id);
 
   const resolved = useMemo(() => resolveAuditFilters(input), [input]);
   const filters = resolved.query;
@@ -123,7 +125,10 @@ export default function AuditLogPage() {
         ) : (
           <SettingsBox>
             {entries.map((e) => {
-              const structural = e.kind === 'event' ? describeStructuralEvent(e.type, e.payload) : null;
+              const event = e.kind === 'event' ? describeAuditEvent(e.type, e.payload) : null;
+              const change = e.kind === 'field_change' ? describeFieldChange(e.field, e.old_value, e.new_value, memberName) : null;
+              // The API names the member; "(unknown)" is its word for one it can no longer resolve, never someone's name.
+              const actor = e.actor_name === '(unknown)' ? REMOVED_MEMBER_LABEL : (e.actor_name ?? 'Someone');
               return (
                 <div
                   key={e.id}
@@ -131,35 +136,56 @@ export default function AuditLogPage() {
                   className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-border-default px-3.5 py-2 first:border-t-0"
                 >
                   <span className="shrink-0 text-label text-muted sm:w-36">{dateTime(e.created_at)}</span>
-                  <span className="min-w-0 flex-1 truncate text-body text-ink sm:w-32 sm:flex-none sm:shrink-0">
-                    {e.actor_name ?? '(unknown)'}
-                  </span>
-                  <span className="rounded-[var(--radius-chip)] bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">{e.source}</span>
-                  <span
-                    className={`min-w-0 basis-full text-body text-ink-secondary sm:basis-0 sm:flex-1 ${structural ? 'break-words' : 'truncate'}`}
-                  >
-                    {structural ? (
-                      <>
-                        {structural.verb} the {structural.noun} <span className="font-medium text-ink">{structural.name}</span>
-                        {structural.suffix}
-                        {structural.detail && <span className="text-muted"> · {structural.detail}</span>}
-                      </>
-                    ) : e.kind === 'event' ? (
-                      <>{e.record_id ? e.type : `${e.type} · no record`}</>
-                    ) : (
-                      <>
-                        <span className="font-medium text-ink">{e.field}</span>
-                        {' — '}
-                        {renderValue(e.old_value)} → {renderValue(e.new_value)}
-                      </>
+                  <span className="flex min-w-0 flex-1 flex-col sm:w-44 sm:flex-none sm:shrink-0">
+                    <span className="flex min-w-0 items-center gap-1.5 text-body text-ink">
+                      <span className="truncate">{actor}</span>
+                      <span className="shrink-0">
+                        <SourceBadge source={e.source} agentName={e.agent_name} />
+                      </span>
+                    </span>
+                    {/* actor = the member, source = agent: the agent's own name sits under the member it acted for (ticket #1287). */}
+                    {e.source === 'agent' && e.agent_name && (
+                      <span className="truncate text-label text-muted" data-testid="audit-agent-name">
+                        {e.agent_name}
+                      </span>
                     )}
                   </span>
-                  {/* The full id used to be the row's hover title. It is the value the "Record or object ID" filter takes, so it is written out. */}
-                  {e.record_id && (
-                    <span className="basis-full break-all font-mono text-meta text-muted" data-testid="audit-record-id">
-                      record {e.record_id}
-                    </span>
-                  )}
+                  <span className="min-w-0 basis-full break-words text-body text-ink-secondary sm:basis-0 sm:flex-1" data-testid="audit-what">
+                    {event ? (
+                      <>
+                        {event.lead}
+                        {event.name && (
+                          <>
+                            {' '}
+                            <span className="font-medium text-ink">“{event.name}”</span>
+                          </>
+                        )}
+                        {event.tail}
+                        {event.detail && <span className="text-muted"> · {event.known ? event.detail : `Event code: ${event.detail}`}</span>}
+                      </>
+                    ) : change ? (
+                      <>
+                        {change.kind === 'set' ? (
+                          <>
+                            Set <span className="font-medium text-ink">{change.field}</span> to {change.to}
+                          </>
+                        ) : change.kind === 'cleared' ? (
+                          <>
+                            Cleared <span className="font-medium text-ink">{change.field}</span>
+                            <span className="text-muted"> · was {change.from}</span>
+                          </>
+                        ) : change.from === null ? (
+                          <>
+                            Changed <span className="font-medium text-ink">{change.field}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-medium text-ink">{change.field}</span>: {change.from} → {change.to}
+                          </>
+                        )}
+                      </>
+                    ) : null}
+                  </span>
                 </div>
               );
             })}

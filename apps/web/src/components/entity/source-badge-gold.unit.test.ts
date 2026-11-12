@@ -13,7 +13,9 @@ const skillBits = readFileSync(new URL('../skills/skill-bits.tsx', import.meta.u
  */
 const panels = readFileSync(new URL('./panels.tsx', import.meta.url), 'utf8');
 const history = readFileSync(new URL('./record-history.tsx', import.meta.url), 'utf8');
-const panelsBadge = panels.slice(panels.indexOf('function SourceBadge'), panels.indexOf('export function ActivityPanel'));
+// The Activity panel's badge lives in source-badge.tsx (ticket #1287) so the audit log wears the same one; panels.tsx imports it.
+const badgeFile = readFileSync(new URL('./source-badge.tsx', import.meta.url), 'utf8');
+const panelsBadge = badgeFile.slice(badgeFile.indexOf('export function SourceBadge'));
 const historyBadge = history.slice(history.indexOf('function SourceBadge'), history.indexOf('/**\n * #39 — the record history dialog'));
 
 describe('isAiSource: the one rule for gold on a source badge', () => {
@@ -39,7 +41,8 @@ describe('isAiSource: the one rule for gold on a source badge', () => {
 
 describe('both source badges decide gold with that one predicate', () => {
   it('the Activity panel badge imports and calls isAiSource, and carries the accent pair for it', () => {
-    expect(panels).toContain("import { isAiSource } from '@/lib/governance'");
+    expect(badgeFile).toContain("import { isAiSource } from '@/lib/governance'");
+    expect(panels).toContain("import { SourceBadge } from './source-badge'");
     expect(panelsBadge).toMatch(/isAiSource\(source\)\s*\?\s*'bg-accent-soft text-accent-text'/);
   });
 
