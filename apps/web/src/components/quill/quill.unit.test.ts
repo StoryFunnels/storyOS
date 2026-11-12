@@ -275,7 +275,8 @@ describe('run outcomes: Quill beside the pill, never instead of it', () => {
   });
   it('an empty Runs box says so in plain words with Quill first and the sentence after her (as the prototype draws it), and loading or failed-to-load draw no Quill', () => {
     const empty = list([]);
-    expect(empty).toContain('No runs yet. They show up here when an agent wakes.');
+    expect(empty).toContain('No runs yet');
+    expect(empty).toContain('They show up here when an agent wakes.');
     expect(empty).toContain('data-pose="ready"');
     expect(empty.indexOf('data-pose="ready"')).toBeLessThan(empty.indexOf('No runs yet'));
     expect(list([], { loading: true })).not.toContain('data-testid="quill"');

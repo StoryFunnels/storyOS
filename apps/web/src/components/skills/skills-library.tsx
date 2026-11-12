@@ -7,6 +7,7 @@ import type { SkillSummary, SkillTemplate } from '@storyos/schemas';
 import { cn } from '@/lib/utils';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { SkillImportDialog } from './skill-import-dialog';
 import { SkillSourceMark, VisibilityChip } from './skill-bits';
 import { SkillTemplateCards } from './skill-template-cards';
@@ -59,7 +60,7 @@ export function SkillsLibrary({ ws }: { ws: string }) {
           Could not load skills. Try again in a moment.
         </p>
       )}
-      {skills.isSuccess && list.length === 0 && <EmptyState ws={ws} templates={templates.data ?? []} />}
+      {skills.isSuccess && list.length === 0 && <SkillsEmpty ws={ws} templates={templates.data ?? []} />}
       {skills.isSuccess && list.length > 0 && (
         <ul className="flex flex-col">
           {list.map((skill) => (
@@ -151,17 +152,19 @@ function SkillRow({
 /**
  * The empty state is the FRONT DOOR, not a corner case: `list_skills` returns
  * `[]` in every new workspace. It offers the scaffolds that ship with the
- * product — real ones, not an illustration and a button.
+ * product — real ones, not an illustration and a button. Ticket #1291: the shared `big` shape; the cards sit under its heading.
  */
-function EmptyState({ ws, templates }: { ws: string; templates: SkillTemplate[] }) {
+function SkillsEmpty({ ws, templates }: { ws: string; templates: SkillTemplate[] }) {
   return (
     <div className="px-5 py-5">
-      <h2 className="text-title font-bold tracking-tight text-ink">Nothing here yet — and that is the normal start.</h2>
-      <p className="mt-1 max-w-[60ch] text-body leading-normal text-muted">
-        A skill is a way of working you write once: what it does, and the sentence that tells any AI when to reach for it.
-        Start from one that ships with StoryOS, or from a blank page.
-      </p>
-      <SkillTemplateCards ws={ws} templates={templates} className="mt-3.5" />
+      <EmptyState
+        variant="big"
+        className="max-w-[640px]"
+        title="Nothing here yet — and that is the normal start."
+        body="A skill is a way of working you write once: what it does, and the sentence that tells any AI when to reach for it. Start from one that ships with StoryOS, or from a blank page."
+      >
+        <SkillTemplateCards ws={ws} templates={templates} className="mt-1.5 w-full text-left" />
+      </EmptyState>
     </div>
   );
 }

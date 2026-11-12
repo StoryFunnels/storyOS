@@ -4,6 +4,7 @@ import type { TimeOpts } from '@/lib/runners/words';
 import type { WakeDto } from '@/lib/runners/types';
 import { StatusMark } from './status-mark';
 import { Quill, QuillBeside } from '@/components/quill/quill';
+import { EmptyState } from '@/components/ui/empty-state';
 import { firstSuccessfulRunId, runQuill } from '@/lib/quill/run-outcome';
 
 /**
@@ -52,10 +53,14 @@ export function RunList({
           Could not load this agent’s runs. Try again in a moment.
         </p>
       ) : wakes.length === 0 ? (
-        <div className="flex flex-col items-center gap-2.5 px-4 py-[18px] text-center" data-testid="runs-empty">
-          <Quill pose="ready" size={56} caption="Yes, chef." />
-          <p className="m-0 text-body leading-[normal] text-muted">No runs yet. They show up here when an agent wakes.</p>
-        </div>
+        <EmptyState
+          variant="big"
+          className="m-3 max-w-none"
+          data-testid="runs-empty"
+          quill={<Quill pose="ready" size={56} caption="Yes, chef." />}
+          title="No runs yet"
+          body="They show up here when an agent wakes."
+        />
       ) : (
         <ul className="m-0 list-none p-0">
           {wakes.map((w) => {

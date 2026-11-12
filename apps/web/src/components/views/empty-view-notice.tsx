@@ -1,7 +1,6 @@
 'use client';
 
-import { Filter } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { useRecordCount } from '../table-view/use-table-data';
 import { emptyViewCause, filterButtonState } from './filter-state';
 import { queryBodyFromConfig } from './use-view-state';
@@ -15,7 +14,7 @@ import { useViewSearch } from './view-search';
  * "Nothing here yet. Add your first task" is true for a new database and a lie for one whose filter
  * hides all 40 records. This asks the server, never a page of loaded rows: the total, what the view's
  * own filter keeps, what the view's filter AND the personal filter keep, and what the view shows
- * (Find included). Nothing is asked when nothing narrows the view, so an ordinary view pays nothing.
+ * (Find included). When nothing narrows the view only the total is asked (one count: is the database empty at all).
  */
 export function useEmptyViewCause(
   ws: string,
@@ -33,12 +32,16 @@ export function useEmptyViewCause(
   const viewBody = queryBodyFromConfig(config, undefined, undefined);
   const viewPersonalBody = queryBodyFromConfig(config, personalFilter, undefined);
 
-  const total = useRecordCount(ws, db, undefined, narrowed);
+  // Ticket #1291: the total is asked even when nothing narrows the view. An empty DATABASE needs the same answer, and it is how the
+  // table, board and calendar (which draw nothing of their own for it) learn to show the empty state instead of a bare header row.
+  const total = useRecordCount(ws, db, undefined, true);
   const shown = useRecordCount(ws, db, shownBody['filter'], narrowed, shownBody['q'] as string | undefined);
   const afterView = useRecordCount(ws, db, viewBody['filter'], narrowed && hasViewFilter);
   const afterViewPersonal = useRecordCount(ws, db, viewPersonalBody['filter'], narrowed && hasPersonal);
 
-  if (!narrowed) return { cause: null, total: undefined, search: undefined, hasViewFilter };
+  if (!narrowed) {
+    return { cause: total.data === 0 ? ('empty' as const) : null, total: total.data, search: undefined, hasViewFilter };
+  }
   return {
     cause: emptyViewCause({
       total: total.data,
@@ -98,20 +101,13 @@ export function EmptyViewNotice({
             run: onClearSearch,
           };
   return (
-    <div
-      role="status"
+    <EmptyState
+      variant="filtered"
       data-testid="empty-view-notice"
       data-cause={cause}
-      className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center"
-    >
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-hover text-muted">
-        <Filter className="h-5 w-5" />
-      </div>
-      <p className="max-w-sm text-body font-medium text-ink">{copy.title}</p>
-      <p className="max-w-sm text-body text-muted">{copy.body}</p>
-      <Button type="button" size="sm" variant="secondary" onClick={copy.run}>
-        {copy.action}
-      </Button>
-    </div>
+      title={copy.title}
+      body={copy.body}
+      action={{ label: copy.action, onClick: copy.run, variant: 'secondary' }}
+    />
   );
 }
