@@ -199,6 +199,8 @@ Over the API, `PATCH /api/v1/users/me/preferences` with a `myWorkEmail` object (
 `weekday` as 0 for Sunday to 6, `time`, `timezone`, `include_assigned_by_me`) changes only the keys
 you send.
 
+Turn it on in **Settings → You → Notifications**.
+
 ### What the email contains
 
 You get one email per workspace you are an active member of, with up to three sections in this order:
