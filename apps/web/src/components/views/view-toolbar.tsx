@@ -1556,9 +1556,9 @@ export function FiltersSection({
               ? `Filter, ${buttonState.applied} applied${buttonState.personalOn ? ', including your personal filter' : ''}`
               : 'Filter'
           }
-          // #965 — YELLOW whenever any condition is applied (the view's or your personal one, pinned included).
+          // #965 — "applied" whenever any condition is applied (the view's or your personal one, pinned included).
           // Disabled and unfinished conditions hide nothing, so they do not turn it on. #992 — the chip is the
-          // prototype's: a pill, gold border and tint when active (toolbar-chip.ts).
+          // prototype's pill; applied it is NOT gold (#1163) but the default fill with a darker ink border (toolbar-chip.ts).
           className={chipClass(buttonState.yellow)}
         >
           <ListFilter className="h-3 w-3" />
