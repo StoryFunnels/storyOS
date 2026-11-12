@@ -5,6 +5,7 @@ import type { MouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarRange } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDayLabel } from '@/lib/format';
 import { Select } from '@/components/ui/select';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
@@ -80,7 +81,7 @@ function monthSegs(min: number, max: number, px: number, withYear: boolean): Seg
     out.push({
       left: (s - min) * px,
       width: (e - s + 1) * px,
-      label: new Date(Date.UTC(y, m, 1)).toLocaleDateString(undefined, withYear ? { month: 'short', year: 'numeric' } : { month: 'short' }),
+      label: formatDayLabel(new Date(Date.UTC(y, m, 1)), withYear ? 'monthYear' : 'month', { utc: true }),
       key: `${y}-${m}`,
     });
     m++;
@@ -121,7 +122,7 @@ function weekSegs(min: number, max: number, px: number): Seg[] {
     out.push({
       left: (s - min) * px,
       width: (e - s + 1) * px,
-      label: new Date(s * DAY).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      label: formatDayLabel(new Date(s * DAY), 'monthDay', { utc: true }),
       key: String(day),
     });
     day += 7;

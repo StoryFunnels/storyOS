@@ -14,6 +14,8 @@
  * same board would see a card in different columns.
  */
 
+import { formatDayLabel } from '@/lib/format';
+
 export const DATE_GRANULARITIES = ['week', 'month', 'quarter', 'year'] as const;
 export type DateGranularity = (typeof DATE_GRANULARITIES)[number];
 
@@ -61,11 +63,6 @@ export function dateBucketKey(value: unknown, granularity: DateGranularity): str
   }
 }
 
-const MONTHS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
 /** Human label for a bucket key. Falls back to the raw key rather than throwing. */
 export function bucketLabel(key: string, granularity: DateGranularity): string {
   switch (granularity) {
@@ -78,13 +75,13 @@ export function bucketLabel(key: string, granularity: DateGranularity): string {
     case 'month': {
       const [y, m] = key.split('-');
       const idx = Number(m) - 1;
-      return y && MONTHS[idx] ? `${MONTHS[idx]} ${y}` : key;
+      return y && idx >= 0 && idx < 12 ? formatDayLabel(new Date(Date.UTC(Number(y), idx, 1)), 'monthYear', { utc: true }) : key;
     }
     case 'week': {
       const start = bucketStartISO(key, 'week');
       if (!start) return key;
       const d = new Date(start);
-      return `Week of ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+      return `Week of ${formatDayLabel(d, 'monthDayYear', { utc: true })}`;
     }
   }
 }

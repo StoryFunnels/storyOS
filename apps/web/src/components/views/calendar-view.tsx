@@ -17,7 +17,8 @@ import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-vie
 import { calendarNoEditableDateMessage, isShowingToday } from './calendar-date-fields';
 import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
-import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
+import { addDays, fmtDate, monthMatrix, weekDays } from '@/lib/dates';
+import { formatDayLabel } from '@/lib/format';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
 import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
@@ -284,10 +285,10 @@ export function CalendarView({
   const showingToday = isShowingToday(mode, anchorDate, today, week);
   const headerLabel =
     mode === 'month'
-      ? `${MONTH_NAMES[view.month]} ${view.year}`
+      ? formatDayLabel(new Date(view.year, view.month, 1), 'monthYearLong')
       : mode === 'week'
-        ? `${week[0]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${week[6]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
-        : anchorDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        ? `${formatDayLabel(week[0]!, 'monthDay')} – ${formatDayLabel(week[6]!, 'monthDayYear')}`
+        : formatDayLabel(anchorDate, 'full');
 
   return (
     <div className="flex h-full flex-col">

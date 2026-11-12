@@ -2,7 +2,7 @@
 process.env.TZ = 'America/Los_Angeles';
 
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REGIONAL, formatDate, formatDateTime, type Regional } from './format';
+import { DEFAULT_REGIONAL, formatAge, formatDate, formatDateTime, formatDayLabel, type Regional } from './format';
 
 const NOW = new Date(2026, 9, 21, 12, 0); // Wed 21 Oct 2026, noon local
 const sys: Regional = DEFAULT_REGIONAL;
@@ -77,5 +77,45 @@ describe('formatDateTime', () => {
   it('uses the 12-hour clock when asked', () => {
     const out = formatDateTime(new Date(2026, 9, 22, 14, 30), { ...sys, timeFormat: '12h' }, { now: NOW });
     expect(out).toMatch(/^Tomorrow, 0?2:30\s?PM$/i);
+  });
+});
+
+describe('one formatter for every surface (ticket #1275 item 5)', () => {
+  it('writes the month and day in the viewer’s locale: en-US "Nov 14", en-GB "14 Nov"', () => {
+    const d = new Date(2026, 10, 14);
+    expect(formatDate(d, sys, { now: NOW, locale: 'en-US' })).toBe('Nov 14');
+    expect(formatDate(d, sys, { now: NOW, locale: 'en-GB' })).toBe('14 Nov');
+  });
+
+  it('KEEPS Today, Tomorrow and Yesterday in any locale', () => {
+    for (const locale of ['en-US', 'en-GB']) {
+      expect(formatDate(new Date(2026, 9, 21), sys, { now: NOW, locale })).toBe('Today');
+      expect(formatDate(new Date(2026, 9, 22), sys, { now: NOW, locale })).toBe('Tomorrow');
+      expect(formatDate(new Date(2026, 9, 20), sys, { now: NOW, locale })).toBe('Yesterday');
+    }
+  });
+
+  it('the labels around dates follow the same locale (a calendar title, a timeline axis, a board week heading)', () => {
+    const d = new Date(2026, 10, 14);
+    expect(formatDayLabel(d, 'monthDay', { locale: 'en-US' })).toBe('Nov 14');
+    expect(formatDayLabel(d, 'monthDay', { locale: 'en-GB' })).toBe('14 Nov');
+    expect(formatDayLabel(d, 'monthYearLong', { locale: 'en-US' })).toBe('November 2026');
+    expect(formatDayLabel(d, 'monthDayYear', { locale: 'en-GB' })).toBe('14 Nov 2026');
+    expect(formatDayLabel(d, 'weekdayShort', { locale: 'en-US' })).toBe('Sat');
+  });
+
+  it('a UTC date stays the day it names west of UTC (a timeline bucket would read as the day before)', () => {
+    expect(formatDayLabel(new Date(Date.UTC(2026, 10, 1)), 'month', { utc: true, locale: 'en-US' })).toBe('Nov');
+    expect(formatDayLabel(new Date(Date.UTC(2026, 10, 1)), 'monthDay', { utc: true, locale: 'en-US' })).toBe('Nov 1');
+  });
+
+  it('an age is relative inside a day and the shared date words past it, never a bare "12d"', () => {
+    const at = (ms: number) => new Date(NOW.getTime() - ms);
+    expect(formatAge(at(10_000), sys, { now: NOW })).toEqual({ text: 'now', relative: true });
+    expect(formatAge(at(5 * 60_000), sys, { now: NOW })).toEqual({ text: '5m', relative: true });
+    expect(formatAge(at(3 * 3_600_000), sys, { now: NOW })).toEqual({ text: '3h', relative: true });
+    expect(formatAge(new Date(2026, 9, 20, 9), sys, { now: NOW })).toEqual({ text: 'Yesterday', relative: false });
+    expect(formatAge(new Date(2026, 9, 9), sys, { now: NOW, locale: 'en-US' })).toEqual({ text: 'Oct 9', relative: false });
+    expect(formatAge('not a date', sys, { now: NOW })).toEqual({ text: '', relative: false });
   });
 });

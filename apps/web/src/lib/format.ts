@@ -45,6 +45,9 @@ export interface FormatOptions {
   now?: Date;
   /** Say Today / Tomorrow / Yesterday for near dates (default). A preview of the format itself turns it off. */
   relative?: boolean;
+  /** A BCP 47 locale to format in. Callers never pass one (the viewer's own locale is the default); a test does, to pin
+   *  "Nov 14" for en-US against "14 Nov" for en-GB. */
+  locale?: string;
 }
 
 /**
@@ -53,14 +56,14 @@ export interface FormatOptions {
  * hard-codes a locale. Used only for the `system` setting; a person who picked MM/DD/YYYY, DD/MM/YYYY or YYYY-MM-DD
  * asked for numerals and gets them.
  */
-function friendlyDate(d: Date, now: Date, relative: boolean): string {
+function friendlyDate(d: Date, now: Date, relative: boolean, locale?: string): string {
   if (relative) {
     const off = dayOffset(d, now);
     if (off === 0) return 'Today';
     if (off === 1) return 'Tomorrow';
     if (off === -1) return 'Yesterday';
   }
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(locale, {
     day: 'numeric',
     month: 'short',
     ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
@@ -68,7 +71,7 @@ function friendlyDate(d: Date, now: Date, relative: boolean): string {
 }
 
 function datePart(d: Date, r: Regional, o: FormatOptions = {}): string {
-  if (r.dateFormat === 'system') return friendlyDate(d, o.now ?? new Date(), o.relative !== false);
+  if (r.dateFormat === 'system') return friendlyDate(d, o.now ?? new Date(), o.relative !== false, o.locale);
   return d.toLocaleDateString(DATE_LOCALE[r.dateFormat], {
     year: 'numeric',
     month: '2-digit',
@@ -95,6 +98,49 @@ export function formatDate(value: unknown, r: Regional = DEFAULT_REGIONAL, o: Fo
 export function formatDateTime(value: unknown, r: Regional = DEFAULT_REGIONAL, o: FormatOptions = {}): string {
   const d = toDate(value);
   return d ? `${datePart(d, r, o)}, ${timePart(d, r)}` : '';
+}
+
+/**
+ * Ticket #1275 item 5 — the labels a surface draws AROUND dates (a calendar's month title and weekday heads, a timeline's
+ * axis, a board's "Week of" column heading, the date picker's month) go through here too, so no surface writes a date in
+ * its own order. Month names and their order come from the viewer's locale (en-US "Nov 14", en-GB "14 Nov"); nothing here
+ * hard-codes a locale. `utc` is for a Date built with Date.UTC (a timeline bucket, a board bucket start), which would
+ * otherwise read as the day before west of UTC.
+ */
+export type DayLabelStyle = 'monthDay' | 'monthDayYear' | 'monthYear' | 'monthYearLong' | 'month' | 'weekdayShort' | 'full';
+
+const DAY_LABEL: Record<DayLabelStyle, Intl.DateTimeFormatOptions> = {
+  monthDay: { month: 'short', day: 'numeric' },
+  monthDayYear: { month: 'short', day: 'numeric', year: 'numeric' },
+  monthYear: { month: 'short', year: 'numeric' },
+  monthYearLong: { month: 'long', year: 'numeric' },
+  month: { month: 'short' },
+  weekdayShort: { weekday: 'short' },
+  full: { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' },
+};
+
+export function formatDayLabel(d: Date, style: DayLabelStyle, o: { utc?: boolean; locale?: string } = {}): string {
+  return d.toLocaleDateString(o.locale, { ...DAY_LABEL[style], ...(o.utc ? { timeZone: 'UTC' } : {}) });
+}
+
+/**
+ * How long ago a thing happened, for a notification: "now", "5m", "3h" inside a day, and past a day the SAME date words
+ * every other surface uses (Yesterday, then "Nov 11" in the viewer's locale), not a bare "12d". `relative` says which
+ * form came back, so a caller that appends "ago" does so only to the first.
+ */
+export function formatAge(
+  value: unknown,
+  r: Regional = DEFAULT_REGIONAL,
+  o: FormatOptions = {},
+): { text: string; relative: boolean } {
+  const d = toDate(value);
+  if (!d) return { text: '', relative: false };
+  const now = o.now ?? new Date();
+  const seconds = (now.getTime() - d.getTime()) / 1000;
+  if (seconds < 60) return { text: 'now', relative: true };
+  if (seconds < 3600) return { text: `${Math.floor(seconds / 60)}m`, relative: true };
+  if (seconds < 86400) return { text: `${Math.floor(seconds / 3600)}h`, relative: true };
+  return { text: datePart(d, r, { ...o, now }), relative: false };
 }
 
 /** Sunday=0 … Saturday=6, resolving 'system' to the locale's first day. */
