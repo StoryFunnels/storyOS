@@ -23,9 +23,10 @@ describe('the header strip: one pill for values, a button for the action (ticket
     expect(html).toContain('option-tint'); // the same tint mechanism as every other option chip
   });
 
-  it('outside the strip the very same chip keeps the shared value chip (the table, the sidebar, the filters are untouched)', () => {
+  it('outside the strip it is the SAME shape: the shared value chip is 19px, 8px padding, 12px / 600 everywhere (ticket #1275 item 4)', () => {
     const html = renderToStaticMarkup(createElement(OptionChip, { option }));
-    expect(html).not.toContain('h-[19px]');
+    for (const cls of ['h-[19px]', 'px-2', 'text-label', 'font-semibold']) expect(html, cls).toContain(cls);
+    expect(html).not.toContain('text-meta');
   });
 
   it('an action in the strip is the app\'s secondary Button, 27px, a strong border and no fill — never a tinted chip', () => {
