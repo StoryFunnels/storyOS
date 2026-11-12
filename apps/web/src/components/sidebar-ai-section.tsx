@@ -27,7 +27,7 @@ import { AGENT_SYSTEM_LABELS, agentSystemDatabases } from '@/lib/system-database
 import { cn } from '@/lib/utils';
 
 /** The number on an AI row. Gold only when it counts AGENT work waiting on you (#1163); a setup nudge or an update count is neutral. */
-function CountBadge({ count, hint, agent }: { count: string; hint?: string; agent: boolean }) {
+export function CountBadge({ count, hint, agent }: { count: string; hint?: string; agent: boolean }) {
   return (
     <span
       title={hint}

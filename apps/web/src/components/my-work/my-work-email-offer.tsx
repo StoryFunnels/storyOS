@@ -45,7 +45,7 @@ export function MyWorkEmailOffer({ ws }: { ws: string }) {
   };
 
   return (
-    <section aria-label="Email me my work" className="m-3 rounded-[var(--radius-card)] border border-border-default bg-card px-3.5 py-3 text-body">
+    <section aria-label="Email me my work" className="mx-5 mb-3 rounded-[var(--radius-card)] border border-border-default bg-card px-3.5 py-3 text-body">
       <div className="flex items-center">
         <b className="font-semibold text-ink">Get your open work by email?</b>
         <span className="flex-1" />

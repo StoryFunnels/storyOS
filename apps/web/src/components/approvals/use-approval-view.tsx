@@ -12,7 +12,7 @@ import { useDateFormat } from '@/lib/preferences';
  * One request per list, shared by every row on screen (keys are workspace-scoped, not row-scoped).
  * Keys start with `approvals` so `useResolveApproval` can refresh them all after a decision.
  */
-function useApprovalList(ws: string, status: 'pending' | 'all') {
+export function useApprovalList(ws: string, status: 'pending' | 'all') {
   return useQuery({
     queryKey: ['approvals', ws, status],
     enabled: Boolean(ws),
