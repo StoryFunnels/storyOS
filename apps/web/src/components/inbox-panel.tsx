@@ -14,6 +14,7 @@ import { api, apiErrorMessage } from '@/lib/api';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
+import { notificationVerb } from '@/components/notification-verbs';
 import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
 
 export type NotificationType =
@@ -39,7 +40,16 @@ export type NotificationType =
   // triggering context, and `ref_id` carries the actual approvals.id to act on.
   | 'action_approval_requested'
   // #236: a record you WATCH changed — snippet carries the "what changed" summary.
-  | 'record_changed';
+  | 'record_changed'
+  // Ticket #1279: the types the API emits that this union lacked (apps/api notifications.service.ts NotificationType).
+  | 'send_email_cap_reached'
+  | 'source_run_cap_reached'
+  | 'invite_accepted'
+  | 'usage_threshold_reached'
+  | 'runner_offline'
+  | 'agent_wake_failed'
+  | 'agent_budget_warning'
+  | 'agent_budget_paused';
 export interface NotificationRow {
   id: string;
   type: NotificationType;
@@ -59,22 +69,6 @@ interface NotificationsPage {
   data: NotificationRow[];
   next_cursor: string | null;
 }
-
-export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
-  assigned: 'assigned you',
-  mentioned: 'mentioned you',
-  commented: 'commented',
-  state_changed: 'updated status on',
-  approval_requested: 'needs your approval on',
-  trial_reminder_23: 'sent a trial reminder',
-  trial_reminder_29: 'sent a final trial reminder',
-  connection_error: 'flagged a connection',
-  auto_reload_failed: 'flagged an auto-reload failure',
-  automation_disabled: 'disabled an automation',
-  action_approval_requested: 'needs your approval to run',
-  record_changed: 'changed',
-};
-const VERBS = NOTIFICATION_VERBS;
 
 /**
  * The approval gate's Approve/Reject (#210, ADR-0010 §4), called from wherever
@@ -422,7 +416,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     <span className="block text-body text-ink">
                       {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
                       <span className={notificationActorClass(isUnreadRow(n))}>{notificationWho(n).name}</span>{' '}
-                      {VERBS[n.type]}
+                      {notificationVerb(n.type)}
                       {n.count > 1 ? ` · ${n.count}×` : ''}
                       {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                     </span>

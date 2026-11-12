@@ -13,9 +13,9 @@ import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { Textarea } from '@/components/ui/textarea';
 import { MyWorkEmailOffer } from '@/components/my-work/my-work-email-offer';
 import { cn } from '@/lib/utils';
+import { notificationVerb } from '@/components/notification-verbs';
 import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
 import {
-  NOTIFICATION_VERBS,
   StagedActionView,
   useResolveRun,
   useResolveApproval,
@@ -197,7 +197,7 @@ export default function InboxPage() {
                 <span className="block text-body text-ink">
                   {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
                   <span className={notificationActorClass(unread)}>{notificationWho(n).name}</span>{' '}
-                  {NOTIFICATION_VERBS[n.type]}
+                  {notificationVerb(n.type)}
                   {n.count > 1 ? ` · ${n.count}×` : ''}
                   {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                 </span>
@@ -254,7 +254,7 @@ export default function InboxPage() {
                   <div>
                     <p className="text-prose text-ink">
                       <span className="font-medium">{selectedWho!.name}</span>{' '}
-                      {NOTIFICATION_VERBS[selected.type]}
+                      {notificationVerb(selected.type)}
                     </p>
                     <p className="text-label text-faint">{relativeTime(selected.created_at)} ago</p>
                   </div>
