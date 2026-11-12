@@ -80,6 +80,7 @@ import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
+import { formatSkillRefs, parseSkillRefs, skillLabelsText, skillRefDisplay } from '../skills/skill-refs';
 import { SkillsService } from '../skills/skills.service';
 import { RUN_CLASS_BY_LABEL } from '../agents/agent-runtime';
 import { ViewsService } from '../views/views.service';
@@ -474,16 +475,16 @@ export class PacksService {
     const relations = await this.exportRelations(slice);
     // #1198 — an agent a rule RUNS travels with the pack even when no state trigger binds it, and the rule exports it by `$agent:` ref.
     const runAgentKeys = agentsDb ? await this.runAgentKeys(slice) : new Set<string>();
-    const { agents, triggers, agentRefByKey } = agentsDb
+    const { agents, triggers, agentRefByKey, linkedSkillIds } = agentsDb
       ? await this.exportAgents(membership, slice, agentsDb.id, bindings.data, runAgentKeys)
-      : { agents: [], triggers: [], agentRefByKey: new Map<string, string>() };
+      : { agents: [], triggers: [], agentRefByKey: new Map<string, string>(), linkedSkillIds: [] as string[] };
     const views = this.exportViews(slice, idToRef);
     const automations = await this.exportAutomations(slice, idToRef, agentRefByKey);
     const sampleRecords = request.include_sample_records
       ? await this.exportSampleRecords(slice, idToRef, request.sample_limit)
       : [];
     const recordTemplatesOut = await this.exportRecordTemplates(slice, idToRef);
-    const skills = await this.exportSkills(membership, [...request.skill_ids, ...(await this.agentSkillIds(membership, agents, request.skill_ids))]);
+    const skills = await this.exportSkills(membership, [...new Set([...request.skill_ids, ...linkedSkillIds, ...(await this.agentSkillIds(membership, agents, [...request.skill_ids, ...linkedSkillIds]))])]);
 
     const manifest: PackManifest = packManifestSchema.parse({
       format_version: 1,
@@ -999,8 +1000,12 @@ export class PacksService {
     bindings: Array<{ id: string; values: Record<string, unknown> }>,
     /** #1198 — the `agent` strings of the exported rules' `run_agent` actions (a uuid or a public number). */
     runAgentKeys: ReadonlySet<string> = new Set(),
-  ): Promise<{ agents: PackAgent[]; triggers: PlanTrigger[]; agentRefByKey: Map<string, string> }> {
+  ): Promise<{ agents: PackAgent[]; triggers: PlanTrigger[]; agentRefByKey: Map<string, string>; linkedSkillIds: string[] }> {
     const byId = new Map(slice.map((d) => [d.id, d]));
+    // ticket #1110: the skills an agent is LINKED to (by id) travel under their CURRENT name, so a skill renamed since the agent was
+    // linked exports as what it is called now, and its id is bundled whatever it is called. The manifest stays names, never ids.
+    const { data: visibleSkills } = await this.skills.list(membership, membership.userId);
+    const linkedSkillIds: string[] = [];
     const agentRows = await this.records.list(agentsDbId, { limit: MAX_SCAN });
     const agentById = new Map(agentRows.data.map((r) => [r.id, r]));
     const agentFields = (await this.databases.get(membership, agentsDbId, { inheritRollupFormats: false }))
@@ -1080,15 +1085,23 @@ export class PacksService {
         ...(gatesByAgent.has(id) ? { write_gates: gatesByAgent.get(id) } : {}),
         // ticket #1106: the agent's own "Skills" field, one name per line. `export` bundles each named skill (below) so the manifest
         // still satisfies install's "every agent skill is bundled" rule.
-        skills: String(row.values['skills'] ?? '')
-          .split('\n')
-          .map((n) => n.trim())
-          .filter(Boolean),
+        skills: parseSkillRefs(row.values['skills']).map((ref) => {
+          if (!ref.id) return ref.label;
+          const live = visibleSkills.find((sk) => sk.id === ref.id);
+          if (!live) {
+            throw new UnprocessableEntityException(
+              `An exported agent uses the skill "${skillRefDisplay(ref)}", which this workspace cannot see (removed, or someone else's personal skill). ` +
+                `Restore it, or take it off the agent's Skills field, then export again.`,
+            );
+          }
+          linkedSkillIds.push(live.id);
+          return live.name;
+        }),
         // The mode only when one is SET: an unset mode exports as omitted, so a round trip leaves an agent the pack never configured alone.
         ...this.exportedAiMode(labelOf('ai_mode', row.values['ai_mode'])),
       });
     }
-    return { agents, triggers, agentRefByKey };
+    return { agents, triggers, agentRefByKey, linkedSkillIds };
   }
 
   /** #1198 — every `agent` a `run_agent` action of the slice's rules names. */
@@ -1746,7 +1759,7 @@ export class PacksService {
       // recorded valid (so no existing agent flips to "edited"), and a person who set the mode or skills by hand on an agent the pack
       // never configured is not reported as having edited it.
       ...(declared.aiMode ? { ai_mode: typeof values.ai_mode === 'string' ? values.ai_mode : '' } : {}),
-      ...(declared.skills ? { skills: typeof values.skills === 'string' ? values.skills.trim() : '' } : {}),
+      ...(declared.skills ? { skills: skillLabelsText(values.skills) } : {}),
     };
   }
 
@@ -1777,6 +1790,12 @@ export class PacksService {
       const record = live.get(norm(planned.name));
       if (!item || !record) continue;
       const values = await this.architect.agentUpdateValues(membership, planned, agentsDbId);
+      // ticket #1110: the update writes the pack's skill NAMES; a line the agent already has linked to a skill keeps its link (a renamed
+      // skill is still the same skill, and a deleted one is not swapped for a lookalike by the name coming back in without its id).
+      if (typeof values['skills'] === 'string') {
+        const live = new Map(parseSkillRefs(record.values['skills']).filter((r) => r.id).map((r) => [norm(r.label), r] as const));
+        values['skills'] = formatSkillRefs(parseSkillRefs(values['skills']).map((r) => live.get(norm(r.label)) ?? r));
+      }
       // ticket #1106 (Otto's ruling): an agent's AI mode is NEVER changed by an update on its own: a declared mode that differs from the live
       // one is a CHOICE the person makes in the update review (the same `update` resolution an edited agent uses), and it is never applied
       // unasked, least of all into StoryOS AI, which starts metering. So the mode is kept OUT of the classification below, which decides only
@@ -2105,6 +2124,42 @@ export class PacksService {
     return new Map(rows.map((r) => [norm(r.name), r.entityId] as const));
   }
 
+  /** ticket #1110 - the skill id each skill of an earlier install of this pack was recorded under, by manifest name. */
+  private async trackedSkillIds(packInstallId: string): Promise<Map<string, string>> {
+    const rows = await this.db.query.packInstallItems.findMany({
+      where: and(eq(packInstallItems.packInstallId, packInstallId), eq(packInstallItems.kind, 'skill')),
+    });
+    return new Map(rows.map((r) => [norm(r.name), r.entityId] as const));
+  }
+
+  /**
+   * ticket #1110 - write the id of each skill onto the agents whose Skills text THIS install wrote (created, or brought up to this
+   * version), so renaming a skill afterwards cannot break them. Only a line that names one of this pack's own skills and carries no id
+   * yet is touched; a skill a person attached by hand, and every agent the install left alone (kept as the person has it), is not.
+   * The ids are the install's own (what `installSkills` created or followed), never read from a manifest, so a pack cannot point an
+   * agent at a skill by id. Best effort and last: a write that fails leaves the name, which still resolves.
+   */
+  private async linkAgentSkills(membership: Membership, manifest: PackManifest, result: PackInstallResult): Promise<void> {
+    const idByName = new Map(result.skills.filter((k) => k.id && k.action !== 'skipped').map((k) => [norm(k.name), k.id] as const));
+    if (idByName.size === 0) return;
+    const { agentsDb } = await this.agents.findPackDbs(membership.workspaceId);
+    if (!agentsDb) return;
+    for (const entry of result.agents) {
+      if (!entry.id || (entry.action !== 'created' && entry.action !== 'updated')) continue;
+      const planned = manifest.agents.find((a) => norm(a.name) === norm(entry.name));
+      if (!planned || planned.skills.length === 0) continue;
+      try {
+        const record = await this.records.get(agentsDb.id, entry.id);
+        const refs = parseSkillRefs(record.values['skills']);
+        const linked = refs.map((r) => (!r.id && idByName.has(norm(r.label)) && planned.skills.some((n) => norm(n) === norm(r.label)) ? { label: r.label, id: idByName.get(norm(r.label))! } : r));
+        const next = formatSkillRefs(linked);
+        if (next !== formatSkillRefs(refs)) await this.records.update(membership.workspaceId, agentsDb.id, entry.id, { skills: next }, membership.userId);
+      } catch {
+        /* the name still resolves; nothing to undo */
+      }
+    }
+  }
+
   private async trackedNames(
     packInstallId: string,
     kind: 'database' | 'view' | 'automation' | 'agent' | 'skill',
@@ -2331,12 +2386,13 @@ export class PacksService {
       step = 'adding the record templates';
       await this.installRecordTemplates(membership, working, dbIds, refToId, result, hashes);
       step = 'adding the skills';
-      await this.installSkills(membership, working, result, hashes);
+      await this.installSkills(membership, working, result, hashes, existingInstall ? await this.trackedSkillIds(existingInstall.id) : undefined);
 
       // #977 — bring reused agents up to this version, BEFORE their content is hashed for uninstall's modified check below. Last among the
       // steps that change anything: it edits agents that already existed, which a rollback cannot give back, so nothing after it may fail.
       step = 'updating the agents that were already installed';
       const agentProvenance = await this.updateReusedAgents(membership, manifest, collisions.agentPlans, takeAgents, result);
+      await this.linkAgentSkills(membership, working, result);
       step = 'recording the install';
       await this.hashInstalledAgents(membership, result, hashes);
 
@@ -3533,6 +3589,13 @@ export class PacksService {
    */
   private validateAgentSkillNames(manifest: PackManifest): void {
     const bundled = new Set(manifest.skills.map((s) => norm(s.name)));
+    // ticket #1110: an agent's Skills text reads `[skill:<id>]` as a link to that skill. A manifest names skills; it must never carry one,
+    // or it could point an agent at a skill it does not bundle (a colleague's personal one) by id.
+    for (const name of [...manifest.skills.map((s) => s.name), ...manifest.agents.flatMap((a) => a.skills)]) {
+      if (parseSkillRefs(name).some((r) => r.id)) {
+        throw new UnprocessableEntityException(`"${name}" looks like a skill link ("[skill:<id>]"). A pack names its skills; it cannot carry a link to one by id.`);
+      }
+    }
     for (const agent of manifest.agents) {
       for (const name of agent.skills) {
         if (!bundled.has(norm(name))) {
@@ -3595,6 +3658,12 @@ export class PacksService {
     manifest: PackManifest,
     result: PackInstallResult,
     hashes: Map<string, string> = new Map(),
+    /**
+     * ticket #1110 - the skills an EARLIER install of this pack recorded, by manifest name -> skill id. An update follows the id, so a
+     * skill a person renamed since is still THE pack's skill (not duplicated), and one a person deleted is not quietly replaced by
+     * a different skill that happens to share the name. Empty for a first install: then, and only then, a name is matched.
+     */
+    recorded: Map<string, string> = new Map(),
   ): Promise<void> {
     if (manifest.skills.length === 0) return;
 
@@ -3614,10 +3683,26 @@ export class PacksService {
       allowed_tools: s.allowed_tools,
     });
 
-    const { data: visible } = await this.skills.list(membership, membership.userId);
+    const { data: all } = await this.skills.list(membership, membership.userId);
+    // ticket #1110 / #1203: an admin's `list` includes everyone's personal skills, and a pack must never attach one of them (by name or by
+    // id): a colleague's private skill is theirs. Only the installer's own, and the shared/members/public ones, can be adopted.
+    const visible = all.filter((s) => s.visibility !== 'personal' || s.owner_id === membership.userId);
     const byName = new Map(visible.map((s) => [norm(s.name), s] as const));
+    const byId = new Map(visible.map((s) => [s.id, s] as const));
 
     for (const planned of manifest.skills) {
+      const recordedId = recorded.get(norm(planned.name));
+      if (recordedId) {
+        const followed = byId.get(recordedId);
+        if (followed) {
+          result.skills.push({ name: planned.name, action: 'reused', id: followed.id });
+          hashes.set(`skill:${followed.id}`, this.hashOf(skillProjection(followed)));
+        } else {
+          // Gone (deleted, or no longer visible to the installer). Said, never papered over: the agent reports it missing at its next run.
+          result.skills.push({ name: planned.name, action: 'skipped', id: '' });
+        }
+        continue;
+      }
       const existing = byName.get(norm(planned.name));
       if (existing) {
         result.skills.push({ name: planned.name, action: 'reused', id: existing.id });

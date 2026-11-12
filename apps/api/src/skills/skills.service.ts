@@ -23,6 +23,8 @@ import { scopeForRole } from '../agents/agent-principal';
 import { renderSkillExport } from './skill-export';
 import { buildSkillImport } from './skill-import';
 import type { ImportReport } from './skill-import';
+import { skillRefDisplay } from './skill-refs';
+import type { SkillRef } from './skill-refs';
 
 type SkillRow = typeof skills.$inferSelect;
 
@@ -244,53 +246,66 @@ export class SkillsService implements OnModuleInit {
   }
 
   /**
-   * ticket #1106 — resolve the skills an AGENT names, at run time, as the agent's owner would see them (the same visibility rule as
-   * every other read: `list` goes through `visibleTo`). Matched by name, trimmed and case-insensitive — the same match pack install
-   * uses. Every name is accounted for: it comes back either in `loaded` (in the order the agent lists them) or in `missing`, never dropped.
-   * If a name is visible twice (a personal and a shared skill of one name) the owner's own wins, then the newest.
+   * ticket #1106 / #1110 — resolve the skills an AGENT names, at run time, as the agent's owner would see them (the same visibility rule
+   * as every other read: `list` goes through `visibleTo`). A line that carries a skill id is followed BY ID, so a rename changes nothing,
+   * and it is never re-matched by name when the id is gone: a removed skill is reported, and a different skill that happens to share the
+   * old name is not quietly attached in its place. A line that is only a name (typed by a person, or written before ids were kept) is
+   * matched by name, trimmed and case-insensitive, once; `linked` returns each such match so the caller can record the id on the agent.
+   * Every line is accounted for: it comes back in `loaded` (in the order the agent lists them) or in `missing`, never dropped. If a
+   * name is visible twice (a personal and a shared skill of one name) the owner's own wins, then the newest.
    */
-  async resolveByNames(
+  async resolveRefs(
     membership: Membership,
     userId: string,
-    names: string[],
-  ): Promise<{ loaded: SkillView[]; missing: string[] }> {
-    const key = (n: string) => n.trim().toLowerCase();
+    refs: SkillRef[],
+  ): Promise<{ loaded: SkillView[]; missing: string[]; linked: Array<{ label: string; id: string }> }> {
     const { data } = await this.list(membership, userId);
+    return this.matchRefs(data, userId, refs);
+  }
+
+  private matchRefs(
+    data: SkillView[],
+    ownerUserId: string,
+    refs: SkillRef[],
+  ): { loaded: SkillView[]; missing: string[]; linked: Array<{ label: string; id: string }> } {
+    const key = (n: string) => n.trim().toLowerCase();
     const loaded: SkillView[] = [];
     const missing: string[] = [];
-    for (const name of names) {
-      const matches = data.filter((s) => key(s.name) === key(name));
-      const pick = matches.find((s) => s.owner_id === userId) ?? matches[0];
-      if (pick) loaded.push(pick);
-      else missing.push(name);
+    const linked: Array<{ label: string; id: string }> = [];
+    for (const ref of refs) {
+      if (ref.id) {
+        const pick = data.find((s) => s.id === ref.id);
+        if (pick) loaded.push(pick);
+        else missing.push(skillRefDisplay(ref));
+        continue;
+      }
+      const matches = data.filter((s) => key(s.name) === key(ref.label));
+      const pick = matches.find((s) => s.owner_id === ownerUserId) ?? matches[0];
+      if (pick) {
+        loaded.push(pick);
+        linked.push({ label: ref.label, id: pick.id });
+      } else missing.push(ref.label);
     }
-    return { loaded, missing };
+    return { loaded, missing, linked };
   }
 
   /**
-   * ticket #1184 — the skills a RUNNER run is handed (their instructions travel to a person's own computer), resolved by name as
-   * the agent's OWNER, with one rule `resolveByNames` does not have: a `personal` skill is delivered only to its own author's
-   * agent AND only when the Runner belongs to that same author. `resolveByNames` lets an admin read everyone's personal skills
-   * (#841), which is right for an admin reading and wrong for copying a colleague's private text onto another machine. A skill
-   * refused here is reported as missing, so the run fails naming it instead of quietly running without it.
+   * ticket #1184 — the skills a RUNNER run is handed (their instructions travel to a person's own computer), resolved as the agent's
+   * OWNER (by id where the line has one, else by name: `resolveRefs`), with one rule `resolveRefs` does not have: a `personal` skill is
+   * delivered only to its own author's agent AND only when the Runner belongs to that same author. `resolveRefs` lets an admin read
+   * everyone's personal skills (#841), which is right for an admin reading and wrong for copying a colleague's private text onto another
+   * machine, and that holds for an id someone typed as much as for a name. A skill refused here is reported as missing, so the run fails
+   * naming it instead of quietly running without it.
    */
   async resolveForRunner(
     membership: Membership,
     ownerUserId: string,
     runnerUserId: string,
-    names: string[],
+    refs: SkillRef[],
   ): Promise<{ loaded: SkillView[]; missing: string[] }> {
-    const key = (n: string) => n.trim().toLowerCase();
     const { data } = await this.list(membership, ownerUserId);
     const deliverable = data.filter((s) => s.visibility !== 'personal' || (s.owner_id === ownerUserId && runnerUserId === ownerUserId));
-    const loaded: SkillView[] = [];
-    const missing: string[] = [];
-    for (const name of names) {
-      const matches = deliverable.filter((s) => key(s.name) === key(name));
-      const pick = matches.find((s) => s.owner_id === ownerUserId) ?? matches[0];
-      if (pick) loaded.push(pick);
-      else missing.push(name);
-    }
+    const { loaded, missing } = this.matchRefs(deliverable, ownerUserId, refs);
     return { loaded, missing };
   }
 
