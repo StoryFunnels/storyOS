@@ -79,8 +79,12 @@ describe('the floating "+" (ticket #1216)', () => {
     for (const p of ['/w/ws/settings', '/w/ws/settings/members', '/w/ws/settings/integrations/github']) expect(showQuickAddFab(p), p).toBe(false);
   });
 
-  it('stays everywhere else, including pages whose path only resembles settings', () => {
-    for (const p of ['/w/ws', '/w/ws/d/db1', '/w/ws/d/db1/r/rec', '/w/ws/me', '/w/ws/packs', '/w/ws/settingsfoo', null, undefined]) {
+  it('is hidden on a database page, where the toolbar has its own New (ticket #1275 item 10)', () => {
+    for (const p of ['/w/ws/d/db1', '/w/ws/d/db1/']) expect(showQuickAddFab(p), p).toBe(false);
+  });
+
+  it('stays everywhere else, including a record page and pages whose path only resembles settings or a database', () => {
+    for (const p of ['/w/ws', '/w/ws/d/db1/r/rec', '/w/ws/d/db1/trash', '/w/ws/d/db1/relations', '/w/ws/d', '/w/ws/doc/d1', '/w/ws/me', '/w/ws/packs', '/w/ws/settingsfoo', null, undefined]) {
       expect(showQuickAddFab(p), String(p)).toBe(true);
     }
   });
