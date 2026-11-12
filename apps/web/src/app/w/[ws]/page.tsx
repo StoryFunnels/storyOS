@@ -19,6 +19,8 @@ import {
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { takePendingShare } from '@/lib/pending-share';
+import { useSession } from '@/lib/auth-client';
+import { greeting } from '@/lib/greeting';
 import { ShareWorkspaceCard } from '@/components/onboarding/share-workspace-card';
 import { BLOCK_CARD, BLOCK_TITLE, WorkspaceHomeBlocks } from '@/components/workspace-home-blocks';
 
@@ -74,6 +76,14 @@ export default function WorkspaceHome() {
     if (takePendingShare(ws)) setShowShare(true);
   }, [ws]);
 
+  /* Ticket #1274 — the greeting depends on the BROWSER's clock, which the server cannot know. So it is computed only
+     after mount (and once the session has said whether there is a name), and until then the h1 holds its height with
+     a non-breaking space: no hydration mismatch, no flash of the wrong part of day, no layout shift. */
+  const session = useSession();
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => setNow(new Date()), []);
+  const greetingText = now && !session.isPending ? greeting(now, session.data?.user?.name) : null;
+
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [gallerySlug, setGallerySlug] = useState<string | undefined>(undefined);
   const canInstall = workspace.data?.role !== 'guest';
@@ -112,13 +122,10 @@ export default function WorkspaceHome() {
         </div>
       )}
 
-      <h1 className="mb-1 text-[22px] font-bold tracking-[-0.44px] text-ink">
-        Welcome to {workspace.data?.name ?? 'StoryOS'}
+      <h1 className="text-[22px] font-bold leading-[normal] tracking-[-0.44px] text-ink">
+        {greetingText ?? '\u00a0'}
       </h1>
-      <p className="mb-8 text-sm text-muted">
-        Model anything as related databases — client work, content, planning. It all lives in the
-        sidebar.
-      </p>
+      <p className="mb-8 mt-1 text-body text-muted">{workspace.data?.name ?? 'StoryOS'}</p>
 
       {showShare && <ShareWorkspaceCard ws={ws} onDone={() => setShowShare(false)} />}
 
