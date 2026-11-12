@@ -19,9 +19,6 @@ export const MY_WORK_OFFER_HINT = 'my-work-email-offer';
 /** The offer waits for this many open assigned records (ticket #1252). */
 export const MY_WORK_OFFER_MIN_OPEN = 5;
 
-/** The example email Dara drew (prototype v65). An external page: it is Dara's rendering, not a route of this app. */
-export const MY_WORK_EXAMPLE_URL = 'https://claude.ai/artifact/AQXYGbhnL8om2jTbjnUJTU';
-
 /** Where an admin reads how to set up email on a self-hosted server (apps/docs: self-hosting/configuration). */
 export const EMAIL_SETUP_DOCS_URL = 'https://docs.storyos.dev/self-hosting/configuration';
 

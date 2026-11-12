@@ -297,7 +297,7 @@ const PINS: Record<string, Counts> = {
   "components/connections/base-url-dialog.tsx": { button: 3, field: 1 },
   "components/connections/connect-dialogs.tsx": { button: 6, link: 1, field: 18, choice: 2, disclosure: 3 },
   "components/entity/trash-list.tsx": { button: 2 },
-  "components/settings/my-work-email-box.tsx": { choice: 3, link: 1, switch: 1 },
+  "components/settings/my-work-email-box.tsx": { choice: 3, switch: 1 },
   "components/free-guest-tip.tsx": { button: 1, link: 1 },
   "components/governance/agent-actions.tsx": { button: 2 },
   "components/governance/default-agent-model.tsx": { choice: 1 },
@@ -606,7 +606,6 @@ const NEW_SINCE_TABLE: ReadonlyArray<readonly [string, string, string]> = [
   ['Email me my work (#1252): Day (Weekly only)', 'components/settings/my-work-email-box.tsx', 'Day'],
   ['Email me my work (#1252): Time', 'components/settings/my-work-email-box.tsx', 'Time'],
   ['Email me my work (#1252): Include what I assigned to others', 'components/settings/my-work-email-box.tsx', 'Include what I assigned to others'],
-  ['Email me my work (#1252): See an example', 'components/settings/my-work-email-box.tsx', 'See an example'],
   ['Settings home: cards', 'app/w/[ws]/settings/page.tsx', 'settingsPageHref'],
   ['Settings menu: Back link', 'components/settings/settings-sidebar-menu.tsx', 'Back to'],
 ];
