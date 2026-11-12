@@ -31,7 +31,7 @@ import { ViewMenuItems } from './view-menu-items';
 
 /**
  * #970 — three glyphs redrawn because they fail at 14px, the only size the sidebar and tabs draw
- * (decision sheet: https://claude.ai/artifact/LCe3CHKSqx9yo4mgdoJwEx). Built with lucide's own factory,
+ * (the decision sheet lives in the design file, not in this repo). Built with lucide's own factory,
  * so they take the same props and default stroke as the six lucide icons beside them.
  * - dashboard: LayoutDashboard is four rectangles, the same glyph as gallery's LayoutGrid. One framed
  *   surface split unevenly differs structurally.

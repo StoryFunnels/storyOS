@@ -5,6 +5,7 @@ import { MenuSelect } from '@/components/ui/menu-select';
 import { Switch } from '@/components/ui/switch';
 import { SettingsBox, SettingsRow } from '@/components/settings/settings-chrome';
 import {
+  MY_WORK_EXAMPLE_URL,
   WEEKDAY_OPTIONS,
   browserTimeZone,
   myWorkEmailOf,
@@ -105,7 +106,11 @@ export function MyWorkEmailBox() {
       <SettingsRow
         title="What the email lists"
         description="Only what you can open, the same list as My Work. Every one ends with Customize these emails · Stop these emails."
-      />
+      >
+        <a href={MY_WORK_EXAMPLE_URL} target="_blank" rel="noopener noreferrer" className="text-label font-medium text-primary-text underline-offset-2 hover:underline">
+          See an example {'→'}
+        </a>
+      </SettingsRow>
     </SettingsBox>
   );
 }
