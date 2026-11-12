@@ -80,4 +80,4 @@ export function shouldHandleUndoShortcut(target: EventTarget | null): boolean {
  * founder's report on #265 was that they never registered the Undo at all.
  * Cmd-Z still works after this lapses — the toast is the hint, not the only route.
  */
-export const DESTRUCTIVE_TOAST_MS = 12_000;
+export const DESTRUCTIVE_TOAST_MS = 10_000;

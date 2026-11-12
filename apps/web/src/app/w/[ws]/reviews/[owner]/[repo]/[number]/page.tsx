@@ -1,5 +1,7 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
+import { entityQueryOptions, entityState } from '@/lib/entity-state';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -15,7 +17,7 @@ import {
   RefreshCw,
   XCircle,
 } from 'lucide-react';
-import { api, apiErrorMessage } from '@/lib/api';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -84,6 +86,7 @@ export default function PullRequestReviewPage() {
       if (error) throw error;
       return data as unknown as PullDetail;
     },
+    ...entityQueryOptions,
   });
 
   const comments = useQuery({
@@ -171,12 +174,10 @@ export default function PullRequestReviewPage() {
     onSuccess: () => setReviewBody(''),
   });
 
-  if (pull.isLoading) return <div className="p-8 text-sm text-muted">Loading…</div>;
-  if (pull.isError) {
-    return (
-      <div className="p-8 text-body text-error">{apiErrorMessage(pull.error, 'Could not load this pull request')}</div>
-    );
-  }
+  // #1291 — a pull request that is not there for this person (404/403) is the 404; a failed load is a Retry.
+  const blocked = entityGateView(entityState(pull), () => void pull.refetch());
+  if (blocked) return blocked;
+  if (pull.isPending) return <div className="p-8 text-sm text-muted">Loading…</div>;
   const pr = pull.data!;
 
   return (

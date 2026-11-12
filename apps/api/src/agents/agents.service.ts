@@ -66,6 +66,7 @@ import {
 } from './agent-runtime';
 import type { AgentRuntime, AgentRunAgent, AgentRunSkill, AgentStep, ProposedAction } from './agent-runtime';
 import { SkillsService } from '../skills/skills.service';
+import { formatSkillRefs, parseSkillRefs, skillRefDisplay } from '../skills/skill-refs';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import type { EnqueueResult, WakeRow } from '../runners/agent-wakes.service';
 import type { WakeReason } from '../runners/wake.constants';
@@ -241,29 +242,53 @@ export class AgentsService implements OnModuleInit {
   ) {}
 
   /**
-   * ticket #1106 — the skills an agent's "Skills" field names (one name per line), resolved by
-   * name AT RUN TIME as the agent's owner. `missing` lists every named skill that cannot be found, so the caller fails the run naming it.
+   * ticket #1106 / #1110 — the skills an agent's "Skills" field names (one line each: a name, or a name plus the id it is linked to),
+   * resolved AT RUN TIME as the agent's owner. A line with an id is followed by id (a renamed skill is still found); a name-only line is
+   * matched by name once and the id is then written onto the line (`linkByName`), so the next rename is survived too. `missing` lists
+   * every named skill that cannot be found, so the caller fails the run naming it.
    */
   private async resolveAgentSkills(
     workspaceId: string,
     ownerUserId: string,
     raw: string,
+    agentsDbId?: string,
+    agentId?: string,
   ): Promise<{ loaded: AgentRunSkill[]; missing: string[] }> {
-    const names = raw
-      .split('\n')
-      .map((n) => n.trim())
-      .filter(Boolean);
-    if (names.length === 0) return { loaded: [], missing: [] };
+    const refs = parseSkillRefs(raw);
+    if (refs.length === 0) return { loaded: [], missing: [] };
     const membership = await this.db.query.memberships.findFirst({
       where: and(eq(membershipsTable.workspaceId, workspaceId), eq(membershipsTable.userId, ownerUserId)),
     });
     // dispatch only runs for an active owner (resolveAgentOwner), so this is defensive: with no membership nothing is visible.
-    if (!membership) return { loaded: [], missing: names };
-    const { loaded, missing } = await this.skillsService.resolveByNames(membership, ownerUserId, names);
+    if (!membership) return { loaded: [], missing: refs.map(skillRefDisplay) };
+    const { loaded, missing, linked } = await this.skillsService.resolveRefs(membership, ownerUserId, refs);
+    if (linked.length > 0 && agentsDbId && agentId) {
+      // Best effort: a failed write-back must never fail a run that has everything it needs; the name still resolves next time.
+      await this.linkByName(workspaceId, agentsDbId, agentId, ownerUserId, raw, linked).catch((e) => this.logger.warn(`Could not record skill ids on agent ${agentId}: ${String(e)}`));
+    }
     return {
       loaded: loaded.map((k) => ({ id: k.id, name: k.name, whenToUse: k.when_to_use, instructions: k.instructions })),
       missing,
     };
+  }
+
+  /**
+   * ticket #1110 — record the id of each skill a name-only line resolved to, so a later rename does not break the agent. Only the lines
+   * that matched are rewritten (the label is kept as typed); every other line, a skill a person attached by hand included, is left
+   * exactly as it is. The pack's "was this agent edited" hash is over labels only, so this write never reads as an edit.
+   */
+  private async linkByName(
+    workspaceId: string,
+    agentsDbId: string,
+    agentId: string,
+    ownerUserId: string,
+    raw: string,
+    linked: Array<{ label: string; id: string }>,
+  ): Promise<void> {
+    const byLabel = new Map(linked.map((l) => [l.label, l.id] as const));
+    const next = formatSkillRefs(parseSkillRefs(raw).map((r) => (!r.id && byLabel.has(r.label) ? { label: r.label, id: byLabel.get(r.label)! } : r)));
+    if (next === raw.trim()) return;
+    await asAgentRuntime(() => this.recordsService.update(workspaceId, agentsDbId, agentId, { skills: next }, ownerUserId));
   }
 
   /** MN-109 Phase A: register the run_agent job kind at bootstrap. The moment
@@ -1259,6 +1284,8 @@ export class AgentsService implements OnModuleInit {
       workspaceId,
       owner.userId,
       (agentRecord.values['skills'] as string | undefined) ?? '',
+      agentsDb.id,
+      agentRecord.id,
     );
 
     const agent: AgentRunAgent = {
@@ -1373,7 +1400,7 @@ export class AgentsService implements OnModuleInit {
               finished_at: new Date().toISOString(),
               steps: markdownToBlocks(
                 skillsMissing
-                  ? `- **skills.missing** — ${missingSkills.map((n) => `Skill "${n}"`).join(', ')} ${missingSkills.length === 1 ? 'is' : 'are'} attached to this agent but cannot be found (removed, renamed, or not visible to the agent's owner). The run did not start. To fix it: ${missingSkills.map((n) => `rename the skill back to "${n}" (agents find skills by name), or re-attach the skill you want by editing this agent's Skills field`).join('; ')}.`
+                  ? `- **skills.missing** — ${missingSkills.map((n) => `Skill "${n}"`).join(', ')} ${missingSkills.length === 1 ? 'is' : 'are'} attached to this agent but cannot be found (removed, or not visible to the agent's owner). The run did not start. To fix it: restore the skill, or re-attach the one you want by editing this agent's Skills field. A skill that was only renamed is still found; one that was deleted is not replaced by another skill with the same name.`
                   : overAllowance
                   ? '- **entitlements.blocked** — Plan automation-run allowance reached for this month'
                   : costCapExceeded

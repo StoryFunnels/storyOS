@@ -116,6 +116,7 @@ export function TableView({
   ws,
   db,
   viewId,
+  personalLens = false,
   readOnly,
   schemaEditable = !readOnly,
   queryBody,
@@ -133,6 +134,8 @@ export function TableView({
    * not per-database; optional so every other call site (there is only one
    * today) needn't change. */
   viewId?: string;
+  /** #1275 — this is a personal view: a delete through it lands for everyone, and the Undo toast says so. */
+  personalLens?: boolean;
   readOnly: boolean;
   schemaEditable?: boolean;
   queryBody?: Record<string, unknown>;
@@ -1392,7 +1395,8 @@ export function TableView({
                           <div
                             className={cn(
                               // on touch there is no hover to swap the number for the trash (#933 keeps the trash
-                              // always visible), so the two sit side by side instead of overlapping
+                              // always visible), so the two sit side by side instead of overlapping. #1275: a tap
+                              // is safe there because the delete is undoable (10 s toast, lib/trash-record.ts)
                               'absolute inset-0 flex items-center justify-center [@media(hover:none)]:static [@media(hover:none)]:inset-auto',
                               selected.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
                             )}
@@ -1401,7 +1405,7 @@ export function TableView({
                               <button
                                 aria-label={`Delete ${noun}`}
                                 className="rounded p-0.5 text-faint hover:text-error"
-                                onClick={() => deleteRecord.mutate(row.id)}
+                                onClick={() => deleteRecord.mutate({ id: row.id, title: row.title, personalLens })}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
