@@ -79,8 +79,17 @@ describe('the floating "+" (ticket #1216)', () => {
     for (const p of ['/w/ws/settings', '/w/ws/settings/members', '/w/ws/settings/integrations/github']) expect(showQuickAddFab(p), p).toBe(false);
   });
 
-  it('is hidden on a database page, where the toolbar has its own New (ticket #1275 item 10)', () => {
+  it('is hidden on a database page while the toolbar has its own New (ticket #1275 item 10)', () => {
     for (const p of ['/w/ws/d/db1', '/w/ws/d/db1/']) expect(showQuickAddFab(p), p).toBe(false);
+    for (const p of ['/w/ws/d/db1', '/w/ws/d/db1/']) expect(showQuickAddFab(p, false), p).toBe(false);
+  });
+
+  it('is SHOWN on a database page whose toolbar has no New: a dashboard view, a read-only viewer (Otto 2026-11-13)', () => {
+    for (const p of ['/w/ws/d/db1', '/w/ws/d/db1/']) expect(showQuickAddFab(p, true), p).toBe(true);
+  });
+
+  it('never returns to Settings, whatever the toolbar says', () => {
+    expect(showQuickAddFab('/w/ws/settings', true)).toBe(false);
   });
 
   it('stays everywhere else, including a record page and pages whose path only resembles settings or a database', () => {

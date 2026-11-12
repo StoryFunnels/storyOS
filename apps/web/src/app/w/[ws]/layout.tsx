@@ -15,6 +15,7 @@ import { CommandPalette } from '@/components/command-palette';
 import { QuickAddFab } from '@/components/quick-add-fab';
 import { useRememberOutsideSettings } from '@/components/settings/use-settings-back';
 import { showQuickAddFab } from '@/lib/quick-add-visibility';
+import { useToolbarLacksNew } from '@/lib/toolbar-new-signal';
 import { ShortcutsOverlay } from '@/components/shortcuts-overlay';
 import { Sidebar } from '@/components/sidebar';
 import { SplitArea, SplitHost } from '@/components/entity/split-screen-host';
@@ -29,6 +30,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   const { ws } = useParams<{ ws: string }>();
   const router = useRouter();
   const pathname = usePathname();
+  const toolbarLacksNew = useToolbarLacksNew();
   const { data: session, isPending, error: sessionError, refetch } = useSession();
   const verdict = sessionVerdict({ data: session, isPending, error: sessionError });
 
@@ -224,7 +226,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
       <CommandPalette />
       <ShortcutsOverlay />
       {/* #1216 — Settings has nothing to create, and the button covered its last card on a phone. */}
-      {showQuickAddFab(pathname) && <QuickAddFab />}
+      {showQuickAddFab(pathname, toolbarLacksNew) && <QuickAddFab />}
       <UndoHotkey />
       <StoryOSToaster />
         </>

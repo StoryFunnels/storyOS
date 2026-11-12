@@ -35,6 +35,7 @@ import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import { NewRecordButton } from '../record-templates/new-record-button';
+import { useReportToolbarNew } from '@/lib/toolbar-new-signal';
 import {
   RELATIVE_DATE_KINDS,
   amountProblem,
@@ -445,6 +446,9 @@ export function ViewToolbar({
   );
 
   const [renaming, setRenaming] = useState(false);
+  // #1275 item 10 — the phone's floating "+" shows wherever this toolbar has no New (a dashboard, a read-only viewer).
+  const drawsNew = Boolean(ws && db && !readOnly && viewType !== 'dashboard');
+  useReportToolbarNew(drawsNew);
   const viewKind = viewType ?? 'table';
 
   // #964 — the ONE view menu (view-menu.ts). The toolbar door adds what is about the rows on screen:
@@ -546,7 +550,7 @@ export function ViewToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {ws && db && !readOnly && viewType !== 'dashboard' && <NewRecordButton ws={ws} db={db} />}
+        {drawsNew && ws && db && <NewRecordButton ws={ws} db={db} />}
       </div>
       {view && onRenameView && (
         <RenameViewDialog open={renaming} onOpenChange={setRenaming} name={view.name} onRename={onRenameView} />
