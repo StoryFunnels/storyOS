@@ -10,6 +10,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Plus } from 'lucide-react';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
 import { FAB_CLEARANCE_PB } from '@/lib/fab-clearance';
 import { CellDisplay, OPTION_COLORS, optionColor } from '../table-view/cells';
 import { isPercentField } from '../table-view/cell-text';
@@ -341,7 +342,7 @@ export function ListView({
                       {/* #787 (List artifact L3) — a floor the fields cannot push through.
                           The title is the reason a list exists; before this, an unbounded
                           shrink-0 chip row could squeeze it to near-nothing. */}
-                      <span className={cn(TITLE_SLOT, 'truncate text-title text-ink')}>{row.title || 'Untitled'}</span>
+                      <span className={cn(TITLE_SLOT, 'truncate text-title text-ink', RECORD_TITLE_WEIGHT)}>{row.title || 'Untitled'}</span>
                       {/* #787 (List artifact L2) — FIXED slots, not a wrapping row: each
                           configured field gets the same width in the same order on every
                           row, and an empty value leaves its slot empty rather than

@@ -7,6 +7,7 @@ import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-vie
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { addDays, fmtDate } from '@/lib/dates';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
 import {
   DEFAULT_DURATION_MINUTES,
   MIN_EVENT_MINUTES,
@@ -414,7 +415,7 @@ function EventChip({
         onOpen();
       }}
     >
-      <p className="truncate text-meta font-medium text-ink">{row.title || 'Untitled'}</p>
+      <p className={cn('truncate text-meta text-ink', RECORD_TITLE_WEIGHT)}>{row.title || 'Untitled'}</p>
       {!compact &&
         chipFields?.map((field) => {
           const value = row.values[field.apiName];

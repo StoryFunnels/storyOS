@@ -7,6 +7,7 @@ import type { CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Loader2, PanelRightOpen, Plus, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
 import { AttachmentEditor, formatBytes } from './attachment-cell';
 import type { AttachmentValue } from './attachment-cell';
 import { toast } from 'sonner';
@@ -543,7 +544,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
       // grounds. Consistent by decision rather than by oversight.
       return <span className="truncate text-label tabular-nums text-faint">{String(value)}</span>;
     case 'title':
-      return <span className={cn('text-body font-medium text-ink', prose)}>{String(value)}</span>;
+      return <span className={cn('text-body text-ink', RECORD_TITLE_WEIGHT, prose)}>{String(value)}</span>;
     case 'email':
       return <span className={cn('text-body', wrap ? 'break-all' : 'truncate')}>{String(value)}</span>;
     default:

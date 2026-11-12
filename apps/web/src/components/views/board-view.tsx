@@ -33,6 +33,7 @@ import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
 import { StateGlyph } from './state-glyph';
 import { API_URL } from '@/lib/api';
 import { coverImageUrl, isUrlCoverField } from './cover-fields';
@@ -936,7 +937,7 @@ export function Card({
       )}
     >
       <CardCover row={row} cover={cover} />
-      <p className={cn('font-[550] text-ink', s.title, s.clamp, 'leading-[1.4]!')}>{row.title || 'Untitled'}</p>
+      <p className={cn(RECORD_TITLE_WEIGHT, 'text-ink', s.title, s.clamp, 'leading-[1.4]!')}>{row.title || 'Untitled'}</p>
       {chips.length > 0 && (
         <div className={cn('mt-[7px] flex flex-wrap items-center', s.gap)}>
           {chips.map(({ field, value }) => (

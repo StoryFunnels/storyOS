@@ -20,6 +20,7 @@ import type { Field, RecordRow } from '../table-view/use-table-data';
 import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
 
 /* #738 — hoisted so the array identity is stable across renders; Segmented
    takes a readonly list, and a literal here would be a new array every time. */
@@ -589,7 +590,7 @@ function AgendaList({
                     className="block w-full rounded border border-border-default bg-card px-2 py-1 text-left hover:border-border-strong"
                     onClick={() => onOpen(row.id)}
                   >
-                    <p className="truncate text-body font-medium text-ink">{row.title || 'Untitled'}</p>
+                    <p className={cn('truncate text-body text-ink', RECORD_TITLE_WEIGHT)}>{row.title || 'Untitled'}</p>
                     {chipFields.map((field) => {
                       const value = row.values[field.apiName];
                       if (value === undefined || value === null || value === '') return null;
@@ -722,6 +723,7 @@ function UndatedChip({ row, onOpen }: { row: RecordRow; onOpen: () => void }) {
       {...listeners}
       className={cn(
         'max-w-[190px] cursor-grab truncate rounded-[var(--radius-chip)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink hover:border-border-strong',
+        RECORD_TITLE_WEIGHT,
         isDragging && 'opacity-40',
       )}
       onClick={(e) => {
@@ -774,7 +776,7 @@ function CalendarChip({
         onOpen();
       }}
     >
-      <p className="truncate text-label font-medium text-ink">{row.title || 'Untitled'}</p>
+      <p className={cn('truncate text-label text-ink', RECORD_TITLE_WEIGHT)}>{row.title || 'Untitled'}</p>
       {chipFields.map((field) => {
         const value = row.values[field.apiName];
         if (value === undefined || value === null || value === '') return null;
