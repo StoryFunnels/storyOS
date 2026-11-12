@@ -72,7 +72,8 @@ describe('the dense full-page row', () => {
     expect(INBOX_ROW_LINE).toBe('leading-4');
   });
   it('draws the row from those, not from its own 12px padding / 24px avatar / 11px time', () => {
-    expect(text).toContain('INBOX_ROW_PADDING');
+    expect(text).toMatch(/items-start[^']*',\s*INBOX_ROW_PADDING,/); // the row's own class list takes the shared padding
+    expect(text).not.toMatch(/items-start[^']*\bpy-3\b/);
     expect(text).toContain('size={INBOX_ROW_AVATAR_SIZE}');
     expect(text).toContain('INBOX_ROW_TIME_CLASS');
     expect((text.match(/INBOX_ROW_LINE/g) ?? []).length).toBeGreaterThanOrEqual(4); // import + the actor line + the record line + the snippet line
