@@ -168,7 +168,7 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
         </div>
         {!mayGate && role !== undefined && <p className="mb-0 mt-1 text-label text-muted">Holding changes to records for approval is set by a workspace admin.</p>}
       </div>
-      <p className="m-0 text-label text-muted">Reports to you. You can change all of this later on its page.</p>
+      <p className="m-0 text-label text-muted">Reports to you. Its page shows all of this; wake rules are changed per database, in Automations.</p>
       <div>
         <RunsOnLine
           assigned={chosen ? { id: chosen.id, name: chosen.name } : null}

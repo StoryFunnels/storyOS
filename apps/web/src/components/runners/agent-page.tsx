@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,8 @@ import { clockTime, limitBrand, shortDate, toolName } from '@/lib/runners/words'
 import { catchUpCount, offersCatchUp } from '@/lib/runners/catch-up';
 import { CATCH_UP_FAILED, startedToast } from '@/lib/runners/catch-up-copy';
 import { useCatchUp, useCatchUpScope } from '@/lib/runners/use-catch-up';
+import { useAgentScope, useAgentWakeLines } from '@/lib/runners/use-agent-facts';
+import { canReadWakeFacts } from '@/lib/runners/wake-facts';
 import { HireDialog } from './hire-dialog';
 import { NonAiLine, RunNowButton } from './let-it-think';
 import { FirstRunCard } from './first-run-card';
@@ -32,6 +35,7 @@ import { AgentAdvanced } from './agent-advanced';
 import { CatchUpBox } from './catch-up-box';
 import { RunList } from './run-list';
 import { RunnerUnknownLine } from './runner-unknown-line';
+import { WakesWhenValue, WorksInValue } from './agent-wake-facts';
 import { RunsOnLine } from './runs-on-line';
 
 /**
@@ -69,6 +73,11 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const catchUpWords = useCatchUpScope(ws, agentId, catchUp !== null);
   const catchUpMutation = useCatchUp(ws);
   const [catchUpError, setCatchUpError] = useState<string | null>(null);
+  // Ticket #1289: what wakes it and where it works. Both reads are admin-only on the server, so nobody else is asked and nobody
+  // else sees the rows (hidden, never "nothing configured").
+  const readsFacts = canReadWakeFacts(role);
+  const wakeLines = useAgentWakeLines(ws, agentId, readsFacts);
+  const scope = useAgentScope(ws, agentId, readsFacts);
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
   if (error || !agent) {
@@ -228,7 +237,11 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
         )
       )}
 
-      <Facts agent={agent} />
+      <Facts
+        agent={agent}
+        wakes={readsFacts ? <WakesWhenValue state={wakeLines} ws={ws} linkDatabaseId={firstDatabaseId(wakeLines, scope)} /> : null}
+        works={readsFacts ? <WorksInValue state={scope} ws={ws} /> : null}
+      />
       {/* Ticket #1180 — only an agent a Runner serves has tools and a model to choose; a guest is never shown it (same gate as the machine name). */}
       {usesRunner && !masked && (
         <AgentAdvanced
@@ -250,9 +263,20 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   );
 }
 
-function Facts({ agent }: { agent: AgentView }) {
-  const rows: Array<[string, string]> = [];
+/** Where the "Automations" link goes: the database of its first trigger, else the first database it works in. Automations has no page of its own, it lives in a database's menu. */
+function firstDatabaseId(wakes: ReturnType<typeof useAgentWakeLines>, scope: ReturnType<typeof useAgentScope>): string | null {
+  if (wakes.status === 'ready') {
+    const hit = wakes.value.find((l) => l.databaseId);
+    if (hit?.databaseId) return hit.databaseId;
+  }
+  return scope.status === 'ready' ? (scope.value.databases?.[0]?.id ?? null) : null;
+}
+
+function Facts({ agent, wakes, works }: { agent: AgentView; wakes: ReactNode; works: ReactNode }) {
+  const rows: Array<[string, ReactNode]> = [];
   if (agent.job) rows.push(['Its job', agent.job]);
+  if (wakes) rows.push(['Wakes when', wakes]);
+  if (works) rows.push(['Works in', works]);
   if (agent.asksBefore.length) rows.push(['Asks before', asksBeforeLine(agent.asksBefore)]);
   if (rows.length === 0) return null;
   return (
