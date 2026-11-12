@@ -199,9 +199,7 @@ Over the API, `PATCH /api/v1/users/me/preferences` with a `myWorkEmail` object (
 `weekday` as 0 for Sunday to 6, `time`, `timezone`, `include_assigned_by_me`) changes only the keys
 you send.
 
-*From the design, not yet in the code reviewed here:* the setting is meant to sit under
-**Settings → You → Notifications** as an **Email me my work** box, with a **See an example** link
-that opens a sample email.
+Turn it on in **Settings → You → Notifications**.
 
 ### What the email contains
 
