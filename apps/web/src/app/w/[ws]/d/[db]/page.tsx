@@ -494,6 +494,7 @@ function DatabasePageInner() {
             ws={ws}
             db={db}
             viewId={activeView?.id}
+            personalLens={Boolean(activeView?.ownerUserId)}
             readOnly={readOnly}
             schemaEditable={schemaEditable}
             queryBody={queryBody}
