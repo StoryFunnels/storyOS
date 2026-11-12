@@ -96,7 +96,7 @@ describe('the home card draws the SAME glyph as the sidebar', () => {
     expect(sidebar).not.toMatch(/icon=\{db\.icon\}\s+color=\{databaseColor/);
   });
 
-  it('the space line uses the muted text token and is truncated, not wrapped', () => {
-    expect(home).toMatch(/block truncate text-label text-muted">\{d\.spaceName\}/);
+  it('the space name sits on the right of the row, in the muted text token, truncated not wrapped (ticket #1274)', () => {
+    expect(home).toMatch(/shrink-0 truncate text-label text-muted">\{d\.spaceName\}/);
   });
 });
