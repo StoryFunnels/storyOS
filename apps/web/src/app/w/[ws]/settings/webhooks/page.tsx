@@ -260,7 +260,7 @@ function Deliveries({ ws, id }: { ws: string; id: string }) {
 
   if (deliveries.isLoading) return <p className="px-4 pb-3 text-label text-muted">Loading…</p>;
   if ((deliveries.data ?? []).length === 0) {
-    return <p className="px-4 pb-3 text-label text-muted">No deliveries yet.</p>;
+    return <EmptyState variant="list" title="No deliveries yet." />;
   }
 
   return (

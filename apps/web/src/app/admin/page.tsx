@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatDate, formatDateTime } from '@/lib/format';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -529,7 +530,7 @@ export default function AdminPage() {
         {packSubmissions.data && (
           <div className="flex flex-col gap-2">
             {packSubmissions.data.length === 0 && (
-              <p className="text-body text-muted">No submissions yet.</p>
+              <EmptyState variant="list" title="No submissions yet." />
             )}
             {packSubmissions.data.map((s) => (
               <div

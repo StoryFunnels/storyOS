@@ -253,7 +253,7 @@ export default function PacksPage() {
           );
         })}
         {registry.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-body text-muted">No packs in the gallery yet.</p>
+          <EmptyState variant="list" title="No packs in the gallery yet." />
         )}
       </div>
 

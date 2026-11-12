@@ -291,7 +291,7 @@ function MyWorkInner() {
       {tab === 'activity' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading && <p className="p-6 text-body text-muted">Loading…</p>}
-          {!loading && recent.length === 0 && <p className="p-6 text-body text-muted">No recent activity yet.</p>}
+          {!loading && recent.length === 0 && <EmptyState variant="list" title="No recent activity yet." />}
           <div className="mx-auto max-w-3xl">
             {recent.map((r) => (
               <Link

@@ -28,6 +28,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
 import { CATEGORY_CHOICES } from '@/components/views/category-filter';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /* #738 — stable identity across renders. */
 const ACTIONS_VIEW_OPTIONS = [
@@ -209,9 +210,14 @@ export function AutomationsPanel({
         {tab === 'buttons' && (
           <div className="flex flex-col gap-1.5">
             {buttons.length === 0 && (
-              <p className="text-body text-muted">
-                No buttons yet — add a <strong>Button</strong> field from the table's "New field".
-              </p>
+              <EmptyState
+                variant="list"
+                title={
+                  <>
+                    No buttons yet — add a <strong>Button</strong> field from the table's "New field".
+                  </>
+                }
+              />
             )}
             {buttons.map((b) => (
               <div
@@ -253,9 +259,7 @@ export function AutomationsPanel({
               />
             ))}
             {(rules.data ?? []).length === 0 && (
-              <p className="text-body text-muted">
-                No rules yet. Rules run actions when records change or on a schedule.
-              </p>
+              <EmptyState variant="list" title="No rules yet. Rules run actions when records change or on a schedule." />
             )}
             <Button size="sm" className="self-start" onClick={() => setEditing('new')}>
               New rule
@@ -382,7 +386,7 @@ function RuleRow({
       )}
       {showRuns && (
         <div className="mt-2 border-t border-border-default pt-2">
-          {(runs.data ?? []).length === 0 && <p className="text-label text-muted">No runs yet.</p>}
+          {(runs.data ?? []).length === 0 && <EmptyState variant="list" title="No runs yet." />}
           {(runs.data ?? []).slice(0, 10).map((run) => (
             <p key={run.id} className="text-label text-muted">
               <span
