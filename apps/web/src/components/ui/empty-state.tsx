@@ -31,8 +31,8 @@ export type EmptyStateAction = {
   testId?: string;
 };
 
-/** The action's height. The reference's button is 27px; `Button size="sm"` is 28, so the shape sets its own. */
-const ACTION_CLASS = 'h-[27px]';
+/** The action's size: the reference's button is 27px tall, 12px/600; `Button size="sm"` is 28px and 13px, so the shape sets its own. */
+const ACTION_CLASS = 'h-[27px] text-label font-semibold';
 
 export type EmptyStateProps = Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
   variant: EmptyStateVariant;

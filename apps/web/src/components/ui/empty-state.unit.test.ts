@@ -23,7 +23,7 @@ describe('EmptyState: filtered (the compact card)', () => {
     expect(out).toMatch(/<b class="font-\[650\] text-ink">Filters hide all 10 records<\/b>/);
     expect(out).toMatch(/<span class="text-label">Nothing here is deleted<\/span>/);
     expect(out).toContain('h-4 w-4');
-    expect(out).toContain('h-[27px]');
+    expect(out).toContain('h-[27px] text-label font-semibold');
   });
   it('is a status region and has no big-shape chrome (no heading, no centred column)', () => {
     expect(out).toContain('role="status"');
@@ -43,7 +43,7 @@ describe('EmptyState: big (the first-run box)', () => {
   it('has one heading, 14px bold, and the one 27px action', () => {
     expect(out).toMatch(/<h3 class="[^"]*text-prose font-bold[^"]*">No agents yet<\/h3>/);
     expect(out.match(/<button/g)).toHaveLength(1);
-    expect(out).toContain('h-[27px]');
+    expect(out).toContain('h-[27px] text-label font-semibold');
   });
   it('the Quill slot draws exactly what it is given, and nothing when empty (ships without art)', () => {
     expect(out).not.toContain('<svg');
