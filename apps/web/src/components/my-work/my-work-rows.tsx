@@ -7,6 +7,7 @@ import { EntityIcon } from '@/components/ui/icon-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
+import { HIT_AREA_24 } from '@/components/ui/header-action';
 import {
   MyWorkGroupToolbar,
   rowColor,
@@ -151,7 +152,7 @@ export function SectionHeader({
       {fields.length > 0 && (
         <Popover>
           <PopoverTrigger asChild>
-            <button type="button" aria-label={`${database.name} settings`} className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink">
+            <button type="button" aria-label={`${database.name} settings`} className={cn(HIT_AREA_24, 'rounded p-0.5 text-faint hover:bg-hover hover:text-ink')}>
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </PopoverTrigger>

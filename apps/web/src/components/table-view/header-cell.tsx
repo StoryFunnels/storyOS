@@ -26,6 +26,7 @@ import { ChangeTypeDialog } from './change-type-dialog';
 import { EditFieldDialog } from './edit-field-dialog';
 import { useDeleteField } from './field-dialog-shared';
 import type { Field } from './use-table-data';
+import { HEADER_MENU_TRIGGER } from '@/components/ui/header-action';
 import { opsForField, SORTABLE, defaultValueFor } from '../views/view-toolbar';
 import type { ViewConfig } from '../views/use-view-state';
 import {
@@ -287,8 +288,8 @@ export function HeaderCell({
                    the resize handle has carried since MN-225. */
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={`Options for ${field.displayName}`}
-                /* #999/#900 — rests at --faint and darkens on hover/focus/open; never hover-only. */
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint hover:bg-hover hover:text-ink focus-visible:text-ink aria-expanded:bg-hover aria-expanded:text-ink"
+                /* #999/#900 — rests at --faint and darkens on hover/focus/open; never hover-only. #1225 — 24px, shared with the board. */
+                className={HEADER_MENU_TRIGGER}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </button>

@@ -2,6 +2,7 @@
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { HIT_AREA_24 } from '@/components/ui/header-action';
 import { MarkdownMenuItems, type MarkdownProvider } from './markdown-actions';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -209,6 +210,7 @@ export function FieldMenu({
             <button
               aria-label={`Options for ${field.displayName}`}
               className={cn(
+                HIT_AREA_24,
                 'rounded p-0.5 text-faint hover:bg-hover hover:text-ink',
                 !persistent && 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100',
               )}

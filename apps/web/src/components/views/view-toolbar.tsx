@@ -94,6 +94,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { HIT_AREA_24 } from '@/components/ui/header-action';
 import { CHIP_COUNT, CHIP_PERSON, TOOLBAR_BTN, chipClass } from './toolbar-chip';
 import type { Field } from '../table-view/use-table-data';
 import { fieldTypeIcon } from './field-type-icon';
@@ -2367,7 +2368,7 @@ function ConditionMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={ROW_ICON_BTN} title="More" aria-label="More">
+        <button type="button" className={cn(ROW_ICON_BTN, HIT_AREA_24)} title="More" aria-label="More">
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
@@ -2414,7 +2415,7 @@ function GroupMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className={ROW_ICON_BTN} title="More" aria-label="More">
+        <button type="button" className={cn(ROW_ICON_BTN, HIT_AREA_24)} title="More" aria-label="More">
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>

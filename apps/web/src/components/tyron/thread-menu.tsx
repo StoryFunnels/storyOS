@@ -7,6 +7,7 @@ import { MessageSquarePlus, MoreHorizontal, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { HIT_AREA_24 } from '@/components/ui/header-action';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
 interface ThreadSummary {
@@ -194,7 +195,7 @@ export function ThreadMenu({
                     setRenaming(t.id);
                     setDraftTitle(t.title);
                   }}
-                  className="shrink-0 rounded px-1 text-faint opacity-0 hover:text-ink group-hover:opacity-100"
+                  className={cn(HIT_AREA_24, 'shrink-0 rounded px-1 text-faint opacity-0 hover:text-ink group-hover:opacity-100')}
                 >
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>

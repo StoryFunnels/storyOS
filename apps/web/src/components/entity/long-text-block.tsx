@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { HIT_AREA_24 } from '@/components/ui/header-action';
 import { CollapseToggle } from './collapsible-section';
 import { MarkdownMenuItems, type MarkdownProvider } from './markdown-actions';
 
@@ -63,7 +64,7 @@ export function LongTextMenu({
           <button
             type="button"
             aria-label={`Options for ${label}`}
-            className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink"
+            className={cn(HIT_AREA_24, 'rounded p-0.5 text-faint hover:bg-hover hover:text-ink')}
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
