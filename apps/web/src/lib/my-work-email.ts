@@ -19,6 +19,9 @@ export const MY_WORK_OFFER_HINT = 'my-work-email-offer';
 /** The offer waits for this many open assigned records (ticket #1252). */
 export const MY_WORK_OFFER_MIN_OPEN = 5;
 
+/** The example email, rendered from fake Pinewood data (ticket #1293). A page on our share host, not a route of this app. */
+export const MY_WORK_EXAMPLE_URL = 'https://share.storyos.dev/my-work-email-example/';
+
 /** Where an admin reads how to set up email on a self-hosted server (apps/docs: self-hosting/configuration). */
 export const EMAIL_SETUP_DOCS_URL = 'https://docs.storyos.dev/self-hosting/configuration';
 
