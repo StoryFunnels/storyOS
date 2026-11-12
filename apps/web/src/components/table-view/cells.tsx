@@ -542,7 +542,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, aiS
       // #669 — STAYS faint. #326 names the record number as its FIRST example of
       // genuinely decorative text, and #741 kept `#{row.number}` on the same
       // grounds. Consistent by decision rather than by oversight.
-      return <span className="truncate text-label tabular-nums text-faint">{String(value)}</span>;
+      return <span className="truncate text-micro tabular-nums text-faint">{String(value)}</span>;
     case 'title':
       return <span className={cn('text-body text-ink', RECORD_TITLE_WEIGHT, prose)}>{String(value)}</span>;
     case 'email':

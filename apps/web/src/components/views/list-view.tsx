@@ -322,7 +322,7 @@ export function ListView({
                     >
                     <div className={cn('mx-2 flex h-11 items-center gap-2.5 px-1', i < group.rows.length - 1 && 'border-b border-border-default')}>
                       {dot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dot }} />}
-                      {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} className="w-8 shrink-0 text-body" />}
+                      {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} className="w-8 shrink-0" />}
                       {/* #1115 — fixed slots, so the glyph and the title start on the same x in every row. */}
                       {leadingFields.map((field) => {
                         const value = row.values[field.apiName];

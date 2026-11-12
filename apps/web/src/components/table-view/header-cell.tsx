@@ -214,7 +214,8 @@ export function HeaderCell({
       {...(reorderable ? sortable.listeners : {})}
       title={reorderable ? 'Drag to reorder' : undefined}
       className={cn(
-        'group/header relative flex h-8 shrink-0 items-center justify-between border-r border-border-default px-2 text-label font-medium text-muted',
+        /* #1275 item 2 — 36px + the header row's 1px rule = the design's 37px; 11px/600 (it was 32px, 12px/500). */
+        'group/header relative flex h-9 shrink-0 items-center justify-between border-r border-border-default px-2 text-meta font-semibold text-muted',
         // #413 — the cursor must cover exactly what responds, or the header
         // grows a region that looks draggable and is not (and vice versa).
         reorderable && 'cursor-grab touch-none active:cursor-grabbing',
@@ -232,16 +233,12 @@ export function HeaderCell({
           by `justify-between` — a freeze button, the column menu, and for the title column a SECOND menu whose only
           item was "Configure name…". It now holds the label, two small marks, and ONE ⋯ at the right edge. */}
       <span className="flex min-w-0 items-center gap-1">
-        {/* #930 — the record-number column is sized to its 3-digit values, and "ID" plus
-            the always-reserved pin button left room for one letter ("I."). It reads "#",
-            with the full name on hover, so the header can never be cut mid-word. */}
-        {field.type === 'id' ? (
-          <span title={field.displayName} aria-label={field.displayName}>
-            #
-          </span>
-        ) : (
-          <span className="truncate">{field.displayName}</span>
-        )}
+        {/* #1275 item 3 — the record-number column is labelled "ID", as designed. #930 had cut it to "#" because the
+            column was 56px and "ID" plus the pin button left room for one letter; #1018 widened the column to
+            ID_COLUMN_WIDTH (76), which holds "ID", the 12px freeze mark and ⋯ side by side. */}
+        <span className="truncate" title={field.type === 'id' ? field.displayName : undefined}>
+          {field.type === 'id' ? 'ID' : field.displayName}
+        </span>
         {/* The sort direction and its rank, inline, only when this column is sorted (prototype `.hdir`). */}
         {currentSort && (
           <span

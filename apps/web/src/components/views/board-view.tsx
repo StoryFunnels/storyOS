@@ -1022,14 +1022,13 @@ function UrlCoverImage({ src, alt }: { src: string; alt: string }) {
 /**
  * #765 — the permanent record number badge, shared by list and feed (the only
  * two views that still render it inline — board/calendar/gallery never show
- * it at all, per #702). Same "#" + `text-faint` treatment already established
- * everywhere else this number appears as a standalone marker: `cells.tsx`'s
- * own id-column cell, `mentions.tsx`, `collection-section.tsx`'s relation
- * chips, and the record page header itself. List previously had no "#"
- * prefix and feed had no size/color classes — this is the one definition of
- * the glyph, not of the layout: callers still own their own sizing/position
- * (`className`), since that genuinely differs (a fixed gutter slot vs. an
- * inline footer item).
+ * it at all, per #702). #1275 item 3: it writes the bare figure, the way the
+ * table's "ID" column does, so the four views say a record's number one way.
+ * (Mentions, relation chips and the record page header still write "#N";
+ * they are not one of the four views and are left for a product call.)
+ * This is the one definition of the glyph, not of the layout: callers still
+ * own their slot's width (`className`), since that genuinely differs (a fixed
+ * gutter slot vs. an inline footer item).
  *
  * `table-view.tsx`'s own gutter is deliberately NOT a third caller: since
  * #739 it shows a different concept entirely — the view-relative row INDEX
@@ -1038,7 +1037,10 @@ function UrlCoverImage({ src, alt }: { src: string; alt: string }) {
  * that split in two would be the wrong fix, not a missed case.
  */
 export function RecordNumberBadge({ number, className }: { number: number; className?: string }) {
-  return <span className={cn('tabular-nums text-faint', className)}>#{number}</span>;
+  /* #1275 item 3 — the number is written ONE way on every view: the bare figure, 10px faint, which is how the table's ID
+     column draws it (header "ID", cells plain). The list and the feed used to write "#4" at 13px / 11px. The size is
+     the badge's own, so a caller passes only the width of its slot. */
+  return <span className={cn('tabular-nums text-micro text-faint', className)}>{number}</span>;
 }
 
 export function CardFieldChip({
