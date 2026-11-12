@@ -5,7 +5,7 @@ import { AGENT_RUN_BASE_TOOLS, AGENT_RUN_PROFILE, INTERNAL_PROFILE, resolveToolP
 import type { Ctx, EffectiveScope } from './client.js';
 
 /**
- * ticket #1262 - a pointer is a promise: "see get_started section='FILTERS'" is only true on a connection that can call get_started.
+ * ticket #1262 - a pointer is a promise: "See also: get_started section \"FILTERS\"" is only true on a connection that can call get_started.
  * The agent-run profile (a Runner's runs) had no get_started while query_records' `filter` hint still said to call it, so an agent was
  * sent to a tool it could not call. Every profile is checked here from the LIVE registry (registerTools against a recording server,
  * with the same effective scope the HTTP server builds for that profile): every description AND every parameter description, nested
@@ -64,8 +64,9 @@ const PROFILES: Array<[string, () => Surface]> = [
   [`${AGENT_RUN_PROFILE} + every other tool as an extra`, () => profileSurface(`profile=${AGENT_RUN_PROFILE}&tools=${everyTool.join(',')}`)],
 ];
 
-// A pointer is `get_started` followed (within the same clause) by `section="X"` or `section='X'`.
-const SECTION_POINTER = /get_started\b[^"'\n]{0,24}?section\s*=\s*(["'])(.+?)\1/g;
+// A pointer is `get_started` followed (within the same clause) by `section "X"` (the one canonical form, ticket #1288). The legacy `section='X'` /
+// `section="X"` spellings are matched too, so a reintroduced old-style pointer is still checked rather than slipping past the scan.
+const SECTION_POINTER = /get_started\b[^"'\n]{0,24}?section\s*=?\s*(["'])(.+?)\1/g;
 
 /** The index get_started returns on THIS profile: every non-empty line after the SECTIONS paragraph. */
 async function indexOf(s: Surface): Promise<string[]> {
