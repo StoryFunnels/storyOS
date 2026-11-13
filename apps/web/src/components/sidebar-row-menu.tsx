@@ -2,7 +2,7 @@
 
 import { HIT_AREA_24 } from '@/components/ui/header-action';
 import { Tooltip } from '@/components/ui/tooltip';
-import { Fragment } from 'react';
+import { Fragment, useRef } from 'react';
 import Link from 'next/link';
 import { MoreHorizontal } from 'lucide-react';
 import {
@@ -75,6 +75,12 @@ export interface SidebarMenuAction {
    * the wrong branch.
    */
   hidden?: boolean;
+  /**
+   * #1301 — this action swaps the row for an inline text input (Rename). The menu then must NOT hand focus back to its ⋯
+   * trigger as it closes: that steals it from the input a tick after it mounted, so the typed letters (Space included) land
+   * on the button and the input's blur commits the rename unchanged.
+   */
+  opensInlineInput?: boolean;
   /** #964 — shown but inert, with this reason as its title (the view menu's Delete on a database's only view). */
   disabledReason?: string;
 }
@@ -94,6 +100,8 @@ export function SidebarRowMenu({
   // is asked of the visible list — an all-hidden menu renders nothing rather
   // than an empty popover.
   const visible = actions.filter((a) => !a.hidden);
+  // #1301 — set by an `opensInlineInput` action's select; read (and cleared) by the content's close-autofocus.
+  const keepFocusOffTrigger = useRef(false);
   if (visible.length === 0) return null;
   return (
     <DropdownMenu>
@@ -116,7 +124,14 @@ export function SidebarRowMenu({
           </button>
         </DropdownMenuTrigger>
       </Tooltip>
-      <DropdownMenuContent align="end" className={contentClassName ?? 'w-52'}>
+      <DropdownMenuContent
+        align="end"
+        className={contentClassName ?? 'w-52'}
+        onCloseAutoFocus={(e) => {
+          if (keepFocusOffTrigger.current) e.preventDefault();
+          keepFocusOffTrigger.current = false;
+        }}
+      >
         {visible.map((action, i) => (
           <Fragment key={action.label}>
             {action.separatorBefore && i > 0 && <DropdownMenuSeparator />}
@@ -134,7 +149,10 @@ export function SidebarRowMenu({
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
-                onSelect={action.onSelect}
+                onSelect={() => {
+                  keepFocusOffTrigger.current = Boolean(action.opensInlineInput);
+                  action.onSelect?.();
+                }}
                 disabled={Boolean(action.disabledReason)}
                 title={action.disabledReason}
                 className={action.danger ? 'text-error focus:text-error' : undefined}
