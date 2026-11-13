@@ -10,7 +10,8 @@
      the page, and re-using --bg-sidebar inverts the depth so the inset page reads as a hole, not a raised card. */
   --bg-frame: #f4efe5;
   --bg-card: #ffffff;
-  --bg-hover: #f5f3ef;
+  /* #1281 — the reference's hover, #ebe6da (was #f5f3ef). LIGHT ONLY: dark is unchanged. 4.60:1 under --text-muted. */
+  --bg-hover: #ebe6da;
   /* #1115 — a row's hover: fainter than --bg-hover, which belongs to controls and group bands; a list of 40 rows cannot flash the full tint. */
   --bg-hover-soft: #f9f7f3;
   /**
