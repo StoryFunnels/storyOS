@@ -90,8 +90,8 @@ function multipartBody(filename: string, mime: string, data: Buffer): Buffer {
   ]);
 }
 
-type Response = { status: number; body: unknown; headers: Record<string, unknown> };
-type Injector = (
+export type Response = { status: number; body: unknown; headers: Record<string, unknown> };
+export type Injector = (
   method: string,
   url: string,
   payload?: unknown,
@@ -119,7 +119,7 @@ function parseBody(raw: string): unknown {
  * window is the honest fix; raising the limit for the seeder's benefit would
  * be widening a real boundary to make our own tooling look good.
  */
-function injector(app: NestFastifyApplication): Injector {
+export function injector(app: NestFastifyApplication): Injector {
   return async (method, url, payload, token, extraHeaders) => {
     for (let attempt = 0; ; attempt++) {
       const res = await app.inject({
@@ -142,7 +142,7 @@ function injector(app: NestFastifyApplication): Injector {
   };
 }
 
-function ok<T>(res: { status: number; body: unknown }, what: string): T {
+export function ok<T>(res: { status: number; body: unknown }, what: string): T {
   if (res.status >= 300) throw new Error(`${what} failed (${res.status}): ${JSON.stringify(res.body)}`);
   return res.body as T;
 }
@@ -162,7 +162,7 @@ async function account(call: Injector, email: string, name: string): Promise<str
  * not a usable bearer token — reading it looks like it works right up until
  * the first authenticated call 401s.
  */
-function tokenFrom(res: Response): string {
+export function tokenFrom(res: Response): string {
   const header = res.headers['set-auth-token'];
   const token = Array.isArray(header) ? header[0] : header;
   if (typeof token !== 'string' || !token) throw new Error('auth response carried no set-auth-token header');
@@ -636,7 +636,7 @@ function richText(paragraphs: string[]): unknown {
  * easy to argue with. Creation went through the API; only the two timestamp
  * columns are rewritten, and only to values the plan already fixed.
  */
-async function backdate(db: Db, ids: string[], dates: Array<{ created: Date; updated: Date }>) {
+export async function backdate(db: Db, ids: string[], dates: Array<{ created: Date; updated: Date }>) {
   for (let i = 0; i < ids.length; i++) {
     const date = dates[i];
     if (!date) continue;

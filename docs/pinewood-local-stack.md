@@ -88,6 +88,32 @@ It also never trusts the shell it runs in. An exported `DATABASE_URL` is ignored
 - Browser cookies on `localhost` are shared across ports. If you are also signed in to a rig on `localhost:3000`, use a separate browser profile for Pinewood, or the two sessions overwrite each other.
 - If the stack looks stale, ask the owner to run `pinewood-up.sh`; do not start your own on the same ports.
 
+## The agency dataset: `seed:agency`
+
+Ticket #1297. `pnpm --filter @storyos/api seed:agency` loads **Pinewood Studio**, a fake marketing agency, through the product's own HTTP API (so record numbers, links, member projection, agent attribution and the approval gate behave as in production). `pinewood-up.sh` runs it as a refresh and `pinewood-template.sh` runs it when it builds the template, so a rig cloned from the template shows the same agency.
+
+What it makes: a workspace `pinewood-studio` with the Agency OS, Deal Desk and Team Board packs (their `(sample)` rows are left out), plus Enquiries and Invoices databases; 7 clients (Maple Street Bakery, Harbor Dental and Kerr Plumbing among them), 11 contacts, 12 enquiries, 12 jobs (Agency OS projects), 24 tasks (two overdue), 9 quotes, 8 invoices, 4 team tasks: 87 records. Three comments written by agents through a real agent token (they read as `source: agent`), and one pending approval raised by a real approval-gated automation rule. Dates are offsets from the day it first ran, with timestamps in daytime.
+
+**Every name is invented.** Emails use the reserved `.example` TLD. Nothing is derived from a real client, customer or tracker; keep it that way when you add to it.
+
+| Login | Role |
+|---|---|
+| `maya.chen@pinewood.example` | admin (creates the workspace) |
+| `dana.okafor@pinewood.example` | admin |
+| `omar.haddad@`, `lena.brandt@`, `jonah.whitfield@` | member |
+| `rosa.alvarez@pinewood.example` | guest (Client Work space only) |
+| `vera@`, `marek@pinewood.example` | admin |
+| `iris@`, `dara@pinewood.example` | member |
+| `nils@pinewood.example` | guest (Client Work space only) |
+
+All of them share one throwaway password, which is **never in git**. It is read from `PINEWOOD_SEED_PASSWORD`, else from the same key in `~/storyos-envs/pinewood.env` (`PINEWOOD_ENV_FILE`), else generated once and appended to that file (mode 600). The scripts run it under `env -i`, so the file is what carries it. To sign in, read it from that file. The seed refuses an env file inside a git checkout.
+
+Running it again changes nothing: a record is "there" when a record of that title is in that database, so a re-run creates only what is missing and never edits or deletes what is there (your own records and edits survive). There is no reset flag. To start the agency over, drop the database yourself. If a login already exists with another password the seed stops and says so.
+
+`seed:agency` refuses, with exit code 2 before the app boots, the same things the shell scripts do: a database that is not `storyos_pinewood*` (or the `storyos_agency_tpl*` template the stack builds), the protected names including the shared founder database `storyos`, an unset `DATABASE_URL` (the API's own default is the founder database), a non-local host, a `host=`/`hostaddr=` override in the URL, and `NODE_ENV=production`. `apps/api/test/seed-agency-guard.test.ts` holds both rule sets to each other by feeding the same names to `lib.sh`.
+
+To give the studio room for eleven people it sets a seat allowance on the workspace through the entitlements service (the seam the admin panel uses); the Free plan's two seats would refuse its own invites.
+
 ## Not built yet
 
-Ticket #1269 also asks for the agency dataset itself: `seed:agency`, the Pinewood cast and records, agent-written comments through the real API, and one login per agent with passwords from env. Until that command exists, `pinewood-up.sh` and `pinewood-template.sh` say so and the databases hold migrations only. They pick the seed up automatically the day an `apps/api` `seed:agency` script appears.
+Nothing from ticket #1269's dataset list is missing. Still to do by hand: the screenshots the ticket asks for (table, board, record page, Inbox), and a real `pinewood-up.sh` / `pinewood-template.sh` run once this is on `main` (the scripts call `seed:agency` from the clone's `main`, so they only pick it up after the merge).
