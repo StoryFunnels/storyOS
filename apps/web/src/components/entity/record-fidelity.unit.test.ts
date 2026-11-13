@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { SECTION_LABEL } from './section-label';
 import { PEEK_TABS } from './peek-tabs';
 import { nextTabIndex, tabId, tabPanelId } from '../ui/tabs';
+import { sourceBadgeLabel, sourceBadgeTitle } from './panels';
 import { ROW_LABEL_CLS, ROW_VALUE_CLS } from './scalar-fields';
 import { describeScalarChange, formatActivityValue, isEmptyActivityValue } from './activity-format';
 import { DEFAULT_REGIONAL, formatDate, formatDateTime } from '@/lib/format';
@@ -245,3 +246,23 @@ describe('item 6: the peek has a Comments tab, Activity stays on the full page',
   });
 });
 
+describe('item 9: an agent\'s name sits inline in the badge', () => {
+  it('"Triage agent" for an agent with a name; the generic word without one (null, empty, blank)', () => {
+    expect(sourceBadgeLabel('agent', 'Triage agent')).toBe('Triage agent');
+    expect(sourceBadgeLabel('agent', '  Triage agent ')).toBe('Triage agent');
+    for (const n of [null, undefined, '', '   ']) expect(sourceBadgeLabel('agent', n)).toBe('agent');
+  });
+
+  it('KEEPS: MCP and automation never borrow an agent\'s name, and the tooltip still names the agent', () => {
+    expect(sourceBadgeLabel('mcp', 'Triage agent')).toBe('MCP');
+    expect(sourceBadgeLabel('automation', 'Triage agent')).toBe('automation');
+    expect(sourceBadgeTitle('agent', 'Triage agent')).toContain('Triage agent');
+  });
+
+  it('only Activity asks for the inline name (a comment\'s author line already names the agent), and gold is still decided by isAiSource', () => {
+    const panels = read('panels.tsx');
+    expect(panels).toContain('<SourceBadge source={event.source} agentName={event.agent_name} inlineName />');
+    expect(panels).toContain('<SourceBadge source={comment.source} agentName={comment.agent_name} />');
+    expect(panels).toMatch(/isAiSource\(source\) \? 'bg-accent-soft text-accent-text' : 'bg-hover text-primary-text'/);
+  });
+});
