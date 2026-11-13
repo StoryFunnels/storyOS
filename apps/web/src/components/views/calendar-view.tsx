@@ -17,9 +17,17 @@ import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-vie
 import { calendarNoEditableDateMessage, isShowingToday } from './calendar-date-fields';
 import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import type { Field, RecordRow } from '../table-view/use-table-data';
-import { addDays, fmtDate, MONTH_NAMES, monthMatrix, weekDays } from '@/lib/dates';
+import { addDays, fmtDate, monthMatrix, weekDays } from '@/lib/dates';
+import { formatDayLabel } from '@/lib/format';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
+import { chipClass } from './toolbar-chip';
+
+/** #1275 item 8 — every control on the calendar's navigation row is 26px, the toolbar chip's height. */
+const CAL_CONTROL_HEIGHT = 'h-[26px]';
+/** The square (prev / next) form of a toolbar chip. */
+const CAL_NAV_ICON = 'w-[26px] justify-center px-0';
 
 /* #738 — hoisted so the array identity is stable across renders; Segmented
    takes a readonly list, and a literal here would be a new array every time. */
@@ -277,26 +285,28 @@ export function CalendarView({
   const showingToday = isShowingToday(mode, anchorDate, today, week);
   const headerLabel =
     mode === 'month'
-      ? `${MONTH_NAMES[view.month]} ${view.year}`
+      ? formatDayLabel(new Date(view.year, view.month, 1), 'monthYearLong')
       : mode === 'week'
-        ? `${week[0]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${week[6]!.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
-        : anchorDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        ? `${formatDayLabel(week[0]!, 'monthDay')} – ${formatDayLabel(week[6]!, 'monthDayYear')}`
+        : formatDayLabel(anchorDate, 'full');
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border-default px-4 py-2">
         <span className="text-sm font-semibold text-ink">{headerLabel}</span>
-        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(-1)}>
-          <ChevronLeft className="h-4 w-4" />
+        {/* #1275 item 8 — the calendar's navigation is drawn at the toolbar's 26px, from the toolbar's own chip class
+            (toolbar-chip.ts), so the two rows share a height and a border. Prev / next are the square form of it. */}
+        <button className={cn(chipClass(), CAL_NAV_ICON)} onClick={() => shiftAnchor(-1)} aria-label="Previous">
+          <ChevronLeft className="h-3.5 w-3.5" />
         </button>
-        <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" onClick={() => shiftAnchor(1)}>
-          <ChevronRight className="h-4 w-4" />
+        <button className={cn(chipClass(), CAL_NAV_ICON)} onClick={() => shiftAnchor(1)} aria-label="Next">
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
         {/* #808 — Today was correct and still read as broken: pressed while the view
             already shows today, it changed nothing and said nothing. It is disabled in
             exactly that state, and says why. */}
         <button
-          className="rounded px-2 py-0.5 text-label text-muted hover:bg-hover hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+          className={cn(chipClass(), 'disabled:cursor-default disabled:opacity-40 disabled:hover:border-border-default disabled:hover:text-ink-secondary')}
           onClick={() => setAnchorDate(today)}
           disabled={showingToday}
           title={showingToday ? 'Already showing today' : undefined}
@@ -311,13 +321,14 @@ export function CalendarView({
           onChange={(m) => onPatch?.({ calendar_mode: m })}
           options={CALENDAR_MODE_OPTIONS}
           itemClassName="capitalize"
+          className={CAL_CONTROL_HEIGHT}
         />
         {/* #471 AC3/AC4 — day/week-only settings; the month grid has no
             concept of a time increment or an hour window. */}
         {mode !== 'month' && (
           <>
             <select
-              className="rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink-secondary"
+              className={cn('rounded-[var(--radius-control)] border border-border-default bg-card px-1.5 text-label text-ink-secondary', CAL_CONTROL_HEIGHT)}
               value={config.calendar_increment_minutes ?? 15}
               onChange={(e) => onPatch?.({ calendar_increment_minutes: Number(e.target.value) as 10 | 15 | 30 | 60 })}
               title="Drag and create snap to this increment"
@@ -589,7 +600,7 @@ function AgendaList({
                     className="block w-full rounded border border-border-default bg-card px-2 py-1 text-left hover:border-border-strong"
                     onClick={() => onOpen(row.id)}
                   >
-                    <p className="truncate text-body font-medium text-ink">{row.title || 'Untitled'}</p>
+                    <p className={cn('truncate text-body text-ink', RECORD_TITLE_WEIGHT)}>{row.title || 'Untitled'}</p>
                     {chipFields.map((field) => {
                       const value = row.values[field.apiName];
                       if (value === undefined || value === null || value === '') return null;
@@ -722,6 +733,7 @@ function UndatedChip({ row, onOpen }: { row: RecordRow; onOpen: () => void }) {
       {...listeners}
       className={cn(
         'max-w-[190px] cursor-grab truncate rounded-[var(--radius-chip)] border border-border-default bg-card px-1.5 py-0.5 text-label text-ink hover:border-border-strong',
+        RECORD_TITLE_WEIGHT,
         isDragging && 'opacity-40',
       )}
       onClick={(e) => {
@@ -774,7 +786,7 @@ function CalendarChip({
         onOpen();
       }}
     >
-      <p className="truncate text-label font-medium text-ink">{row.title || 'Untitled'}</p>
+      <p className={cn('truncate text-label text-ink', RECORD_TITLE_WEIGHT)}>{row.title || 'Untitled'}</p>
       {chipFields.map((field) => {
         const value = row.values[field.apiName];
         if (value === undefined || value === null || value === '') return null;

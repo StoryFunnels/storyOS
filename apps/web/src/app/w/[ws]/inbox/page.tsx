@@ -13,6 +13,7 @@ import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { Textarea } from '@/components/ui/textarea';
 import { MyWorkEmailOffer } from '@/components/my-work/my-work-email-offer';
 import { cn } from '@/lib/utils';
+import { useDateFormat } from '@/lib/preferences';
 import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
 import {
   NOTIFICATION_VERBS,
@@ -38,20 +39,13 @@ const TYPE_TABS: Array<{ key: NotificationType | 'all'; label: string }> = [
   { key: 'action_approval_requested', label: 'Approvals' },
 ];
 
-function relativeTime(iso: string): string {
-  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (seconds < 60) return 'now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
-
 /**
  * Full-page Inbox (MN-073): a two-pane triage surface — list on the left with a
  * type filter and an Archived view, a preview of the selected notification on the
  * right, so you read without navigating away. Archive moves an item out of the list.
  */
 export default function InboxPage() {
+  const fmt = useDateFormat();
   const { ws } = useParams<{ ws: string }>();
   const router = useRouter();
   const qc = useQueryClient();
@@ -212,7 +206,7 @@ export default function InboxPage() {
                 )}
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1">
-                <span className="text-meta text-faint">{relativeTime(n.created_at)}</span>
+                <span className="text-meta text-faint">{fmt.age(n.created_at).text}</span>
                 {unread && <UnreadDot />}
               </span>
             </button>
@@ -256,7 +250,7 @@ export default function InboxPage() {
                       <span className="font-medium">{selectedWho!.name}</span>{' '}
                       {NOTIFICATION_VERBS[selected.type]}
                     </p>
-                    <p className="text-label text-faint">{relativeTime(selected.created_at)} ago</p>
+                    <p className="text-label text-faint">{(() => { const a = fmt.age(selected.created_at); return a.relative && a.text !== 'now' ? `${a.text} ago` : a.text; })()}</p>
                   </div>
                 </div>
                 <div className="flex gap-2">

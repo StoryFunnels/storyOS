@@ -35,6 +35,7 @@ import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import { NewRecordButton } from '../record-templates/new-record-button';
+import { useReportToolbarNew } from '@/lib/toolbar-new-signal';
 import {
   RELATIVE_DATE_KINDS,
   amountProblem,
@@ -445,6 +446,9 @@ export function ViewToolbar({
   );
 
   const [renaming, setRenaming] = useState(false);
+  // #1275 item 10 — the phone's floating "+" shows wherever this toolbar has no New (a dashboard, a read-only viewer).
+  const drawsNew = Boolean(ws && db && !readOnly && viewType !== 'dashboard');
+  useReportToolbarNew(drawsNew);
   const viewKind = viewType ?? 'table';
 
   // #964 — the ONE view menu (view-menu.ts). The toolbar door adds what is about the rows on screen:
@@ -546,7 +550,7 @@ export function ViewToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {ws && db && !readOnly && viewType !== 'dashboard' && <NewRecordButton ws={ws} db={db} />}
+        {drawsNew && ws && db && <NewRecordButton ws={ws} db={db} />}
       </div>
       {view && onRenameView && (
         <RenameViewDialog open={renaming} onOpenChange={setRenaming} name={view.name} onRename={onRenameView} />
@@ -1556,9 +1560,9 @@ export function FiltersSection({
               ? `Filter, ${buttonState.applied} applied${buttonState.personalOn ? ', including your personal filter' : ''}`
               : 'Filter'
           }
-          // #965 — YELLOW whenever any condition is applied (the view's or your personal one, pinned included).
+          // #965 — "applied" whenever any condition is applied (the view's or your personal one, pinned included).
           // Disabled and unfinished conditions hide nothing, so they do not turn it on. #992 — the chip is the
-          // prototype's: a pill, gold border and tint when active (toolbar-chip.ts).
+          // prototype's pill; applied it is NOT gold (#1163) but the default fill with a darker ink border (toolbar-chip.ts).
           className={chipClass(buttonState.yellow)}
         >
           <ListFilter className="h-3 w-3" />

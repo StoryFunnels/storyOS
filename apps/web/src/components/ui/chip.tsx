@@ -73,19 +73,23 @@ import { cva } from 'class-variance-authority';
  * why it needs re-measuring rather than re-reading.
  */
 export const chipVariants = cva(
-  'inline-flex items-center gap-1 truncate rounded-[var(--radius-chip)] px-1.5 py-0.5',
+  'inline-flex items-center gap-1 truncate rounded-[var(--radius-chip)]',
   {
     variants: {
       variant: {
         /** A VALUE drawn from this field's own option set — a select option, a
          *  workflow state. Soft tint of the option's own colour, ink derived per
          *  theme by `.option-tint` (#638). Below body size on purpose: a value
-         *  label is not prose. Goes nowhere when clicked. */
-        value: 'text-meta font-medium',
+         *  label is not prose. Goes nowhere when clicked.
+         *  Ticket #1275 item 4 (Otto, 2026-11-13): 12px at weight 600, 8px of
+         *  side padding, 19px tall, 4px radius, on EVERY surface. This is the
+         *  same shape the record header strip already wore (STRIP_PILL in
+         *  entity/strip-chip.ts), so a value reads the same everywhere. */
+        value: 'h-[19px] px-2 text-label font-semibold leading-[normal]',
         /** A REFERENCE to a record that lives somewhere else. Outline only, no
          *  fill, body size, normal weight — and usually navigable. Coloured by
          *  its HOME DATABASE (the marker), not by itself. */
-        reference: 'border-[1.4px] border-border-strong text-body text-ink',
+        reference: 'border-[1.4px] border-border-strong px-1.5 py-0.5 text-body text-ink',
       },
     },
     defaultVariants: { variant: 'value' },

@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { DEFAULT_REGIONAL, formatDate, formatDateTime } from '@/lib/format';
+import { DEFAULT_REGIONAL, formatAge, formatDate, formatDateTime } from '@/lib/format';
 
 /** Mirrors the API's UserPreferences shape (apps/api/src/users/preferences.constants.ts). */
 export interface UserPreferences {
@@ -72,6 +72,7 @@ export function useDateFormat() {
     () => ({
       date: (value: unknown) => formatDate(value, regional),
       dateTime: (value: unknown) => formatDateTime(value, regional),
+      age: (value: unknown) => formatAge(value, regional),
     }),
     [regional.dateFormat, regional.timeFormat, regional.firstDayOfWeek],
   );

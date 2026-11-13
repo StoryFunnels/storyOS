@@ -13,6 +13,7 @@ import { Check, Inbox as InboxIcon, Maximize2, X } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { useDateFormat } from '@/lib/preferences';
 import { useBackLayer } from '@/lib/back-layers';
 import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
 
@@ -220,14 +221,6 @@ export function StagedActionView({ staged }: { staged: StagedActionDetail }) {
   );
 }
 
-function relativeTime(iso: string): string {
-  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (seconds < 60) return 'now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
-
 /** Bucket a timestamp into Today / Yesterday / Earlier for grouped headers.
  * Exported (#790) — the feed view's day breaks need the exact same buckets;
  * reused rather than re-cased a second time. */
@@ -258,6 +251,7 @@ export function useUnreadCount(ws: string) {
 /** Inbox (MN-049, #38): the sidebar row opens this right-side panel — All/Unread
  * filter, day-grouped rows, and cursor pagination. */
 export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void }) {
+  const fmt = useDateFormat();
   useBackLayer(true, onClose); // #962 — Back closes the panel (it is mounted only while open)
   const router = useRouter();
   const qc = useQueryClient();
@@ -539,7 +533,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     )}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-meta text-muted">{relativeTime(n.created_at)}</span>
+                    <span className="text-meta text-muted">{fmt.age(n.created_at).text}</span>
                     {isUnreadRow(n) && <UnreadDot />}
                   </span>
                 </div>

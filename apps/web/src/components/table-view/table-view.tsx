@@ -1280,7 +1280,7 @@ export function TableView({
             {schemaEditable && (
               <Dialog open={addingField !== null} onOpenChange={(open) => setAddingField(open ? {} : null)}>
                 <DialogTrigger asChild>
-                  <button className="flex h-8 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-label font-medium text-muted hover:bg-hover hover:text-ink">
+                  <button className="flex h-9 w-[110px] shrink-0 items-center gap-1.5 border-r border-border-default px-2 text-meta font-semibold text-muted hover:bg-hover hover:text-ink">
                     <Plus className="h-3.5 w-3.5" /> New field
                   </button>
                 </DialogTrigger>
