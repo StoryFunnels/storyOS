@@ -107,7 +107,7 @@ These connect over OAuth. On **StoryOS Cloud** they are one-click, because we
 operate a verified OAuth app centrally. On a **self-managed** box there is no such
 app until *you* register one and wire its client id/secret into the environment.
 Until you do, the gallery shows the provider as **operator-only** (a
-"Configured by your admin" hint) — never a dead Connect button, and never a
+"Set up by the server operator" hint) — never a dead Connect button, and never a
 per-user "create your own app" wall. Once the env vars are set, the same provider
 flips to **Connectable** for every user on the instance.
 

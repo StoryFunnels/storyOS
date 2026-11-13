@@ -278,10 +278,10 @@ const PINS: Record<string, Counts> = {
   "app/w/[ws]/settings/general/page.tsx": { button: 2, field: 5, disclosure: 1 },
   "app/w/[ws]/settings/integrations/[provider]/page.tsx": { link: 1 },
   "app/w/[ws]/settings/integrations/delegate-agent/page.tsx": { button: 1, link: 1 },
-  "app/w/[ws]/settings/integrations/github/page.tsx": { button: 5, link: 1, field: 3, nativeSelect: 3, switch: 4 },
+  "app/w/[ws]/settings/integrations/github/page.tsx": { button: 5, link: 1, field: 3, nativeSelect: 3, switch: 4, disclosure: 1 }, // ticket #1285: the review settings sit in the shared AdvancedSection
   "app/w/[ws]/settings/integrations/google-calendar/page.tsx": { button: 8, link: 1, field: 2, nativeSelect: 8, confirm: 1 },
   "app/w/[ws]/settings/integrations/linear/page.tsx": { button: 4, field: 2, nativeSelect: 1, switch: 2, confirm: 1 },
-  "app/w/[ws]/settings/integrations/page.tsx": { button: 1, link: 3 },
+  "app/w/[ws]/settings/integrations/page.tsx": { link: 4 }, // ticket #1285: the Add-row Connect is the link itself (was a Button inside a Link)
   "app/w/[ws]/settings/integrations/shopify/page.tsx": { button: 6, field: 1, nativeSelect: 1 },
   "app/w/[ws]/settings/integrations/slack/page.tsx": { button: 1, link: 1, field: 3, choice: 1 },
   "app/w/[ws]/settings/integrations/youtube/page.tsx": { button: 4, field: 1, nativeSelect: 1 },
@@ -410,7 +410,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, number]> = [
   ["Integrations (hub)#4", "components/settings/provider-card.tsx", "Disconnect", 1],
   ["Integrations (hub)#5", "app/w/[ws]/settings/integrations/page.tsx", "providerPageHref(ws, s.def.id)", 0],
   ["API tokens#1", "app/w/[ws]/settings/api/page.tsx", "New token", 1],
-  ["API tokens#2", "app/w/[ws]/settings/api/page.tsx", 'title="Advanced" summary="how a token acts, and how to send it"', 0],
+  ["API tokens#2", "app/w/[ws]/settings/api/page.tsx", "How to use a token", 1], // ticket #1285: the disclosure is the shared AdvancedSection, retitled as the prototype's
   ["API tokens#3", "app/w/[ws]/settings/api/page.tsx", "the API", 1],
   ["API tokens#4", "app/w/[ws]/settings/api/page.tsx", "type=\"checkbox\"", 0],
   ["API tokens#5", "app/w/[ws]/settings/api/page.tsx", "confirmRevokeToken", 0],
@@ -471,7 +471,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, number]> = [
   ["Connections#38", "components/connections/connect-dialogs.tsx", "Cancel", 2],
   ["Connections#39", "components/connections/connect-dialogs.tsx", "create.isPending ? 'Connecting\u2026' : 'Connect'", 0],
   ["Webhooks#1", "app/w/[ws]/settings/webhooks/page.tsx", "Add webhook", 1],
-  ["Webhooks#2", "app/w/[ws]/settings/webhooks/page.tsx", 'title="Advanced" summary="how a delivery is signed, for developers"', 0],
+  ["Webhooks#2", "app/w/[ws]/settings/webhooks/page.tsx", "How webhooks work", 1], // ticket #1285: the disclosure is the shared AdvancedSection, last on the page; the signing text moved inside it
   ["Webhooks#3", "app/w/[ws]/settings/webhooks/page.tsx", "Full signing docs", 1],
   ["Webhooks#4", "app/w/[ws]/settings/webhooks/page.tsx", "expanded === hook.id ? 'Hide' : 'Deliveries'", 0],
   ["Webhooks#5", "app/w/[ws]/settings/webhooks/page.tsx", "confirmToggleWebhook", 0],

@@ -13,8 +13,8 @@ import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRevokeToken } from '@/lib/settings-confirmations';
 import { canConnectAi } from '@/lib/settings-nav';
-import { AdvancedSection, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 import { useWorkspace } from '@/lib/queries';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal, SettingsRow } from '@/components/settings/settings-chrome';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
 
@@ -118,62 +118,55 @@ function ApiTokensContent() {
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
       <SettingsPageHeader
         title="API tokens"
-        lead={
-          showOthers
-            ? 'Showing every token on your account, across all your workspaces. A token only works in the workspace it was created for. New tokens are created for this workspace.'
-            : 'Create a token to let an outside tool or script work in this workspace on your behalf — for example a scheduled job or a script you wrote. Most people never need one.'
-        }
+        lead="Personal tokens for scripts, integrations, self-hosted agents and anything else that calls the StoryOS API as you"
         action={<CreateTokenDialog ws={ws} />}
       />
 
-      {ready && elsewhere.length > 0 && (
-        <label className="mb-3 flex items-center gap-2 text-body text-ink-secondary">
-          <input type="checkbox" checked={showOthers} onChange={(e) => setShowOthers(e.target.checked)} />
-          Show tokens from my other workspaces ({elsewhere.length})
-        </label>
-      )}
+      <SettingsPageBody>
+        <SettingsBox title={showOthers ? 'Your tokens across all workspaces' : `Your tokens for ${currentName}`} aside={ready ? visible.length : undefined}>
+          {!ready && <p className="px-3.5 py-3 text-body text-muted">Loading…</p>}
+          {ready && visible.length === 0 && <p className="px-3.5 py-3 text-body text-muted">No tokens in this workspace yet.</p>}
+          {ready &&
+            visible.map((token) => (
+              <SettingsRow
+                key={token.id}
+                title={token.name}
+                description={
+                  <>
+                    {showOthers && <>{workspaceLabel(token.workspace_id, workspaces.data)} · </>}
+                    <code>{token.token_prefix}</code> · created {fmt.date(token.created_at)} ·{' '}
+                    {token.last_used_at ? `last used ${fmt.dateTime(token.last_used_at)}` : 'never used'}
+                  </>
+                }
+              >
+                <Button variant="secondary" size="sm" onClick={() => void onRevoke(token)}>
+                  Revoke
+                </Button>
+              </SettingsRow>
+            ))}
+        </SettingsBox>
 
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        {!ready && <p className="px-4 py-6 text-body text-muted">Loading…</p>}
-        {ready && visible.length === 0 && (
-          <p className="px-4 py-6 text-body text-muted">No tokens in this workspace yet.</p>
+        {/* Tokens belong to a person, not a workspace, so the other workspaces' are one tick away; the line says where they went. */}
+        {ready && elsewhere.length > 0 ? (
+          <label className="flex items-center gap-2 text-label text-muted">
+            <input type="checkbox" checked={showOthers} onChange={(e) => setShowOthers(e.target.checked)} />
+            Show tokens from my other workspaces ({elsewhere.length})
+          </label>
+        ) : (
+          <p className="text-label text-muted">Tokens you made in other workspaces are listed there, not here.</p>
         )}
-        {ready && visible.map((token) => (
-          <div
-            key={token.id}
-            className="flex items-center justify-between border-b border-border-default px-4 py-3 last:border-b-0"
-          >
-            <div>
-              <p className="text-sm font-medium text-ink">{token.name}</p>
-              <p className="text-label text-muted">
-                {showOthers && <>{workspaceLabel(token.workspace_id, workspaces.data)} · </>}
-                <code>{token.token_prefix}</code> · created{' '}
-                {fmt.date(token.created_at)} ·{' '}
-                {token.last_used_at
-                  ? `last used ${fmt.dateTime(token.last_used_at)}`
-                  : 'never used'}
-              </p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => void onRevoke(token)}>
-              Revoke
-            </Button>
-          </div>
-        ))}
-      </div>
 
-      <div className="mt-[18px]">
-      <AdvancedSection title="Advanced" summary="how a token acts, and how to send it">
-        <p className="px-3.5 py-3 text-body text-muted">
-          A personal access token acts as you — anything you can do in the app, the token can do
-          through the API. Send it as{' '}
-          <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
-          <a className="underline" href={`${API_URL}/api/docs`} target="_blank" rel="noreferrer">
-            the API
-          </a>
-          .
-        </p>
-      </AdvancedSection>
-      </div>
+        <AdvancedSection title="How to use a token" summary="header, what it can do, self-managed">
+          <p className="px-3.5 py-3 text-body text-muted">
+            Shown once when created. A personal access token acts as you: anything you can do in the app, the token can do through the API.
+            Send it as <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
+            <a className="underline" href={`${API_URL}/api/docs`} target="_blank" rel="noreferrer">
+              the API
+            </a>
+            . On a self-managed StoryOS, use your own address.
+          </p>
+        </AdvancedSection>
+      </SettingsPageBody>
     </div>
   );
 }

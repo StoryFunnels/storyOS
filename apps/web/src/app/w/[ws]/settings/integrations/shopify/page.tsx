@@ -201,7 +201,7 @@ export default function ShopifyIntegrationPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="shopify-name-prefix">Name prefix (optional)</Label>
-              <Input
+              <Input size="sm"
                 id="shopify-name-prefix"
                 value={namePrefix}
                 maxLength={60}

@@ -55,7 +55,7 @@ describe('connectionCardModel: the five states', () => {
     const m = connectionCardModel({ availability: 'operator_config', connection: null });
     expect(m.state).toBe('operator_config');
     expect(m.actions).toEqual([]);
-    expect(m.pill.label).toBe('Configured by your admin');
+    expect(m.pill.label).toBe('Set up by the server operator');
     expect(m.summary).toMatch(/self-hosting/i);
   });
 

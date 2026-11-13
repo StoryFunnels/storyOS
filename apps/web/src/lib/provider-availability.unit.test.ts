@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { connectControl, presentAvailability } from './provider-availability';
 
@@ -15,12 +18,28 @@ describe('presentAvailability (#347 three honest states)', () => {
     expect(p.description).toMatch(/StoryOS Cloud/);
   });
 
-  it('operator_config → non-actionable "Configured by your admin" hint with default copy', () => {
+  it('operator_config → non-actionable "Set up by the server operator" hint with default copy', () => {
     const p = presentAvailability('operator_config');
     expect(p.state).toBe('operator_config');
     expect(p.actionable).toBe(false);
-    expect(p.label).toBe('Configured by your admin');
-    expect(p.description).toMatch(/admin/i);
+    expect(p.label).toBe('Set up by the server operator');
+    expect(p.description).toMatch(/runs this StoryOS server/);
+  });
+
+  // Ticket #1285: the viewer of this state IS the workspace admin, so "your admin" named the reader back to themselves. The person who
+  // sets the env vars is the operator of the server. Held at the source of every place the state is worded, not just the helper.
+  it('no wording of operator_config says "your admin" (the reader is the admin; the operator sets the env vars)', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const f of ['provider-availability.ts', '../components/settings/provider-card.tsx', 'connection-card.ts']) {
+      expect(readFileSync(join(here, f), 'utf8'), f).not.toMatch(/your admin|Configured by your admin/);
+    }
+    expect(presentAvailability('operator_config').label).not.toMatch(/admin/i);
+    expect(presentAvailability('operator_config').description).not.toMatch(/admin/i);
+  });
+
+  it('what must be KEPT: a server note still overrides cloud_only, and operator_config offers no action', () => {
+    expect(presentAvailability('cloud_only', 'x').description).toBe('x');
+    expect(presentAvailability('operator_config').actionable).toBe(false);
   });
 
   it('server-provided availability_note overrides the default cloud_only copy', () => {
@@ -30,7 +49,7 @@ describe('presentAvailability (#347 three honest states)', () => {
 
   it('a blank/whitespace note falls back to the default copy', () => {
     expect(presentAvailability('cloud_only', '   ').description).toMatch(/StoryOS Cloud/);
-    expect(presentAvailability('operator_config', '').description).toMatch(/admin/i);
+    expect(presentAvailability('operator_config', '').description).toMatch(/runs this StoryOS server/);
   });
 
   it('only connectable is actionable', () => {
