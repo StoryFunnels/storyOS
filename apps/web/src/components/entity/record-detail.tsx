@@ -52,6 +52,7 @@ import {
   CollapsibleBody,
   useCollapsedSection,
 } from '@/components/entity/collapsible-section';
+import { SECTION_LABEL } from '@/components/entity/section-label';
 import { AboutPanel, ActivityPanel, AttachmentsStrip, CommentsPanel, useWatchers } from '@/components/entity/panels';
 import { Segmented } from '@/components/ui/segmented';
 import {
@@ -919,7 +920,7 @@ export function RecordDetail({
               <button
                 type="button"
                 onClick={groupSection[group].toggle}
-                className="flex h-6.5 w-full items-center gap-1.5 text-micro font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
+                className={cn('flex h-6.5 w-full items-center gap-1.5 hover:text-ink-secondary', SECTION_LABEL)}
               >
                 <ChevronRight
                   className={cn('h-3 w-3 shrink-0 transition-transform', !groupSection[group].collapsed && 'rotate-90')}
@@ -1526,7 +1527,7 @@ function DescriptionSection({
         <button
           type="button"
           onClick={() => setOpened(true)}
-          className="group flex h-6 items-center gap-1.5 rounded-[var(--radius-control)] px-1 text-label font-medium uppercase tracking-wider text-muted hover:bg-hover hover:text-ink"
+          className={cn('group flex h-6 items-center gap-1.5 rounded-[var(--radius-control)] px-1 hover:bg-hover hover:text-ink', SECTION_LABEL)}
         >
           <Plus className="h-3 w-3 text-faint group-hover:text-ink" aria-hidden />
           Description
