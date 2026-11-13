@@ -12,7 +12,8 @@ import { cn } from '@/lib/utils';
 export function SettingsPageHeader({ title, lead, action }: { title: string; lead?: ReactNode; action?: ReactNode }) {
   return (
     <div className="mb-[18px] flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
+      {/* flex-1 with a basis: a long lead takes the width the action leaves instead of pushing the action onto its own line (#1282) */}
+      <div className="min-w-0 flex-1 basis-72">
         <h1 className="text-lg font-bold leading-[1.3] tracking-[-0.01em] text-ink">{title}</h1>
         {lead && <p className="mt-1 text-body text-muted">{lead}</p>}
       </div>

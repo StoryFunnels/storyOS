@@ -60,18 +60,18 @@ export default function RunnersPage() {
   return (
     // The root sets NO centring, width or padding: the shared Settings layout owns the column (settings/layout.tsx, ticket #1186).
     <div className="flex flex-col gap-[18px]">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[22px] font-bold tracking-[-0.02em] text-ink">Runners</h1>
-          <p className="mt-0.5 text-body leading-normal text-muted">{COPY.runnersLead}</p>
-        </div>
-        {mine.length > 0 && !pairing && (
-          <Button type="button" variant="secondary" size="sm" onClick={() => setPairing(true)}>
-            <Plus className="h-[13px] w-[13px]" aria-hidden />
-            Add a Runner
-          </Button>
-        )}
-      </div>
+      <SettingsPageHeader
+        title="Runners"
+        lead={COPY.runnersLead}
+        action={
+          mine.length > 0 && !pairing ? (
+            <Button type="button" variant="secondary" size="sm" onClick={() => setPairing(true)}>
+              <Plus className="h-[13px] w-[13px]" aria-hidden />
+              Add a Runner
+            </Button>
+          ) : undefined
+        }
+      />
 
       {pairing ? (
         <PairingCard
