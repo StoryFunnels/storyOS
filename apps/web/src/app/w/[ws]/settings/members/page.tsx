@@ -176,7 +176,7 @@ function MembersPageContent() {
           {people.map((member) => (
             <SettingsRow
               key={member.id}
-              leading={<Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={24} />}
+              leading={<Avatar userId={member.user.id} name={member.user.name} image={member.user.image} size={26} />}
               title={
                 <>
                   {member.user.name}

@@ -160,7 +160,7 @@ function ProfileBox({
     <SettingsBox>
       {/* Not a SettingsRow: the picture sits beside BOTH lines of text, on a phone too, which the row's `leading` slot does not do. */}
       <div className="flex min-h-[46px] flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-2 text-body">
-        <Avatar userId={userId} name={name} image={imageUrl} size={32} />
+        <Avatar userId={userId} name={name} image={imageUrl} size={40} />
         <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
           <b className="font-medium text-ink">Photo</b>
           <span className="text-label leading-[1.35]! text-muted">PNG, JPG or WebP, up to 1 MB</span>
@@ -393,7 +393,9 @@ function DeleteAccountRow({ email }: { email: string }) {
         }}
       >
         <DialogTrigger asChild>
-          <Button variant="destructive" size="sm">
+          {/* Ticket #1283 item 4: the trigger sits in a row, so it is a quiet button with red words, the same as Erase a person on Members and
+              Uninstall on Packs; the filled red-bordered `destructive` look is for the confirm button inside the dialog. */}
+          <Button variant="secondary" size="sm" className="text-error">
             Delete my account…
           </Button>
         </DialogTrigger>
