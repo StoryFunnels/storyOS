@@ -321,7 +321,7 @@ export default function PacksPage() {
           );
         })}
         {marketplace.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-body text-muted">No community packs published yet.</p>
+          <EmptyState variant="list" title="No community packs published yet." />
         )}
       </div>
 

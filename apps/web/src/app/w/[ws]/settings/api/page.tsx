@@ -16,6 +16,7 @@ import { canConnectAi } from '@/lib/settings-nav';
 import { useWorkspace } from '@/lib/queries';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface Token {
   id: string;
@@ -153,7 +154,7 @@ function ApiTokensContent() {
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {!ready && <p className="px-4 py-6 text-body text-muted">Loading…</p>}
         {ready && visible.length === 0 && (
-          <p className="px-4 py-6 text-body text-muted">No tokens in this workspace yet.</p>
+          <EmptyState variant="list" title="No tokens in this workspace yet." />
         )}
         {ready && visible.map((token) => (
           <div

@@ -462,7 +462,9 @@ export default function AdminPage() {
               <tbody>
                 {runs.data.length === 0 && (
                   <tr>
-                    <Td className="text-muted">No runs on this instance yet.</Td>
+                    <Td colSpan={99} className="p-0">
+                      <EmptyState variant="list" title="No runs on this instance yet." />
+                    </Td>
                   </tr>
                 )}
                 {runs.data.map((r) => {
@@ -958,7 +960,9 @@ function BillingSection() {
               <tbody>
                 {b.auditTrail.length === 0 && (
                   <tr>
-                    <Td className="text-muted">No changes recorded for this workspace yet.</Td>
+                    <Td colSpan={99} className="p-0">
+                      <EmptyState variant="list" title="No changes recorded for this workspace yet." />
+                    </Td>
                   </tr>
                 )}
                 {b.auditTrail.map((e) => (
@@ -1023,6 +1027,10 @@ function Th({ children }: { children: ReactNode }) {
   return <th className="px-3 py-2 font-medium">{children}</th>;
 }
 
-function Td({ children, className }: { children: ReactNode; className?: string }) {
-  return <td className={`px-3 py-2 text-ink ${className ?? ''}`}>{children}</td>;
+function Td({ children, className, colSpan }: { children: ReactNode; className?: string; colSpan?: number }) {
+  return (
+    <td colSpan={colSpan} className={`px-3 py-2 text-ink ${className ?? ''}`}>
+      {children}
+    </td>
+  );
 }

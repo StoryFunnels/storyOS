@@ -7,7 +7,8 @@ import { api } from '@/lib/api';
 import { useWorkspace } from '@/lib/queries';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
 import { TrashSection } from '@/components/entity/trash-list';
-import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
+import { SettingsBox, SettingsPageBody, SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface TrashedSpace {
   id: string;
@@ -124,7 +125,7 @@ export default function WorkspaceTrashPage() {
       <SettingsPageBody>
         {nothingAtAll ? (
           <SettingsBox>
-            <SettingsRow title="Nothing in the trash" description="Deleted spaces and databases stay restorable for 30 days." />
+            <EmptyState variant="list" title="Nothing in the trash. Deleted spaces and databases stay restorable for 30 days." />
           </SettingsBox>
         ) : (
           <>

@@ -417,7 +417,7 @@ export function RecordHistoryDialog({
           {tab === 'document' && (
             <div className="flex flex-col gap-2 overflow-y-auto">
               {docVersionItems.length === 0 && !docVersions.isLoading && (
-                <p className="py-4 text-center text-body text-muted">No earlier document versions yet.</p>
+                <EmptyState variant="list" title="No earlier document versions yet." />
               )}
               {docVersionItems.map((v) => (
                 <div
