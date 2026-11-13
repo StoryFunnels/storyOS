@@ -54,3 +54,17 @@ describe('item 3: ONE tier-label style (AI, Spaces, Favorites share it)', () => 
     expect(tierSrc).not.toMatch(/accent/); // gold must not enter the shared file (gold-agents-only)
   });
 });
+
+describe('item 4: the workspace header is 40px, name 14px/700 with -0.01em tracking', () => {
+  const switcher = sidebarSrc.slice(sidebarSrc.indexOf('function WorkspaceSwitcher'), sidebarSrc.indexOf('The "Hidden" section'));
+
+  it('the trigger is h-10 and the name is text-prose font-bold tracking-[-0.01em]', () => {
+    expect(switcher).toMatch(/flex h-10 w-full items-center gap-2 border-b/);
+    expect(switcher).toMatch(/text-prose font-bold tracking-\[-0\.01em\] text-ink/);
+    expect(switcher).not.toMatch(/font-semibold/);
+  });
+
+  it('KEEPS the finger-sized 44px header in the phone drawer', () => {
+    expect(switcher).toContain('max-md:h-11');
+  });
+});

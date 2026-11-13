@@ -377,7 +377,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       {/* #742 phase 6 — the merged search box: one affordance for both Search
           and Ask Tyron (previously two separate top-nav rows). Ask Tyron still
           has its own global ⌘J binding (lib/shortcuts.ts) even without its own
-          row here — this box's click always opens the command palette. */}
+          row here — this box's click always opens the command palette.
+          Ticket #1273 item 5 — 28px tall, 12px text, 9px side padding: the prototype's measured field. */}
       <div className="shrink-0 border-b border-border-default px-2 py-1.5">
         <button
           className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-faint hover:border-border-strong max-md:min-h-11"
@@ -882,8 +883,10 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex h-11 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
-          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-semibold text-ink">
+        <button className="flex h-10 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover max-md:h-11">
+          {/* Ticket #1273 item 4 — the prototype's header: 40px, name 14px/700 with -0.01em tracking (the page-title weight).
+              The phone drawer keeps 44px (finger-sized). */}
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-prose font-bold tracking-[-0.01em] text-ink">
             {currentName ?? '…'}
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-faint" />
