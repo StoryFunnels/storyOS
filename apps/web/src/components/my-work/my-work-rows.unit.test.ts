@@ -116,3 +116,19 @@ describe('"Assigned by" with no assigner is two words, not a paragraph (ticket #
     expect(created).not.toContain('Assigned by');
   });
 });
+
+import { DoneGroupHeader } from './my-work-rows';
+describe('the Done group heading (ticket #1280 item 7)', () => {
+  const html = (open: boolean) =>
+    renderToStaticMarkup(createElement(DoneGroupHeader, { heading: 'Done · 2', open, onToggle: () => {}, controlsId: 'done-rows' }));
+  it('is a real button, closed by default, announcing its state and what it controls', () => {
+    const closed = html(false);
+    expect(closed).toMatch(/^<button type="button"/);
+    expect(closed).toContain('aria-expanded="false"');
+    expect(closed).toContain('aria-controls="done-rows"');
+    expect(closed).toContain('Done · 2');
+  });
+  it('flips aria-expanded when open', () => {
+    expect(html(true)).toContain('aria-expanded="true"');
+  });
+});

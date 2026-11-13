@@ -31,6 +31,8 @@ export interface MyWorkGroup {
   database: { id: string; name: string; icon: string | null; color: string | null };
   fields: DenseField[];
   records: MyWorkRecord[];
+  /** The server cut this database's rows at its page size (`total` > rows sent). Absent from an older server: read as not cut. */
+  truncated?: boolean;
 }
 
 /** A resolved option value: its label and the option's colour KEY (the component resolves it to a colour). */
@@ -194,6 +196,29 @@ export function buildRows(
     }
   }
   return rows;
+}
+
+/**
+ * Ticket #1280 item 7 — Assigned/Created show open work; finished records collapse under one "Done · N" group at the bottom.
+ * Splits the already-filtered rows by the same `facets.completed` that sorts finished rows last, so the two cannot disagree.
+ * Order inside each half is the caller's (sortRows), nothing is dropped, and nothing is counted twice.
+ */
+export function splitDone<T extends { facets: Pick<Facets, 'completed'> }>(rows: T[]): { open: T[]; done: T[] } {
+  const open: T[] = [];
+  const done: T[] = [];
+  for (const r of rows) (r.facets.completed ? done : open).push(r);
+  return { open, done };
+}
+
+/**
+ * The group's heading: "Done · 3". N is the number of finished rows actually LOADED. The server cuts a database's rows at a
+ * page size and cuts the least urgent first, which is where finished rows sit, so when any database was cut the real number
+ * may be higher: then it reads "Done · 3+", a lower bound said as one, never a guess. Null when nothing finished was loaded
+ * (a cut list with zero loaded finished rows has nothing to name, and "0" would be a confident zero about unseen rows).
+ */
+export function doneHeading(loadedDone: number, anyTruncated: boolean): string | null {
+  if (loadedDone <= 0) return null;
+  return `Done · ${loadedDone}${anyTruncated ? '+' : ''}`;
 }
 
 export type MyWorkSortKey = 'due' | 'updated' | 'title';

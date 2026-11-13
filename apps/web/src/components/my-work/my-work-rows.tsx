@@ -120,6 +120,36 @@ export function MyWorkRowButton({
   );
 }
 
+/**
+ * Ticket #1280 item 7 — the "Done · N" heading. A real button (keyboard reachable, aria-expanded, aria-controls) that opens
+ * the finished rows beneath it; closed by default. Its state is page state only: nothing is remembered anywhere.
+ */
+export function DoneGroupHeader({
+  heading,
+  open,
+  onToggle,
+  controlsId,
+}: {
+  heading: string;
+  open: boolean;
+  onToggle: () => void;
+  controlsId: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="my-work-done-toggle"
+      aria-expanded={open}
+      aria-controls={controlsId}
+      onClick={onToggle}
+      className="flex w-full items-center gap-1.5 border-b border-border-default bg-hover/40 px-4 py-1.5 text-left text-label font-medium text-muted hover:text-ink"
+    >
+      {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+      <span>{heading}</span>
+    </button>
+  );
+}
+
 /** A database section (Group = Database): the header and a ⋯ holding that database's own settings. */
 export function SectionHeader({
   ws,
