@@ -173,7 +173,7 @@ export class AgentsController {
   @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
   @ApiOperation({
     summary:
-      "Where this agent works, resolved NOW: its named databases plus every database in its target spaces (a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
+      "Where this agent works, resolved NOW: its named databases plus every user database in its target spaces (a system database such as Members is covered only when named, never by its space; a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
   })
   @ApiOkResponse({ type: AgentScopeResponseDto })
   async getAgentScope(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
