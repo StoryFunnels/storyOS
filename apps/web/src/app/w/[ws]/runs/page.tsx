@@ -9,6 +9,7 @@ import { useDateFormat } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
 import { RunsExplainer } from '@/components/runs/runs-explainer';
 import { RunDetailPane } from '@/components/runs/run-detail-pane';
+import { EmptyState } from '@/components/ui/empty-state';
 import { RunStatusPill } from '@/components/runs/run-status-pill';
 import { usePendingApprovalCount, useQuota, useRunsList } from '@/components/runs/run-data';
 import { formatDurationShort, RUN_STATUS_FILTERS, startedLabel } from '@/lib/run-labels';
@@ -127,8 +128,27 @@ export default function RunsPage() {
           <span>Duration</span>
         </div>
         {runs.isLoading && <p className="px-5 py-6 text-body text-muted">Loading…</p>}
+        {/* Ticket #1291 — the shared empty state: a filter hiding every run is the compact card, no runs at all is the first-run box. */}
         {!runs.isLoading && rows.length === 0 && (
-          <p className="px-5 py-6 text-body text-muted">No runs match these filters.</p>
+          <div className="mx-5">
+            {q.trim() || status ? (
+              <EmptyState
+                variant="filtered"
+                title="No runs match these filters"
+                body="Nothing here is deleted — it’s only out of view."
+                action={{
+                  label: 'Clear filters',
+                  variant: 'secondary',
+                  onClick: () => {
+                    setQ('');
+                    setStatus('');
+                  },
+                }}
+              />
+            ) : (
+              <EmptyState variant="big" title="No runs yet" className="my-6" />
+            )}
+          </div>
         )}
         {rows.map((run) => (
           <button

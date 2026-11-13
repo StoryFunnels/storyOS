@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { TrashSection } from '@/components/entity/trash-list';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface TrashedRecord {
   id: string;
@@ -99,7 +100,7 @@ export default function TrashPage() {
         </Link>
       </div>
       {nothingAtAll ? (
-        <p className="text-sm text-muted">Nothing here. Deleted items and views stay restorable for 30 days.</p>
+        <EmptyState variant="list" className="px-0" title="Nothing here. Deleted items and views stay restorable for 30 days." />
       ) : (
         <div className="flex flex-col gap-6">
           <TrashSection

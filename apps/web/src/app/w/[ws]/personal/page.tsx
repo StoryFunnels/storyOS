@@ -6,6 +6,7 @@ import { FileText, Table2, UserRound } from 'lucide-react';
 import { usePersonalDocs, usePersonalSpace, usePersonalViews } from '@/components/personal-section';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { PERSONAL_PRIVACY_SENTENCE } from '@/lib/personal-space-copy';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * Ticket #1097 — the Personal page: what the sidebar's "Personal" row opens (Dara's #932 prototype's `personalPage`).
@@ -39,9 +40,7 @@ export default function PersonalPage() {
       {loading && <p className="text-body text-muted">Loading…</p>}
 
       {empty && (
-        <p className="text-body text-muted">
-          Nothing here yet. Use the + next to Personal in the sidebar to make a document or a view.
-        </p>
+        <EmptyState variant="list" className="px-0" title="Nothing here yet. Use the + next to Personal in the sidebar to make a document or a view." />
       )}
 
       {docItems.length > 0 && (

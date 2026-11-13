@@ -291,7 +291,7 @@ const PINS: Record<string, Counts> = {
   "app/w/[ws]/settings/page.tsx": { link: 1 },
   "app/w/[ws]/settings/preferences/page.tsx": { choice: 4 },
   "app/w/[ws]/settings/referrals/page.tsx": { button: 1, field: 1 },
-  "app/w/[ws]/settings/runners/page.tsx": { button: 2, confirm: 1 },
+  "app/w/[ws]/settings/runners/page.tsx": { button: 1, confirm: 1 }, // the empty state's "Add a Runner" is now the shared EmptyState action (ticket #1291), still one control on the page
   "app/w/[ws]/settings/webhooks/page.tsx": { button: 8, link: 1, field: 2, nativeSelect: 1, disclosure: 1, confirm: 2 },
   "components/account-menu.tsx": { button: 2, field: 1, menuitem: 6 },
   "components/connections/base-url-dialog.tsx": { button: 3, field: 1 },

@@ -20,7 +20,7 @@ import { useAllPages, useDatabase, useMembers, useRecordMutations, useRecordsInf
 import type { Field } from '../table-view/use-table-data';
 import type { RecordRow } from '../table-view/use-table-data';
 import { CardFieldChip, RecordNumberBadge } from './board-view';
-import { EmptyState, databaseNoun } from './empty-state';
+import { EmptyDatabase, databaseNoun } from './empty-database';
 import { arrangeBoardColumns } from './board-columns';
 import { canGroupListBy } from './groupable-fields';
 import { NO_VALUE, buildListGroups } from './list-groups';
@@ -224,7 +224,7 @@ export function ListView({
 
   if (rows.length === 0)
     return (
-      <EmptyState
+      <EmptyDatabase
         noun={databaseNoun(database.data?.name)}
         onAdd={readOnly ? undefined : () => addIn(NO_VALUE)}
         description={database.data?.description}

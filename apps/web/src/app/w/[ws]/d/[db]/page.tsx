@@ -49,8 +49,9 @@ import {
 } from '@/components/views/use-view-state';
 import type { ViewConfig, ViewSummary } from '@/components/views/use-view-state';
 import { setViewSearch, useViewSearch } from '@/components/views/view-search';
+import { EmptyDatabase, databaseNoun } from '@/components/views/empty-database';
 import { EmptyViewNotice, useEmptyViewCause } from '@/components/views/empty-view-notice';
-import { useDatabase, useMembers, useReorderFields, useUpdateDatabase } from '@/components/table-view/use-table-data';
+import { useDatabase, useMembers, useRecordMutations, useReorderFields, useUpdateDatabase } from '@/components/table-view/use-table-data';
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import type { Field } from '@/components/table-view/use-table-data';
 import { atLeast } from '@/lib/access';
@@ -96,6 +97,7 @@ function DatabasePageInner() {
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   // #965 — WHY a record-grid view is empty: filters, the personal filter, or Find, never "add your first".
   const emptyCause = useEmptyViewCause(ws, db, config, personalFilter);
+  const { createRecord } = useRecordMutations(ws, db);
   const clearPersonal = useClearPersonalFilter(ws, db);
 
   const viewSensors = useSortableSensors();
@@ -455,7 +457,22 @@ function DatabasePageInner() {
       )}
 
       <div className="min-h-0 flex-1">
-        {emptyCause.cause && emptyCause.cause !== 'empty' && activeView && ['table', 'board', 'gallery', 'list', 'feed'].includes(activeView.type) ? (
+        {/* Ticket #1291 — an EMPTY database is one screen in every record view (table, board and calendar drew only a bare header row). */}
+        {emptyCause.cause === 'empty' && activeView && RECORD_VIEW_TYPES.includes(activeView.type) ? (
+          <EmptyDatabase
+            noun={databaseNoun(database.data?.name)}
+            description={database.data?.description}
+            onAdd={
+              readOnly
+                ? undefined
+                : () =>
+                    createRecord.mutate(
+                      { name: 'Untitled' },
+                      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+                    )
+            }
+          />
+        ) : emptyCause.cause && emptyCause.cause !== 'empty' && activeView && ['table', 'board', 'gallery', 'list', 'feed'].includes(activeView.type) ? (
           <EmptyViewNotice
             cause={emptyCause.cause}
             total={emptyCause.total}
@@ -718,6 +735,9 @@ function DatabasePageSurface() {
     </ListSurface>
   );
 }
+
+/** The views that draw rows or dated cards of the database's records: an empty database shows the empty state in all of them. */
+const RECORD_VIEW_TYPES: readonly string[] = ['table', 'board', 'calendar', 'gallery', 'list', 'feed'];
 
 export default function DatabasePage() {
   return (

@@ -20,6 +20,7 @@ import {
 } from '@/lib/ai-connections';
 import type { AiConnection } from '@/lib/ai-connections';
 import { useDateFormat } from '@/lib/preferences';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export type AiConnectionsView =
   | { kind: 'loading' }
@@ -79,7 +80,7 @@ export function AiConnectionsList({
     );
   }
   if (view.items.length === 0) {
-    return <p className="text-body text-muted">No AI client is connected to your account.</p>;
+    return <EmptyState variant="list" className="px-0" title="No AI client is connected to your account." />;
   }
   return (
     <SettingsBox title="AI apps" aside={aiAppsSummary(view.items)}>

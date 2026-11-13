@@ -23,6 +23,7 @@ import {
   type NotificationRow,
   type NotificationType,
 } from '@/components/inbox-panel';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface NotificationsPage {
   data: NotificationRow[];
@@ -177,9 +178,7 @@ export default function InboxPage() {
           {/* Ticket #1252: the one-time "email me my work" offer; renders nothing unless every condition is known and true. */}
           <MyWorkEmailOffer ws={ws} />
           {rows.length === 0 && !list.isLoading && (
-            <p className="p-6 text-center text-body text-muted">
-              {archived ? 'Nothing archived.' : "You're all caught up 🎉"}
-            </p>
+            <EmptyState variant="list" title={archived ? 'Nothing archived.' : "You're all caught up"} />
           )}
           {rows.map((n) => {
             const unread = isUnreadRow(n, { archivedView: archived });

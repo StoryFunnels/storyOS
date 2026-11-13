@@ -43,6 +43,7 @@ import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseNoun, pluralNoun } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { databaseColor } from '@/lib/entity-color';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface Grant {
   id: string;
@@ -383,7 +384,7 @@ export default function SpacePage() {
       <section>
         <h2 className="mb-2 text-sm font-medium text-ink">Contents</h2>
         {spaceDatabases.length + contents.documents.length + contents.views.length === 0 ? (
-          <p className="text-body text-muted">No databases here that you can access.</p>
+          <EmptyState variant="list" className="px-0" title="No databases here that you can access." />
         ) : (
           <ul className="flex flex-col divide-y divide-border-default overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
             {spaceDatabases.map((d) => (

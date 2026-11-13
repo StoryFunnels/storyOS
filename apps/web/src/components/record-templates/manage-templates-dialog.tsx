@@ -8,6 +8,7 @@ import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { templateRowHint, useDeleteTemplate, useEditTemplate } from './record-templates';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * ticket #1240 - "Manage templates": rename, re-describe or delete the database's templates. What a template PRESETS comes from
@@ -44,9 +45,7 @@ export function ManageTemplatesDialog({
       {open && (
         <DialogContent title="Manage templates" className="max-w-lg">
           {templates.length === 0 ? (
-            <p className="text-body text-muted">
-              No templates yet. Open a record, then use Save as template in its menu.
-            </p>
+            <EmptyState variant="list" className="px-0" title="No templates yet. Open a record, then use Save as template in its menu." />
           ) : (
             <ul className="flex flex-col divide-y divide-border-default">
               {templates.map((t) =>

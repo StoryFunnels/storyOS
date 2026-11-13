@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -462,7 +463,9 @@ export default function AdminPage() {
               <tbody>
                 {runs.data.length === 0 && (
                   <tr>
-                    <Td className="text-muted">No runs on this instance yet.</Td>
+                    <Td colSpan={99} className="p-0">
+                      <EmptyState variant="list" title="No runs on this instance yet." />
+                    </Td>
                   </tr>
                 )}
                 {runs.data.map((r) => {
@@ -530,7 +533,7 @@ export default function AdminPage() {
         {packSubmissions.data && (
           <div className="flex flex-col gap-2">
             {packSubmissions.data.length === 0 && (
-              <p className="text-body text-muted">No submissions yet.</p>
+              <EmptyState variant="list" title="No submissions yet." />
             )}
             {packSubmissions.data.map((s) => (
               <div
@@ -958,7 +961,9 @@ function BillingSection() {
               <tbody>
                 {b.auditTrail.length === 0 && (
                   <tr>
-                    <Td className="text-muted">No changes recorded for this workspace yet.</Td>
+                    <Td colSpan={99} className="p-0">
+                      <EmptyState variant="list" title="No changes recorded for this workspace yet." />
+                    </Td>
                   </tr>
                 )}
                 {b.auditTrail.map((e) => (
@@ -1023,6 +1028,10 @@ function Th({ children }: { children: ReactNode }) {
   return <th className="px-3 py-2 font-medium">{children}</th>;
 }
 
-function Td({ children, className }: { children: ReactNode; className?: string }) {
-  return <td className={`px-3 py-2 text-ink ${className ?? ''}`}>{children}</td>;
+function Td({ children, className, colSpan }: { children: ReactNode; className?: string; colSpan?: number }) {
+  return (
+    <td colSpan={colSpan} className={`px-3 py-2 text-ink ${className ?? ''}`}>
+      {children}
+    </td>
+  );
 }

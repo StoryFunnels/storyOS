@@ -8,6 +8,7 @@ import { OPTION_COLORS } from '@/components/table-view/option-colors';
 import type { OntologyRelation } from '@/components/space-ontology';
 import { databaseColor } from '@/lib/entity-color';
 import { CENTER_R, NODE_R, computeSpokeLayout } from './database-relations-layout';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * #531 — a single database's own relations, hub-and-spoke: this database at
@@ -37,9 +38,7 @@ export function DatabaseRelationsDiagram({
 
   if (relations.length === 0) {
     return (
-      <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
-        {center.name} has no relations to any other database yet.
-      </p>
+      <EmptyState variant="big" title="No relations yet" body={`${center.name} has no relations to any other database yet.`} />
     );
   }
 

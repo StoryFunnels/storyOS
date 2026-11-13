@@ -49,6 +49,7 @@ import { useOpenInSplit } from './split-panel-context';
 import { databaseColor } from '@/lib/entity-color';
 import { StateGlyph } from '@/components/views/state-glyph';
 import { collectionQueryView } from './collection-query';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const COLLECTION_CAP = 50;
 
@@ -332,9 +333,7 @@ export function CollectionSection({ field, schemaEditable, onToggleZone, readOnl
                  the panel's only explanation of why it is empty, and "No
                  matches." in particular is the sole signal that a FILTER is
                  hiding rows rather than there being none. */
-              <p className="px-3 py-2.5 text-body text-muted">
-                {filtersActive ? 'No matches.' : 'Nothing linked yet.'}
-              </p>
+              <EmptyState variant="list" title={filtersActive ? 'No matches.' : 'Nothing linked yet.'} />
             )}
             {shown.map((row) => {
               const color = dotColor(row);

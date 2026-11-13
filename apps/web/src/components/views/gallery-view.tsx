@@ -7,7 +7,7 @@ import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { useDatabase, useMembers, useRecordCount, useRecordMutations, useRecordsInfinite } from '../table-view/use-table-data';
 import { Card } from './board-view';
 import { isCoverField } from './cover-fields';
-import { EmptyState, databaseNoun } from './empty-state';
+import { EmptyDatabase, databaseNoun } from './empty-database';
 import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { useViewSearch } from './view-search';
@@ -97,7 +97,7 @@ export function GalleryView({
 
   if (rows.length === 0) {
     return (
-      <EmptyState
+      <EmptyDatabase
         noun={databaseNoun(database.data?.name)}
         onAdd={readOnly ? undefined : addRecord}
         description={database.data?.description}

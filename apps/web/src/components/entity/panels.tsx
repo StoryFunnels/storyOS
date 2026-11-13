@@ -24,6 +24,7 @@ import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
 import { blockLines, describeScalarChange, resolveBlockChanges } from './activity-format';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
+import { EmptyState } from '@/components/ui/empty-state';
 
 type Segment =
   | { type: 'text'; text: string }
@@ -612,7 +613,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
           </span>
         </div>
       ))}
-      {(activity.data ?? []).length === 0 && <p className="text-body text-muted">No activity yet.</p>}
+      {(activity.data ?? []).length === 0 && <EmptyState variant="list" title="No activity yet." />}
     </div>
   );
 }
@@ -837,7 +838,7 @@ export function AboutPanel({
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
-          {watcherIds.length === 0 && <p className="text-body text-muted">Nobody is watching this item.</p>}
+          {watcherIds.length === 0 && <EmptyState variant="list" title="Nobody is watching this item." className="px-0" />}
           {watcherIds.map((id) => {
             const m = memberById.get(id);
             return (

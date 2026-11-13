@@ -21,7 +21,7 @@ import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { useViewSearch } from './view-search';
 import { feedActionFields } from './feed-actions';
-import { EmptyState, databaseNoun } from './empty-state';
+import { EmptyDatabase, databaseNoun } from './empty-database';
 import { ViewQueryError } from './query-error';
 
 /** Feed view (MN-093): a single-column stream of wide cards — title, a preview of
@@ -127,7 +127,7 @@ export function FeedView({
 
   if (rows.length === 0)
     return (
-      <EmptyState
+      <EmptyDatabase
         noun={databaseNoun(database.data?.name)}
         onAdd={readOnly ? undefined : addRecord}
         description={database.data?.description}
