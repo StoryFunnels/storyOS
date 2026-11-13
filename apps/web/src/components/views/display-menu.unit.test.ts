@@ -58,3 +58,20 @@ describe('#964 Display writes every hidden_field_ids a renderer reads', () => {
     expect(src).toMatch(/viewType === 'list' \|\| viewType === 'feed' \? numberEntry : undefined/);
   });
 });
+
+/** #1281 item 4 — Row height is offered in words, while the stored value stays the pixel height the table measures with. */
+describe('#1281 Row height labels', () => {
+  it('Compact / Default / Tall map to 28 / 32 / 40', async () => {
+    const { ROW_HEIGHT_OPTIONS } = await import('./display-menu');
+    expect(ROW_HEIGHT_OPTIONS.map((o) => [o.label, o.value])).toEqual([
+      ['Compact', '28'],
+      ['Default', '32'],
+      ['Tall', '40'],
+    ]);
+  });
+  it('the menu still writes the numeric row_height and defaults to 32', () => {
+    const src = read('display-menu.tsx');
+    expect(src).toContain("String(config.row_height ?? 32)");
+    expect(src).toContain('onPatch({ row_height: Number(v) as 28 | 32 | 40 })');
+  });
+});

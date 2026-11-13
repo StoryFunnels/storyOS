@@ -44,10 +44,11 @@ import { TOOLBAR_BTN } from './toolbar-chip';
 import { POPOVER_SECTION, POPOVER_TITLE } from './popover-heading';
 
 /* #739 T8 — hoisted so the array identity is stable across renders (Segmented takes a readonly list). */
-const ROW_HEIGHT_OPTIONS = [
-  { value: '28', label: '28' },
-  { value: '32', label: '32' },
-  { value: '40', label: '40' },
+/* #1281 item 4 — words, not pixel counts. The STORED value stays the pixel height (28 / 32 / 40): the table measures with it. */
+export const ROW_HEIGHT_OPTIONS = [
+  { value: '28', label: 'Compact' },
+  { value: '32', label: 'Default' },
+  { value: '40', label: 'Tall' },
 ] as const;
 
 function GalleryNoCoverFieldNotice() {
