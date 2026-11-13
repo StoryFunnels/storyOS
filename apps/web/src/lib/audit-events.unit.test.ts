@@ -79,7 +79,7 @@ describe('the audit-log page (#1059)', () => {
   });
   it('(#1287) wears the record Activity source badge, not its own chip, and prints no raw code or id', () => {
     expect(page).toContain("import { SourceBadge } from '@/components/entity/source-badge'");
-    expect(page).toContain('<SourceBadge source={e.source} agentName={e.agent_name} />');
+    expect(page).toContain('<SourceBadge source={e.source} agentName={e.agent_name} inlineName />');
     expect(page).not.toContain('audit-only-this'); // the id is not offered as text or as a control: the record's name needs the API (ticket #1287)
     expect(page).not.toMatch(/>\s*\{e\.source\}\s*</); // the old grey chip printed the source word
     expect(page).not.toMatch(/\{e\.type\}/); // the event code is never the sentence

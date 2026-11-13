@@ -13,6 +13,17 @@ export function sourceBadgeTitle(source: 'agent' | 'automation' | 'mcp', agentNa
 }
 
 /**
+ * Ticket #1277 item 9 — the badge's text. An agent's own name goes INLINE ("Triage agent"), so the gold says who, not only that an agent
+ * was there. No name (unset, empty, blank) keeps the generic word; MCP and automation never borrow an agent's name. The actor stays the
+ * member (ADR-0016): this is only what the badge reads.
+ */
+export function sourceBadgeLabel(source: 'agent' | 'automation' | 'mcp', agentName?: string | null): string {
+  const name = typeof agentName === 'string' ? agentName.trim() : '';
+  if (source === 'agent' && name) return name;
+  return source === 'mcp' ? 'MCP' : source;
+}
+
+/**
  * #496 — a badge distinguishing WHAT made a write, next to the actor name.
  * 'human' renders nothing: it is the default the reader already assumes, and
  * marking every ordinary edit would bury the exceptions it exists to surface.
@@ -20,7 +31,16 @@ export function sourceBadgeTitle(source: 'agent' | 'automation' | 'mcp', agentNa
  * faint, explicitly-labelled badge, so a row with genuinely missing source
  * data reads as "not recorded", not as an unmarked human edit.
  */
-export function SourceBadge({ source, agentName }: { source: BadgeSource; agentName?: string | null }) {
+export function SourceBadge({
+  source,
+  agentName,
+  inlineName = false,
+}: {
+  source: BadgeSource;
+  agentName?: string | null;
+  /** Put the agent's name in the badge. Off where the row already names the agent (a comment's author line). */
+  inlineName?: boolean;
+}) {
   if (source === 'human') return null;
   if (source === null) {
     return (
@@ -38,7 +58,8 @@ export function SourceBadge({ source, agentName }: { source: BadgeSource; agentN
     automation: { icon: Workflow, label: 'automation' },
     mcp: { icon: Terminal, label: 'MCP' },
   };
-  const { icon: Icon, label } = config[source];
+  const { icon: Icon } = config[source];
+  const label = inlineName ? sourceBadgeLabel(source, agentName) : config[source].label;
   return (
     <span
       title={sourceBadgeTitle(source, agentName)}

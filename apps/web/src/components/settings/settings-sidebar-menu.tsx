@@ -7,7 +7,7 @@ import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
 import { SidebarTierLabel } from '@/components/sidebar-tier-label';
 import { useSettingsBackHref } from '@/components/settings/use-settings-back';
 import { useSettingsMenuData } from '@/components/settings/use-settings-menu';
-import { settingsCountClass, settingsMenu } from '@/lib/settings-menu';
+import { SETTINGS_BACK_ROW_CLASS, settingsCountClass, settingsMenu, settingsRowWeightClass } from '@/lib/settings-menu';
 import { SETTINGS_PAGE_ICONS } from '@/components/settings/settings-page-icons';
 import { cn } from '@/lib/utils';
 
@@ -27,8 +27,8 @@ export function SettingsSidebarMenu({ ws }: { ws: string }) {
 
   return (
     <nav aria-label="Settings" className="scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5">
-      <SidebarRow depth={0} className="mb-1.5">
-        <Link href={backHref} className="flex min-w-0 flex-1 items-center gap-2 text-body">
+      <SidebarRow depth={0} className={SETTINGS_BACK_ROW_CLASS}>
+        <Link href={backHref} className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-body">
           <GlyphSlot>
             <ChevronLeft className="h-3.5 w-3.5" />
           </GlyphSlot>
@@ -63,7 +63,7 @@ function MenuRow({
 }) {
   return (
     <SidebarRow depth={0} active={active}>
-      <Link href={href} aria-current={active ? 'page' : undefined} className="flex min-w-0 flex-1 items-center gap-2 text-body">
+      <Link href={href} aria-current={active ? 'page' : undefined} className={cn('flex min-w-0 flex-1 items-center gap-2 text-body', settingsRowWeightClass(active))}>
         <GlyphSlot>
           <Icon className="h-3.5 w-3.5" />
         </GlyphSlot>

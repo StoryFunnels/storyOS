@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { isAgentAction, isAiSource } from '@/lib/governance';
-import { sourceBadgeTitle } from './panels';
+import { sourceBadgeTitle } from './source-badge';
 
 const css = readFileSync(new URL('../../app/globals.css', import.meta.url), 'utf8');
 const skillBits = readFileSync(new URL('../skills/skill-bits.tsx', import.meta.url), 'utf8');

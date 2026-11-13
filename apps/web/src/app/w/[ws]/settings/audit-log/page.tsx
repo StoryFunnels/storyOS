@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MenuSelect } from '@/components/ui/menu-select';
-import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 import { SourceBadge } from '@/components/entity/source-badge';
 import { REMOVED_MEMBER_LABEL } from '@/components/entity/activity-format';
 import { AUDIT_TYPE_FILTERS, describeAuditEvent } from '@/lib/audit-events';
@@ -96,10 +96,7 @@ export default function AuditLogPage() {
 
   if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Audit log</h1>
-        <p className="text-body text-muted">Only workspace admins can view the audit log.</p>
-      </div>
+      <SettingsRefusal title="Audit log">Only workspace admins can view the audit log.</SettingsRefusal>
     );
   }
 
@@ -140,15 +137,10 @@ export default function AuditLogPage() {
                     <span className="flex min-w-0 items-center gap-1.5 text-body text-ink">
                       <span className="truncate">{actor}</span>
                       <span className="shrink-0">
-                        <SourceBadge source={e.source} agentName={e.agent_name} />
+                        <SourceBadge source={e.source} agentName={e.agent_name} inlineName />
                       </span>
                     </span>
-                    {/* actor = the member, source = agent: the agent's own name sits under the member it acted for (ticket #1287). */}
-                    {e.source === 'agent' && e.agent_name && (
-                      <span className="truncate text-label text-muted" data-testid="audit-agent-name">
-                        {e.agent_name}
-                      </span>
-                    )}
+                    {/* actor = the member (ADR-0016); the badge, shared with the record's Activity, names the agent inline (ticket #1277). */}
                   </span>
                   <span className="min-w-0 basis-full break-words text-body text-ink-secondary sm:basis-0 sm:flex-1" data-testid="audit-what">
                     {event ? (

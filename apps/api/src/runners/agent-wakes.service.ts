@@ -1,3 +1,4 @@
+import { parseSkillRefs, skillLabelsText, skillRefDisplay } from '../skills/skill-refs';
 import { AGENT_TOOLS_ALL, MCP_TOOL_NAMES, parseAgentTools, validateAgentSettings } from '@storyos/schemas';
 import type { TokenScope } from '@storyos/schemas';
 import { RunCredentialsService } from '../tokens/run-credentials.service';
@@ -643,15 +644,12 @@ export class AgentWakesService {
   ): Promise<{ loaded: ClaimedSkill[]; missing: string[] }> {
     const agent = await this.db.query.records.findFirst({ where: eq(records.id, wake.agentId), columns: { values: true, createdBy: true } });
     const raw = ((agent?.values ?? {}) as Record<string, unknown>)[info.fieldIds.get('skills') ?? ''];
-    const names = (typeof raw === 'string' ? raw : '')
-      .split('\n')
-      .map((n) => n.trim())
-      .filter(Boolean);
-    if (names.length === 0) return { loaded: [], missing: [] };
+    const refs = parseSkillRefs(raw);
+    if (refs.length === 0) return { loaded: [], missing: [] };
     const ownerId = agent?.createdBy ?? null;
     const membership = ownerId ? await this.activeMembership(wake.workspaceId, ownerId) : undefined;
-    if (!ownerId || !membership) return { loaded: [], missing: names };
-    const { loaded, missing } = await this.skillsService.resolveForRunner(membership, ownerId, runner.userId, names);
+    if (!ownerId || !membership) return { loaded: [], missing: refs.map(skillRefDisplay) };
+    const { loaded, missing } = await this.skillsService.resolveForRunner(membership, ownerId, runner.userId, refs);
     let budget = SKILL_TOTAL_CAP;
     const out = loaded.map((k): ClaimedSkill => {
       const allowed = Math.max(0, Math.min(SKILL_TEXT_CAP, budget));
@@ -707,7 +705,8 @@ export class AgentWakesService {
         name: agent?.title ?? '',
         goal: plainText(text('goal')),
         instructions: plainText(text('instructions')),
-        skills: typeof text('skills') === 'string' ? (text('skills') as string) : null,
+        // ticket #1110: the names only. The ids a line may carry are the server's own link, not something a Runner's tool needs to read.
+        skills: typeof text('skills') === 'string' ? skillLabelsText(text('skills')) : null,
         skill_instructions: skills,
         target_databases: typeof text('target_databases') === 'string' ? (text('target_databases') as string) : null,
         // ticket #1195: where the agent works, resolved at THIS claim (a space target includes databases added since the hire). When

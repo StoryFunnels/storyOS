@@ -31,6 +31,8 @@ export interface HireInput {
   policy?: readonly string[];
   /** Database ids the agent works in (`target_databases`, one comma-separated text field). Omitted/empty: not set. */
   targetDatabaseIds?: readonly string[];
+  /** Space ids the agent works in WHOLE (`target_spaces`, ticket #1195): resolved to the space's databases when the agent acts, never expanded here. */
+  targetSpaceIds?: readonly string[];
 }
 
 export interface HireFields {
@@ -51,12 +53,14 @@ export function buildHireValues(input: HireInput, fields: readonly HireField[]):
   const goal = input.goal.trim();
   const policy = input.policy ?? [];
   const targets = input.targetDatabaseIds ?? [];
+  const spaceTargets = input.targetSpaceIds ?? [];
   return {
     [title.apiName]: input.name.trim(),
     ...(goal ? { goal: [{ type: 'paragraph', content: [{ type: 'text', text: goal }] }] } : {}),
     ai_mode: own.id,
     ...(policy.length ? { approval_policy: [...policy] } : {}),
     ...(targets.length ? { target_databases: targets.join(', ') } : {}),
+    ...(spaceTargets.length ? { target_spaces: spaceTargets.join(', ') } : {}),
     enabled: true,
   };
 }
@@ -101,6 +105,18 @@ export function targetDatabaseIds(works: readonly WorkTarget[], caps?: Caps): st
   return [...new Set(works.filter((w): w is Extract<WorkTarget, { kind: 'db' }> => w.kind === 'db').map((w) => w.id))];
 }
 
+/** The spaces `target_spaces` carries (whole spaces only; their databases are resolved by the API each time the agent acts). */
+export function targetSpaceIds(works: readonly WorkTarget[], caps?: Caps): string[] {
+  const ids = [...new Set(works.filter((w): w is Extract<WorkTarget, { kind: 'space' }> => w.kind === 'space').map((w) => w.id))];
+  if (ids.length > 0 && !apiAccepts('wholeSpaceTargets', caps)) throw new Error('A whole-space target is not accepted by the API yet');
+  return ids;
+}
+
+/** Whether the Agents database already has the `target_spaces` field (an older one gets it from `POST /agents/ensure`). */
+export function holdsSpaceTargets(fields: readonly { apiName?: string }[]): boolean {
+  return fields.some((f) => f.apiName === 'target_spaces');
+}
+
 // ---------- The card ----------
 
 export interface HireDraft {
@@ -129,6 +145,8 @@ export interface HireContext {
   role: string | undefined;
   timeZone: string;
   caps?: Caps;
+  /** Ids of the databases a whole-space chip covers today: a wake rule may watch any of them (they are in "Works in" too). */
+  spaceDatabaseIds?: readonly string[];
   /** Names for the rules' automation titles and the failure sentences. */
   databaseName: (id: string) => string;
   fieldName: (databaseId: string, fieldId: string) => string;
@@ -154,7 +172,13 @@ function policyIds(draft: HireDraft, fields: readonly HireField[]): string[] {
 /** The record the card creates, or null while the Agents database's fields are not known. */
 export function hireRecordValues(draft: HireDraft, ctx: Pick<HireContext, 'fields' | 'caps'>): Record<string, unknown> | null {
   return buildHireValues(
-    { name: draft.name, goal: draft.job, policy: policyIds(draft, ctx.fields), targetDatabaseIds: targetDatabaseIds(draft.works, ctx.caps) },
+    {
+      name: draft.name,
+      goal: draft.job,
+      policy: policyIds(draft, ctx.fields),
+      targetDatabaseIds: targetDatabaseIds(draft.works, ctx.caps),
+      targetSpaceIds: targetSpaceIds(draft.works, ctx.caps),
+    },
     ctx.fields,
   );
 }
@@ -174,7 +198,7 @@ export function homeDatabaseId(works: readonly WorkTarget[], agentsDatabaseId: s
  */
 export function hireProblem(draft: HireDraft, ctx: HireContext): string | null {
   if (!draft.name.trim()) return 'Give it a name.';
-  const dbIds = new Set(draft.works.filter((w) => w.kind === 'db').map((w) => w.id));
+  const dbIds = new Set([...draft.works.filter((w) => w.kind === 'db').map((w) => w.id), ...(ctx.spaceDatabaseIds ?? [])]);
   const missing = missingPolicyLabels(draft, ctx.fields);
   if (missing.length) return `This workspace’s Agents database cannot hold “${missing.join(', ')}” yet, so Hire is switched off rather than hiring an agent that asks less than the boxes say.`;
   for (const r of draft.wakes) {

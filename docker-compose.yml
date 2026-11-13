@@ -40,8 +40,11 @@ services:
       RUN_MIGRATIONS: 'true'
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env (e.g. openssl rand -hex 32)}
       CONNECTIONS_MASTER_KEY: ${CONNECTIONS_MASTER_KEY:?set CONNECTIONS_MASTER_KEY in .env (e.g. openssl rand -hex 32)}
-      API_URL: ${API_URL:-http://localhost:3001}
-      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      # Ticket #1286: default = the origin Caddy serves (port 80), which is also the Origin a browser
+      # sends. Auth trusts exactly WEB_URL, so a localhost:3000 default 403'd every first sign-up. If you
+      # change HTTP_PORT, set API_URL and WEB_URL to http://localhost:<port>.
+      API_URL: ${API_URL:-http://localhost}
+      WEB_URL: ${WEB_URL:-http://localhost}
       ATTACHMENTS_DIR: /data/attachments
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
       S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
@@ -142,7 +145,7 @@ services:
         # #593 — same WEB_URL as the runtime environment: below, also passed as a
         # build arg: metadataBase is read at BUILD time for statically prerendered
         # pages (/, /login, /signup, …), which the runtime-only env never reaches.
-        WEB_URL: ${WEB_URL:-http://localhost:3000}
+        WEB_URL: ${WEB_URL:-http://localhost}
     image: storyos-web:latest
     restart: unless-stopped
     environment:
@@ -153,7 +156,7 @@ services:
       # twitter:image on every page; a shared /v/[token] link is the first
       # page whose whole purpose is to be unfurled, which is what turned this
       # long-standing gap into a real defect).
-      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      WEB_URL: ${WEB_URL:-http://localhost}
       # #566 — a server-side (Node) fetch from inside THIS container to the api
       # service, e.g. generateMetadata resolving a public view's token. Always
       # the compose-internal address, regardless of API_URL/NEXT_PUBLIC_API_URL
@@ -178,7 +181,7 @@ services:
       STORYOS_URL: ${MCP_STORYOS_URL:-http://api:3001}
       # Public web origin, for the `url` field on record responses (#268) — same
       # var the web/api services use, so a self-host deploy only sets it once.
-      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      WEB_URL: ${WEB_URL:-http://localhost}
       PORT: '3002'
       # OAuth discovery advertising (MN-154). Set true once the AS (api) has MCP_OAUTH on.
       MCP_OAUTH: ${MCP_OAUTH:-}

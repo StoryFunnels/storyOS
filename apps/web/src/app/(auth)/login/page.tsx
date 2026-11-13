@@ -73,14 +73,13 @@ function LoginForm() {
           />
         </div>
         {error && <p className="text-body text-error">{error}</p>}
-        <Button type="submit" disabled={busy} className="h-11">
+        <Button type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </Button>
         {providers.data?.providers.includes('google') && (
           <Button
             type="button"
             variant="secondary"
-            className="h-11"
             onClick={() => {
               // #818 — NOT captured here: a click is not a login (the visitor can abandon
               // the consent screen). The event fires on the redirect back, in AuthEventBeacon,

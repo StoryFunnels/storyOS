@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createServer } from 'node:http';
+// 'http', not 'node:http': pino-http augments the "http" module's IncomingMessage
+// (id/log), and on an older hoisted @types/node `node:http` is a separate
+// declaration the augmentation never reaches. apps/api has no @types/node of its
+// own, so which version it sees is whatever pnpm happens to hoist (ticket #1278).
+import { createServer } from 'http';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 import { pinoHttp } from 'pino-http';

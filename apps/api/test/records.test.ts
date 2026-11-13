@@ -255,34 +255,32 @@ describe('records CRUD (MN-011)', () => {
 });
 
 /**
- * #613 — :rec only ever accepts a uuid (by-number/:number is the separate
- * public-number path). A non-uuid string used to reach the database as a
- * raw `eq(records.id, …)` comparand and come back as a bare 500
- * (`invalid input syntax for type uuid`), the same class of bug #458 fixed
- * for the links/buttons routes' :field param.
+ * #613 — a :rec that is neither a uuid nor a public number is a 404. A non-uuid string used to reach the database as a
+ * raw `eq(records.id, …)` comparand and come back as a bare 500 (`invalid input syntax for type uuid`), the same class of
+ * bug #458 fixed for the links/buttons routes' :field param.
+ *
+ * ticket #1295 changed ONE thing here: the record's own public number used to be in the "junk" set (this test pinned it to 404,
+ * which kept the 500 fixed but made the docs' "uuid or public number" false). A number now resolves to its record
+ * (test/record-by-number.test.ts); the junk below is still junk.
  */
-describe('#613: a non-uuid :rec is a 404, never a 500', () => {
-  it('GET/PATCH/DELETE all treat a non-uuid record id as not found', async () => {
+describe('#613: a :rec that is neither a uuid nor a public number is a 404, never a 500', () => {
+  it('GET/PATCH/DELETE all treat a non-uuid, non-number record id as not found', async () => {
     const make = async (name: string) =>
       (await app.inject({ method: 'POST', url: base(), headers: authed(admin.token), payload: { values: { name } } })).json();
     const real = await make('Real record 613');
 
-    for (const [method, payload] of [
-      ['GET', undefined],
-      ['PATCH', { values: { name: 'x' } }],
-      ['DELETE', undefined],
-    ] as const) {
-      // The record's own public NUMBER — a realistic mistake (used the
-      // wrong path segment), not a uuid, and previously the exact
-      // reproduction that 500'd.
-      const res = await app.inject({
-        method,
-        url: `${base()}/${real.number}`,
-        headers: authed(admin.token),
-        payload: payload as never,
-      });
-      expect(res.statusCode, `${method} with a public number instead of a uuid: ${res.body}`).toBe(404);
+    for (const junk of ['nosuchrecord', `${real.number}abc`, `0${real.number}`, `-${real.number}`]) {
+      for (const [method, payload] of [
+        ['GET', undefined],
+        ['PATCH', { values: { name: 'x' } }],
+        ['DELETE', undefined],
+      ] as const) {
+        const res = await app.inject({ method, url: `${base()}/${junk}`, headers: authed(admin.token), payload: payload as never });
+        expect(res.statusCode, `${method} ${junk}: ${res.body}`).toBe(404);
+      }
     }
+    // the real record was never touched by any of the above
+    expect((await app.inject({ method: 'GET', url: `${base()}/${real.id}`, headers: authed(admin.token) })).statusCode).toBe(200);
 
     const garbage = await app.inject({ method: 'GET', url: `${base()}/nosuchrecord`, headers: authed(admin.token) });
     expect(garbage.statusCode, garbage.body).toBe(404);

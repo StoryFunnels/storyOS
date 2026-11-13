@@ -16,14 +16,13 @@ import { Avatar } from '@/components/ui/avatar';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { commentAuthorView } from './comment-author';
 import { SourceBadge } from './source-badge';
-
-export { sourceBadgeTitle } from './source-badge';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { Button } from '@/components/ui/button';
+import { Tooltip } from '@/components/ui/tooltip';
 import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
-import { blockLines, formatActivityValue, resolveBlockChanges } from './activity-format';
+import { blockLines, describeScalarChange, resolveBlockChanges } from './activity-format';
 import { useDatabase, useMembers } from '@/components/table-view/use-table-data';
 
 type Segment =
@@ -225,9 +224,13 @@ export function CommentComposer({
         </MentionScope>
       </div>
       {toolbarShown && (
-        <Button size="sm" onClick={submit} disabled={post.isPending}>
-          <Send className="h-3.5 w-3.5" />
-        </Button>
+        // Ticket #1277 item 10: an icon-only button needs a name. `aria-label` is what the accessibility tree announces; the
+        // tooltip is for a mouse user, who otherwise gets a bare paper plane.
+        <Tooltip label="Send comment">
+          <Button size="sm" onClick={submit} disabled={post.isPending} aria-label="Send comment">
+            <Send className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+        </Tooltip>
       )}
     </div>
   );
@@ -453,8 +456,7 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
     () => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])),
     [members.data],
   );
-  const fmtFor = (fieldName: string) => (value: unknown) =>
-    formatActivityValue(value, fieldName === 'Name' ? 'title' : typeByName.get(fieldName), (id) => nameById.get(id));
+  const fieldTypeFor = (fieldName: string) => (fieldName === 'Name' ? 'title' : typeByName.get(fieldName));
 
   return (
     <div className="flex flex-col gap-2">
@@ -465,15 +467,14 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
           </span>
           <span className="text-ink-secondary">
             <span className="font-medium text-ink">{event.actor?.name ?? 'Someone'}</span>{' '}
-            <SourceBadge source={event.source} agentName={event.agent_name} />{' '}
+            <SourceBadge source={event.source} agentName={event.agent_name} inlineName />{' '}
             {event.type === 'record.updated' && event.changes ? (
               <>
-                changed{' '}
                 {event.changes.map((change, i) => (
                   <span key={i}>
                     {i > 0 && '; '}
-                    <span className="font-medium">{change.field}</span>:{' '}
                     {(() => {
+                      const fieldLabel = <span className="font-medium">{change.field}</span>;
                       // #829 — a rich_text change is shown as a block diff whether or not the
                       // row carries `blocks`: rows written before #796 hold only the raw
                       // from/to, which are still the full block arrays, so the diff is
@@ -481,18 +482,31 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
                       // formatter, which printed "[object Object]" for each block.
                       const blocks = resolveBlockChanges(change, typeByName.get(change.field));
                       if (!blocks) {
+                        // Ticket #1277 item 8: an empty side is not a value to print. Set / cleared / changed.
+                        const line = describeScalarChange(change, fieldTypeFor(change.field), (id) => nameById.get(id), dates);
+                        if (line.kind === 'set') return <>set {fieldLabel} to {line.to}</>;
+                        if (line.kind === 'cleared') return <>cleared {fieldLabel} (was {line.from})</>;
                         return (
                           <>
-                            {fmtFor(change.field)(change.from)} → {fmtFor(change.field)(change.to)}
+                            changed {fieldLabel}: {line.from} → {line.to}
                           </>
                         );
                       }
                       const lines = blockLines(blocks);
-                      if (lines.length === 0) return <span className="text-muted">(rich text edited, no visible change)</span>;
+                      if (lines.length === 0) {
+                        return (
+                          <>
+                            changed {fieldLabel}: <span className="text-muted">(rich text edited, no visible change)</span>
+                          </>
+                        );
+                      }
                       // FORWARD direction (diffBlocks(prev, next)), the mirror of
                       // record-history.tsx's restore preview: 'added' is new content,
                       // 'removed' is gone, 'changed' is before → after.
-                      return lines.map((l, j) => (
+                      return (
+                        <>
+                          changed {fieldLabel}:{' '}
+                          {lines.map((l, j) => (
                         <span key={j}>
                           {j > 0 && ', '}
                           {l.kind === 'added' && <>+ {l.text}</>}
@@ -508,7 +522,9 @@ export function ActivityPanel({ ws, db, rec }: { ws: string; db: string; rec: st
                             </span>
                           )}
                         </span>
-                      ));
+                          ))}
+                        </>
+                      );
                     })()}
                   </span>
                 ))}

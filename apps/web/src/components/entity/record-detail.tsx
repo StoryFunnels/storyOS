@@ -1,5 +1,7 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
+import { combineEntityStates, entityQueryOptions, entityState } from '@/lib/entity-state';
 import { databaseDisplayName } from '@/lib/system-databases';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -50,6 +52,10 @@ import {
   CollapsibleBody,
   useCollapsedSection,
 } from '@/components/entity/collapsible-section';
+import { SECTION_LABEL } from '@/components/entity/section-label';
+import { Tabs, tabId, tabPanelId } from '@/components/ui/tabs';
+import { PEEK_TABS } from '@/components/entity/peek-tabs';
+import type { PeekTab } from '@/components/entity/peek-tabs';
 import { AboutPanel, ActivityPanel, AttachmentsStrip, CommentsPanel, useWatchers } from '@/components/entity/panels';
 import { Segmented } from '@/components/ui/segmented';
 import {
@@ -131,6 +137,8 @@ import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
 export function useRecordQuery(ws: string, db: string, rec: string) {
   return useQuery({
     queryKey: ['record', ws, db, rec],
+    // #1291 — a record that is gone (404/403) is not retried or refetched by the next observer.
+    ...entityQueryOptions,
     // #620 — re-read while an AI recompute is in flight, so the field passes from "computing" to its result on its own.
     refetchInterval: (query) => (recordHasPendingAi(query.state.data) ? AI_POLL_MS : false),
     queryFn: async () => {
@@ -434,6 +442,9 @@ export function RecordDetail({
   // #740 AC2 — three tabs (Activity/Comments/About), per Ievgen's answer to the
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
   const [tab, setTab] = useState<'activity' | 'comments' | 'about'>('activity');
+  // Ticket #1277 item 6 — the peek's own tabs: Details (everything the peek already showed) and Comments (the full page's component).
+  // Activity stays on the full page only; the peek has no third tab.
+  const [peekTab, setPeekTab] = useState<PeekTab>('details');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   // #937 — the title is a textarea that grows to its text: a record title wraps, it is never cut to one line with an ellipsis.
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -522,8 +533,15 @@ export function RecordDetail({
   // guard keeps this from firing at all until that id exists.
   const watchers = useWatchers(ws, db, record.data?.id ?? '');
 
-  if (record.isLoading || database.isLoading) return <p className="p-6 text-sm text-muted">Loading…</p>;
-  if (!record.data) return <p className="p-6 text-sm text-error">Item not found.</p>;
+  // #1291 — a record or a database that is not there for this person (404/403) is the 404 page; a failed load is a Retry; only a
+  // load in flight says Loading. A record's database counts: a record of a database you cannot see is not there for you either.
+  const recordGate = combineEntityStates(entityState(record), entityState(database));
+  const blocked = entityGateView(recordGate, () => {
+    void record.refetch();
+    void database.refetch();
+  });
+  if (blocked) return blocked;
+  if (recordGate.kind === 'loading' || !record.data) return <p className="p-6 text-sm text-muted">Loading…</p>;
 
   // The route param can be a pretty `slug-{number}` (MN-087); every child + mutation
   // must use the resolved UUID, never the raw param.
@@ -753,10 +771,24 @@ export function RecordDetail({
           scrollers" failure #462 fixed — that was two scrollers BOTH trying
           to scroll the SAME content; here exactly one of the three regions
           scrolls at a time, by design. */}
+      {peek && (
+        <Tabs
+          label="Item sections"
+          idBase={`peek-${recordId}`}
+          options={PEEK_TABS}
+          value={peekTab}
+          onChange={setPeekTab}
+          className="shrink-0"
+        />
+      )}
       <div className="flex min-h-0 flex-1">
         {/* MAIN: title, status strip, unified fields, collections + rich
             sections, description, attachments. Its own scroll region. */}
-        <div className="min-w-0 flex-1 overflow-y-auto px-[26px] pb-[60px] pt-[22px]" style={{ minWidth: SIDEBAR_MIN_BODY_W }}>
+        <div
+          className={cn('min-w-0 flex-1 overflow-y-auto px-[26px] pb-[60px] pt-[22px]', peek && peekTab !== 'details' && 'hidden')}
+          style={{ minWidth: SIDEBAR_MIN_BODY_W }}
+          {...(peek ? { role: 'tabpanel', id: tabPanelId(`peek-${recordId}`, 'details'), 'aria-labelledby': tabId(`peek-${recordId}`, 'details') } : {})}
+        >
           <div className={cn(pageLayout && 'mx-auto w-full max-w-[720px]')}>
           <div className="mb-4 flex items-center gap-2">
             {/* #675 — this placeholder STAYS faint, and it is measured rather than
@@ -774,7 +806,7 @@ export function RecordDetail({
             <textarea
               ref={titleRef}
               rows={1}
-              className="w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
+              className="w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-xl font-bold tracking-[-0.02em] text-ink outline-none placeholder:text-faint read-only:cursor-default sm:text-2xl"
               placeholder="Untitled"
               value={titleDraft ?? record.data.title}
               readOnly={titleReadOnly}
@@ -908,7 +940,7 @@ export function RecordDetail({
               <button
                 type="button"
                 onClick={groupSection[group].toggle}
-                className="flex h-6.5 w-full items-center gap-1.5 text-micro font-medium uppercase tracking-wider text-muted hover:text-ink-secondary"
+                className={cn('flex h-6.5 w-full items-center gap-1.5 hover:text-ink-secondary', SECTION_LABEL)}
               >
                 <ChevronRight
                   className={cn('h-3 w-3 shrink-0 transition-transform', !groupSection[group].collapsed && 'rotate-90')}
@@ -1129,6 +1161,30 @@ export function RecordDetail({
           />
           </div>
         </div>
+
+        {/* Ticket #1277 item 6 — the peek's Comments tab: the SAME CommentsPanel the full page's side panel mounts (read and answer
+            without leaving the view). Mounted only while its tab is selected, so it fetches nothing for a peek nobody reads. */}
+        {peek && peekTab === 'comments' && (
+          <div
+            role="tabpanel"
+            id={tabPanelId(`peek-${recordId}`, 'comments')}
+            aria-labelledby={tabId(`peek-${recordId}`, 'comments')}
+            className="min-w-0 flex-1 overflow-y-auto px-[26px] pb-[60px] pt-[16px]"
+          >
+            {!canComment ? (
+              <p className="text-body text-muted">You can view this item but not comment on it.</p>
+            ) : (
+              <CommentsPanel
+                ws={ws}
+                db={db}
+                rec={recordId}
+                members={memberList}
+                currentUserId={session?.user.id ?? ''}
+                isAdmin={workspace.data?.role === 'admin'}
+              />
+            )}
+          </div>
+        )}
 
         {/* #780 — SIDE: fixed 344px, never flexes, hidden entirely below a
             900px TOTAL width (the artifact's own breakpoint — deliberately
@@ -1515,7 +1571,7 @@ function DescriptionSection({
         <button
           type="button"
           onClick={() => setOpened(true)}
-          className="group flex h-6 items-center gap-1.5 rounded-[var(--radius-control)] px-1 text-label font-medium uppercase tracking-wider text-muted hover:bg-hover hover:text-ink"
+          className={cn('group flex h-6 items-center gap-1.5 rounded-[var(--radius-control)] px-1 hover:bg-hover hover:text-ink', SECTION_LABEL)}
         >
           <Plus className="h-3 w-3 text-faint group-hover:text-ink" aria-hidden />
           Description

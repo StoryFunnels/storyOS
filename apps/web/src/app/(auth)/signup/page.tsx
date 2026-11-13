@@ -79,7 +79,7 @@ function SignupForm() {
           />
         </div>
         {error && <p className="text-body text-error">{error}</p>}
-        <Button type="submit" disabled={busy} className="h-11">
+        <Button type="submit" disabled={busy}>
           {busy ? 'Creating…' : 'Create account'}
         </Button>
       </form>
