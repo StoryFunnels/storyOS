@@ -1386,8 +1386,9 @@ export function PressButton({
       <Button
         type="button"
         variant="secondary"
-        // 27px, a strong border and no fill (the prototype's `.btn`): a control, so it cannot be mistaken for a value pill.
-        className="h-[27px] shrink-0 whitespace-normal border-border-strong bg-transparent px-[11px] text-label leading-[normal]"
+        // A strong border and no fill (the prototype's `.btn`): a control, so it cannot be mistaken for a value pill. Its size is the
+        // shared Button's (ticket #1282): colour and wrapping only here.
+        className="shrink-0 whitespace-normal border-border-strong bg-transparent leading-[normal]"
         title={disabled ? 'Requires editor access' : undefined}
         onClick={press}
         disabled={disabled || busy}

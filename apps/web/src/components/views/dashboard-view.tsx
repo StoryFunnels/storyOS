@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { Select } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Input } from '@/components/ui/input';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -498,15 +499,15 @@ export function DashboardView({
           it, so entering edit mode never covers the thing being edited. */}
       {!readOnly && !isEmpty && (
         <div className="mb-3 flex items-center justify-end">
-          <button
+          <Button
             type="button"
             onClick={() => setEditing((e) => !e)}
             aria-pressed={editing}
-            className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1 text-body text-ink-secondary hover:bg-hover"
+            variant="secondary"
           >
             {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
             {editing ? 'Done' : 'Edit'}
-          </button>
+          </Button>
         </div>
       )}
 
