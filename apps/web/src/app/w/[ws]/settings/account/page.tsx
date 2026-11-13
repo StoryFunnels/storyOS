@@ -393,7 +393,9 @@ function DeleteAccountRow({ email }: { email: string }) {
         }}
       >
         <DialogTrigger asChild>
-          <Button variant="destructive" size="sm">
+          {/* Ticket #1283 item 4: the trigger sits in a row, so it is a quiet button with red words, the same as Erase a person on Members and
+              Uninstall on Packs; the filled red-bordered `destructive` look is for the confirm button inside the dialog. */}
+          <Button variant="secondary" size="sm" className="text-error">
             Delete my account…
           </Button>
         </DialogTrigger>
