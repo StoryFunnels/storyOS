@@ -82,21 +82,21 @@ describe('one page title (#1282, item 6)', () => {
 });
 
 describe('one button size on a Settings page (#1282, item 7)', () => {
-  it('page-level actions are the small button (28px), not the 36px default', () => {
+  it('page-level actions are the one button size: no page restates a height, or asks for another size (ticket #1282 ruling: one size)', () => {
     const cases: Array<[string, string]> = [
       ['account/page.tsx', 'disabled={save.isPending || !dirty}'],
       ['account/page.tsx', 'disabled={change.isPending'],
       ['general/page.tsx', 'onClick={save}'],
       ['general/page.tsx', 'onClick={saveBranding}'],
       ['packs/page.tsx', "variant: 'secondary'"],
-      ['export/page.tsx', "buttonVariants({ size: 'sm' })"],
+      ['export/page.tsx', 'buttonVariants()'],
     ];
     for (const [f, anchor] of cases) {
       const src = read(join(SETTINGS, f));
       const at = src.indexOf(anchor);
       expect(at, `${f}: ${anchor}`).toBeGreaterThan(-1);
       const tag = src.slice(Math.max(0, at - 200), at + 120);
-      expect(tag, `${f}: ${anchor}`).toMatch(/size[=:] ?\{? ?['"]sm['"]/);
+      expect(tag, `${f}: ${anchor}`).not.toMatch(/size[=:] ?\{? ?['"](default|lg)['"]|\bh-(7|8|9|10|11)\b/);
     }
   });
 

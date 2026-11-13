@@ -42,7 +42,7 @@ export default function ExportPage() {
             >
               <a
                 href={href}
-                className={cn(buttonVariants({ size: 'sm' }), 'shrink-0 gap-1.5 max-sm:w-full')}
+                className={cn(buttonVariants(), 'shrink-0 gap-1.5 max-sm:w-full')}
               >
                 <Download className="h-4 w-4" aria-hidden /> Export
               </a>

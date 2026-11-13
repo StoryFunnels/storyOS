@@ -53,7 +53,7 @@ export default function PacksSettingsPage() {
   const registrySlugs = new Set((registry.data ?? []).map((p) => p.slug));
   const packs = installed.data ?? [];
   const browse = (
-    <Link href={`/w/${ws}/packs`} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }))}>
+    <Link href={`/w/${ws}/packs`} className={cn(buttonVariants({ variant: 'secondary' }))}>
       Browse packs
     </Link>
   );

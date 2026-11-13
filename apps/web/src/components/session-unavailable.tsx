@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { UPSTREAM_UNAVAILABLE_MESSAGE } from '@/lib/http-error';
+import { Button } from '@/components/ui/button';
 
 const RETRY_MS = 5000;
 
@@ -30,13 +31,13 @@ export function SessionUnavailable({ retry }: { retry: () => void }) {
     <div role="status" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
       <p className="text-body text-ink">{UPSTREAM_UNAVAILABLE_MESSAGE}</p>
       <p className="text-label text-muted">You are still signed in. This page will reload on its own when StoryOS is back.</p>
-      <button
+      <Button
         type="button"
         onClick={retry}
-        className="rounded-[var(--radius-control)] border border-border-default px-3 py-1.5 text-label text-ink hover:bg-hover"
+        variant="secondary"
       >
         Try again now
-      </button>
+      </Button>
     </div>
   );
 }
