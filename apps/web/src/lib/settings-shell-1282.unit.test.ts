@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SettingsRefusal } from '@/components/settings/settings-chrome';
 import { AdminsOnlyNotice } from '@/components/settings/admins-only';
+import { SETTINGS_BACK_ROW_CLASS, settingsRowWeightClass } from '@/lib/settings-menu';
 
 /**
  * Ticket #1282 — Settings shell fidelity. The shared patterns every Settings page draws (title, refusal, button size, Advanced) are
@@ -149,5 +150,42 @@ describe('one Advanced disclosure, always last (#1282, item 8)', () => {
     expect(read(join(SETTINGS, 'webhooks/page.tsx'))).toContain('X-StoryOS-Signature');
     expect(read(join(SETTINGS, 'api/page.tsx'))).toContain('Authorization: Bearer mn_pat_');
     expect(read(join(SETTINGS, 'connect-ai/page.tsx'))).toContain('Manage API tokens');
+  });
+});
+
+describe('the Settings menu (#1282, items 1 and 3)', () => {
+  it('the current page is 650 and every other row stays 400', () => {
+    expect(settingsRowWeightClass(true)).toBe('font-[650]');
+    expect(settingsRowWeightClass(false)).toBe('font-normal');
+  });
+
+  it('the menu rows take that weight, and the Back row is the 28px target (34px on a phone)', () => {
+    const src = read(join(SRC, 'components/settings/settings-sidebar-menu.tsx'));
+    expect(src).toContain('settingsRowWeightClass(active)');
+    expect(src).toContain('className={SETTINGS_BACK_ROW_CLASS}');
+    expect(SETTINGS_BACK_ROW_CLASS).toContain('h-7');
+    expect(SETTINGS_BACK_ROW_CLASS).toContain('max-md:h-[34px]');
+  });
+
+  it('the row fill is still the sidebar row\u2019s own (this adds a weight, it does not restate the active background)', () => {
+    const src = read(join(SRC, 'components/settings/settings-sidebar-menu.tsx'));
+    expect(src).not.toMatch(/bg-active/);
+    expect(src).toContain('<SidebarRow depth={0} active={active}>');
+  });
+});
+
+describe('one segmented control (#1282, item 10)', () => {
+  it('Slack\u2019s method chooser is the same drawn control as Preferences\u2019 Theme: no solid variant, no larger size, no faded hint text', () => {
+    const slack = read(join(SETTINGS, 'integrations/slack/page.tsx'));
+    const tag = slack.slice(slack.indexOf('<Segmented'), slack.indexOf('/>', slack.indexOf('<Segmented')));
+    expect(tag).not.toContain('variant=');
+    expect(tag).not.toContain('size=');
+    expect(slack).not.toContain('opacity-75');
+  });
+
+  it('the choices it offers are unchanged', () => {
+    const slack = read(join(SETTINGS, 'integrations/slack/page.tsx'));
+    expect(slack).toContain('(recommended)');
+    expect(slack).toContain('(simpler)');
   });
 });
