@@ -50,6 +50,7 @@ import {
 } from '../db/schema';
 import { boardGroupIsReadOnly } from '../views/views.service';
 import type { ChangeSource } from '../db/schema';
+import { isAgencySource } from './agency-source';
 import type { LabelledField } from '@storyos/schemas';
 import type { QueryRecordsInput } from '@storyos/schemas';
 import { compileFilter, cursorCondition, filterReferencedFields, optionRank, sortExpr } from './query-compiler';
@@ -114,7 +115,7 @@ export interface ProjectedRecord {
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
-  /** #1204 — latest change made by an agent, automation or MCP write; null = only ever changed by a person. */
+  /** #1204, narrowed by #1294 — latest change made by an agent or MCP write (agency-source.ts); null = never. Automation and human writes do not stamp it. */
   last_ai_change_at: Date | null;
   /**
    * #571 — carried through ONLY so attachAiFields can read a field's
@@ -127,9 +128,6 @@ export interface ProjectedRecord {
    */
   computed_values?: Record<string, unknown>;
 }
-
-/** #1204 — provenance that counts as agency. Mirrors the backfill in migration 0129: everything but a person at a keyboard. */
-const isAiSource = (source: ChangeSource): boolean => source !== 'human';
 
 const TRASH_RETENTION_DAYS = 30;
 
@@ -3173,7 +3171,7 @@ export class RecordsService implements OnModuleInit {
                 position: positions[i]!,
                 createdBy: actorId,
                 updatedBy: actorId,
-                ...(isAiSource(source) ? { lastAiChangeAt: sql`now()` } : {}), // #1204
+                ...(isAgencySource(source) ? { lastAiChangeAt: sql`now()` } : {}), // #1204
               };
             }),
           )
@@ -3546,7 +3544,7 @@ export class RecordsService implements OnModuleInit {
             titleLocal: nextTitleLocal,
             updatedBy: actorId,
             // #1204 — stamped from the write's stored provenance, in this transaction; a no-op write (empty diff) stamps nothing.
-            ...(Object.keys(diff).length > 0 && isAiSource(source) ? { lastAiChangeAt: sql`now()` } : {}),
+            ...(Object.keys(diff).length > 0 && isAgencySource(source) ? { lastAiChangeAt: sql`now()` } : {}),
           })
           .where(eq(records.id, recordId))
           .returning();
@@ -4222,7 +4220,7 @@ export class RecordsService implements OnModuleInit {
           title: target.title,
           titleLocal: target.titleLocal,
           updatedBy: actorId,
-          ...(isAiSource(source) ? { lastAiChangeAt: sql`now()` } : {}), // #1204 (diff is non-empty here)
+          ...(isAgencySource(source) ? { lastAiChangeAt: sql`now()` } : {}), // #1204 (diff is non-empty here)
         })
         .where(eq(records.id, recordId))
         .returning();
