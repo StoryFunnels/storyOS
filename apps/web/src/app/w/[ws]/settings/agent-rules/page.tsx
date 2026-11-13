@@ -28,13 +28,16 @@ import {
 const SCOPE_WORDS = { read: 'Read only', write: 'Read and change', admin: 'Admin' } as const;
 const WHERE_WORDS = { workspace: 'Whole workspace', space: 'One space', database: 'One database' } as const;
 
-function Section({ title, lead, children }: { title: string; lead?: string; children: React.ReactNode }) {
+/**
+ * One boxed section with the shared Settings box header (ticket #1284), like every other Settings page. The lead sits under the header;
+ * `flush` is for a list whose rows draw their own dividers edge to edge, otherwise the content is padded as a body.
+ */
+function Section({ title, lead, flush, children }: { title: string; lead?: string; flush?: boolean; children: React.ReactNode }) {
   return (
-    <section className="mb-8">
-      <h2 className="mb-1 text-body font-semibold text-ink">{title}</h2>
-      {lead && <p className="mb-3 text-body text-muted">{lead}</p>}
-      {children}
-    </section>
+    <SettingsBox title={title} className="mb-6">
+      {lead && <p className={`px-3.5 pt-2.5 text-label text-muted ${flush ? 'pb-2.5 border-b border-border-default' : ''}`}>{lead}</p>}
+      <div className={flush ? '' : 'px-3.5 py-3'}>{children}</div>
+    </SettingsBox>
   );
 }
 
@@ -171,16 +174,16 @@ export default function AgentRulesPage() {
             </div>
           )}
 
-          <Section title="Agents" lead="What each agent declares it may do. When StoryOS runs an agent, the run is held to this.">
+          <Section flush title="Agents" lead="What each agent declares it may do. When StoryOS runs an agent, the run is held to this.">
             {!agentsDbId || agents.length === 0 ? (
-              <p className="text-body text-muted">
+              <p className="px-3.5 py-3 text-body text-muted">
                 No agents are set up in this workspace. This page lists agents defined here; it does not list API
                 tokens or connected AI clients, which can still act as the person who created them.
               </p>
             ) : (
-              <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
+              <div>
                 {agents.map((a) => (
-                  <div key={a.id} className="flex flex-col gap-1.5 border-b border-border-default px-3 py-2.5 last:border-b-0">
+                  <div key={a.id} className="flex flex-col gap-1.5 border-b border-border-default px-3.5 py-2.5 last:border-b-0">
                     <div className="flex items-center gap-2">
                       <span className="text-body font-medium text-ink">{a.name}</span>
                       <span className="rounded bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">
@@ -198,15 +201,15 @@ export default function AgentRulesPage() {
             )}
           </Section>
 
-          <Section title="Gates in force" lead="Rules for the whole workspace, a space or one database that hold an action until a named person approves it.">
+          <Section flush title="Gates in force" lead="Rules for the whole workspace, a space or one database that hold an action until a named person approves it.">
             {gateRows.length === 0 ? (
-              <p className="text-body text-muted">
+              <p className="px-3.5 py-3 text-body text-muted">
                 No gate is declared, so deleting records is not held for approval by a workspace rule.
               </p>
             ) : (
-              <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
+              <div>
                 {gateRows.map((g) => (
-                  <div key={g.id} className="flex flex-col gap-1 border-b border-border-default px-3 py-2.5 last:border-b-0">
+                  <div key={g.id} className="flex flex-col gap-1 border-b border-border-default px-3.5 py-2.5 last:border-b-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-body font-medium text-ink">{g.what}</span>
                       <span className="rounded bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">{WHERE_WORDS[g.where]}</span>
@@ -223,15 +226,16 @@ export default function AgentRulesPage() {
           </Section>
 
           <Section
+            flush
             title="Approvals"
             lead={`${pending.length} waiting. Of the latest ${summary.shown}: ${summary.approved} approved, ${summary.rejected} rejected, ${summary.expired} expired.`}
           >
             {recent.length === 0 ? (
-              <p className="text-body text-muted">Nobody has decided an approval yet.</p>
+              <p className="px-3.5 py-3 text-body text-muted">Nobody has decided an approval yet.</p>
             ) : (
-              <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
+              <div>
                 {recent.map((a) => (
-                  <div key={a.id} className="flex flex-col gap-0.5 border-b border-border-default px-3 py-2 last:border-b-0">
+                  <div key={a.id} className="flex flex-col gap-0.5 border-b border-border-default px-3.5 py-2.5 last:border-b-0">
                     <span className="text-body text-ink">{a.preview_text ?? 'An action'}</span>
                     <span className="text-label text-ink-secondary">
                       {a.status === 'approved' ? 'Approved' : a.status === 'rejected' ? 'Rejected' : 'Expired, nobody decided'}
@@ -246,6 +250,7 @@ export default function AgentRulesPage() {
           </Section>
 
           <Section
+            flush
             title="Recent agent actions"
             lead="What agents and API tokens changed lately, newest first, each with the credential that did it and the member it ran as. Select one for the full chain."
           >
