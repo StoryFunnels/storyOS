@@ -7,7 +7,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { QuillNotFound } from '@/components/quill/not-found-view';
+import { Quill } from '@/components/quill/quill';
 import { cn } from '@/lib/utils';
 import type { JoinModel } from '@/lib/invite-screen';
 
@@ -131,15 +131,20 @@ export function JoinView({ model, signedIn, signedOutForm, onJoin, onSwitchAccou
         </AuthCard>
       );
     case 'not_found':
-      // The shared public 404 shape: no shell. A signed-in person has a better way on than the marketing site, so it is offered first.
+      // The 404's shape (Quill lost, what is true in plain words, the one way on; no shell around it), composed here rather than by
+      // editing the shared 404 view, which another open change restructures. A signed-in person has a better way on than the site.
       return (
         <main className="min-h-screen bg-app" data-testid="invite-not-found">
-          <QuillNotFound
-            title={model.title}
-            body={model.body}
-            caption="This was an invite once."
-            action={signedIn ? { href: '/', label: 'Go to my workspaces' } : { href: 'https://storyos.dev', label: 'Go to storyos.dev' }}
-          />
+          <div className="mx-auto flex max-w-[440px] flex-col items-center gap-2.5 px-4 pb-10 pt-[12vh] text-center" data-testid="not-found">
+            <Quill pose="lost" size={120} caption="This was an invite once." captionClassName="max-w-[160px] text-[16px]" />
+            <h1 className="m-0 mt-1.5 text-title font-bold leading-[1.25] text-ink">{model.title}</h1>
+            <p className="m-0 text-body text-muted">{model.body}</p>
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-3.5">
+              <Link href={signedIn ? '/' : 'https://storyos.dev'} className={cn(buttonVariants({ variant: 'primary' }))}>
+                {signedIn ? 'Go to my workspaces' : 'Go to storyos.dev'}
+              </Link>
+            </div>
+          </div>
         </main>
       );
     case 'expired':
