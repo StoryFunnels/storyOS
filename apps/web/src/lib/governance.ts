@@ -252,13 +252,59 @@ const ACTION_VERB: Record<string, string> = {
   'record.updated': 'Updated',
   'record.deleted': 'Deleted',
   'record.restored': 'Restored',
+  'relation.linked': 'Linked',
+  'relation.unlinked': 'Unlinked',
+  'comment.created': 'Commented on',
+  'attachment.added': 'Added a file to',
 };
 
-/** "Updated “Fix the header”": what the action did, in words. An event type this page has no word for is shown as itself, not hidden. */
+/** An event type this page has no word for, as plain words ("comment.added" becomes "Comment added"): never the dotted code itself. */
+export function humaniseEventType(type: string): string {
+  const words = type.replace(/[._]+/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Changed';
+}
+
+/**
+ * "Updated “Fix the header”": what the action did, in words. An event type this page has no word for is shown in plain words
+ * (never as its dotted code), not hidden. The record's own title is data and is shown as it is.
+ */
 export function describeAction(row: Pick<AuditEventRow, 'type' | 'payload'>): string {
-  const verb = (row.type && ACTION_VERB[row.type]) ?? row.type ?? 'Changed';
+  const known = row.type ? ACTION_VERB[row.type] : undefined;
   const title = typeof row.payload?.['title'] === 'string' ? (row.payload['title'] as string).trim() : '';
+  if (!known && row.type) return title ? `${humaniseEventType(row.type)} “${title}”` : humaniseEventType(row.type);
+  const verb = known ?? 'Changed';
   return title ? `${verb} “${title}”` : `${verb} a record`;
+}
+
+/** Who the row is about: the agent when one is recorded, else the credential's name, else what kind of AI it was. Actor stays the member (shown as "for"). */
+export function actionSubject(row: Pick<AuditEventRow, 'agent_name' | 'source'>, credential: Pick<CredentialDto, 'name'> | null | undefined): string {
+  if (row.agent_name) return row.agent_name;
+  if (credential?.name) return credential.name;
+  return row.source === 'mcp' ? 'A connected AI' : 'An agent';
+}
+
+/** The small line under a row: the member it ran as, and the credential when one was recorded. A missing credential is said once above the list, not here. */
+export function actionMeta(
+  row: Pick<AuditEventRow, 'actor_name' | 'credential_id' | 'agent_name'>,
+  credential: Pick<CredentialDto, 'name' | 'revoked_at'> | null | undefined,
+): string {
+  const parts: string[] = [];
+  if (row.actor_name) parts.push(`for ${row.actor_name}`);
+  if (row.credential_id) {
+    // The credential's name already leads the row when it is the subject; only add it when the agent leads.
+    const label = credential ? `${credential.name}${credential.revoked_at ? ' (revoked)' : ''}` : 'A credential';
+    if (row.agent_name || !credential) parts.push(`credential ${label}`);
+    else if (credential.revoked_at) parts.push('credential revoked');
+  }
+  return parts.join(' · ');
+}
+
+/** Said ONCE above the list when any row on it names no credential. */
+export const NO_CREDENTIAL_NOTE =
+  'Some actions name no credential. They were made before credentials were tracked, or through a sign-in session or an OAuth connection.';
+
+export function missingCredentialNote(rows: Array<Pick<AuditEventRow, 'credential_id'>>): string | null {
+  return rows.some((r) => !r.credential_id) ? NO_CREDENTIAL_NOTE : null;
 }
 
 /**

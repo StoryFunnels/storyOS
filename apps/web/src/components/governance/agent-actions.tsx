@@ -6,10 +6,13 @@ import { api } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
 import { useDatabases, useSpaces } from '@/lib/queries';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Rocket } from 'lucide-react';
 import {
-  NO_CREDENTIAL_WORDS,
+  actionMeta,
+  actionSubject,
   chainOf,
   describeAction,
+  missingCredentialNote,
   isAgentAction,
   type AuditEventRow,
   type CredentialDto,
@@ -21,7 +24,8 @@ import {
  *
  * Everything comes from what ticket #882 stamps on a write (the credential) and ticket #541 (the agent, and the member) through
  * ONE read, the audit log filtered to agents and tokens — there is no second provenance store here. An action with no recorded
- * credential says so on its row, in words (`NO_CREDENTIAL_WORDS`); it is never drawn as a chain with a blank link.
+ * credential says so ONCE above the list (`NO_CREDENTIAL_NOTE`) and in its own chain (`NO_CREDENTIAL_WORDS`); it is never drawn as a chain with a blank link.
+ * Each row leads with who acted (the agent), a gold mark because an agent acted (ticket #1163), then what it did in words (ticket #1284).
  */
 const PAGE = 25;
 
@@ -66,34 +70,43 @@ export function AgentActions({ ws }: { ws: string }) {
     database: (id: string) => (databases.data ?? []).find((d) => d.id === id)?.name ?? null,
   };
 
-  if (log.isLoading) return <p className="text-body text-muted">Loading…</p>;
-  if (log.isError) return <p className="text-body text-ink">The recent actions could not be loaded.</p>;
+  if (log.isLoading) return <p className="px-3.5 py-3 text-body text-muted">Loading…</p>;
+  if (log.isError) return <p className="px-3.5 py-3 text-body text-ink">The recent actions could not be loaded.</p>;
   if (rows.length === 0) {
-    return <p className="text-body text-muted">No agent or token has changed anything in the last 30 days.</p>;
+    return <p className="px-3.5 py-3 text-body text-muted">No agent or token has changed anything in the last 30 days.</p>;
   }
 
+  const note = missingCredentialNote(rows);
   return (
     <>
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
+      {note && <p className="border-b border-border-default px-3.5 py-2.5 text-label text-muted">{note}</p>}
+      <div>
         {rows.map((r) => {
           const credential = credentialOf(r.credential_id);
+          const meta = actionMeta(r, credential);
           return (
             <button
               key={r.id}
               type="button"
               onClick={() => setOpen(r)}
-              className="flex w-full flex-col gap-0.5 border-b border-border-default px-3 py-2 text-left last:border-b-0 hover:bg-hover"
+              className="flex w-full items-start gap-2.5 border-b border-border-default px-3.5 py-2.5 text-left last:border-b-0 hover:bg-hover"
             >
-              <span className="text-body text-ink">{describeAction(r)}</span>
-              <span className="text-label text-ink-secondary">
-                {r.credential_id
-                  ? `${credential ? credential.name : 'A credential'}${credential?.revoked_at ? ' (revoked)' : ''}`
-                  : 'No credential recorded'}
-                {r.agent_name ? ` · agent ${r.agent_name}` : ''}
-                {r.actor_name ? ` · for ${r.actor_name}` : ''}
-                {` · ${dateTime(r.created_at)}`}
+              <span
+                aria-hidden
+                className="mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent)_25%,transparent)] text-accent-text"
+              >
+                <Rocket className="h-3.5 w-3.5" />
               </span>
-              {!r.credential_id && <span className="text-label text-muted">{NO_CREDENTIAL_WORDS}</span>}
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex items-baseline gap-2">
+                  <b className="min-w-0 truncate font-semibold text-ink">{actionSubject(r, credential)}</b>
+                  <span className="ml-auto shrink-0 text-label text-muted">{dateTime(r.created_at)}</span>
+                </span>
+                <span className="text-body text-ink">
+                  {describeAction(r)}
+                  {meta && <span className="text-label text-ink-secondary">{` · ${meta}`}</span>}
+                </span>
+              </span>
             </button>
           );
         })}
@@ -101,7 +114,7 @@ export function AgentActions({ ws }: { ws: string }) {
       {log.hasNextPage && (
         <button
           type="button"
-          className="mt-2 text-label text-ink-secondary underline hover:text-ink"
+          className="mx-3.5 mb-3 mt-2 text-label text-ink-secondary underline hover:text-ink"
           disabled={log.isFetchingNextPage}
           onClick={() => void log.fetchNextPage()}
         >

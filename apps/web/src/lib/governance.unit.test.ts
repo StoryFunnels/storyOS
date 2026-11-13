@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NO_CREDENTIAL_NOTE,
   NO_CREDENTIAL_WORDS,
+  actionMeta,
+  actionSubject,
+  missingCredentialNote,
   chainOf,
   describeAction,
   isAgentAction,
@@ -156,10 +160,41 @@ describe('recent agent actions and their chain (ticket #934)', () => {
     created_at: '2026-10-01T00:00:00Z', revoked_at: null, ...over,
   });
 
-  it('says what the action did, with the record title; an unknown event type is shown, not hidden', () => {
+  it('says what the action did, with the record title; an unknown event type is shown in plain words, never as its dotted code', () => {
     expect(describeAction(row())).toBe('Updated “Fix the header”');
     expect(describeAction(row({ type: 'record.created', payload: {} }))).toBe('Created a record');
-    expect(describeAction(row({ type: 'comment.added', payload: null }))).toBe('comment.added a record');
+    expect(describeAction(row({ type: 'relation.linked', payload: null }))).toBe('Linked a record');
+    expect(describeAction(row({ type: 'relation.unlinked', payload: { title: 'Acme' } }))).toBe('Unlinked “Acme”');
+    expect(describeAction(row({ type: 'comment.created', payload: null }))).toBe('Commented on a record');
+    // not hidden: an event type with no word still says what it is, minus the code syntax
+    expect(describeAction(row({ type: 'thing.was_frobbed', payload: null }))).toBe('Thing was frobbed');
+    for (const type of ['relation.linked', 'comment.created', 'attachment.added', 'x.y_z', 'record.updated']) {
+      expect(describeAction(row({ type, payload: null }))).not.toMatch(/[a-z]\.[a-z]/);
+    }
+  });
+
+  it('a row leads with the agent; the member it ran as stays the actor (named after "for"), the credential is named when recorded', () => {
+    expect(actionSubject(row({ agent_name: 'Triage agent' }), cred())).toBe('Triage agent');
+    expect(actionSubject(row({ agent_name: null }), cred())).toBe('ci robot');
+    expect(actionSubject(row({ agent_name: null }), undefined)).toBe('A connected AI');
+    expect(actionSubject(row({ agent_name: null, source: 'agent' }), undefined)).toBe('An agent');
+    expect(actionMeta(row({ agent_name: 'Triage agent' }), cred())).toBe('for Alice · credential ci robot');
+    expect(actionMeta(row({ agent_name: 'Triage agent' }), cred({ revoked_at: '2026-10-02T00:00:00Z' }))).toBe('for Alice · credential ci robot (revoked)');
+    // the credential already leads the row when it is the subject: not said twice, but a revocation still is
+    expect(actionMeta(row({ agent_name: null }), cred())).toBe('for Alice');
+    expect(actionMeta(row({ agent_name: null }), cred({ revoked_at: '2026-10-02T00:00:00Z' }))).toBe('for Alice · credential revoked');
+    // no credential recorded: the row does NOT repeat the disclaimer
+    const bare = actionMeta(row({ credential_id: null, agent_name: 'Triage agent' }), undefined);
+    expect(bare).toBe('for Alice');
+    expect(bare).not.toMatch(/credential/i);
+  });
+
+  it('the missing-credential note is one sentence, present only when a row lacks a credential, and never part of a row', () => {
+    expect(missingCredentialNote([{ credential_id: 'c1' }])).toBeNull();
+    expect(missingCredentialNote([])).toBeNull();
+    expect(missingCredentialNote([{ credential_id: null }, { credential_id: null }, { credential_id: 'c1' }])).toBe(NO_CREDENTIAL_NOTE);
+    const meta = actionMeta(row({ credential_id: null }), undefined);
+    expect(meta).not.toContain('before credentials were tracked');
   });
 
   it('lists only what an agent or a token did — never a person’s own edit, never a field-change row', () => {

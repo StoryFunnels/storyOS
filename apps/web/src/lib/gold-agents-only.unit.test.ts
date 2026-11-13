@@ -84,6 +84,8 @@ export const AGENT_GOLD: Record<string, number> = {
   // Runner screens (ticket #1139): the status dot and label of a run. Gold ONLY for `go` (an agent running: label, dot, the pulse halo)
   // and `ask` (an agent waiting for your approval: label, dot). `status.ts` pins that no other tone is gold.
   'components/runners/status-mark.tsx': 5,
+  // Agent rules > Recent agent actions (ticket #1284): the rocket mark that leads a row an agent (or an MCP client acting for a member) made: tint + glyph
+  'components/governance/agent-actions.tsx': 2,
   // The change-log badge for source != human (agent / automation / mcp)
   'components/entity/record-history.tsx': 2,
   // The Activity panel's 'made by an agent / automation / MCP' badge (ticket #831's original gold-means-agency mark; ticket #1206 restored it)
