@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { isAiSource } from '@/lib/governance';
 import { Button } from '@/components/ui/button';
+import { Tooltip } from '@/components/ui/tooltip';
 import type { BlockChange } from '@storyos/schemas/block-diff';
 import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions';
 import { blockLines, describeScalarChange, resolveBlockChanges } from './activity-format';
@@ -223,9 +224,13 @@ export function CommentComposer({
         </MentionScope>
       </div>
       {toolbarShown && (
-        <Button size="sm" onClick={submit} disabled={post.isPending}>
-          <Send className="h-3.5 w-3.5" />
-        </Button>
+        // Ticket #1277 item 10: an icon-only button needs a name. `aria-label` is what the accessibility tree announces; the
+        // tooltip is for a mouse user, who otherwise gets a bare paper plane.
+        <Tooltip label="Send comment">
+          <Button size="sm" onClick={submit} disabled={post.isPending} aria-label="Send comment">
+            <Send className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+        </Tooltip>
       )}
     </div>
   );

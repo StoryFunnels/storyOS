@@ -142,3 +142,18 @@ describe('item 8: an empty "from" is a set, an empty "to" is a clear', () => {
     expect(panels).toMatch(/changed \{fieldLabel\}:\{' '\}\s*\{lines\.map/);
   });
 });
+
+describe('item 10: the comment send button has an accessible name', () => {
+  const panels = read('panels.tsx');
+  const send = panels.slice(panels.indexOf('<Tooltip label="Send comment">'), panels.indexOf('</Tooltip>', panels.indexOf('<Tooltip label="Send comment">')));
+
+  it('is named for the screen reader (aria-label) and for the mouse (tooltip), and its icon is hidden from the tree', () => {
+    expect(send).toContain('aria-label="Send comment"');
+    expect(send).toContain('<Send className="h-3.5 w-3.5" aria-hidden />');
+  });
+
+  it('KEEPS the behaviour: it still submits, and is still disabled while posting', () => {
+    expect(send).toContain('onClick={submit}');
+    expect(send).toContain('disabled={post.isPending}');
+  });
+});
