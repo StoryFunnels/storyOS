@@ -120,3 +120,19 @@ describe('item 6: the GitHub page speaks to a user, and review settings wait for
     for (const opt of ['Squash and merge', 'Match system', 'Monospace (ligatures)']) expect(gh, opt).toContain(opt);
   });
 });
+
+describe('item 5: Linear numbers its setup once', () => {
+  const lin = read(`${SETTINGS}/integrations/linear/page.tsx`);
+
+  it('the numbered sections are exactly the three steps the setup box lists, in the same words', () => {
+    const numbered = [...lin.matchAll(/<Section step=\{(\d)\} title="([^"]+)">/g)].map((m) => [Number(m[1]), m[2]]);
+    expect(numbered).toEqual([[1, 'Key and teams'], [2, 'Preview'], [3, 'Sync now']]);
+    const labels = [...lin.matchAll(/label: '([^']+)',\n\s+description/g)].map((m) => m[1]);
+    expect(labels).toEqual(['Key and teams', 'Preview', 'Sync now']);
+  });
+
+  it('KEEPS: Schedule, Write-back and Health are still on the page, as un-numbered sections', () => {
+    for (const t of ['Schedule', 'Write-back', 'Health']) expect(lin).toContain(`<Section title="${t}">`);
+    expect(lin).toMatch(/step \? `\$\{step\}\. ` : ''/);
+  });
+});
