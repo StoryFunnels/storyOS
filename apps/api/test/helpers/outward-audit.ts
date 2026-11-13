@@ -192,6 +192,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'DELETE /workspaces/:ws/skills/:id': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/skills/:id/export': { verdict: 'internal', why: 'reviewed: returns one skill as Markdown to the caller' },
   'POST /workspaces/:ws/skills/:id/run': { verdict: 'internal', why: 'returns a step log, no model is invoked (skills.service.ts run)' },
+  'GET /public/invites/details': { verdict: 'public', why: 'public by design (#1302): the invite token is the credential; read-only, returns the inviter name, workspace name and logo, invited email and a status, accepts nothing, sends nothing' },
   'GET /public/my-work-digest/unsubscribe': { verdict: 'public', why: 'public by design (#1251): the signed, purpose-scoped token is the credential; it can only turn one person\'s own digest OFF; reads nothing' },
   'POST /public/my-work-digest/unsubscribe': { verdict: 'public', why: 'RFC 8058 one-click form of the GET above (#1251); same token, same single effect' },
   'GET /public/skills/:token': { verdict: 'public', why: 'public skill link (read)' },

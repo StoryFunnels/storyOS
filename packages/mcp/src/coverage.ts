@@ -187,7 +187,7 @@ export const EXCLUDED: CoverageRule[] = [
   {
     match: '/api/v1/public/',
     reason:
-      'Anonymous pre-auth surface (public form fill, pre-signup pack browsing). Reachable without a credential by design, so an authenticated tool adds nothing.',
+      'Anonymous pre-auth surface (public form fill, pre-signup pack browsing, and the invite-link read GET /public/invites/details, ticket #1302: a person with no account yet reads who invited them before signing in; the invite token is the credential and a workspace agent never holds one). Reachable without a credential by design, so an authenticated tool adds nothing.',
   },
   {
     // Only the binary halves. `GET .../attachments` is the METADATA listing and
