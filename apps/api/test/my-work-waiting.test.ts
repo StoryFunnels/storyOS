@@ -18,6 +18,7 @@ let bea: { token: string; id: string };
 let cy: { token: string; id: string };
 let me: { token: string; id: string };
 let guest: { token: string; id: string };
+let guestCreator: { token: string; id: string };
 let ws: string, tasks: string, secret: string, assignee: string, state: string;
 let opt: Record<string, string> = {};
 const as = (token: string, method: string, url: string, payload?: unknown) => call(app, token, method, url, payload);
@@ -59,6 +60,7 @@ beforeAll(async () => {
   me = await joinAs(app, owner.token, ws, 'W Me', 'member');
   // a guest who can reach Tasks only; Secret is a restricted database they hold no grant on
   guest = await joinAs(app, owner.token, ws, 'W Guest', 'guest', [{ database_id: tasks, role: 'viewer' }]);
+  guestCreator = await joinAs(app, owner.token, ws, 'W Guest Creator', 'guest', [{ database_id: tasks, role: 'creator' }]);
   await setRestricted(app, owner.token, ws, 'database', secret);
 }, 240_000);
 afterAll(async () => {
@@ -219,13 +221,13 @@ describe('#1250 waiting', () => {
   });
 
   // ticket #1280 — the row says WHICH rule is asking. Derived at read time from the live rule: no column to go stale.
-  const rule = async (name: string) =>
-    (await raw.insert(automations).values({ databaseId: tasks, name, enabled: false, trigger: { type: 'record_created' }, actions: [] } as never).returning())[0]!;
+  const rule = async (name: string, databaseId = tasks) =>
+    (await raw.insert(automations).values({ databaseId, name, enabled: false, trigger: { type: 'record_created' }, actions: [] } as never).returning())[0]!;
   const waitingItem = async (token: string, id: string) => {
     const w = await tab(token, 'waiting');
     const item = w.approvals.items.find((x: { approval_id: string }) => x.approval_id === id);
     expect(item, 'the approval is listed').toBeTruthy();
-    return item as { rule_id: string | null; rule_name: string | null; preview_text: string };
+    return item as { rule_id: string | null; rule_name: string | null; rule_label: string | null; preview_text: string };
   };
 
   it('#1280 approvals: a rule-gated approval carries the rule id and its CURRENT name; a rename shows up on the next read', async () => {
@@ -255,16 +257,51 @@ describe('#1250 waiting', () => {
     expect(item.rule_name).toBeNull();
   });
 
-  it('#1280 approvals: the access rules are unchanged - the unreachable-database guest still gets no record, and the rule name rides with the approval they may decide', async () => {
-    const r = await rule('Secret rule');
+  it('#1280 approvals: the named approver who may NOT read the rule\'s database automations (a viewer-grant guest) gets the neutral label, never the name or the rule id', async () => {
+    // Ticket #1280 (Otto, 2026-11-13): the same check that gates GET .../automations (creator on the rule's database). This test used to
+    // assert rule_name === 'Secret rule' for this guest, i.e. it specified the leak.
+    const r = await rule('Notify Finance');
     const rec = await mk('secret record 2', {}, secret);
     const a = await approval(secret, guest.id, { recordId: rec, ruleId: r.id });
-    const item = (await waitingItem(guest.token, a.id)) as { rule_name: string | null; record?: unknown };
-    expect(item.record).toBeNull();
-    expect(item.rule_name).toBe('Secret rule');
+    const item = await waitingItem(guest.token, a.id);
+    expect(item.record, 'the unreachable-database rule for the RECORD is unchanged').toBeNull();
+    expect(item.rule_name).toBeNull();
+    expect(item.rule_id).toBeNull();
+    expect(item.rule_label).toBe('A rule in Tasks'); // the guest can open Tasks, so the database name is theirs to read
+    expect(JSON.stringify(item)).not.toContain('Notify Finance');
+    expect(JSON.stringify(item)).not.toContain(r.id);
     // a member who is not the approver never sees the row at all, so never the rule name
     const other = await tab(bea.token, 'waiting');
     expect(other.approvals.items.map((x: { approval_id: string }) => x.approval_id)).not.toContain(a.id);
+  });
+
+  it('#1280 approvals: a rule in a database the viewer cannot even see is "A rule" - no name, no id, and not the database name either', async () => {
+    const r = await rule('Hidden rule', secret);
+    const a = await approval(secret, guest.id, { ruleId: r.id });
+    const item = await waitingItem(guest.token, a.id);
+    expect(item).toMatchObject({ rule_id: null, rule_name: null, rule_label: 'A rule' });
+    expect(JSON.stringify(item)).not.toContain('Secret');
+  });
+
+  it('#1280 approvals: MUST KEEP WORKING - whoever the gate allows still sees the name: a creator-grant guest, and an admin (also on a restricted database)', async () => {
+    const r = await rule('Notify Finance 2');
+    const a = await approval(tasks, guestCreator.id, { ruleId: r.id });
+    expect(await waitingItem(guestCreator.token, a.id)).toMatchObject({ rule_id: r.id, rule_name: 'Notify Finance 2', rule_label: 'Notify Finance 2' });
+    const hidden = await rule('Restricted-db rule', secret);
+    const b = await approval(secret, me.id, { ruleId: hidden.id }); // `me` is a member, and `secret` is restricted: the gate says no
+    expect(await waitingItem(me.token, b.id)).toMatchObject({ rule_id: null, rule_name: null, rule_label: 'A rule' });
+    expect(await waitingItem(owner.token, b.id)).toMatchObject({ rule_id: hidden.id, rule_name: 'Restricted-db rule' });
+  });
+
+  it('#1280 the gate is the automations gate: whoever GET .../automations answers 200 sees the name, whoever it refuses does not', async () => {
+    const r = await rule('Gate parity');
+    const a = await approval(tasks, guest.id, { ruleId: r.id });
+    const b = await approval(tasks, guestCreator.id, { ruleId: r.id });
+    for (const [who, id] of [[guest, a.id], [guestCreator, b.id]] as const) {
+      const listed = (await as(who.token, 'GET', `/workspaces/${ws}/databases/${tasks}/automations`)).statusCode;
+      const named = (await waitingItem(who.token, id)).rule_name !== null;
+      expect(named, `${who.id}: automations list ${listed}`).toBe(listed === 200);
+    }
   });
 
   it('mentions: unanswered and unread ones list; a reply, or a read mention notification, clears them', async () => {

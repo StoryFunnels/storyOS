@@ -291,7 +291,7 @@ describe('approval gate (MN-255)', () => {
     const rec = await createRecordAndSettle('Who is asking');
     const approval = await pendingApprovalFor(rec.id, rule.id);
     const row = async (id: string) => ((await inject('GET', `/workspaces/${wsId}/approvals`)).json() as Array<{ id: string; rule_id: string | null; rule_name: string | null }>).find((a) => a.id === id)!;
-    expect(await row(approval.id)).toMatchObject({ rule_id: rule.id, rule_name: named.name });
+    expect(await row(approval.id)).toMatchObject({ rule_id: rule.id, rule_name: named.name, rule_label: named.name });
     // derived at read time: a rename is visible on the next read, nothing stored to go stale
     await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { name: 'Renamed gate' });
     expect((await row(approval.id)).rule_name).toBe('Renamed gate');
@@ -372,6 +372,56 @@ describe('approval gate (MN-255)', () => {
 
     const guestList = await inject('GET', `/workspaces/${wsId}/approvals`, undefined, guest.token);
     expect(guestList.json().some((a: { id: string }) => a.id === approval.id)).toBe(true);
+
+    // #1280 (Otto, 2026-11-13): seeing the approval is not seeing the RULE. This guest holds viewer, and GET .../automations is 403 for
+    // them, so the list gives the neutral label - never the rule's name, and not its id either.
+    expect((await inject('GET', `/workspaces/${wsId}/databases/${guestDbId}/automations`, undefined, guest.token)).statusCode).toBe(403);
+    const seen = (guestList.json() as Array<Record<string, unknown>>).find((a) => a.id === approval.id)!;
+    expect(seen).toMatchObject({ rule_id: null, rule_name: null, rule_label: 'A rule in Guest visible db 654' });
+    expect(JSON.stringify(seen)).not.toContain(ruleId);
+    // MUST KEEP: the admin still gets the id and name
+    const adminSeen = ((await inject('GET', `/workspaces/${wsId}/approvals`)).json() as Array<Record<string, unknown>>).find((a) => a.id === approval.id)!;
+    expect(adminSeen).toMatchObject({ rule_id: ruleId, rule_name: rule.json().name, rule_label: rule.json().name });
+  });
+
+  it('#1280: a guest holding CREATOR on the database (the automations gate) is shown the rule name; the same guest at viewer is not', async () => {
+    const dbX = (await inject('POST', `/workspaces/${wsId}/databases`, {
+      space_id: (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id,
+      name: 'Creator guest db 1280',
+    })).json().id;
+    const rule = await inject('POST', `/workspaces/${wsId}/databases/${dbX}/automations`, {
+      name: `Creator-visible ${randomUUID()}`,
+      trigger: { type: 'record_created' },
+      actions: [{ type: 'add_comment', body_template: 'hi', require_approval: true }],
+    });
+    const rec = (await inject('POST', `/workspaces/${wsId}/databases/${dbX}/records`, { values: {} })).json();
+    await engine.settle(rec.id);
+    const approval = await pendingApprovalFor(rec.id, rule.json().id);
+    const join = async (name: string, role: 'viewer' | 'creator') => {
+      const g = await signUpUser(app, name);
+      const invite = await inject('POST', `/workspaces/${wsId}/invites`, { email: g.email, role: 'guest', grants: [{ database_id: dbX, role }] });
+      const token = new URL(invite.json().accept_url).searchParams.get('token')!;
+      await app.inject({ method: 'POST', url: '/api/v1/invites/accept', headers: authed(g.token), payload: { token } });
+      return g;
+    };
+    const creator = await join('ApprovalGuestCreator1280', 'creator');
+    const viewer = await join('ApprovalGuestViewer1280', 'viewer');
+    const row = async (g: { token: string }) =>
+      ((await inject('GET', `/workspaces/${wsId}/approvals`, undefined, g.token)).json() as Array<Record<string, unknown>>).find((a) => a.id === approval.id)!;
+    expect(await row(creator)).toMatchObject({ rule_id: rule.json().id, rule_name: rule.json().name });
+    expect(await row(viewer)).toMatchObject({ rule_id: null, rule_name: null, rule_label: 'A rule in Creator guest db 1280' });
+  });
+
+  it('#1280: approve and reject answer with the rule as the DECIDER may see it (the same gate), and a rule-less approval stays null, not an error', async () => {
+    const rule = await createRule();
+    const rec = await createRecordAndSettle('Decided with a name');
+    const approval = await pendingApprovalFor(rec.id, rule.id);
+    const decided = (await inject('POST', `/workspaces/${wsId}/approvals/${approval.id}/approve`)).json();
+    expect(decided).toMatchObject({ rule_id: rule.id });
+    expect(typeof decided.rule_name).toBe('string');
+    const [loose] = await db.insert(approvals).values({ workspaceId: wsId, actionIndex: 0, actionSnapshot: { ctx: { databaseId: dbId }, action: { type: 'send_webhook' } }, previewText: 'no rule', approverId: adminId } as never).returning();
+    const rejected = (await inject('POST', `/workspaces/${wsId}/approvals/${loose!.id}/reject`, {})).json();
+    expect(rejected).toMatchObject({ rule_id: null, rule_name: null, rule_label: null });
   });
 
   /**

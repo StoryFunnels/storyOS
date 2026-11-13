@@ -11,6 +11,7 @@ import { AccessService } from '../access/access.service';
 import { RecordsService } from '../records/records.service';
 import { renderCommentText, truncateForPreview } from '../comments/comment-render';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { presentRules, ruleFor } from '../automations/rule-visibility';
 
 /** Field types worth rendering as a dense-row chip in My Work (MN-072). */
 const DENSE_TYPES = new Set(['select', 'multi_select', 'workflow', 'user', 'relation', 'date', 'checkbox']);
@@ -342,11 +343,10 @@ export class MyWorkService {
     const approvalCount = await this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM approvals a WHERE ${approvalWhere}`);
     const approvalRows = await this.db.execute<{
       id: string; record_id: string | null; preview_text: string; created_at: Date; expires_at: Date; database_id: string | null;
-      rule_id: string | null; rule_name: string | null;
+      rule_id: string | null;
     }>(sql`
-      SELECT a.id, a.record_id, a.preview_text, a.created_at, a.expires_at, (a.action_snapshot #>> '{ctx,databaseId}') AS database_id,
-             a.rule_id, au.name AS rule_name
-      FROM approvals a LEFT JOIN automations au ON au.id = a.rule_id WHERE ${approvalWhere}
+      SELECT a.id, a.record_id, a.preview_text, a.created_at, a.expires_at, (a.action_snapshot #>> '{ctx,databaseId}') AS database_id, a.rule_id
+      FROM approvals a WHERE ${approvalWhere}
       ORDER BY a.expires_at ASC, a.created_at DESC LIMIT ${MY_WORK_PAGE}
     `);
     const approvalTotal = approvalCount.rows[0]?.n ?? 0;
@@ -359,14 +359,15 @@ export class MyWorkService {
           .where(and(inArray(records.id, recordIdsOf), isNull(records.deletedAt)))
       : [];
     const recById = new Map(recs.map((r) => [r.id, r]));
+    // #1280 — the rule is shown the way /approvals shows it: one shared gate (rule-visibility.ts), never this surface's own reading of automations.
+    const rules = await presentRules(this.db, this.access, membership, approvalRows.rows.map((r) => r.rule_id));
     const approvalItems = approvalRows.rows.map((r) => {
       const rec = r.record_id ? recById.get(r.record_id) : undefined;
       const reachable = rec ? canReachDb(rec.databaseId) || Boolean(recordGrantIds?.has(rec.id)) : false;
       return {
         approval_id: r.id,
-        // #1280 — which automation is asking, by its current name. Both null for an approval no rule wrote (or whose rule was deleted).
-        rule_id: r.rule_id,
-        rule_name: r.rule_name,
+        // #1280 — which automation is asking. Name + id for a viewer who may read that database's automations, else the neutral rule_label; all null for an approval no rule wrote (or whose rule was deleted).
+        ...ruleFor(rules, r.rule_id),
         preview_text: r.preview_text,
         created_at: new Date(r.created_at),
         expires_at: new Date(r.expires_at),

@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
@@ -12,6 +12,7 @@ import { AccessService } from '../access/access.service';
 import { RecordsService } from '../records/records.service';
 import { DatabasesService } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { NO_RULE, presentRules, ruleFor, type PresentedRule } from './rule-visibility';
 import type { AgentPrincipal } from '../agents/agent-principal';
 import type { AgentStep, ProposedAction } from '../agents/agent-runtime';
 import { JobRunnerService } from './job-runner.service';
@@ -228,12 +229,13 @@ function presentSnapshot(snapshot: unknown): unknown {
   return { ...snap, ...(ctx ? { ctx } : {}), action: presentActionHeaders([snap.action])[0] };
 }
 
-function toDto(row: ApprovalRow, causedBy: PresentedOrigin | null = null, ruleName: string | null = null) {
+function toDto(row: ApprovalRow, causedBy: PresentedOrigin | null = null, rule: PresentedRule = NO_RULE) {
   return {
     id: row.id,
-    rule_id: row.ruleId,
-    /** #1280 — the automation rule's CURRENT name, read at request time (never stored, so a rename shows). null when no rule wrote this approval (an agent proposal, a skill, a button) or the rule was deleted (`rule_id` is then null too). */
-    rule_name: ruleName,
+    /** #1280 — which automation rule asked, as THIS viewer may see it (`presentRules`): id + current name for someone who may read that database's automations; for anyone else both null and `rule_label` is the neutral "A rule in <database>". All three null when no rule wrote the approval (an agent proposal, a skill, a button) or the rule was deleted. */
+    rule_id: rule.rule_id,
+    rule_name: rule.rule_name,
+    rule_label: rule.rule_label,
     run_id: row.runId,
     record_id: row.recordId,
     action_index: row.actionIndex,
@@ -573,18 +575,16 @@ export class ApprovalsService implements OnModuleInit {
             const databaseId = (r.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId;
             return databaseId !== null && visible.has(databaseId); // a database-less approval (a skill) is not a guest's to see
           });
-    return this.toDtos(scoped);
+    return this.toDtos(membership, scoped);
   }
 
   /** The rows as the API shows them, with `caused_by` resolved for the whole page in one lookup. */
-  private async toDtos(rows: ApprovalRow[]) {
+  private async toDtos(membership: Membership, rows: ApprovalRow[]) {
     const origins = rows.map((r) => (r.actionSnapshot as ApprovalActionSnapshot).ctx?.origin ?? null);
     const presented = await presentEventOrigins(this.db, origins.filter((o): o is EventOrigin => Boolean(o)));
-    const ruleIds = [...new Set(rows.map((r) => r.ruleId).filter((v): v is string => Boolean(v)))];
-    const named = ruleIds.length ? await this.db.select({ id: automations.id, name: automations.name }).from(automations).where(inArray(automations.id, ruleIds)) : [];
-    const nameById = new Map(named.map((a) => [a.id, a.name]));
+    const rules = await presentRules(this.db, this.access, membership, rows.map((r) => r.ruleId));
     let next = 0;
-    return rows.map((r, i) => toDto(r, origins[i] ? presented[next++]! : null, (r.ruleId && nameById.get(r.ruleId)) || null));
+    return rows.map((r, i) => toDto(r, origins[i] ? presented[next++]! : null, ruleFor(rules, r.ruleId)));
   }
 
   /**
@@ -655,14 +655,14 @@ export class ApprovalsService implements OnModuleInit {
    * click, a retried request, the loser of a race). The controller answers that with 200, not the 201 a POST that created something
    * gets: a 201 read as "a second send went out", and none did (the first decision enqueued the one job; this enqueues nothing).
    */
-  async approve(workspaceId: string, id: string, actorId: string) {
-    const { row, applied } = await this.resolve(workspaceId, id, actorId, 'approved');
-    return { ...(await this.toDtos([row]))[0]!, already_decided: !applied };
+  async approve(membership: Membership, id: string, actorId: string) {
+    const { row, applied } = await this.resolve(membership.workspaceId, id, actorId, 'approved');
+    return { ...(await this.toDtos(membership, [row]))[0]!, already_decided: !applied };
   }
 
-  async reject(workspaceId: string, id: string, actorId: string, reason?: string) {
-    const { row, applied } = await this.resolve(workspaceId, id, actorId, 'rejected', reason);
-    return { ...(await this.toDtos([row]))[0]!, already_decided: !applied };
+  async reject(membership: Membership, id: string, actorId: string, reason?: string) {
+    const { row, applied } = await this.resolve(membership.workspaceId, id, actorId, 'rejected', reason);
+    return { ...(await this.toDtos(membership, [row]))[0]!, already_decided: !applied };
   }
 
   /**
