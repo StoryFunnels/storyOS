@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MenuSelect } from '@/components/ui/menu-select';
-import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 import { AUDIT_TYPE_FILTERS, describeStructuralEvent } from '@/lib/audit-events';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
@@ -95,10 +95,7 @@ export default function AuditLogPage() {
 
   if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Audit log</h1>
-        <p className="text-body text-muted">Only workspace admins can view the audit log.</p>
-      </div>
+      <SettingsRefusal title="Audit log">Only workspace admins can view the audit log.</SettingsRefusal>
     );
   }
 

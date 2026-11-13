@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatDate, formatDateTime } from '@/lib/format';
+import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 
 /**
@@ -377,13 +378,13 @@ export default function AdminPage() {
 
         <div className="mb-1 mt-6 flex items-baseline justify-between">
           <h3 className="text-body font-medium text-ink-secondary">Per-workspace</h3>
-          <button
+          <Button
             type="button"
             onClick={() => downloadCsv(c.workspaces)}
-            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover"
+            variant="secondary"
           >
             Download CSV
-          </button>
+          </Button>
         </div>
         <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
           <table className="w-full text-left text-body">
@@ -483,7 +484,7 @@ export default function AdminPage() {
                       <Td>{r.finishedAt ? formatDateTime(r.finishedAt) : '—'}</Td>
                       <Td>
                         {cancelable && (
-                          <button
+                          <Button
                             type="button"
                             disabled={cancelRun.isPending && cancelingId === r.id}
                             onClick={async () => {
@@ -499,10 +500,10 @@ export default function AdminPage() {
                                 return;
                               cancelRun.mutate(r);
                             }}
-                            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
+                            variant="secondary"
                           >
                             {cancelRun.isPending && cancelingId === r.id ? 'Canceling…' : 'Cancel'}
-                          </button>
+                          </Button>
                         )}
                       </Td>
                     </tr>
@@ -566,7 +567,7 @@ export default function AdminPage() {
                     >
                       Approve &amp; publish
                     </button>
-                    <button
+                    <Button
                       type="button"
                       disabled={reviewSubmission.isPending}
                       onClick={() => {
@@ -574,10 +575,10 @@ export default function AdminPage() {
                           window.prompt('Reason for rejecting (shown to the author):') ?? undefined;
                         reviewSubmission.mutate({ id: s.id, action: 'reject', notes });
                       }}
-                      className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
+                      variant="secondary"
                     >
                       Reject
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -789,7 +790,7 @@ function BillingSection() {
                 <p className="mt-0.5 text-label text-ink-secondary">
                   &ldquo;{b.override.reason}&rdquo; — {b.override.createdBy}
                 </p>
-                <button
+                <Button
                   type="button"
                   disabled={clearOverrideMutation.isPending}
                   onClick={async () => {
@@ -806,10 +807,10 @@ function BillingSection() {
                       return;
                     clearOverrideMutation.mutate(reason.trim());
                   }}
-                  className="mt-2 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
+                  variant="secondary" className="mt-2"
                 >
                   {clearOverrideMutation.isPending ? 'Clearing…' : 'Clear override'}
-                </button>
+                </Button>
               </div>
             ) : (
               <p className="mt-2 border-t border-border-default pt-2 text-label text-muted">
@@ -865,13 +866,13 @@ function BillingSection() {
                 size="sm"
                 className="mb-2 w-full"
               />
-              <button
+              <Button
                 type="submit"
                 disabled={setPlanMutation.isPending || !planReason.trim()}
-                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-label font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                variant="primary"
               >
                 {setPlanMutation.isPending ? 'Setting…' : 'Set plan'}
-              </button>
+              </Button>
             </form>
 
             <form
@@ -936,13 +937,13 @@ function BillingSection() {
                 size="sm"
                 className="mb-2 w-full"
               />
-              <button
+              <Button
                 type="submit"
                 disabled={setOverrideMutation.isPending || !overrideReason.trim()}
-                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-label font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                variant="primary"
               >
                 {setOverrideMutation.isPending ? 'Saving…' : 'Save override'}
-              </button>
+              </Button>
             </form>
           </div>
 

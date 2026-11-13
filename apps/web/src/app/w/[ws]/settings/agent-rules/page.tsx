@@ -2,7 +2,7 @@
 
 import { AgentActions } from '@/components/governance/agent-actions';
 import { DefaultAgentModel } from '@/components/governance/default-agent-model';
-import { SettingsBox, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
+import { SettingsBox, SettingsPageHeader, SettingsRefusal, SettingsRow } from '@/components/settings/settings-chrome';
 import { Switch } from '@/components/ui/switch';
 import { useSkillSharing } from '@/lib/skill-sharing';
 import { useParams } from 'next/navigation';
@@ -114,10 +114,7 @@ export default function AgentRulesPage() {
   if (workspace.isLoading) return <p className="p-8 text-body text-muted">Loading…</p>;
   if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Agent rules</h1>
-        <p className="text-body text-muted">Only workspace admins can see this page.</p>
-      </div>
+      <SettingsRefusal title="Agent rules">Only workspace admins can see this page.</SettingsRefusal>
     );
   }
 

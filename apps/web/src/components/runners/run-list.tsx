@@ -6,6 +6,8 @@ import { StatusMark } from './status-mark';
 import { Quill, QuillBeside } from '@/components/quill/quill';
 import { EmptyState } from '@/components/ui/empty-state';
 import { firstSuccessfulRunId, runQuill } from '@/lib/quill/run-outcome';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 /**
  * Ticket #1139 AC5 — an agent's runs, one row each, the state exactly as drawn.
@@ -83,7 +85,7 @@ export function RunList({
                 {line.action === 'review' && (
                   <Link
                     href={`/w/${ws}/runs`}
-                    className="inline-flex h-7 items-center rounded-[var(--radius-control)] bg-primary px-2.5 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+                    className={cn(buttonVariants({ variant: 'primary' }))}
                   >
                     Review
                   </Link>

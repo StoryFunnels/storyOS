@@ -6,7 +6,7 @@ import { Plus, Upload } from 'lucide-react';
 import type { SkillSummary, SkillTemplate } from '@storyos/schemas';
 import { cn } from '@/lib/utils';
 import { useMembers } from '@/components/table-view/use-table-data';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkillImportDialog } from './skill-import-dialog';
 import { SkillSourceMark, VisibilityChip } from './skill-bits';
@@ -46,7 +46,7 @@ export function SkillsLibrary({ ws }: { ws: string }) {
         </Button>
         <Link
           href={`/w/${ws}/skills/new`}
-          className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-3 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+          className={cn(buttonVariants({ variant: 'primary' }))}
         >
           <Plus className="h-3.5 w-3.5" /> New skill
         </Link>

@@ -4,6 +4,7 @@ import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RotateCw } from 'lucide-react';
 import { reportError } from '@/lib/report-error';
+import { Button } from '@/components/ui/button';
 
 /**
  * #424 — confine a render error to the thing that threw.
@@ -86,13 +87,13 @@ export class ErrorBoundary extends Component<Props, State> {
           {this.props.label} couldn’t be shown
         </div>
         <p className="mt-1">The rest of this page still works. This has been reported.</p>
-        <button
+        <Button
           type="button"
           onClick={this.retry}
-          className="mt-2 inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink hover:bg-hover"
+          variant="secondary" className="mt-2"
         >
           <RotateCw className="h-3.5 w-3.5" /> Try again
-        </button>
+        </Button>
       </div>
     );
   }
