@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { SERVER_API_URL } from '@/lib/api';
+import { fetchPublicJson } from '@/lib/public-fetch';
 
 /**
  * Public, pre-signup Business Pack preview (#272).
@@ -40,11 +42,8 @@ async function getPack(slug: string): Promise<PackPublicPreview | null> {
   // relative to the page) but a server-side fetch from this Node process has
   // no page to resolve against and would throw. SERVER_API_URL is always an
   // absolute, container-reachable address.
-  const res = await fetch(`${SERVER_API_URL}/api/v1/public/packs/registry/${encodeURIComponent(slug)}`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) return null;
-  return (await res.json()) as PackPublicPreview;
+  // Ticket #1291: not-found statuses are null (then notFound()); a 5xx or network failure throws to error.tsx, a retry.
+  return fetchPublicJson<PackPublicPreview>(`${SERVER_API_URL}/api/v1/public/packs/registry/${encodeURIComponent(slug)}`);
 }
 
 export async function generateMetadata({
@@ -54,7 +53,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const pack = await getPack(slug);
-  if (!pack) return { title: 'Pack not found' };
+  if (!pack) return { title: 'Page not found' };
   const title = `${pack.name} — a StoryOS Business Pack`;
   return {
     title,
@@ -86,24 +85,7 @@ export default async function PackPublicPreviewPage({
   const { slug } = await params;
   const pack = await getPack(slug);
 
-  if (!pack) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
-        <div className="w-full max-w-md rounded-[var(--radius-modal)] border border-border-default bg-card p-8 text-center">
-          <h1 className="text-lg font-semibold text-ink">Pack not found</h1>
-          <p className="mt-2 text-body text-muted">
-            This pack doesn&rsquo;t exist, or is no longer in the gallery.
-          </p>
-          <Link
-            href="/signup"
-            className="mt-6 inline-flex h-9 items-center justify-center rounded-[var(--radius-control)] bg-primary px-4 text-sm font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
-          >
-            Sign up for StoryOS
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  if (!pack) notFound();
 
   const sections = CONTENT_SECTIONS.map((s) => ({ ...s, items: pack.contents[s.key] })).filter(
     (s) => s.items.length > 0,

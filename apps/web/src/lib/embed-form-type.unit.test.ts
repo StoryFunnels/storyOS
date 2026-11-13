@@ -15,7 +15,7 @@ import { EMBED_FORM } from './embed-form-type';
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const stripComments = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-const page = stripComments(read('../app/f/[token]/page.tsx'));
+const page = stripComments(read('../app/f/[token]/public-form-client.tsx'));
 const preview = stripComments(read('../components/views/form-theme-preview.tsx'));
 
 /** Any Tailwind font-size or spacing utility: the properties that set proportions. */
@@ -28,7 +28,7 @@ describe('one source for the embedded form\'s proportions (#827)', () => {
 
   for (const role of Object.keys(EMBED_FORM) as Array<keyof typeof EMBED_FORM>) {
     it(`the real page AND the preview both use EMBED_FORM.${role}`, () => {
-      expect(page, 'app/f/[token]/page.tsx').toContain(`EMBED_FORM.${role}`);
+      expect(page, 'app/f/[token]/public-form-client.tsx').toContain(`EMBED_FORM.${role}`);
       expect(preview, 'form-theme-preview.tsx').toContain(`EMBED_FORM.${role}`);
     });
   }
@@ -46,7 +46,7 @@ describe('one source for the embedded form\'s proportions (#827)', () => {
       if (role === 'help') continue;
       // Match the whole class attribute (`className="…"`), not a substring: `field` is
       // a prefix of an unrelated element's longer class list.
-      expect(page.includes(`"${classes}"`), `app/f/[token]/page.tsx restates EMBED_FORM.${role} literally`).toBe(false);
+      expect(page.includes(`"${classes}"`), `app/f/[token]/public-form-client.tsx restates EMBED_FORM.${role} literally`).toBe(false);
     }
   });
 
