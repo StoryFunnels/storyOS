@@ -103,7 +103,7 @@ export function RenameInput({
       // #717 — plain `rounded` bypassed the radius token; --radius-control is the fix, not the `<Input>`
       // primitive (its `sm` size would also swap this compact px-1/py-0.5/border-strong treatment for a restyle).
       className={cn(
-        'w-full rounded-[var(--radius-control)] border border-border-strong bg-card px-1 py-0.5 text-body text-ink',
+        'w-full rounded-[var(--radius-control)] border border-border-strong bg-card px-1 py-0.5 text-label text-ink',
         className,
       )}
       value={value}
