@@ -74,7 +74,8 @@ export function describeStructuralEvent(type: string | undefined, payload: unkno
  *
  * A sentence is `lead`, then the bold `name` when the event honestly carries one, then `tail`, then a muted `detail`. The name is only
  * ever a name the event ITSELF carries (a title in its payload, an object's snapshot name): never a guess, never an id. The API does
- * not send a record's current title or database with an audit row (ticket #1287's gap), so a record event says "a record".
+ * not send a record's current title or database with an audit row (ticket #1287's gap, Marek's API), so a record event names its KIND of
+ * event ("Record updated"), never a placeholder noun standing where a name will go.
  *
  * An event code this table has no case for is not hidden and not guessed at: "Something changed", with the code as muted detail.
  * `audit-events.unit.test.ts` derives every code the API can emit from its source and fails on one with no case here.
@@ -105,15 +106,15 @@ const other = (p: Record<string, unknown>) => str(asRecord(p.other).title);
 
 /** Every event type that is not a space/database/view structural event (those go through `describeStructuralEvent`). */
 const PHRASES: Record<string, PhraseFn> = {
-  'record.created': (p) => sentence('Created a record', { name: str(p.title) }),
-  'record.updated': () => sentence('Updated a record'),
-  'record.deleted': () => sentence('Moved a record to Trash'),
-  'record.restored': () => sentence('Restored a record from Trash'),
-  'relation.linked': (p) => (other(p) ? sentence('Linked a record to', { name: other(p) }) : sentence('Linked two records')),
-  'relation.unlinked': (p) => (other(p) ? sentence('Unlinked a record from', { name: other(p) }) : sentence('Unlinked two records')),
-  'comment.created': () => sentence('Commented on a record'),
-  'reference.created': () => sentence('Mentioned another record'),
-  'document.edited': (p) => sentence(p.restored_from_version_id ? 'Restored an earlier version of a record’s description' : 'Edited a record’s description'),
+  'record.created': (p) => (str(p.title) ? sentence('Created', { name: str(p.title) }) : sentence('Record created')),
+  'record.updated': () => sentence('Record updated'),
+  'record.deleted': () => sentence('Record moved to Trash'),
+  'record.restored': () => sentence('Record restored from Trash'),
+  'relation.linked': (p) => (other(p) ? sentence('Linked to', { name: other(p) }) : sentence('Records linked')),
+  'relation.unlinked': (p) => (other(p) ? sentence('Unlinked from', { name: other(p) }) : sentence('Records unlinked')),
+  'comment.created': () => sentence('Comment added'),
+  'reference.created': () => sentence('Mention added'),
+  'document.edited': (p) => sentence(p.restored_from_version_id ? 'Earlier description version restored' : 'Description edited'),
   'attachment.added': (p) => sentence('Added an attachment', { name: str(p.filename) }),
   'button.pressed': (p) => (str(p.button) ? sentence('Pressed the button', { name: str(p.button) }) : sentence('Pressed a button')),
   'portal_recipient.created': (p) => sentence('Created a portal link for', { name: str(asRecord(p.object).name) }),
@@ -127,7 +128,7 @@ const PHRASES: Record<string, PhraseFn> = {
   'outward.slack_mention_mirror': (p) => sentence('Mirrored a mention to Slack', { detail: str(p.summary) }),
   'outward.mention_email': (p) => sentence('Emailed a member about a mention', { detail: str(p.summary) }),
   'outward.watcher_email': (p) => sentence('Emailed a watcher about a change', { detail: str(p.summary) }),
-  'outward.calendar_sync': (p) => sentence('Synced a record to the calendar', { detail: str(p.summary) }),
+  'outward.calendar_sync': (p) => sentence('Synced to the calendar', { detail: str(p.summary) }),
   'outward.linear_comment': (p) => sentence('Posted a comment to Linear', { detail: str(p.summary) }),
   'outward.ai_field': (p) => sentence('Recomputed an AI field', { detail: str(p.summary) }),
 };
