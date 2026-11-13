@@ -381,7 +381,7 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           Ticket #1273 item 5 — 28px tall, 12px text, 9px side padding: the prototype's measured field. */}
       <div className="shrink-0 border-b border-border-default px-2 py-1.5">
         <button
-          className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-faint hover:border-border-strong max-md:min-h-11"
+          className="flex h-7 w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-[9px] text-label text-faint hover:border-border-strong max-md:min-h-11"
           onClick={openPalette}
         >
           <Search className="h-3.5 w-3.5 shrink-0" />

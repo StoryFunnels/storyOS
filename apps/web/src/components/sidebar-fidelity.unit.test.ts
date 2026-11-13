@@ -68,3 +68,19 @@ describe('item 4: the workspace header is 40px, name 14px/700 with -0.01em track
     expect(switcher).toContain('max-md:h-11');
   });
 });
+
+describe('item 5: the search field is 28px tall with 12px text and 9px side padding', () => {
+  const field = sidebarSrc.slice(sidebarSrc.indexOf('onClick={openPalette}') - 420, sidebarSrc.indexOf('onClick={openPalette}'));
+
+  it('h-7, px-[9px], text-label', () => {
+    expect(field).toMatch(/flex h-7 w-full items-center gap-2/);
+    expect(field).toContain('px-[9px]');
+    expect(field).toContain('text-label');
+    expect(field).not.toMatch(/py-1 text-body/);
+  });
+
+  it('KEEPS the finger-sized phone minimum and the ⌘K hint', () => {
+    expect(field).toContain('max-md:min-h-11');
+    expect(sidebarSrc).toContain('{paletteKeys}');
+  });
+});
