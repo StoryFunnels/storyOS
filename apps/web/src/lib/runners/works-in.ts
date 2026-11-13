@@ -42,3 +42,17 @@ export function addWork(works: readonly WorkTarget[], target: WorkTarget): WorkT
 export function removeWork(works: readonly WorkTarget[], index: number): WorkTarget[] {
   return works.filter((_, i) => i !== index);
 }
+
+/**
+ * The databases a wake rule may watch: the ones named, plus every non-system database inside a WHOLE-SPACE chip (ticket #1289 item 7).
+ * Without the second half a space chip would leave the rule picker empty, which reads as "this agent can work nowhere".
+ */
+export function watchableDatabases(works: readonly WorkTarget[], databases: readonly DatabaseSummary[]): Extract<WorkTarget, { kind: 'db' }>[] {
+  const out = new Map<string, Extract<WorkTarget, { kind: 'db' }>>();
+  for (const w of works) if (w.kind === 'db') out.set(w.id, w);
+  const spaceIds = new Set(works.filter((w) => w.kind === 'space').map((w) => w.id));
+  for (const d of databases) {
+    if (!d.isSystem && spaceIds.has(d.spaceId) && !out.has(d.id)) out.set(d.id, { kind: 'db', id: d.id, name: d.name, spaceId: d.spaceId });
+  }
+  return [...out.values()];
+}
