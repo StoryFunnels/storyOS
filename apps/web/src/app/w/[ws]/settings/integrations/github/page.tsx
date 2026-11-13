@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, API_URL } from '@/lib/api';
@@ -14,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { SetupDisclosure } from '@/components/settings/setup-disclosure';
+import { AdvancedSection, SettingsBox, SettingsRow } from '@/components/settings/settings-chrome';
 import { GithubUntracked } from '@/components/settings/github-untracked';
 import { trackRequestBody } from '@/lib/github-untracked';
 import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
@@ -199,9 +199,9 @@ export default function GitHubIntegrationPage() {
       </div>
 
       {hasCredential && (
-        <div className="mb-5 flex flex-col gap-3" data-testid="github-watched">
-          <h2 className="text-body font-semibold text-ink">Watched repositories</h2>
-          {installRepos.isLoading && <p className="text-body text-muted">Loading repositories…</p>}
+        <div className="mb-5" data-testid="github-watched">
+        <SettingsBox title="Watched repositories">
+          {installRepos.isLoading && <p className="px-3.5 py-3 text-body text-muted">Loading repositories…</p>}
           {installRepos.data && (
             <RepoPicker
               key={(config.data?.repos ?? []).join('|')}
@@ -211,7 +211,7 @@ export default function GitHubIntegrationPage() {
               onSave={(sel) => saveSelection.mutate(sel)}
             />
           )}
-          <div>
+          <div className="border-t border-border-default px-3.5 py-2.5">
             <Button
               size="sm"
               onClick={() => sync.mutate()}
@@ -221,7 +221,7 @@ export default function GitHubIntegrationPage() {
             </Button>
           </div>
           {summary && (
-            <p className="text-body text-ink-secondary">
+            <p className="border-t border-border-default px-3.5 py-2.5 text-body text-ink-secondary">
               Imported <strong>{summary.issues}</strong> issues, <strong>{summary.pulls}</strong>{' '}
               pull requests, <strong>{summary.linked}</strong> auto-links.{' '}
               <Link
@@ -233,10 +233,12 @@ export default function GitHubIntegrationPage() {
               </Link>
             </p>
           )}
+        </SettingsBox>
         </div>
       )}
 
       <SetupDisclosure label="GitHub" connected={hasCredential}>
+        <div className="flex flex-col gap-[18px]">
         <IntegrationSetupGuide
           steps={[
             {
@@ -257,14 +259,13 @@ export default function GitHubIntegrationPage() {
           ]}
         />
         {/* GitHub App connect (#247) */}
-        <div className="mb-6 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
-          <h2 className="mb-1 text-prose font-semibold text-ink">Connect the GitHub App</h2>
-          <p className="mb-3 text-body text-muted">
+        <SettingsBox title="Connect the GitHub App">
+          <p className="px-3.5 pt-3 text-body text-muted">
             Connect an installation to post a backlink comment on linked pull requests and to pick
             which repositories StoryOS watches — no personal token required.
           </p>
           {connected ? (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 px-3.5 py-3">
               <div className="text-body text-ink-secondary">
                 Connected as installation <strong>{config.data?.installation_id}</strong>
                 {installRepos.data && (
@@ -282,19 +283,18 @@ export default function GitHubIntegrationPage() {
               </div>
             </div>
           ) : (
-            <p className="text-body text-muted">
+            <p className="px-3.5 pb-3 pt-2 text-body text-muted">
               Use Connect GitHub above to install the app, or save a personal access token below.
             </p>
           )}
-        </div>
+        </SettingsBox>
 
-        <div className="flex flex-col gap-3">
-          <h2 className="text-prose font-semibold text-ink">Or use a personal access token</h2>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gh-token">
+        <SettingsBox title="Or use a personal access token">
+          <div className="flex flex-col gap-1.5 px-3.5 pt-3">
+            <Label htmlFor="gh-token" className="text-label font-semibold">
               Personal access token {config.data?.has_token && '(saved — enter to replace)'}
             </Label>
-            <Input
+            <Input size="sm"
               id="gh-token"
               type="password"
               placeholder="ghp_… (repo read scope)"
@@ -302,8 +302,8 @@ export default function GitHubIntegrationPage() {
               onChange={(e) => setToken(e.target.value)}
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gh-repos">Repositories (one owner/name per line)</Label>
+          <div className="flex flex-col gap-1.5 px-3.5 pt-3">
+            <Label htmlFor="gh-repos" className="text-label font-semibold">Repositories (one owner/name per line)</Label>
             <Textarea
               id="gh-repos"
               rows={3}
@@ -316,7 +316,7 @@ export default function GitHubIntegrationPage() {
               onChange={(e) => setRepos(e.target.value)}
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 px-3.5 py-3">
             <Button
               size="sm"
               variant="secondary"
@@ -335,10 +335,12 @@ export default function GitHubIntegrationPage() {
               </Button>
             )}
           </div>
+        </SettingsBox>
         </div>
       </SetupDisclosure>
 
-      <ReviewSettingsSection ws={ws} />
+      {/* Ticket #1285: workspace-wide review settings belong to a connected GitHub, in the page's Advanced disclosure, last. */}
+      {hasCredential && <ReviewSettingsSection ws={ws} />}
     </div>
   );
 }
@@ -357,9 +359,9 @@ type ReviewSettingsPatch = Partial<Omit<ReviewSettings, 'notifications'>> & {
   notifications?: Partial<ReviewSettings['notifications']>;
 };
 
-/** Code & reviews settings (#43 AC 5): enable toggle, auto-convert draft PRs,
- * default merge strategy, code theme/font, review notifications. Plus GitLab,
- * tracked as an explicit "coming soon" rather than silently absent. */
+/** Code & reviews settings (#43 AC 5): enable toggle, auto-convert draft PRs, default merge strategy, code theme/font, review
+ * notifications. Ticket #1285: shown only once GitHub is connected, in an Advanced disclosure; the GitLab "coming soon" placeholder row is gone
+ * (a user-facing row for something that does not exist). */
 function ReviewSettingsSection({ ws }: { ws: string }) {
   const qc = useQueryClient();
   const settings = useQuery({
@@ -408,124 +410,83 @@ function ReviewSettingsSection({ ws }: { ws: string }) {
   const s = settings.data;
   if (!s) return null;
 
+  const SELECT =
+    'h-8 rounded-[var(--radius-control)] border border-border-default bg-card px-2 text-body text-ink';
+
   return (
-    <div className="mt-8 border-t border-border-default pt-6">
-      <h2 className="mb-1 text-prose font-semibold text-ink">Code &amp; reviews</h2>
-      <p className="mb-4 text-body text-muted">
-        Settings for the in-app Reviews surface (#43) — approving, requesting changes, and reading
-        diffs without leaving StoryOS.
-      </p>
-
-      <div className="flex flex-col gap-4 rounded-[var(--radius-control)] border border-border-default bg-card p-4">
-        <Row
-          label="Enable Code & reviews"
-          hint="Turns off the Reviews sidebar section and its API for this workspace."
+    <div className="mt-5" data-testid="github-review-settings">
+      <AdvancedSection title="Code and reviews" summary="review notifications and code display, for the whole workspace">
+        <SettingsRow
+          title="Show Code & reviews"
+          description="Pull requests, diffs and reviews inside StoryOS, under Reviews in the sidebar. Turn off to hide them for everyone in this workspace."
+          inlineControls
         >
-          <Switch
-            checked={s.enabled}
-            onCheckedChange={(v) => save.mutate({ enabled: v })}
-            aria-label="Enable Code & reviews"
-          />
-        </Row>
+          <Switch checked={s.enabled} onCheckedChange={(v) => save.mutate({ enabled: v })} aria-label="Enable Code & reviews" />
+        </SettingsRow>
 
-        <Row
-          label="Auto-convert draft PRs"
-          hint="Submitting a review on a draft PR also marks it ready for review on GitHub."
+        <SettingsRow
+          title="Auto-convert draft PRs"
+          description="Submitting a review on a draft PR also marks it ready for review on GitHub."
+          inlineControls
         >
           <Switch
             checked={s.auto_convert_draft}
             onCheckedChange={(v) => save.mutate({ auto_convert_draft: v })}
             aria-label="Auto-convert draft PRs"
           />
-        </Row>
+        </SettingsRow>
 
-        <Row label="Default merge strategy">
+        <SettingsRow title="Default merge strategy">
           <select
             value={s.default_merge_strategy}
-            onChange={(e) =>
-              save.mutate({
-                default_merge_strategy: e.target.value as ReviewSettings['default_merge_strategy'],
-              })
-            }
-            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-body text-ink"
+            onChange={(e) => save.mutate({ default_merge_strategy: e.target.value as ReviewSettings['default_merge_strategy'] })}
+            className={SELECT}
           >
             <option value="squash">Squash and merge</option>
             <option value="merge">Create a merge commit</option>
             <option value="rebase">Rebase and merge</option>
           </select>
-        </Row>
+        </SettingsRow>
 
-        <Row label="Code theme">
+        <SettingsRow title="Code theme" description="How diffs look on records">
           <select
             value={s.code_theme}
-            onChange={(e) =>
-              save.mutate({ code_theme: e.target.value as ReviewSettings['code_theme'] })
-            }
-            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-body text-ink"
+            onChange={(e) => save.mutate({ code_theme: e.target.value as ReviewSettings['code_theme'] })}
+            className={SELECT}
           >
             <option value="auto">Match system</option>
             <option value="light">Light</option>
             <option value="dark">Dark</option>
           </select>
-        </Row>
+        </SettingsRow>
 
-        <Row label="Code font">
+        <SettingsRow title="Code font">
           <select
             value={s.code_font}
-            onChange={(e) =>
-              save.mutate({ code_font: e.target.value as ReviewSettings['code_font'] })
-            }
-            className="rounded-[var(--radius-control)] border border-border-default bg-surface px-2 py-1 text-body text-ink"
+            onChange={(e) => save.mutate({ code_font: e.target.value as ReviewSettings['code_font'] })}
+            className={SELECT}
           >
             <option value="mono">Monospace</option>
             <option value="mono_lig">Monospace (ligatures)</option>
             <option value="system">System font</option>
           </select>
-        </Row>
+        </SettingsRow>
 
-        <div className="flex flex-col gap-4 border-t border-border-default pt-3">
-          <p className="text-label font-medium uppercase tracking-wider text-faint">
-            Review notifications
-          </p>
-          <Row label="Comments & mentions">
-            <Switch
-              checked={s.notifications.comments_mentions}
-              onCheckedChange={(v) => save.mutate({ notifications: { comments_mentions: v } })}
-              aria-label="Notify on comments and mentions"
-            />
-          </Row>
-          <Row label="Review requests">
-            <Switch
-              checked={s.notifications.review_requests}
-              onCheckedChange={(v) => save.mutate({ notifications: { review_requests: v } })}
-              aria-label="Notify on review requests"
-            />
-          </Row>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-border-default pt-3 opacity-60">
-          {/* Ticket #1190: the explanation was a hover-only tooltip on an icon; the #974 rule is that explanations are visible text. */}
-          <span className="flex flex-col text-body text-ink-secondary">
-            GitLab
-            <span className="text-label text-muted">Planned, not built yet: this row is a placeholder.</span>
-          </span>
-          <span className="rounded-full bg-surface px-2 py-0.5 text-meta text-muted">
-            Coming soon
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="flex flex-col">
-        <span className="text-body text-ink-secondary">{label}</span>
-        {hint && <span className="text-meta text-faint">{hint}</span>}
-      </span>
-      {children}
+        <SettingsRow title="Notify on comments and mentions" inlineControls>
+          <Switch
+            checked={s.notifications.comments_mentions}
+            onCheckedChange={(v) => save.mutate({ notifications: { comments_mentions: v } })}
+            aria-label="Notify on comments and mentions"
+          />
+        </SettingsRow>
+        <SettingsRow title="Notify when a review is requested" inlineControls>
+          <Switch
+            checked={s.notifications.review_requests}
+            onCheckedChange={(v) => save.mutate({ notifications: { review_requests: v } })}
+            aria-label="Notify on review requests"
+          />
+        </SettingsRow>
+      </AdvancedSection>
     </div>
   );
 }
@@ -552,12 +513,12 @@ function RepoPicker({
     });
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="max-h-56 overflow-y-auto rounded-[var(--radius-control)] border border-border-default">
+    <div className="flex flex-col">
+      <div className="max-h-56 overflow-y-auto">
         {repos.map((r) => (
           <label
             key={r.full_name}
-            className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-body text-ink hover:bg-hover"
+            className="flex cursor-pointer items-center gap-2 px-3.5 py-1.5 text-body text-ink hover:bg-hover"
           >
             <input
               type="checkbox"
@@ -571,7 +532,7 @@ function RepoPicker({
           </label>
         ))}
       </div>
-      <div>
+      <div className="border-t border-border-default px-3.5 py-2.5">
         <Button size="sm" variant="secondary" disabled={saving} onClick={() => onSave([...chosen])}>
           {saving ? 'Saving…' : 'Save watched repositories'}
         </Button>

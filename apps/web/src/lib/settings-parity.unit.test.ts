@@ -278,7 +278,7 @@ const PINS: Record<string, Counts> = {
   "app/w/[ws]/settings/general/page.tsx": { button: 2, field: 5, disclosure: 1 },
   "app/w/[ws]/settings/integrations/[provider]/page.tsx": { link: 1 },
   "app/w/[ws]/settings/integrations/delegate-agent/page.tsx": { button: 1, link: 1 },
-  "app/w/[ws]/settings/integrations/github/page.tsx": { button: 5, link: 1, field: 3, nativeSelect: 3, switch: 4 },
+  "app/w/[ws]/settings/integrations/github/page.tsx": { button: 5, link: 1, field: 3, nativeSelect: 3, switch: 4, disclosure: 1 }, // ticket #1285: the review settings sit in the shared AdvancedSection
   "app/w/[ws]/settings/integrations/google-calendar/page.tsx": { button: 8, link: 1, field: 2, nativeSelect: 8, confirm: 1 },
   "app/w/[ws]/settings/integrations/linear/page.tsx": { button: 4, field: 2, nativeSelect: 1, switch: 2, confirm: 1 },
   "app/w/[ws]/settings/integrations/page.tsx": { link: 4 }, // ticket #1285: the Add-row Connect is the link itself (was a Button inside a Link)

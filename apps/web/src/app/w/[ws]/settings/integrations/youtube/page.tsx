@@ -339,7 +339,7 @@ export default function YouTubeIntegrationPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="youtube-database-name">Database name</Label>
-              <Input
+              <Input size="sm"
                 id="youtube-database-name"
                 value={databaseName}
                 maxLength={100}

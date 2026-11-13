@@ -279,7 +279,7 @@ export default function LinearIntegrationPage() {
             <Label htmlFor="lin-key">
               API key {cfg?.has_key && '(saved — enter to replace)'}
             </Label>
-            <Input
+            <Input size="sm"
               id="lin-key"
               type="password"
               placeholder="lin_api_… (Settings → API in Linear)"
@@ -289,7 +289,7 @@ export default function LinearIntegrationPage() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="lin-teams">Team keys (comma-separated; empty = all teams)</Label>
-            <Input
+            <Input size="sm"
               id="lin-teams"
               placeholder="ENG, OPS"
               value={teamKeys}

@@ -606,7 +606,7 @@ export default function GoogleCalendarIntegrationPage() {
           </p>
           <div className="space-y-1.5">
             <Label htmlFor="calendar-new-field-name">Field name</Label>
-            <Input
+            <Input size="sm"
               id="calendar-new-field-name"
               value={fieldDialog?.name ?? ''}
               maxLength={100}
@@ -649,7 +649,7 @@ export default function GoogleCalendarIntegrationPage() {
             />
             <div className="space-y-1.5">
               <Label htmlFor="calendar-database-name">Database name</Label>
-              <Input
+              <Input size="sm"
                 id="calendar-database-name"
                 value={templateName}
                 maxLength={100}

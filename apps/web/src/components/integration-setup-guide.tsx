@@ -1,5 +1,6 @@
 import { CheckCircle2 } from 'lucide-react';
 import { setupStepStates } from '@/lib/integration-setup';
+import { SettingsBox } from '@/components/settings/settings-chrome';
 import { cn } from '@/lib/utils';
 
 export interface IntegrationSetupStep {
@@ -20,51 +21,38 @@ export function IntegrationSetupGuide({
   const states = setupStepStates(steps.map((step) => step.complete));
 
   return (
-    <section
-      className={cn(
-        'rounded-[var(--radius-card)] border border-border-default bg-card p-4',
-        className,
-      )}
-      aria-label={title}
-    >
-      <h2 className="text-label font-semibold uppercase tracking-wide text-muted">{title}</h2>
-      <ol className="mt-3 grid gap-2 sm:grid-flow-col sm:auto-cols-fr">
+    <SettingsBox title={title} className={className}>
+      <ol>
         {steps.map((step, index) => {
           const state = states[index];
           return (
             <li
               key={step.label}
+              data-state={state}
               className={cn(
-                'rounded-[var(--radius-control)] border p-3',
-                state === 'current'
-                  ? 'border-border-strong bg-hover'
-                  : 'border-border-default bg-page',
-                state === 'upcoming' && 'opacity-70',
+                'flex min-h-[46px] items-center gap-3 border-t border-border-default px-3.5 py-2 text-body first:border-t-0',
+                state === 'current' && 'bg-hover',
               )}
             >
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-meta font-semibold',
-                    state === 'current' && 'bg-primary text-[var(--text-on-dark)]',
-                    state === 'complete' && 'border border-border-default bg-hover text-ink',
-                    state === 'upcoming' && 'bg-hover text-muted',
-                  )}
-                >
-                  {state === 'complete' ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
-                </span>
-                <p className="text-label font-semibold text-ink">{step.label}</p>
-                {state === 'current' && (
-                  <span className="ml-auto rounded-full bg-card px-2 py-0.5 text-micro font-medium text-ink">
-                    Next
-                  </span>
+              <span
+                className={cn(
+                  'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-meta font-semibold',
+                  state === 'current' && 'bg-primary text-[var(--text-on-dark)]',
+                  state === 'complete' && 'border border-border-default bg-hover text-ink',
+                  state === 'upcoming' && 'bg-hover text-muted',
                 )}
-              </div>
-              <p className="mt-2 text-[11px] leading-4 text-muted">{step.description}</p>
+              >
+                {state === 'complete' ? <CheckCircle2 className="h-3.5 w-3.5" aria-label="Done" /> : index + 1}
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+                <b className="font-medium text-ink">{step.label}</b>
+                <span className="text-label leading-[1.35]! text-muted">{step.description}</span>
+              </span>
+              {state === 'current' && <span className="shrink-0 text-label font-medium text-ink-secondary">Next</span>}
             </li>
           );
         })}
       </ol>
-    </section>
+    </SettingsBox>
   );
 }
