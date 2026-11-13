@@ -266,3 +266,63 @@ describe('isCompletedState (#1017): finished is the option\'s state CATEGORY', (
     expect(isCompletedState(wf, ['c'])).toBe(true);
   });
 });
+
+import { databaseLabels } from './my-work-model';
+describe('databaseLabels (ticket #1280 item 2)', () => {
+  const dbs = [
+    { id: 'a', name: 'Tasks' },
+    { id: 'b', name: 'tasks ' },
+    { id: 'c', name: 'Issues' },
+  ];
+  const space = (id: string) => ({ a: 'Team', b: 'Client Work', c: 'Team' } as Record<string, string>)[id];
+  it('qualifies only names shared by another database, case- and space-insensitively', () => {
+    const l = databaseLabels(dbs, space);
+    expect(l.get('a')).toBe('Team / Tasks');
+    expect(l.get('b')).toBe('Client Work / tasks ');
+    expect(l.get('c')).toBe('Issues');
+  });
+  it('never guesses a space that is not known yet: a shared name stays as it is', () => {
+    expect(databaseLabels(dbs, () => undefined).get('a')).toBe('Tasks');
+    expect(databaseLabels(dbs, (id) => (id === 'a' ? 'Team' : undefined)).get('b')).toBe('tasks ');
+  });
+  it('a single database is never qualified', () => {
+    expect(databaseLabels([{ id: 'x', name: 'Tasks' }], () => 'Team').get('x')).toBe('Tasks');
+  });
+});
+
+import { doneHeading, splitDone } from './my-work-model';
+describe('splitDone and doneHeading (ticket #1280 item 7)', () => {
+  const r = (id: string, completed: boolean) => ({ id, facets: { completed } });
+  it('splits by the finished flag, drops nothing and keeps the order inside each half', () => {
+    const rows = [r('a', false), r('b', true), r('c', false), r('d', true), r('e', false)];
+    const { open, done } = splitDone(rows);
+    expect(open.map((x) => x.id)).toEqual(['a', 'c', 'e']);
+    expect(done.map((x) => x.id)).toEqual(['b', 'd']);
+    expect(open.length + done.length).toBe(rows.length);
+  });
+  it('KEEPS an all-open list whole and gives an empty Done', () => {
+    const rows = [r('a', false), r('b', false)];
+    expect(splitDone(rows)).toEqual({ open: rows, done: [] });
+  });
+  it('KEEPS the open rows in sortRows order after the split (due date order is untouched)', () => {
+    const mk = (id: string, due: string | null, completed: boolean) => ({
+      record: { id, title: id, number: null, updated_at: '2026-11-01T00:00:00Z', values: {} },
+      facets: { completed, due } as never,
+    });
+    const rows = [mk('late', '2026-12-01', false), mk('doneEarly', '2026-01-01', true), mk('soon', '2026-11-14', false)];
+    const { open, done } = splitDone(sortRows(rows, 'due'));
+    expect(open.map((x) => x.record.id)).toEqual(['soon', 'late']);
+    expect(done.map((x) => x.record.id)).toEqual(['doneEarly']);
+  });
+  it('the heading is "Done · N" with N the loaded finished count', () => {
+    expect(doneHeading(3, false)).toBe('Done · 3');
+    expect(doneHeading(1, false)).toBe('Done · 1');
+  });
+  it('a cut list says the number is a lower bound: "Done · N+", never a bare N', () => {
+    expect(doneHeading(3, true)).toBe('Done · 3+');
+  });
+  it('shows no heading when no finished row is loaded (no confident zero, no empty group)', () => {
+    expect(doneHeading(0, false)).toBeNull();
+    expect(doneHeading(0, true)).toBeNull();
+  });
+});
