@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SECTION_LABEL } from './section-label';
 import { ROW_LABEL_CLS, ROW_VALUE_CLS } from './scalar-fields';
+import { describeScalarChange, formatActivityValue, isEmptyActivityValue } from './activity-format';
+import { DEFAULT_REGIONAL, formatDate, formatDateTime } from '@/lib/format';
 
 const read = (f: string) => readFileSync(join(__dirname, f), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
 
@@ -82,5 +84,61 @@ describe('item 3: the record title is 24px / 700 with -0.02em tracking (20px on 
     expect(title).toContain('overflow-hidden');
     expect(title).toContain('placeholder:text-faint');
     expect(title).toContain('read-only:cursor-default');
+  });
+});
+
+const nobody = () => undefined;
+const dates = { date: (v: unknown) => formatDate(v, DEFAULT_REGIONAL), dateTime: (v: unknown) => formatDateTime(v, DEFAULT_REGIONAL) };
+
+describe('item 7: Activity writes a date the way the date field above it does', () => {
+  it('a date value goes through the shared formatter, not as the stored YYYY-MM-DD', () => {
+    const shown = formatActivityValue('2026-11-13', 'date', nobody, dates);
+    expect(shown).toBe(formatDate('2026-11-13', DEFAULT_REGIONAL)); // identical to what the cell prints
+    expect(shown).not.toBe('2026-11-13');
+  });
+
+  it('a system timestamp shows day and time (the cell\'s own split); a plain date shows the day only', () => {
+    expect(formatActivityValue('2026-11-13T09:30:00.000Z', 'created_at', nobody, dates)).toBe(formatDateTime('2026-11-13T09:30:00.000Z', DEFAULT_REGIONAL));
+    expect(formatActivityValue('2026-11-13T09:30:00.000Z', 'date', nobody, dates)).toBe(formatDate('2026-11-13T09:30:00.000Z', DEFAULT_REGIONAL));
+  });
+
+  it('KEEPS: a text field that looks like a date stays as typed; an unreadable date and a caller with no formatter show the stored string; empty stays "empty"', () => {
+    expect(formatActivityValue('2026-11-13', 'text', nobody, dates)).toBe('2026-11-13');
+    expect(formatActivityValue('not a date', 'date', nobody, dates)).toBe('not a date'); // never blank
+    expect(formatActivityValue('2026-11-13', 'date', nobody)).toBe('2026-11-13');
+    expect(formatActivityValue(null, 'date', nobody, dates)).toBe('empty');
+  });
+
+  it('the panel hands the formatter to every scalar change', () => {
+    expect(read('panels.tsx')).toMatch(/describeScalarChange\(change, fieldTypeFor\(change\.field\), \(id\) => nameById\.get\(id\), dates\)/);
+  });
+});
+
+describe('item 8: an empty "from" is a set, an empty "to" is a clear', () => {
+  it('empty old value: "set X to Y", never "X: → Y"', () => {
+    for (const from of [null, undefined, '', []]) {
+      expect(describeScalarChange({ from, to: 'Refresh emails' }, 'title', nobody)).toEqual({ kind: 'set', to: 'Refresh emails' });
+    }
+  });
+
+  it('empty new value: "cleared X (was Y)"', () => {
+    expect(describeScalarChange({ from: 'kurz 1', to: '' }, 'text', nobody)).toEqual({ kind: 'cleared', from: 'kurz 1' });
+    expect(describeScalarChange({ from: ['a'], to: [] }, 'multi_select', nobody)).toEqual({ kind: 'cleared', from: 'a' });
+  });
+
+  it('KEEPS: value to value is still "A → B", and 0 / false are values, not empty', () => {
+    expect(describeScalarChange({ from: 'Todo', to: 'Done' }, 'select', nobody)).toEqual({ kind: 'changed', from: 'Todo', to: 'Done' });
+    expect(describeScalarChange({ from: null, to: 0 }, 'number', nobody)).toEqual({ kind: 'set', to: '0' });
+    expect(describeScalarChange({ from: 0, to: null }, 'number', nobody)).toEqual({ kind: 'cleared', from: '0' });
+    expect(describeScalarChange({ from: false, to: true }, 'checkbox', nobody)).toEqual({ kind: 'changed', from: 'false', to: 'true' });
+    expect(isEmptyActivityValue(0)).toBe(false);
+    expect(isEmptyActivityValue(false)).toBe(false);
+  });
+
+  it('the panel words the three kinds, and the rich-text diff keeps its own "changed Field:" lead', () => {
+    const panels = read('panels.tsx');
+    expect(panels).toMatch(/line\.kind === 'set'\) return <>set \{fieldLabel\} to/);
+    expect(panels).toMatch(/line\.kind === 'cleared'\) return <>cleared \{fieldLabel\} \(was/);
+    expect(panels).toMatch(/changed \{fieldLabel\}:\{' '\}\s*\{lines\.map/);
   });
 });
