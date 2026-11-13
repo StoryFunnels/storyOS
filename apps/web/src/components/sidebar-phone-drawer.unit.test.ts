@@ -43,11 +43,14 @@ describe('the phone drawer scrolls and is tappable (#1065)', () => {
     expect(PHONE_TAP).toContain('max-md:w-11');
   });
 
-  it('the other drawer controls reach 44px: search, close, switch workspace, From template, New space', () => {
+  it('the other drawer controls reach 44px: search, close, switch workspace, and the Spaces + menu that now holds From template and New space', () => {
     expect(sidebar).toMatch(/hover:border-border-strong max-md:min-h-11/); // search
     expect(sidebar).toMatch(/max-md:min-w-11 max-md:justify-center md:hidden/); // close
     expect(sidebar).toMatch(/hover:opacity-90 max-md:h-11 max-md:w-11/); // switch workspace
-    expect(sidebar.match(/hover:bg-hover max-md:min-h-11/g)?.length).toBe(2); // From template, New space
+    // Ticket #1273 item 6: From template and New space left the tree as 44px rows and became items of the Spaces + menu,
+    // whose trigger is a PHONE_TAP box (asserted above) and whose popover is the shared phone sheet.
+    expect(sidebar.match(/hover:bg-hover max-md:min-h-11/g)).toBeNull();
+    expect(readFileSync(fileURLToPath(new URL('./sidebar-spaces-add-menu.tsx', import.meta.url)), 'utf8')).toContain('PHONE_TAP');
   });
 
   it('the Quick add button sits UNDER the drawer scrim, so a tap meant to dismiss the drawer does not open Quick add', () => {
