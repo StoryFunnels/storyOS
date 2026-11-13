@@ -1,13 +1,13 @@
 'use client';
 
 import { entityGateView } from '@/components/quill/entity-gate';
-import { Plus } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
-import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { apiErrorMessage } from '@/lib/api';
@@ -15,24 +15,29 @@ import { asksBeforeLine, asksBeforePhrases, summaryFor } from '@/lib/runners/age
 import { queuedRunsLine, recordsWaitingCount, runnerLineState } from '@/lib/runners/runner-state';
 import type { AgentView } from '@/lib/runners/agents';
 import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
-import { canSeeRunnerDetails, canHireAgents, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
+import { canSeeRunnerDetails, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
 import { confirmLetItThink, runWithoutAiToast } from '@/lib/runners/let-it-think-copy';
 import { letItThinkToast, NON_AI, offersLetItThink, offersRunNow, offersRunWithoutAi, openManualWake, OWN_AI, runNowToast, soleOnlineRunner } from '@/lib/runners/let-it-think';
 import { useAgentsDatabaseAccess, useRunNow, useSetAiMode } from '@/lib/runners/use-let-it-think';
-import { useWorkspace } from '@/lib/queries';
+import { useDatabases, useWorkspace } from '@/lib/queries';
+import type { DatabaseSummary } from '@/lib/queries';
+import { AGENT_SYSTEM_LABELS, agentSystemDatabases } from '@/lib/system-databases';
 import { canChangeRunsOn, ownerRunners } from '@/lib/runners/runs-on';
 import { canEditAgentSettings } from '@/lib/runners/agent-settings';
 import { clockTime, limitBrand, shortDate, toolName } from '@/lib/runners/words';
 import { catchUpCount, offersCatchUp } from '@/lib/runners/catch-up';
 import { CATCH_UP_FAILED, startedToast } from '@/lib/runners/catch-up-copy';
 import { useCatchUp, useCatchUpScope } from '@/lib/runners/use-catch-up';
-import { HireDialog } from './hire-dialog';
+import { useAgentScope, useAgentWakeLines } from '@/lib/runners/use-agent-facts';
+import { canReadWakeFacts } from '@/lib/runners/wake-facts';
+import { isAgentWorkable } from '@/lib/runners/works-in';
 import { NonAiLine, RunNowButton } from './let-it-think';
 import { FirstRunCard } from './first-run-card';
 import { AgentAdvanced } from './agent-advanced';
 import { CatchUpBox } from './catch-up-box';
 import { RunList } from './run-list';
 import { RunnerUnknownLine } from './runner-unknown-line';
+import { WakesWhenValue, WorksInValue } from './agent-wake-facts';
 import { RunsOnLine } from './runs-on-line';
 
 /**
@@ -56,7 +61,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const members = useMembers(ws, true);
   const m = useRunnerMutations(ws);
   const saveSettings = useSaveAgentSettings(ws, dbId);
-  const [hireOpen, setHireOpen] = useState(false);
+  const databases = useDatabases(ws);
   const workspaceInfo = useWorkspace(ws).data;
   const role = workspaceInfo?.role;
   const masked = !canSeeRunnerDetails(role);
@@ -71,6 +76,11 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const catchUpWords = useCatchUpScope(ws, agentId, catchUp !== null);
   const catchUpMutation = useCatchUp(ws);
   const [catchUpError, setCatchUpError] = useState<string | null>(null);
+  // Ticket #1289: what wakes it and where it works. Both reads are admin-only on the server, so nobody else is asked and nobody
+  // else sees the rows (hidden, never "nothing configured").
+  const readsFacts = canReadWakeFacts(role);
+  const wakeLines = useAgentWakeLines(ws, agentId, readsFacts);
+  const scope = useAgentScope(ws, agentId, readsFacts);
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
   // #1291 — an agent that is not in the list this person may read is the 404 page (the same one every other missing thing gets);
@@ -136,18 +146,16 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
 
   return (
     <div className="mx-auto flex max-w-[700px] flex-col gap-[18px] p-4 sm:p-8" data-testid="agent-page">
+      {/* Ticket #1289 item 2: the way back. Hiring belongs to the list, not to one agent's page. */}
+      <Link href={`/w/${ws}/agents`} className="-mb-1 w-fit text-label font-semibold text-primary-text hover:underline" data-testid="agent-back">
+        ← Agents
+      </Link>
       <div className="flex items-start gap-3">
-        <AgentAvatar name={agent.name} size="lg" />
+        <AgentAvatar name={agent.name} size="lg" shape="circle" />
         <div className="min-w-0 flex-1">
           <h1 className="m-0 text-[20px] font-bold leading-[24px] tracking-[-0.02em] text-ink">{agent.name}</h1>
           <p className="mt-0.5 text-body leading-normal text-muted">{agent.hiredAt ? `Hired ${shortDate(agent.hiredAt)} · ` : ''}Reports to {ownerName}</p>
         </div>
-        {dbId && canHireAgents(role) && (
-          <Button type="button" variant="secondary" size="sm" onClick={() => setHireOpen(true)}>
-            <Plus className="h-[13px] w-[13px]" aria-hidden />
-            Hire an agent
-          </Button>
-        )}
       </div>
 
       {usesRunner ? (
@@ -221,7 +229,11 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
         )
       )}
 
-      <Facts agent={agent} />
+      <Facts
+        agent={agent}
+        wakes={readsFacts ? <WakesWhenValue state={wakeLines} ws={ws} linkDatabaseId={firstDatabaseId(wakeLines, scope, databases.data ?? [])} /> : null}
+        works={readsFacts ? <WorksInValue state={scope} ws={ws} databases={databases.data} /> : null}
+      />
       {/* Ticket #1180 — only an agent a Runner serves has tools and a model to choose; a guest is never shown it (same gate as the machine name). */}
       {usesRunner && !masked && (
         <AgentAdvanced
@@ -238,14 +250,49 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
         />
       )}
       <RunList masked={masked} ws={ws} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
-      {dbId && canHireAgents(role) && <HireDialog ws={ws} agentsDbId={dbId} open={hireOpen} onOpenChange={setHireOpen} />}
+      <SystemTables ws={ws} databases={databases.data ?? []} />
     </div>
   );
 }
 
-function Facts({ agent }: { agent: AgentView }) {
-  const rows: Array<[string, string]> = [];
+/** Ticket #1289 item 8: "Agent runs" and "Triggers" left the sidebar; the raw tables stay one link from here. Absent until the database exists (or for anyone who cannot open it). */
+function SystemTables({ ws, databases }: { ws: string; databases: readonly DatabaseSummary[] }) {
+  const sys = agentSystemDatabases(databases);
+  const links = (['runs', 'agent triggers'] as const).flatMap((k) => (sys[k] ? [{ label: AGENT_SYSTEM_LABELS[k], id: sys[k]!.id }] : []));
+  if (links.length === 0) return null;
+  return (
+    <p className="m-0 text-label text-muted" data-testid="agent-system-tables">
+      The same records as tables:{' '}
+      {links.map((l, i) => (
+        <span key={l.id}>
+          {i > 0 && ' · '}
+          <Link className="font-semibold text-primary-text hover:underline" href={`/w/${ws}/d/${l.id}`}>
+            {l.label}
+          </Link>
+        </span>
+      ))}
+      .
+    </p>
+  );
+}
+
+/** Where the "Automations" link goes: the database of its first trigger, else the first database it works in. Automations has no page of its own, it lives in a database's menu. */
+function firstDatabaseId(wakes: ReturnType<typeof useAgentWakeLines>, scope: ReturnType<typeof useAgentScope>, listed: readonly DatabaseSummary[]): string | null {
+  if (wakes.status === 'ready') {
+    const hit = wakes.value.find((l) => l.databaseId);
+    if (hit?.databaseId) return hit.databaseId;
+  }
+  if (scope.status !== 'ready') return null;
+  // The same filter as the Works in row: never link Automations to a system database the row does not list (ticket #1296 is the real fix).
+  const sys = new Set(listed.filter((l) => !isAgentWorkable(l)).map((l) => l.id));
+  return scope.value.databases?.find((d) => !sys.has(d.id))?.id ?? null;
+}
+
+function Facts({ agent, wakes, works }: { agent: AgentView; wakes: ReactNode; works: ReactNode }) {
+  const rows: Array<[string, ReactNode]> = [];
   if (agent.job) rows.push(['Its job', agent.job]);
+  if (wakes) rows.push(['Wakes when', wakes]);
+  if (works) rows.push(['Works in', works]);
   if (agent.asksBefore.length) rows.push(['Asks before', asksBeforeLine(agent.asksBefore)]);
   if (rows.length === 0) return null;
   return (

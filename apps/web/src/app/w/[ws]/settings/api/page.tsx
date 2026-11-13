@@ -14,7 +14,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRevokeToken } from '@/lib/settings-confirmations';
 import { canConnectAi } from '@/lib/settings-nav';
 import { useWorkspace } from '@/lib/queries';
-import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal, SettingsRow } from '@/components/settings/settings-chrome';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
 
@@ -45,13 +45,10 @@ export default function ApiSettingsPage() {
   }
   if (!canConnectAi(workspace.data.role)) {
     return (
-      <div className="p-6" data-testid="guests-cannot">
-        <h1 className="text-title font-semibold text-ink">API tokens</h1>
-        <p className="mt-2 max-w-prose text-body text-muted">
-          API tokens are for workspace members and admins. You are a guest here, so you cannot create or manage them. Ask a workspace admin if you need
-          access.
-        </p>
-      </div>
+      <SettingsRefusal title="API tokens" testId="guests-cannot">
+        API tokens are for workspace members and admins. You are a guest here, so you cannot create or manage them. Ask a workspace admin if you need
+        access.
+      </SettingsRefusal>
     );
   }
   return <ApiTokensContent />;
@@ -149,6 +146,16 @@ function ApiTokensContent() {
             ))}
         </SettingsBox>
 
+        {/* Tokens belong to a person, not a workspace, so the other workspaces' are one tick away; the line says where they went. */}
+        {ready && elsewhere.length > 0 ? (
+          <label className="flex items-center gap-2 text-label text-muted">
+            <input type="checkbox" checked={showOthers} onChange={(e) => setShowOthers(e.target.checked)} />
+            Show tokens from my other workspaces ({elsewhere.length})
+          </label>
+        ) : (
+          <p className="text-label text-muted">Tokens you made in other workspaces are listed there, not here.</p>
+        )}
+
         <AdvancedSection title="How to use a token" summary="header, what it can do, self-managed">
           <p className="px-3.5 py-3 text-body text-muted">
             Shown once when created. A personal access token acts as you: anything you can do in the app, the token can do through the API.
@@ -159,16 +166,6 @@ function ApiTokensContent() {
             . On a self-managed StoryOS, use your own address.
           </p>
         </AdvancedSection>
-
-        {/* Tokens belong to a person, not a workspace, so the other workspaces' are one tick away; the line says where they went. */}
-        {ready && elsewhere.length > 0 ? (
-          <label className="flex items-center gap-2 text-label text-muted">
-            <input type="checkbox" checked={showOthers} onChange={(e) => setShowOthers(e.target.checked)} />
-            Show tokens from my other workspaces ({elsewhere.length})
-          </label>
-        ) : (
-          <p className="text-label text-muted">Tokens you made in other workspaces are listed there, not here.</p>
-        )}
       </SettingsPageBody>
     </div>
   );

@@ -20,7 +20,7 @@ describe('item 1: one interactive element per Integrations row', () => {
   });
 
   it('the Add-row Connect/Open is a link wearing the shared button classes', () => {
-    expect(hub).toMatch(/<Link[^>]*className=\{buttonVariants\(\{ size: 'sm', variant: 'secondary' \}\)\}/);
+    expect(hub).toMatch(/<Link[^>]*className=\{buttonVariants\(\{ variant: 'secondary' \}\)\}/);
   });
 
   it('KEEPS: the connected rows are one link each, and the Details link stays for a state with no Connect', () => {
@@ -68,7 +68,7 @@ describe('item 3: API tokens and Webhooks use the shared Settings chrome', () =>
 
   it('the shared header lets a long lead wrap in its own column, so the action stays on the title line', () => {
     const chrome = read('components/settings/settings-chrome.tsx');
-    expect(chrome).toMatch(/min-w-0 flex-1 basis-\[min\(100%,24rem\)\]/);
+    expect(chrome).toMatch(/min-w-0 flex-1 basis-72/);
   });
 });
 

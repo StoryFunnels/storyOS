@@ -198,11 +198,13 @@ Relation fields return `{id, title}` chips. System fields are read-only.
 ### When an AI last changed a record
 
 Every record read (a list or a single record) carries `last_ai_change_at`: the time of the latest change
-made by an agent, an automation or an MCP client, or `null` if only people have ever changed it. It is
-set on create, update and restoring a version when the write's recorded source is anything other than a
-person's; a person editing afterwards does not clear it, and a write that changes nothing does not move
-it. The source is the credential's, not a header, so a session that claims to be an agent is still a
-person. Records that existed before the field was added were filled in from their history.
+made by an agent or through an MCP connection, or `null` if neither has ever changed it. Only those two
+sources set it: a change made by an automation does not, and neither does one made by a person in the
+web app. An ordinary API token is recorded as MCP, so it counts. It is set on create, update and
+restoring a version; a person or an automation editing afterwards does not clear it, and a write that
+changes nothing does not move it. The source is the credential's, not a header, so a session that
+claims to be an agent is still a person. Values written before this narrowing were recomputed from each
+record's history with the same rule.
 
 ### Marking a view as seen
 

@@ -11,7 +11,7 @@ import type { DatabaseSummary, Space } from '@/lib/queries';
 import { apiAccepts } from '@/lib/runners/hire-capabilities';
 import type { Caps } from '@/lib/runners/hire-capabilities';
 import type { WorkTarget } from '@/lib/runners/hire';
-import { addWork, isCovered, pickerGroups, removeWork } from '@/lib/runners/works-in';
+import { addWork, isAgentWorkable, isCovered, pickerGroups, removeWork } from '@/lib/runners/works-in';
 
 /**
  * Ticket #1196 — "Works in": chips for what the agent may work in, and a searchable picker grouped by space. A database chip is
@@ -141,7 +141,7 @@ export function WorksInPicker({
         works
           .filter((w) => w.kind === 'space')
           .map((w) => {
-            const names = databases.filter((d) => d.spaceId === w.id && !d.isSystem).map((d) => d.name);
+            const names = databases.filter((d) => d.spaceId === w.id && isAgentWorkable(d)).map((d) => d.name);
             return (
               <p key={w.id} className="mb-0 mt-1 text-label text-muted">
                 {w.name}: {names.length} {names.length === 1 ? 'database' : 'databases'} now ({names.join(', ')}), and any added to it later.

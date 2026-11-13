@@ -14,6 +14,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { EMBED_MODES, EMBED_MODE_HINTS, EMBED_MODE_LABELS, type EmbedMode } from '@/lib/embed-mode';
 import { cn } from '@/lib/utils';
 import { EmbedFormPreview } from './form-theme-preview';
+import { Button } from '@/components/ui/button';
 
 type Theme = NonNullable<NonNullable<ViewConfig['form']>['theme']>;
 
@@ -154,13 +155,13 @@ export function FormThemePanel({
           <span className="text-label text-ink">
             Text and Surface are close — {ratio.toFixed(1)}:1. Small labels will be hard to read.
           </span>
-          <button
+          <Button
             type="button"
-            className="ml-auto shrink-0 rounded-[var(--radius-control)] border border-border-default px-2 py-0.5 text-label text-ink hover:bg-card"
+            variant="secondary" className="ml-auto shrink-0"
             onClick={() => set({ text: readableTextFor(text, surface) })}
           >
             Fix for me
-          </button>
+          </Button>
         </div>
       )}
 

@@ -138,7 +138,7 @@ export default function IntegrationsPage() {
                   </span>
                   {!canConnect && !builtin && <SettingsPill tone="quiet">{s.overall.pill.label}</SettingsPill>}
                   {(canConnect || builtin) && (
-                    <Link href={providerPageHref(ws, s.def.id)} className={buttonVariants({ size: 'sm', variant: 'secondary' })}>
+                    <Link href={providerPageHref(ws, s.def.id)} className={buttonVariants({ variant: 'secondary' })}>
                       {builtin ? 'Open' : 'Connect'}
                     </Link>
                   )}

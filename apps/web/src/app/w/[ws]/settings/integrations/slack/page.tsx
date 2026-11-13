@@ -8,8 +8,8 @@ import { Segmented } from '@/components/ui/segmented';
 
 /* #738 — stable identity across renders. */
 const SLACK_METHOD_OPTIONS = [
-  { value: 'bot' as const, label: <>Bot token <span className="opacity-75">(recommended)</span></> },
-  { value: 'webhook' as const, label: <>Webhook URL <span className="opacity-75">(simpler)</span></> },
+  { value: 'bot' as const, label: <>Bot token <span className="font-normal">(recommended)</span></> },
+  { value: 'webhook' as const, label: <>Webhook URL <span className="font-normal">(simpler)</span></> },
 ];
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -127,16 +127,11 @@ export default function SlackIntegrationPage() {
       />
 
       {/* 1. Method choice first (progressive disclosure) */}
-      {/* #738 — the `solid` variant: a louder selected state than the other
-          three groups, kept deliberately because this chooser IS the step.
-          `itemClassName` carries the font-medium that this site applied to
-          BOTH members, so the unselected label keeps its weight. */}
+      {/* #1282 — the same drawn control as Preferences' Theme (small, beige selected), not a louder navy one: two segmented controls in
+          Settings read as two different controls. Which is chosen is still said by the fill and by aria-checked. */}
       <Segmented
         label="Slack connection method"
-        variant="solid"
-        size="default"
-        className="mb-4 bg-card"
-        itemClassName="font-medium"
+        className="mb-4"
         value={method}
         onChange={(m) => {
           setMethod(m);

@@ -393,7 +393,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, number]> = [
   ["Connect your AI#4", "app/w/[ws]/settings/connect-ai/page.tsx", "I\u2019ve done it \u2014 check the connection", 1],
   ["Connect your AI#5", "app/w/[ws]/settings/connect-ai/page.tsx", "Connect another AI \u2192", 1],
   ["Connect your AI#6", "components/settings/ai-connections-list.tsx", "busy ? 'Disconnecting\u2026' : 'Disconnect'", 0],
-  ["Connect your AI#7", "app/w/[ws]/settings/connect-ai/page.tsx", "Advanced \u2014 tokens and self-managed StoryOS", 1],
+  ["Connect your AI#7", "app/w/[ws]/settings/connect-ai/page.tsx", 'title="Advanced" summary="tokens and self-managed StoryOS"', 0],
   ["Connect your AI#8", "app/w/[ws]/settings/connect-ai/page.tsx", "Manage API tokens \u2192", 1],
   ["Connect your AI#9", "app/w/[ws]/settings/connect-ai/page.tsx", "Troubleshooting", 1],
   ["Connect your AI#10", "app/w/[ws]/settings/connect-ai/page.tsx", "Claude client ID", 1],

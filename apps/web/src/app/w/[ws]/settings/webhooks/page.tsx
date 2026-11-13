@@ -156,12 +156,11 @@ export default function WebhooksSettingsPage() {
                     </>
                   }
                 >
-                  <Button variant="ghost" size="sm" onClick={() => setExpanded(expanded === hook.id ? null : hook.id)}>
+                  <Button variant="ghost" onClick={() => setExpanded(expanded === hook.id ? null : hook.id)}>
                     {expanded === hook.id ? 'Hide' : 'Deliveries'}
                   </Button>
                   <Button
                     variant="ghost"
-                    size="sm"
                     onClick={async () => {
                       if (await confirm(confirmToggleWebhook(hook.url, !hook.enabled))) toggle.mutate({ id: hook.id, enabled: !hook.enabled });
                     }}
@@ -170,7 +169,6 @@ export default function WebhooksSettingsPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    size="sm"
                     onClick={async () => {
                       if (
                         !(await confirm({
@@ -328,7 +326,7 @@ function CreateWebhookDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">Add webhook</Button>
+        <Button>Add webhook</Button>
       </DialogTrigger>
       <DialogContent title={secret ? 'Copy your signing secret' : 'New webhook'}>
         {secret ? (
