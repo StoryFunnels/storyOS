@@ -10,7 +10,8 @@
      the page, and re-using --bg-sidebar inverts the depth so the inset page reads as a hole, not a raised card. */
   --bg-frame: #f4efe5;
   --bg-card: #ffffff;
-  --bg-hover: #f5f3ef;
+  /* #1281 — the reference's hover, #ebe6da (was #f5f3ef). LIGHT ONLY: dark is unchanged. 4.60:1 under --text-muted. */
+  --bg-hover: #ebe6da;
   /* #1115 — a row's hover: fainter than --bg-hover, which belongs to controls and group bands; a list of 40 rows cannot flash the full tint. */
   --bg-hover-soft: #f9f7f3;
   /**
@@ -20,12 +21,18 @@
    * alone. Measured in the browser rather than eyeballed. Dark mode was already
    * a ~35-step delta and is unchanged.
    */
-  --bg-active: #e7e0ce;
+  /**
+   * #1281 — darkened from #e7e0ce (LIGHT ONLY). The reference's own active row is #e7e0ce, but its hover moved to
+   * #ebe6da and the two were only CIE76 3.9 apart, so a selected row read as a hovered one (the reference leans on
+   * font-weight 650 for the difference). #e1d8c0 is CIE76 8.2 from --bg-hover, same hue family. --text-muted (#6b6658 -> #625d51), --accent-text
+   * (#7d5d00 -> #775900) and --warning (#c25f0c -> #be5d0c) and --warning-text (#994000 -> #923d00) were darkened just enough to keep their AA bars on it. Guarded by `bg-active-vs-hover.unit.test.ts`, which fails under 8 in light.
+   */
+  --bg-active: #e1d8c0;
 
   /* Text */
   --text-primary: #0f1729;
   --text-secondary: #3d3a30;
-  --text-muted: #6b6658;
+  --text-muted: #625d51;
   /* #326: was #b5b0a5, which measured 2.02:1 on --bg-app — below even the 3:1
      incidental-text floor. `faint` is now reserved for genuinely decorative
      text (record numbers, "Saved", empty-computed em dashes); anything that
@@ -72,7 +79,7 @@
   --c8: #9a7b4f;
   /* #967 — the gold for TEXT and GLYPHS on a light surface. --accent measures 2.07:1 on --bg-sidebar, under
      the 4.5:1 text bar and the 3:1 non-text bar (#706); this is the same hue, darkened. #1165: #8a6700 -> #7d5d00 (same 45° hue and saturation, lightness 27% -> 25%) so it also clears 4.5:1 on --bg-active (4.64:1, the lowest). */
-  --accent-text: #7d5d00;
+  --accent-text: #775900;
   /* #967 — text ON a gold fill (a count badge): 6.65:1 on --accent, where the off-white --text-on-dark is ~2.2:1. */
   --text-on-accent: #2a2205;
   /* #1168 — text ON the solid --error fill (the Tyron "Yes, do it" confirm). White is 5.44:1 on light --error; the ink
@@ -104,10 +111,10 @@
   --error: #c0392b;
   /* #1164 (revised by Dara) — --warning is a FILL / ICON / dot colour: #c25f0c, hue 27°, 3.23:1 or better on every light bg
      token (non-text 3:1). It left gold's 43° because a warning is not an agent acting. */
-  --warning: #c25f0c;
+  --warning: #be5d0c;
   /* Warning TEXT: #994000 (hue 25°), 5.17:1 or better on every light bg token (lowest on --bg-active). CIEDE2000 18.7 from
      agent gold --accent-text and 13.5 from --error. */
-  --warning-text: #994000;
+  --warning-text: #923d00;
   /* #1170 — the soft tint behind warning text (the pack-install "Name collision" badge): 14% of the --warning fill over the
      card, so it follows Dara's hue instead of a pastel. */
   --warning-soft: color-mix(in srgb, var(--warning) 14%, var(--bg-card));
@@ -189,7 +196,9 @@
    * this scale except the public form page's, which is ticket #632.
    */
   --shadow-ink: 15 23 41;
-  --shadow-popover: 0 4px 12px rgb(var(--shadow-ink) / 0.08);
+  /* #1281 — ONE shadow for every dropdown, popover, toast and form listbox: 0 8px 24px at .12, stronger than the old
+     4/12/.08 and lighter than --shadow-panel's .15. Dark overrides the ink below so the lift stays visible. */
+  --shadow-popover: 0 8px 24px rgb(var(--shadow-ink) / 0.12);
   --shadow-panel: 0 8px 24px rgb(var(--shadow-ink) / 0.15);
   --shadow-lifted: 0 8px 24px rgb(var(--shadow-ink) / 0.25);
   --shadow-overlay: 0 16px 40px rgb(var(--shadow-ink) / 0.22);
@@ -235,6 +244,9 @@
   --radius-card: 6px;
   --radius-popover: 8px;
   --radius-modal: var(--radius-popover);
+  /* #1281 — one menu geometry: items 28px tall at 12px (--text-label), lists at least 200px wide. */
+  --menu-item-height: 28px;
+  --menu-min-width: 200px;
   /* #281: select-value badges and relation-entity chips share this 4px shape —
      deliberately NOT full-pill, so the "solid mini-tag" direction reads as its
      own visual language rather than the generic rounded-pill every other tool uses. */
@@ -301,6 +313,8 @@
   --bg-frame: #0a0d12;
   /* #969 — the light-mode page shadow disappears on a dark ground. */
   --shadow-page: 0 0 0 1px rgb(0 0 0 / 0.25), 0 8px 28px rgb(0 0 0 / 0.35);
+  /* #1281 — near-black ink reads on the dark ground; the popover's own 1px border is the visible edge. */
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.4);
   --bg-card: #171c26;
   --bg-hover: #1e2430;
   --bg-hover-soft: #1b202b;

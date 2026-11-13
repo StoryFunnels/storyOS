@@ -9,6 +9,13 @@ import { PhoneSheetScrim } from './phone-sheet-scrim';
 export const DropdownMenu = Dropdown.Root;
 export const DropdownMenuTrigger = Dropdown.Trigger;
 
+/**
+ * #1281 — the ONE menu-row geometry: 28px tall (`--menu-item-height`), 12px text, 8px side padding. DropdownMenuItem
+ * wears it; a row that must be a plain `<button>` inside a menu or popover (a switch, a checkmark list) imports it
+ * instead of copying the numbers, so a Display row and a menu item cannot drift apart.
+ */
+export const MENU_ITEM_GEOMETRY = 'min-h-[var(--menu-item-height)] px-2 py-1 text-label';
+
 export function DropdownMenuContent({ className, ...props }: ComponentProps<typeof Dropdown.Content>) {
   return (
     <Dropdown.Portal>
@@ -16,7 +23,7 @@ export function DropdownMenuContent({ className, ...props }: ComponentProps<type
         align="start"
         sideOffset={4}
         className={cn(
-          'phone-sheet z-[var(--z-popover)] min-w-40 rounded-[var(--radius-popover)] border border-border-default bg-card p-1 shadow-[var(--shadow-popover)]',
+          'phone-sheet z-[var(--z-popover)] min-w-[var(--menu-min-width)] rounded-[var(--radius-popover)] border border-border-default bg-card p-1 shadow-[var(--shadow-popover)]',
           className,
         )}
         {...props}
@@ -33,7 +40,8 @@ export function DropdownMenuItem({ className, ...props }: ComponentProps<typeof 
   return (
     <Dropdown.Item
       className={cn(
-        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-body text-ink outline-none data-[highlighted]:bg-hover',
+        'flex cursor-pointer select-none items-center gap-2 rounded text-ink outline-none data-[highlighted]:bg-hover',
+        MENU_ITEM_GEOMETRY,
         className,
       )}
       {...props}

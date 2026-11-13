@@ -13,6 +13,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { MENU_ITEM_GEOMETRY } from '@/components/ui/dropdown-menu';
 import { MenuSelect } from '@/components/ui/menu-select';
 import type { MenuOption } from '@/components/ui/menu-select';
 import {
@@ -27,7 +28,9 @@ import type { Field } from '../table-view/use-table-data';
 import { isHierarchyField } from '../table-view/use-hierarchy';
 import {
   countHiddenFields,
+  hideAllFields,
   isFieldVisible,
+  showAllFields,
   toggleFieldVisibility,
 } from '../table-view/number-column';
 import { calendarDateDisabledReason, isCalendarDateField } from './calendar-date-fields';
@@ -35,18 +38,20 @@ import { isCoverField } from './cover-fields';
 import { canGroupBoardBy, canGroupListBy } from './groupable-fields';
 import { directionLabel, pickPrimarySort, sortableFields } from './sort-config';
 import { optionsFromChildren } from './menu-options';
-import { FieldsMenu } from './fields-menu';
+import { FieldsList } from './fields-menu';
 import { HiddenColumnsList } from './hidden-columns-list';
 import { OPEN_DISPLAY_MENU_EVENT } from './display-menu-open';
 import { groupingPatch } from './view-grouping';
 import type { ViewConfig } from './use-view-state';
 import { TOOLBAR_BTN } from './toolbar-chip';
+import { POPOVER_SECTION, POPOVER_TITLE } from './popover-heading';
 
 /* #739 T8 — hoisted so the array identity is stable across renders (Segmented takes a readonly list). */
-const ROW_HEIGHT_OPTIONS = [
-  { value: '28', label: '28' },
-  { value: '32', label: '32' },
-  { value: '40', label: '40' },
+/* #1281 item 4 — words, not pixel counts. The STORED value stays the pixel height (28 / 32 / 40): the table measures with it. */
+export const ROW_HEIGHT_OPTIONS = [
+  { value: '28', label: 'Compact' },
+  { value: '32', label: 'Default' },
+  { value: '40', label: 'Tall' },
 ] as const;
 
 function GalleryNoCoverFieldNotice() {
@@ -57,8 +62,7 @@ function GalleryNoCoverFieldNotice() {
   );
 }
 
-const SECTION =
-  'block px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted';
+const SECTION = POPOVER_SECTION;
 /** #1114 — a labelled row whose `<option>` children become the menu's items (value, label, disabled). */
 function SelectRow({
   label,
@@ -89,8 +93,8 @@ function SelectRow({
  * writes the same `ViewConfig` key the old toolbar control wrote (API-first: no capability lives
  * only in the UI).
  *
- * "Fields" on a table opens the shared FieldsMenu (search, toggle, reorder, system columns) from
- * this menu, so it is two clicks, not a second copy of that list nested in a popover.
+ * #1281 — "Columns" on a table (and a timeline) is the shared FieldsList drawn INLINE, with "N of M" and
+ * Show all / Hide all; the same list the record view and relation sub-table put inside their own menus.
  */
 export function DisplayMenu({
   viewType,
@@ -121,7 +125,6 @@ export function DisplayMenu({
   readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [fieldsOpen, setFieldsOpen] = useState(false);
   // #1162 — the board's all-hidden notice opens this same menu (see display-menu-open.ts).
   useEffect(() => {
     const openMenu = () => setOpen(true);
@@ -146,7 +149,7 @@ export function DisplayMenu({
     [numberEntry, rendered, systemDateEntries],
   );
   // #964 — a view type whose renderer reads `hidden_field_ids` MUST have its picker here: a timeline's left
-  // panel does (timeline-view.tsx `leftFields`), so its Fields… lives in Display too — a setting the renderer
+  // panel does (timeline-view.tsx `leftFields`), so its field list lives in Display too — a setting the renderer
   // honours and the UI cannot write is the renderer/picker mismatch field-surfaces.md calls the bug.
   //
   // The timeline lists its REAL ID column first. The old Hide-fields button offered a "Row gutter · Show ID"
@@ -195,22 +198,32 @@ export function DisplayMenu({
           </button>
         </PopoverTrigger>
         <PopoverContent className="max-h-[28rem] w-72 overflow-y-auto p-1">
+          {/* #1281 — every toolbar popover opens with the same title row (Filter and Sort already did). */}
+          <div className="-mx-1 -mt-1 mb-1 flex h-[30px] items-center border-b border-border-default px-3">
+            <span className={POPOVER_TITLE}>Display</span>
+          </div>
           {hasFieldsMenu && (
             <>
               <span className={SECTION}>Columns</span>
-              <button
-                type="button"
-                className="flex w-full items-center justify-between rounded-[var(--radius-chip)] px-2 py-1.5 text-left text-label text-ink hover:bg-hover"
-                onClick={() => {
-                  setOpen(false);
-                  setFieldsOpen(true);
+              {/* #1281 item 5 — the field list is drawn here, not behind a button. Same list the
+                  record view and the relation sub-table use; "N of M" counts only fields a view may hide. */}
+              <FieldsList
+                fields={fieldsMenuList}
+                isVisible={(f) => isFieldVisible(config.hidden_field_ids, f.id)}
+                onToggle={(f, next) =>
+                  onPatch({ hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, f.id, next) })
+                }
+                onReorder={onReorderFields}
+                maxHeightClass="max-h-52"
+                bulk={{
+                  shown: fieldsMenuList.length - hiddenCount,
+                  total: fieldsMenuList.length,
+                  onShowAll: () =>
+                    onPatch({ hidden_field_ids: showAllFields(config.hidden_field_ids, fieldsMenuList.map((f) => f.id)) }),
+                  onHideAll: () =>
+                    onPatch({ hidden_field_ids: hideAllFields(config.hidden_field_ids, fieldsMenuList.map((f) => f.id)) }),
                 }}
-              >
-                Fields…
-                <span className="text-muted">
-                  {hiddenCount ? `${hiddenCount} hidden` : 'All shown'}
-                </span>
-              </button>
+              />
               {isTable && (
                 <>
                   <div className="flex items-center justify-between gap-3 px-2 py-1 text-label text-ink">
@@ -482,23 +495,6 @@ export function DisplayMenu({
           )}
         </PopoverContent>
       </Popover>
-      {hasFieldsMenu && (
-        <FieldsMenu
-          anchorOnly
-          open={fieldsOpen}
-          onOpenChange={setFieldsOpen}
-          fields={fieldsMenuList}
-          isVisible={(f) => isFieldVisible(config.hidden_field_ids, f.id)}
-          onToggle={(f, next) =>
-            onPatch({
-              hidden_field_ids: toggleFieldVisibility(config.hidden_field_ids, f.id, next),
-            })
-          }
-          onReorder={onReorderFields}
-          triggerIcon={SlidersHorizontal}
-          triggerLabel="Fields"
-        />
-      )}
     </span>
   );
 }
@@ -534,7 +530,7 @@ function CardFieldPicker({
     <>
       {shownFields.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1 text-meta font-semibold uppercase tracking-wider text-muted">
+          <div className={POPOVER_SECTION}>
             Shown · drag to reorder
           </div>
           <DndContext
@@ -563,14 +559,14 @@ function CardFieldPicker({
       )}
       {available.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted">
+          <div className={POPOVER_SECTION}>
             Add
           </div>
           {available.map((field) => (
             <button
               key={field.id}
               onClick={() => onChange([...shown, field.id])}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body text-muted hover:bg-hover hover:text-ink"
+              className={cn('flex w-full items-center gap-2 rounded text-muted hover:bg-hover hover:text-ink', MENU_ITEM_GEOMETRY)}
             >
               <Plus className="h-3.5 w-3.5" /> {field.displayName}
             </button>
@@ -593,7 +589,8 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
       // all; it now gets the same floating-preview + vacated-slot treatment as
       // the other three.
       className={cn(
-        'group flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover',
+        'group flex items-center gap-2 rounded text-ink hover:bg-hover',
+        MENU_ITEM_GEOMETRY,
         vacatedSlotClass(isDragging),
       )}
     >
@@ -636,7 +633,7 @@ function RowGutterToggle({
 }) {
   return (
     <div className="mt-1 border-t border-border-default pt-1">
-      <p className="px-1.5 pb-1 text-meta font-medium uppercase tracking-wide text-muted">
+      <p className={POPOVER_SECTION}>
         Row gutter
       </p>
       <button

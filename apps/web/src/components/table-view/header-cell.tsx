@@ -1,15 +1,21 @@
 'use client';
 
+import { isAlwaysOnField } from '../views/always-on-fields';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeftRight,
   ArrowUpDown,
   EyeOff,
   FilterX,
+  Link2,
   ListFilter,
   MoreHorizontal,
+  Pencil,
   Snowflake,
+  Trash2,
 } from 'lucide-react';
+import { headerMenuSeparators } from './header-menu-groups';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { toast } from 'sonner';
@@ -18,6 +24,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -133,7 +140,8 @@ export function HeaderCell({
   // #224 AC3: hide a column from its own header, not only from the toolbar's Fields
   // panel. Writes the same `hidden_field_ids` the toolbar's HiddenFieldsButton owns
   // — one persisted shape, so the two surfaces can't drift (field-surfaces.md).
-  const canHide = Boolean(config && onPatch);
+  // #1281 — never on the title: it is always shown, and no other control could bring it back.
+  const canHide = Boolean(config && onPatch) && !isAlwaysOnField(field);
   function hideField() {
     if (!config || !onPatch) return;
     if (config.hidden_field_ids.includes(field.id)) return;
@@ -157,6 +165,12 @@ export function HeaderCell({
   // requires !readOnly, and canFilter/canSort/canHide are independent of
   // readOnly today (a view-level permission, not a schema one) — same as
   // before this change, not something this ticket alters.
+  const menuSeparators = headerMenuSeparators({
+    edit: canConfigureTitle || canManage || (field.type === 'relation' && Boolean(onAddLookup)),
+    filterSort: canFilter || canSort || isFiltered,
+    visibility: Boolean(isFirst && onTogglePin) || canHide,
+    destructive: canManage,
+  });
   const hasMenu = canManage || canFilter || canSort || canHide || canConfigureTitle || Boolean(isFirst && onTogglePin);
   const currentSort = config?.sorts.find((s) => s.field === field.apiName);
   // The rule number beside the arrow, shown only when more than one rule exists (prototype `.hdir sup`).
@@ -302,12 +316,27 @@ export function HeaderCell({
                 the whole menu's presence. */}
             {/* MN-131 — the title is not a normal managed field, but its name mode is configured through the same
                 edit dialog; that entry used to be a second ⋯ menu on its own (#999). */}
-            {canConfigureTitle && <DropdownMenuItem onSelect={() => setDialog('edit')}>Configure name…</DropdownMenuItem>}
-            {canManage && <DropdownMenuItem onSelect={() => setDialog('edit')}>Edit field</DropdownMenuItem>}
-            {canManage && <DropdownMenuItem onSelect={() => setDialog('change-type')}>Change type</DropdownMenuItem>}
-            {field.type === 'relation' && onAddLookup && (
-              <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>Add field from linked items</DropdownMenuItem>
+            {canConfigureTitle && (
+              <DropdownMenuItem onSelect={() => setDialog('edit')}>
+                <Pencil className="mr-2 h-3.5 w-3.5" /> Configure name…
+              </DropdownMenuItem>
             )}
+            {canManage && (
+              <DropdownMenuItem onSelect={() => setDialog('edit')}>
+                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit field
+              </DropdownMenuItem>
+            )}
+            {canManage && (
+              <DropdownMenuItem onSelect={() => setDialog('change-type')}>
+                <ArrowLeftRight className="mr-2 h-3.5 w-3.5" /> Change type
+              </DropdownMenuItem>
+            )}
+            {field.type === 'relation' && onAddLookup && (
+              <DropdownMenuItem onSelect={() => onAddLookup(field.id)}>
+                <Link2 className="mr-2 h-3.5 w-3.5" /> Add field from linked items
+              </DropdownMenuItem>
+            )}
+            {menuSeparators.afterEdit && <DropdownMenuSeparator />}
             {canFilter && (
               <DropdownMenuItem onSelect={filterByField}>
                 <ListFilter className="mr-2 h-3.5 w-3.5" /> Filter by this field
@@ -325,6 +354,7 @@ export function HeaderCell({
             )}
             {/* Freeze belongs to the first column only (the frozen block is the first column). It was a
                 separate hover-only button in the header; it is a menu item now, with the mark beside the label. */}
+            {menuSeparators.afterFilterSort && <DropdownMenuSeparator />}
             {isFirst && onTogglePin && (
               <DropdownMenuItem onSelect={onTogglePin}>
                 <Snowflake className="mr-2 h-3.5 w-3.5" /> {pinned ? 'Unfreeze column' : 'Freeze column'}
@@ -335,9 +365,10 @@ export function HeaderCell({
                 <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide field
               </DropdownMenuItem>
             )}
+            {menuSeparators.afterVisibility && <DropdownMenuSeparator />}
             {canManage && (
               <DropdownMenuItem className="text-error" onSelect={() => deleteField.mutate()}>
-                Delete field
+                <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete field
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>

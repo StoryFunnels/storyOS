@@ -87,36 +87,6 @@ export function FieldsMenu({
    *  Not filtered by the search box; not part of `fields`/`isVisible`. */
   footer?: ReactNode;
 }) {
-  const [q, setQ] = useState('');
-  const sensors = useSortableSensors();
-
-  const canReorder = (field: Field) =>
-    Boolean(onReorder) && (isReorderable ? isReorderable(field) : !field.isSystem);
-
-  const list = fields.filter((f) => f.displayName.toLowerCase().includes(q.trim().toLowerCase()));
-  const reorderableIds = onReorder ? list.filter(canReorder).map((f) => f.id) : [];
-  // #985 — a field is announced by its NAME, never its uuid.
-  const fieldDrag = useDragPresentation(
-    (id) => fields.find((f) => f.id === id)?.displayName,
-    {
-      onDragEnd: (e) => {
-        if (e.over && e.active.id !== e.over.id) onReorder?.(String(e.active.id), String(e.over.id));
-      },
-    },
-    reorderableIds,
-  );
-
-  const rows = list.map((field) => (
-    <FieldRow
-      key={field.id}
-      field={field}
-      on={isVisible(field)}
-      reorderable={canReorder(field)}
-      onToggle={(next) => onToggle(field, next)}
-      onOpenConfig={onOpenConfig && hasConfig?.(field) ? () => onOpenConfig(field) : undefined}
-    />
-  ));
-
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       {anchorOnly ? (
@@ -151,40 +121,143 @@ export function FieldsMenu({
         </DropdownMenuTrigger>
       )}
       <DropdownMenuContent align={align} className="w-64">
-        <Input
+        <FieldsList
           autoFocus
-          placeholder={searchPlaceholder}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          // Radix menus grab keystrokes for typeahead — keep them in the box.
-          onKeyDown={(e) => e.stopPropagation()}
-          size="sm"
-          // #688 group B — this joins `sm` rather than keeping its own copy; its
-          // plain `rounded` (4px) was the one hand-rolled input site NOT using
-          // the `--radius-control` token (6px), called out on the ticket as
-          // "almost certainly an oversight" — going through the primitive
-          // fixes it as a side effect of removing the duplication.
-          className="mb-1 w-full outline-none"
+          fields={fields}
+          isVisible={isVisible}
+          onToggle={onToggle}
+          onReorder={onReorder}
+          isReorderable={isReorderable}
+          onOpenConfig={onOpenConfig}
+          hasConfig={hasConfig}
+          searchPlaceholder={searchPlaceholder}
+          emptyLabel={emptyLabel}
         />
-        <div className="max-h-72 overflow-y-auto">
-          {onReorder ? (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              {...fieldDrag.contextProps}
-            >
-              <SortableContext items={reorderableIds} strategy={verticalListSortingStrategy}>
-                {rows}
-              </SortableContext>
-            </DndContext>
-          ) : (
-            rows
-          )}
-          {list.length === 0 && <p className="px-2 py-1.5 text-label text-faint">{emptyLabel}</p>}
-        </div>
         {footer}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * #1281 — the field list itself (search, one switch row per field, drag to reorder), with no popover
+ * around it. FieldsMenu wraps it in a dropdown; the Display popover draws it INLINE, so the two can
+ * never disagree about how a field row looks or behaves (field-surfaces.md: reuse, don't re-case).
+ * `bulk` adds the "7 of 10 · Show all · Hide all" row above the search box.
+ */
+export function FieldsList({
+  fields,
+  isVisible,
+  onToggle,
+  onReorder,
+  isReorderable,
+  onOpenConfig,
+  hasConfig,
+  searchPlaceholder = 'Filter fields…',
+  emptyLabel = 'No fields.',
+  autoFocus = false,
+  bulk,
+  maxHeightClass = 'max-h-72',
+}: {
+  fields: Field[];
+  isVisible: (field: Field) => boolean;
+  onToggle: (field: Field, next: boolean) => void;
+  onReorder?: (activeId: string, overId: string) => void;
+  isReorderable?: (field: Field) => boolean;
+  onOpenConfig?: (field: Field) => void;
+  hasConfig?: (field: Field) => boolean;
+  searchPlaceholder?: string;
+  emptyLabel?: string;
+  autoFocus?: boolean;
+  /** The "N of M" summary and the two bulk actions. Absent: no row (the other FieldsMenu surfaces). */
+  bulk?: { shown: number; total: number; onShowAll: () => void; onHideAll: () => void; disabled?: boolean };
+  maxHeightClass?: string;
+}) {
+  const [q, setQ] = useState('');
+  const sensors = useSortableSensors();
+
+  const canReorder = (field: Field) =>
+    Boolean(onReorder) && (isReorderable ? isReorderable(field) : !field.isSystem);
+
+  const list = fields.filter((f) => f.displayName.toLowerCase().includes(q.trim().toLowerCase()));
+  const reorderableIds = onReorder ? list.filter(canReorder).map((f) => f.id) : [];
+  // #985 — a field is announced by its NAME, never its uuid.
+  const fieldDrag = useDragPresentation(
+    (id) => fields.find((f) => f.id === id)?.displayName,
+    {
+      onDragEnd: (e) => {
+        if (e.over && e.active.id !== e.over.id) onReorder?.(String(e.active.id), String(e.over.id));
+      },
+    },
+    reorderableIds,
+  );
+
+  const rows = list.map((field) => (
+    <FieldRow
+      key={field.id}
+      field={field}
+      on={isVisible(field)}
+      reorderable={canReorder(field)}
+      onToggle={(next) => onToggle(field, next)}
+      onOpenConfig={onOpenConfig && hasConfig?.(field) ? () => onOpenConfig(field) : undefined}
+    />
+  ));
+
+  return (
+    <>
+      {bulk && (
+        <div className="flex items-center justify-between gap-2 px-2 pb-1 text-label text-muted">
+          <span data-testid="fields-count">
+            {bulk.shown} of {bulk.total}
+          </span>
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={bulk.disabled || bulk.shown === bulk.total}
+              onClick={bulk.onShowAll}
+              className="rounded px-1 text-primary-text hover:bg-hover disabled:cursor-not-allowed disabled:text-faint disabled:hover:bg-transparent"
+            >
+              Show all
+            </button>
+            <button
+              type="button"
+              disabled={bulk.disabled || bulk.shown === 0}
+              onClick={bulk.onHideAll}
+              className="rounded px-1 text-primary-text hover:bg-hover disabled:cursor-not-allowed disabled:text-faint disabled:hover:bg-transparent"
+            >
+              Hide all
+            </button>
+          </span>
+        </div>
+      )}
+      <Input
+        autoFocus={autoFocus}
+        placeholder={searchPlaceholder}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        // Radix menus grab keystrokes for typeahead — keep them in the box.
+        onKeyDown={(e) => e.stopPropagation()}
+        size="sm"
+        // #688 group B — this joins `sm` rather than keeping its own copy; its
+        // plain `rounded` (4px) was the one hand-rolled input site NOT using
+        // the `--radius-control` token (6px), called out on the ticket as
+        // "almost certainly an oversight" — going through the primitive
+        // fixes it as a side effect of removing the duplication.
+        className="mb-1 w-full outline-none"
+      />
+      <div className={cn(maxHeightClass, 'overflow-y-auto')}>
+        {onReorder ? (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} {...fieldDrag.contextProps}>
+            <SortableContext items={reorderableIds} strategy={verticalListSortingStrategy}>
+              {rows}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          rows
+        )}
+        {list.length === 0 && <p className="px-2 py-1.5 text-label text-faint">{emptyLabel}</p>}
+      </div>
+    </>
   );
 }
 
@@ -213,7 +286,7 @@ function FieldRow({
       ref={reorderable ? setNodeRef : undefined}
       style={reorderable ? { transform: CSS.Transform.toString(transform), transition } : undefined}
       className={cn(
-        'group/fm flex items-center gap-1 rounded px-1.5 py-1.5 text-body text-ink hover:bg-hover',
+        'group/fm flex min-h-[var(--menu-item-height)] items-center gap-1 rounded px-1.5 py-0.5 text-label text-ink hover:bg-hover',
         isDragging && 'opacity-50',
       )}
     >
