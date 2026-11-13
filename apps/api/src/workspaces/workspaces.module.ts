@@ -6,6 +6,7 @@ import { FoldersService } from '../spaces/folders.service';
 import { GroupsController } from '../spaces/groups.controller';
 import { GroupsService } from '../spaces/groups.service';
 import { InvitesService } from './invites.service';
+import { PublicInvitesController } from './public-invites.controller';
 import { MembersService } from './members.service';
 import { OnboardingController } from './onboarding.controller';
 import { OnboardingNudgeService } from './onboarding-nudge.service';
@@ -30,6 +31,7 @@ import { WorkspacesService } from './workspaces.service';
     WorkspacesController,
     WorkspaceController,
     InviteAcceptController,
+    PublicInvitesController,
     FoldersController,
     GroupsController,
     OnboardingController,

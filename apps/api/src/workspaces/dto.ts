@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import {
   acceptInviteSchema,
+  inviteDetailsResponseSchema,
   createInviteSchema,
   createSpaceSchema,
   deleteSpaceSchema,
@@ -19,3 +20,5 @@ export class DeleteSpaceDto extends createZodDto(deleteSpaceSchema) {}
 export class CreateInviteDto extends createZodDto(createInviteSchema) {}
 export class AcceptInviteDto extends createZodDto(acceptInviteSchema) {}
 export class UpdateMemberDto extends createZodDto(updateMemberSchema) {}
+/** Ticket #1302 — response shape of the unauthenticated invite-details read (documents the OpenAPI; the pipe does not run on responses). */
+export class InviteDetailsResponseDto extends createZodDto(inviteDetailsResponseSchema) {}
