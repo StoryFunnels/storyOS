@@ -47,7 +47,7 @@ export default function AgentsIndexPage() {
     <div className="mx-auto flex max-w-[700px] flex-col gap-[18px] p-4 sm:px-7 sm:py-8" data-testid="agents-index">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="text-[22px] font-bold tracking-[-0.02em] text-ink">Agents</h1>
+          <h1 className="m-0 text-[20px] font-bold leading-[24px] tracking-[-0.02em] text-ink">Agents</h1>
           <p className="mt-0.5 text-body leading-normal text-muted">
             The AI teammates working in {workspace?.name ?? 'this workspace'}. Each one has a job, a manager, and asks before anything you say it must.
           </p>
@@ -95,9 +95,9 @@ export default function AgentsIndexPage() {
             return (
               <Link key={a.id} href={`/w/${ws}/agents/${a.id}`} className={`${COLS} border-t border-border-default py-2.5 text-body text-ink hover:bg-hover max-[700px]:[&:nth-child(2)]:border-t-0`} data-testid="agent-row">
                 <span className="flex min-w-0 items-center gap-2">
-                  <AgentAvatar name={a.name} />
+                  <AgentAvatar name={a.name} shape="circle" className="h-[26px] w-[26px] [&>svg]:h-3.5 [&>svg]:w-3.5" />
                   <span className="min-w-0 leading-[1.35]">
-                    <b className="block truncate font-semibold">{a.name}</b>
+                    <b className="block truncate font-bold">{a.name}</b>
                     <small className="line-clamp-2 text-label text-muted">{a.job || 'No job written yet'}</small>
                   </span>
                 </span>
