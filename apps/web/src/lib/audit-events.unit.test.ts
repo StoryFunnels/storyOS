@@ -83,7 +83,14 @@ describe('the audit-log page (#1059)', () => {
     expect(page).not.toContain('audit-only-this'); // the id is not offered as text or as a control: the record's name needs the API (ticket #1287)
     expect(page).not.toMatch(/>\s*\{e\.source\}\s*</); // the old grey chip printed the source word
     expect(page).not.toMatch(/\{e\.type\}/); // the event code is never the sentence
-    expect(page).not.toMatch(/\{e\.record_id\}/); // the id is a filter value, never text
+    expect(page).not.toMatch(/>[^<>]*\{e\.record_id\}[^<>]*</); // the id is a filter value, never printed as text
+    // ...but it is not gone: an admin copies it for the "Record or object ID" filter (this PR had removed it outright).
+    expect(page).toContain('<CopyRecordIdButton id={e.record_id} />');
+    expect(page).toContain('aria-label="Copy record ID"');
+    expect(page).toContain('navigator.clipboard.writeText(id)');
+    expect(page).toContain('auditActorLabel(e.actor_name, e.actor_id, memberName)');
+    expect(page).not.toContain('REMOVED_MEMBER_LABEL');
+    expect(page).not.toMatch(/removed member|not shown/i);
     expect(page).not.toContain('font-mono');
   });
 });
@@ -173,21 +180,21 @@ describe('every audit event code the API can emit has a sentence (#1287)', () =>
 
 describe('describeAuditEvent: what a sentence keeps and what it refuses to invent (#1287)', () => {
   it('keeps a name the event itself carries', () => {
-    expect(describeAuditEvent('record.created', { title: 'Plan the launch' })).toMatchObject({ lead: 'Created a record', name: 'Plan the launch' });
+    expect(describeAuditEvent('record.created', { title: 'Plan the launch' })).toMatchObject({ lead: 'Created', name: 'Plan the launch' });
     expect(describeAuditEvent('attachment.added', { filename: 'brief.pdf' })).toMatchObject({ name: 'brief.pdf' });
-    expect(describeAuditEvent('relation.linked', { other: { id: 'x', title: 'Acme' } })).toMatchObject({ lead: 'Linked a record to', name: 'Acme' });
+    expect(describeAuditEvent('relation.linked', { other: { id: 'x', title: 'Acme' } })).toMatchObject({ lead: 'Linked to', name: 'Acme' });
     expect(describeAuditEvent('runner.paired', { object: { kind: 'runner', id: 'x', name: 'Studio laptop' } })).toMatchObject({ name: 'Studio laptop' });
     expect(describeAuditEvent('outward.ai_field', { summary: 'Recomputed Summary' }).detail).toBe('Recomputed Summary');
   });
 
-  it('does not invent a name: a record event with none says "a record", and no sentence carries an id', () => {
+  it('does not invent a name: a record event with none names its kind of event, and no sentence carries an id', () => {
     const id = '4db75d42-699b-49c9-a34c-4f7631f6782a';
     for (const t of ['record.updated', 'record.deleted', 'record.restored', 'comment.created', 'reference.created', 'document.edited']) {
       const s = describeAuditEvent(t, { target_record_id: id, comment_id: id });
       expect(s.name).toBeNull();
       expect(JSON.stringify(s)).not.toContain(id);
     }
-    expect(describeAuditEvent('relation.linked', { relation_id: 'r', other: { id } })).toMatchObject({ lead: 'Linked two records', name: null });
+    expect(describeAuditEvent('relation.linked', { relation_id: 'r', other: { id } })).toMatchObject({ lead: 'Records linked', name: null });
     expect(describeAuditEvent('record.created', {}).name).toBeNull();
     expect(describeAuditEvent('button.pressed', { button: '  ' }).lead).toBe('Pressed a button');
   });
@@ -205,6 +212,74 @@ describe('describeAuditEvent: what a sentence keeps and what it refuses to inven
   });
 
   it('survives a payload that is not an object', () => {
-    for (const p of [null, undefined, 'x', 3, []]) expect(describeAuditEvent('record.created', p).lead).toBe('Created a record');
+    for (const p of [null, undefined, 'x', 3, []]) expect(describeAuditEvent('record.created', p).lead).toBe('Record created');
+  });
+});
+
+/** The sentence as the page prints it: lead, the bold name in curly quotes, tail, then the muted detail after a middle dot. */
+const say = (type: string, payload: unknown): string => {
+  const s = describeAuditEvent(type, payload);
+  return `${s.lead}${s.name ? ` “${s.name}”` : ''}${s.tail}${s.detail ? ` · ${s.detail}` : ''}`;
+};
+
+/**
+ * Ticket #1287 — the sentences are PINNED, not only present. Every code the API can emit maps to its exact words, so changing "Record
+ * moved to Trash" to "Permanently deleted" (which the checks above let through, since they only ask for words) fails here. The codes
+ * are derived from the API source by `emittedEventTypes`, so a new code fails until its sentence is written down.
+ *
+ * No sentence says "a record" where a name should go, and none carries a value it cannot name: the record's title and link need the
+ * API (Marek, ticket #1287), and until then a record event states what happened, nothing more.
+ */
+const named = (name: string) => ({ object: { kind: 'x', id: 'x', name } });
+const SENTENCES: Record<string, [payload: unknown, sentence: string]> = {
+  'record.created': [{}, 'Record created'],
+  'record.updated': [{}, 'Record updated'],
+  'record.deleted': [{}, 'Record moved to Trash'],
+  'record.restored': [{}, 'Record restored from Trash'],
+  'relation.linked': [{}, 'Records linked'],
+  'relation.unlinked': [{}, 'Records unlinked'],
+  'comment.created': [{}, 'Comment added'],
+  'reference.created': [{}, 'Mention added'],
+  'document.edited': [{}, 'Description edited'],
+  'attachment.added': [{ filename: 'brief.pdf' }, 'Added an attachment “brief.pdf”'],
+  'button.pressed': [{ button: 'Send' }, 'Pressed the button “Send”'],
+  'portal_recipient.created': [named('Acme'), 'Created a portal link for “Acme”'],
+  'portal_recipient.rotated': [named('Acme'), 'Replaced the portal link for “Acme”'],
+  'portal_recipient.revoked': [named('Acme'), 'Revoked the portal link for “Acme”'],
+  'runner.paired': [named('Studio'), 'Paired the Runner “Studio”'],
+  'runner.activated': [named('Studio'), 'Activated the Runner “Studio”'],
+  'runner.assigned': [named('Studio'), 'Assigned an agent to the Runner “Studio”'],
+  'runner.unassigned': [named('Studio'), 'Removed an agent from the Runner “Studio”'],
+  'runner.revoked': [named('Studio'), 'Revoked the Runner “Studio”'],
+  'outward.slack_mention_mirror': [{ summary: 'S' }, 'Mirrored a mention to Slack · S'],
+  'outward.mention_email': [{ summary: 'S' }, 'Emailed a member about a mention · S'],
+  'outward.watcher_email': [{ summary: 'S' }, 'Emailed a watcher about a change · S'],
+  'outward.calendar_sync': [{ summary: 'S' }, 'Synced to the calendar · S'],
+  'outward.linear_comment': [{ summary: 'S' }, 'Posted a comment to Linear · S'],
+  'outward.ai_field': [{ summary: 'S' }, 'Recomputed an AI field · S'],
+};
+for (const kind of ['space', 'database', 'view']) {
+  SENTENCES[`${kind}.deleted`] = [named('X'), `Deleted the ${kind} “X”`];
+  SENTENCES[`${kind}.restored`] = [named('X'), `Restored the ${kind} “X”`];
+  SENTENCES[`${kind}.purged`] = [named('X'), `Purged the ${kind} “X”`];
+  SENTENCES[`${kind}.restricted`] = [named('X'), `Restricted the ${kind} “X”`];
+  SENTENCES[`${kind}.unrestricted`] = [named('X'), `Opened the ${kind} “X” to everyone`];
+}
+
+describe('every sentence is pinned exactly (#1287)', () => {
+  const { types } = emittedEventTypes();
+
+  it('the table covers exactly the codes the API can emit', () => {
+    expect(Object.keys(SENTENCES).sort()).toEqual([...types].sort());
+  });
+
+  it.each(Object.entries(SENTENCES))('%s', (type, [payload, sentence]) => {
+    expect(say(type, payload)).toBe(sentence);
+  });
+
+  it('no sentence says "a record" or "(not shown)" in place of a name', () => {
+    for (const [type, [payload]] of Object.entries(SENTENCES)) {
+      expect(say(type, payload), type).not.toMatch(/\ba record\b|not shown|removed member/i);
+    }
   });
 });
