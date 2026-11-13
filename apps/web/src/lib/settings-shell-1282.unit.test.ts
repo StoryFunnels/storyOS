@@ -57,14 +57,6 @@ describe('the refusal is one pattern (#1282, item 12)', () => {
   });
 });
 
-/** Whether `needle` appears in the opening tag that starts at or just before it (the tag carries a size). */
-function openingTag(src: string, anchor: string): string {
-  const at = src.indexOf(anchor);
-  expect(at, `anchor ${anchor}`).toBeGreaterThan(-1);
-  const start = Math.max(src.lastIndexOf('<Button', at), src.lastIndexOf('<a', at), src.lastIndexOf('buttonVariants', at));
-  return src.slice(start, src.indexOf('>', at));
-}
-
 describe('one page title (#1282, item 6)', () => {
   it('a Settings page title is drawn by SettingsPageHeader, or by an h1 with exactly its classes', () => {
     const TITLE = 'text-lg font-bold leading-[1.3] tracking-[-0.01em] text-ink';
