@@ -105,3 +105,30 @@ export function firstWeekday(r: Regional = DEFAULT_REGIONAL): number {
   // 'system': most locales start Monday; en-US/en-CA start Sunday.
   return /^en-(US|CA)\b/i.test(typeof navigator !== 'undefined' ? navigator.language : 'en-US') ? 0 : 1;
 }
+
+/* ── Long weekday form (ticket #1274, Otto 2026-11-13) ───────────────────────────────────────────────────────────────
+   Kept in its own block at the END of the file so it merges cleanly with other open edits to the formatter above. */
+
+// Which locale spells the words for each date-format choice: the two that name an order (MDY, DMY) name a locale;
+// YMD and `system` have no word order of their own, so the viewer's own locale (undefined) decides.
+const LONG_DATE_LOCALE: Record<Regional['dateFormat'], string | undefined> = {
+  system: undefined,
+  MDY: 'en-US',
+  DMY: 'en-GB',
+  YMD: undefined,
+};
+
+/**
+ * "Tuesday, 20 October" (en-GB) / "Tuesday, October 20" (en-US): the weekday, a comma, then the day and month in
+ * the locale's own order. The weekday and the day-month are formatted separately and joined here because the comma
+ * between them is not stable across ICU versions (newer ones print "Tuesday 20 October" for en-GB); the ruling is
+ * that the comma is always there. No year — this is the "today" line, not a record date. Invalid or empty → ''.
+ */
+export function formatLongDate(value: unknown, r: Regional = DEFAULT_REGIONAL): string {
+  const d = toDate(value);
+  if (!d) return '';
+  const locale = LONG_DATE_LOCALE[r.dateFormat];
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(d);
+  const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long' }).format(d);
+  return `${weekday}, ${dayMonth}`;
+}
