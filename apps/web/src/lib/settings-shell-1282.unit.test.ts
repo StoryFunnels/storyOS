@@ -181,3 +181,18 @@ describe('one segmented control (#1282, item 10)', () => {
     expect(slack).toContain('(simpler)');
   });
 });
+
+describe('Settings home is two columns (#1282, item 5; Otto 2026-11-13)', () => {
+  const home = read(join(SETTINGS, 'page.tsx'));
+  it('draws two columns from a tablet width up, one on a phone, and not an auto-fill that returns three', () => {
+    expect(home).toMatch(/data-testid="settings-home-cards"/);
+    expect(home).toContain('grid-cols-1');
+    expect(home).toContain('min-[520px]:grid-cols-2');
+    expect(home).not.toMatch(/auto-fill|grid-cols-3|minmax\(210px/);
+  });
+
+  it('keeps every card: the grid wraps the same cards, it does not drop one to fit', () => {
+    expect(home).toContain('data-testid="settings-home-cards"');
+    expect(home).toMatch(/\.map\(/);
+  });
+});
