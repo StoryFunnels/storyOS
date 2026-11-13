@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { SERVER_API_URL } from '@/lib/api';
 import { fetchPublicJson } from '@/lib/public-fetch';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 /**
  * Public, pre-signup Business Pack preview (#272).
@@ -128,7 +130,7 @@ export default async function PackPublicPreviewPage({
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <Link
               href="/signup"
-              className="inline-flex h-10 items-center justify-center rounded-[var(--radius-control)] bg-primary px-5 text-sm font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+              className={cn(buttonVariants({ variant: 'primary' }))}
             >
               Sign up free to install
             </Link>

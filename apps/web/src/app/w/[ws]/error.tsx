@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { AlertTriangle, ArrowLeft, RotateCw } from 'lucide-react';
 import { reportError } from '@/lib/report-error';
 import { useBackOrParent } from '@/lib/nav-trail';
+import { Button } from '@/components/ui/button';
 
 /**
  * #424 — the workspace-level backstop.
@@ -51,20 +52,20 @@ export default function WorkspaceError({
           <p className="mt-2 font-mono text-meta text-faint">Reference: {error.digest}</p>
         ) : null}
         <div className="mt-3 flex gap-2">
-          <button
+          <Button
             type="button"
             onClick={reset}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink hover:bg-hover"
+            variant="secondary"
           >
             <RotateCw className="h-3.5 w-3.5" /> Try again
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={goBack}
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-muted hover:bg-hover hover:text-ink"
+            variant="ghost"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Go back
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -35,7 +35,7 @@ export function QuillNotFound() {
   return (
     <NotFoundBody
       action={
-        <Link href={homeHrefFor(ws)} className={cn(buttonVariants({ variant: 'primary', size: 'sm' }))}>
+        <Link href={homeHrefFor(ws)} className={cn(buttonVariants({ variant: 'primary' }))}>
           Go home
         </Link>
       }
@@ -52,7 +52,7 @@ export function PublicNotFound() {
   return (
     <NotFoundBody
       action={
-        <a href={MARKETING_URL} className={cn(buttonVariants({ variant: 'primary', size: 'sm' }))}>
+        <a href={MARKETING_URL} className={cn(buttonVariants({ variant: 'primary' }))}>
           Go to {MARKETING_LABEL}
         </a>
       }
