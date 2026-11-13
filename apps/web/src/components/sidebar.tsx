@@ -50,6 +50,7 @@ import { Input } from '@/components/ui/input';
 import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { HIT_AREA_24 } from '@/components/ui/header-action';
+import { SidebarTierLabel } from '@/components/sidebar-tier-label';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
 import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
@@ -107,7 +108,7 @@ function FavoritesSection({ ws }: { ws: string }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-2">
-      <div className="px-3 pb-1 text-micro font-normal uppercase tracking-[0.16em] text-faint">Favorites</div>
+      <SidebarTierLabel className="mt-0 pb-1">Favorites</SidebarTierLabel>
       <div className="flex flex-col gap-0.5">
         {items.map((f) => (
           // #805 — through SidebarRow + GlyphSlot like every other row. This was
@@ -401,7 +402,8 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}
         <div className="mb-0.5 mt-0 flex items-center justify-between px-3">
-          <span className="text-meta font-semibold uppercase tracking-wider text-muted">Spaces</span>
+          {/* Ticket #1273 — the SAME tier label as AI above it: the shared component, not a second hand-rolled style. */}
+          <SidebarTierLabel className="m-0 p-0">Spaces</SidebarTierLabel>
           <div className="flex items-center gap-0.5">
             <ViewsOnlyModeButton active={viewsOnly} onToggle={toggleViewsOnly} />
             {canEdit && (

@@ -32,3 +32,25 @@ describe('item 2: tree rows are 22px with a 12px label', () => {
     }
   });
 });
+
+describe('item 3: ONE tier-label style (AI, Spaces, Favorites share it)', () => {
+  const tierSrc = read('sidebar-tier-label.tsx');
+
+  it('the shared label is mono, 9px, 0.16em tracking, caps, in the neutral muted colour', () => {
+    expect(tierSrc).toMatch(/font-mono text-\[9px\] font-normal uppercase/);
+    expect(tierSrc).toContain('tracking-[0.16em]');
+    expect(tierSrc).toMatch(/text-muted'/);
+    expect(tierSrc).not.toMatch(/text-faint/); // a label is prose; faint is the glyph colour and fails 4.5:1
+  });
+
+  it('Spaces and Favorites go through SidebarTierLabel, not a hand-rolled span/div', () => {
+    expect(sidebarSrc).toMatch(/<SidebarTierLabel[^>]*>Spaces<\/SidebarTierLabel>/);
+    expect(sidebarSrc).toMatch(/<SidebarTierLabel[^>]*>Favorites<\/SidebarTierLabel>/);
+    expect(sidebarSrc).not.toMatch(/uppercase tracking-wider text-muted">Spaces</);
+  });
+
+  it('KEEPS the AI label gold (text-accent-text, in the agent allow-list file only) and a notch heavier', () => {
+    expect(aiSrc).toMatch(/<SidebarTierLabel className="font-semibold text-accent-text">AI<\/SidebarTierLabel>/);
+    expect(tierSrc).not.toMatch(/accent/); // gold must not enter the shared file (gold-agents-only)
+  });
+});

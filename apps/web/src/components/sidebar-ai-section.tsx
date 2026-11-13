@@ -158,8 +158,8 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
 
   return (
     <div data-testid="sidebar-ai-section">
-      {/* #805 — the quiet tier label (10px, wide tracking); gold, and a notch heavier so it reads as a mark. */}
-      <SidebarTierLabel className="text-accent-text">AI</SidebarTierLabel>
+      {/* #805 — the quiet tier label, the shared one; gold, and a notch heavier so it reads as a mark. */}
+      <SidebarTierLabel className="font-semibold text-accent-text">AI</SidebarTierLabel>
       {rows.slice(0, 1).map(renderRow)}
       {agentsHref && (
         <>
