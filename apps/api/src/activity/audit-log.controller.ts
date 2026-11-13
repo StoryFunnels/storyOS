@@ -47,8 +47,12 @@ export class AuditLogController {
   constructor(private readonly auditLog: AuditLogService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Workspace-wide activity + field changes, filterable by actor/entity/date range (admin)' })
+  @ApiOperation({
+    summary: 'Workspace-wide activity + field changes, filterable by actor/entity/date range (admin)',
+    description:
+      'Each row about a record carries `record` {id, number, title, database_id, database_name, deleted, withheld} (ticket #1287), resolved for the reader: `withheld` rows (a record the reader may not read, or in another member\'s personal space) carry only the id; `deleted` rows are soft-deleted or gone. Resolved display data sits alongside the raw ids: field_type, old_display and new_display (option labels for select fields), other_record (relation events), actor_name, actor_kind (member | system) and actor_removed.',
+  })
   list(@Req() req: WorkspaceRequest, @Query() query: AuditLogQueryDto) {
-    return this.auditLog.list(req.membership.workspaceId, query);
+    return this.auditLog.list(req.membership, query);
   }
 }
