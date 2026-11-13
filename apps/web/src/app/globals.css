@@ -189,7 +189,9 @@
    * this scale except the public form page's, which is ticket #632.
    */
   --shadow-ink: 15 23 41;
-  --shadow-popover: 0 4px 12px rgb(var(--shadow-ink) / 0.08);
+  /* #1281 — ONE shadow for every dropdown, popover, toast and form listbox: 0 8px 24px at .12, stronger than the old
+     4/12/.08 and lighter than --shadow-panel's .15. Dark overrides the ink below so the lift stays visible. */
+  --shadow-popover: 0 8px 24px rgb(var(--shadow-ink) / 0.12);
   --shadow-panel: 0 8px 24px rgb(var(--shadow-ink) / 0.15);
   --shadow-lifted: 0 8px 24px rgb(var(--shadow-ink) / 0.25);
   --shadow-overlay: 0 16px 40px rgb(var(--shadow-ink) / 0.22);
@@ -235,6 +237,9 @@
   --radius-card: 6px;
   --radius-popover: 8px;
   --radius-modal: var(--radius-popover);
+  /* #1281 — one menu geometry: items 28px tall at 12px (--text-label), lists at least 200px wide. */
+  --menu-item-height: 28px;
+  --menu-min-width: 200px;
   /* #281: select-value badges and relation-entity chips share this 4px shape —
      deliberately NOT full-pill, so the "solid mini-tag" direction reads as its
      own visual language rather than the generic rounded-pill every other tool uses. */
@@ -301,6 +306,8 @@
   --bg-frame: #0a0d12;
   /* #969 — the light-mode page shadow disappears on a dark ground. */
   --shadow-page: 0 0 0 1px rgb(0 0 0 / 0.25), 0 8px 28px rgb(0 0 0 / 0.35);
+  /* #1281 — near-black ink reads on the dark ground; the popover's own 1px border is the visible edge. */
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.4);
   --bg-card: #171c26;
   --bg-hover: #1e2430;
   --bg-hover-soft: #1b202b;

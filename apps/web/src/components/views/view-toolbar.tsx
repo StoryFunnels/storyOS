@@ -85,6 +85,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  MENU_ITEM_GEOMETRY,
 } from '@/components/ui/dropdown-menu';
 import { DatePicker } from '@/components/ui/date-picker';
 import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass } from '@/components/ui/drag-presentation';
@@ -617,9 +618,9 @@ export function ColorByButton({
           <Palette className="h-3.5 w-3.5" /> {active ? `Color: ${active.displayName}` : 'Color'}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="min-w-44">
+      <DropdownMenuContent>
         <button
-          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
+          className={cn('flex w-full items-center justify-between rounded text-ink hover:bg-hover', MENU_ITEM_GEOMETRY)}
           onClick={() => onChange(undefined)}
         >
           None {!value && <Check className="h-3.5 w-3.5 text-primary-text" />}
@@ -627,7 +628,7 @@ export function ColorByButton({
         {fields.map((field) => (
           <button
             key={field.id}
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
+            className={cn('flex w-full items-center justify-between rounded text-ink hover:bg-hover', MENU_ITEM_GEOMETRY)}
             onClick={() => onChange(field.id)}
           >
             {field.displayName}
@@ -2376,7 +2377,7 @@ function ConditionMenu({
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onDuplicate}>
           <Copy className="h-3.5 w-3.5" /> Duplicate
         </DropdownMenuItem>
@@ -2423,7 +2424,7 @@ function GroupMenu({
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-44">
+      <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onDuplicate}>
           <Copy className="h-3.5 w-3.5" /> Duplicate group
         </DropdownMenuItem>
@@ -2539,7 +2540,7 @@ function OptionMultiPick({
             {filtered.map((option) => (
               <label
                 key={option.id}
-                className="flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
+                className={cn('flex items-center gap-2 rounded text-ink hover:bg-hover', MENU_ITEM_GEOMETRY)}
               >
                 <input
                   type="checkbox"
