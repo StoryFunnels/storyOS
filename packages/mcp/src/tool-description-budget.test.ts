@@ -114,7 +114,7 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
     expect(customer.notes.size).toBeGreaterThan(80);
     for (const [tool, full] of customer.notes) {
       const listed = customer.descriptions.get(tool)!;
-      expect(listed, `${tool}: listed description must point at its own section`).toContain(`get_started section='${toolNotesSection(tool)}'`);
+      expect(listed, `${tool}: listed description must point at its own section`).toContain(`[Full notes: get_started section "${toolNotesSection(tool)}"]`);
       expect(listed.length, `${tool}: a shortened description is shorter than the full one`).toBeLessThan(full.length);
       expect((await noteIn(customer, tool)).trim(), `${tool}: get_started must carry its full text`).toBe(full.trim());
     }
@@ -128,7 +128,7 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
 
   it('the four reference grammars the ticket names point at their own section by name', () => {
     for (const tool of ['create_automation', 'install_pack', 'add_field', 'create_source']) {
-      expect(customer.descriptions.get(tool)!, tool).toContain(`call get_started section='TOOL NOTES ${tool}'`);
+      expect(customer.descriptions.get(tool)!, tool).toContain(`[Full notes: get_started section "TOOL NOTES ${tool}"]`);
       expect(customer.descriptions.get(tool)!.length, tool).toBeLessThan(1_000);
     }
   });
@@ -215,9 +215,9 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
     expect(d('create_automation')).toContain('a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled)');
     expect(d('create_automation')).toMatch(/send real email, call any public HTTP API and post to Slack/);
     expect(d('create_automation')).toContain('below 10 is refused');
-    expect(d('install_pack')).toContain('preview:true');
+    expect(d('install_pack')).toContain('`preview: true` reports, changing nothing');
     expect(d('install_pack')).toContain('SWITCHED OFF');
-    expect(d('add_field')).toContain('use `workflow` (not `select`)');
+    expect(d('add_field')).toContain('`workflow` is the type of the one lifecycle status field');
     expect(d('create_source')).toContain('CREDENTIALS NEVER PASS THROUGH THIS TOOL');
     expect(d('create_agent_trigger')).toContain("a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email");
     expect(d('delete_webhook')).toMatch(/permanently/);
@@ -229,8 +229,8 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
     registerTools({ registerTool: (n: string, c: never) => void cfgs.set(n, c) } as never, ctx, ADMIN);
     // What a client actually receives: the JSON schema the SDK derives from the registered zod object.
     const json = z.toJSONSchema(cfgs.get('create_automation')!.inputSchema as never, { io: 'input', unrepresentable: 'any' }) as { properties: Record<string, { description?: string }> };
-    expect(json.properties.trigger!.description).toContain(`get_started section="TOOL NOTES create_automation"`);
-    expect(json.properties.actions!.description).toContain(`get_started section="TOOL NOTES create_automation"`);
+    expect(json.properties.trigger!.description).toContain(`get_started section "TOOL NOTES create_automation"`);
+    expect(json.properties.actions!.description).toContain(`get_started section "TOOL NOTES create_automation"`);
   });
 });
 

@@ -209,7 +209,7 @@ function ProfileBox({
           <span className="text-label text-muted">Changing your email will be available soon.</span>
         </div>
         <div className="flex items-center justify-end gap-3 border-t border-border-default px-3.5 py-2.5">
-          <Button type="submit" disabled={save.isPending || !dirty}>
+          <Button type="submit" size="sm" disabled={save.isPending || !dirty}>
             {save.isPending ? 'Saving…' : 'Save'}
           </Button>
         </div>
@@ -267,7 +267,7 @@ function PasswordBox() {
           <span className="text-label text-muted">At least 8 characters. Changing it signs you out everywhere else.</span>
         </div>
         <div className="flex items-center justify-end gap-3 border-t border-border-default px-3.5 py-2.5">
-          <Button type="submit" variant="secondary" disabled={change.isPending || !current || next.length < 8}>
+          <Button type="submit" variant="secondary" size="sm" disabled={change.isPending || !current || next.length < 8}>
             Change password
           </Button>
         </div>

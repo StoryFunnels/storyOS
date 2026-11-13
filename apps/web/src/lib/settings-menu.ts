@@ -25,6 +25,17 @@ export function settingsCountClass(count: Pick<SettingsNavCount, 'warn'>): strin
   return count.warn ? 'text-warning-text' : 'text-muted';
 }
 
+/**
+ * Ticket #1282 — the current page's row is 650 weight on the beige fill, as the prototype draws it (it was 400: the fill alone said where you
+ * are). Only the weight is added here; the fill and the rest of a row stay the sidebar row's own (`sidebarRowStateClass`).
+ */
+export function settingsRowWeightClass(active: boolean): string {
+  return active ? 'font-[650]' : 'font-normal';
+}
+
+/** The Back row is a 28px target (prototype `.sback`: 6px 8px padding), taller than a 24px menu row: it is the one way out of Settings. */
+export const SETTINGS_BACK_ROW_CLASS = 'mb-2.5 mt-0.5 h-7 max-md:h-[34px]';
+
 export interface SettingsMenuRow {
   id: SettingsPageId;
   href: string;
