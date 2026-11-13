@@ -122,13 +122,13 @@ const DESCRIPTION_PARAM =
  */
 const PALETTE = SHARED_PALETTE;
 const COLOR_PARAM =
-  `Palette colour: ${PALETTE.join(', ')}. Omit on create and one is auto-assigned AT RANDOM — which is how a set of databases ends up with two purples, so pass distinct colours deliberately when building several.`;
+  `Palette colour: ${PALETTE.join(', ')}. Omit on create and one is auto-assigned AT RANDOM, so databases created in a row can end up sharing a colour (two purples).`;
 
 /** Icon param description shared by create_database/update_database/create_space
  * (#251: emoji retired as the picker option in-app; the MCP surface keeps
  * accepting it for back-compat but no longer advertises it as the default). */
 export const ICON_PARAM_DESCRIPTION =
-  'A curated icon ref, e.g. "set:rocket" or a brand/logo ref like "brand:github" (#298) — the full catalog is in get_started section="ICONS". ' +
+  'A curated icon ref, e.g. "set:rocket" or a brand/logo ref like "brand:github" (#298). See also: get_started section "ICONS" for the full catalog. ' +
   'A raw emoji (e.g. "📁") still works for backward compatibility with older data, but is not the preferred form.';
 
 /** Curated icon names grouped by category label, plus the brand/logo set
@@ -172,9 +172,33 @@ export const TOOL_NOTES_HEADING = 'TOOL NOTES';
 /** The exact section string get_started's `section` argument accepts for one tool's full text. */
 export const toolNotesSection = (tool: string): string => `${TOOL_NOTES_HEADING} ${tool}`;
 /** The pointer a shortened description ends on: names the exact section, so a model never has to guess or fetch everything. */
-export const toolNotesPointer = (tool: string): string => ` [Full notes: get_started section='${toolNotesSection(tool)}']`;
+export const toolNotesPointer = (tool: string): string => ` [Full notes: get_started section "${toolNotesSection(tool)}"]`;
 export const FILTERS_SECTION = 'FILTERS';
 export const ICONS_SECTION = 'ICONS';
+/**
+ * ticket #1288 (Claude connector directory policy: a tool description holds no instructions about other tools or model behaviour).
+ * The working guidance that used to sit inside descriptions ("call describe_database first", "use count_records for any how-many
+ * question", "do not retry a held write", ...) lives HERE instead: a get_started section is a tool RESULT, which is where guidance for
+ * the model is allowed to be. A description keeps only what a tool does, takes and returns, plus neutral references.
+ */
+export const WORKING_NOTES_SECTION = 'WORKING NOTES';
+export const WORKING_NOTES_TEXT = [
+  'WORKING NOTES — guidance that used to be written into individual tool descriptions. Each line names the tools it is about.',
+  '',
+  'Schema first: describe_database returns the exact api_names that create_record, update_record and query_records key their values by; read it before writing or querying so field names are real, not guessed. get_my_work is worth calling at the start of a session: list_databases says what exists, get_my_work says what matters.',
+  'Counting: use count_records for any "how many" question. query_records is paginated, so counting its results gives the size of one page, not the total.',
+  'Many at once: prefer create_records over calling create_record in a loop, delete_records over many delete_record calls, and build_schema (after propose_schema) over a long create_database / add_field sequence. After an import, run_auto_link links the new rows in one call. Show a propose_schema plan to the person before passing it to build_schema.',
+  'Formulas: dry-run an expression with preview_formula before saving it with add_field / update_field; when it reports errors, fix the expression and call it again until valid.',
+  'Edits that replace whole: update_document replaces the whole body, so read it with get_document and send the full new text; update_skill replaces each field passed whole, so read it with get_skill first (the same goes for the `members` list); update_source replaces the whole config, so read the current one from list_sources first. A trigger passed to update_automation is replaced whole as well.',
+  'Look before creating: list_folders before create_document\'s `folder` or create_folder, and list_space_groups before create_space_group, to reuse an existing group instead of inventing a near-duplicate. list_installed_packs before install_pack: installing a pack a workspace already has creates a second copy of its databases. list_skill_templates before create_skill, for a worked example of the level of detail that makes a skill re-runnable. list_source_providers then discover_source_fields before create_source, then sync_source to prove it works. create_agent_trigger starts an agent by itself, so create one only for an agent meant to run on its own.',
+  'Restoring: the trash lists (list_trash, list_views_trash, list_spaces_trash, list_databases_trash) come before the matching restore_* call, because a deleted item no longer resolves by name or number anywhere else.',
+  'Careful writes: run find_select_drift and show the list to a person before fix_select_drift, which writes links to records the caller never named individually. Treat delete_document as permanent (it is in no trash). A write that a gate holds answers { pending_approval: true, approval_id } and nothing changes until a person approves it: do not retry it. rerun_action is for after the cause of a failure is fixed.',
+  'Quoting numbers: get_agent_budget figures are measured, so quote them and never estimate; a partial token total is a lower bound, say "at least". A comment\'s `source` (list_comments) records provenance, so a comment body needs no author name typed into it. A computed_values `pending_at` older than 5 minutes should be treated as absent.',
+  'Choosing between tools: create_document holds one page of prose (a summary, a plan, meeting notes), so a database or an unrelated record need not be invented for it. list_templates before hand-building an ordinary shape, then apply_template. get_links for a database link, a view link or a batch of record links (the record tools already return a `url`). get_view when a view id comes from a shared link or list_space_views and it is not known whether it belongs to a database or a space. set_favorite after building something a person asked for, so they can find it again.',
+  'Previews and options: install_pack with preview:true first shows per database create / reuse / collision and changes nothing; it is most useful on a workspace that already has data. Its reuse_databases names which database to reuse when several share a name. link_records with replace:true re-points or clears a one-to-many link. add_field takes `workflow` for the one lifecycle status field and `select` for ordinary choices. create_source starts from the proposed_field_mapping discover_source_fields returns. To have an agent apply a skill, name the skill in that agent\'s Skills field (run_skill itself runs no model). create_agent_trigger leaves human_gate off for an agent that should wake by itself. Colours are auto-assigned at random on create, so pass distinct colours to create_database, create_space and update_space when building several.',
+  'Care with other people\'s things: archive nothing with mark_notifications on someone\'s behalf without being asked, since a notification an agent archived is one the person never saw; reading and reporting is usually the useful act. To stop a skill being suggested, edit its when_to_use rather than delete_skill, which is permanent. To correct a comment of your own, update_comment it rather than posting a second one that contradicts the first. Read a version before restore_version, because a snapshot list carries titles and timestamps, not values. Read the run run_agent returns rather than assuming success from the absence of an error. set_default_view deliberately after building several views: an agent that creates the right board and leaves the wrong view in front of everyone has hidden the work.',
+  'Explaining what a person sees: list_runners shows why an agent is not running; list_grants shows why a database is missing for one person and present for another; list_invites shows whether a colleague simply has not accepted yet; get_personal_filter shows whether a personal filter is why a view looks wrong; get_run_quota is worth checking before building a rule that fires on every record change; remove_sample_data once the real data is in.',
+].join('\n');
 
 const CALL_TIME_WARNING = /cannot be undone|irreversib|permanently|\bconfirm\b|do not retry|\bGuardrail\b/i;
 
@@ -1093,7 +1117,7 @@ const skillMembersArg = z
   .array(z.string())
   .optional()
   .describe(
-    'With visibility `members`: who can see it, as user ids from list_members or exact names. On update this REPLACES the whole set, so get_skill first and send the full new list to add or remove someone. Everyone not named gets nothing, not even a hint the skill exists.',
+    'With visibility `members`: who can see it, as user ids from list_members or exact names. On update this REPLACES the whole set, so adding or removing someone means sending the full new list (get_skill returns the current one). Everyone not named gets nothing, not even a hint the skill exists.',
   );
 
 function skillVisibilityNote(visibility: string, pendingApprovalId?: string): string {
@@ -1175,7 +1199,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     if (lead !== null && full) {
       toolNotes.set(name, full);
       if (short !== undefined) handWritten.add(name);
-      listed.description = lead.includes(`section='${toolNotesSection(name)}'`) ? lead : lead + toolNotesPointer(name);
+      listed.description = lead.includes(`section "${toolNotesSection(name)}"`) ? lead : lead + toolNotesPointer(name);
     }
     server.registerTool(name as string, { ...listed, inputSchema: sdkInputSchema } as never, wrapped as never);
   };
@@ -1184,7 +1208,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get started',
       description:
-        "Orientation for these tools + a workspace map (spaces → databases → fields). Call first in a new workspace. No `section`: the overview and an index of section names. section='<name>' from that index returns one reference section (FILTERS, ICONS, TOOL NOTES <tool>).",
+        "Orientation for these tools plus a workspace map (spaces → databases → fields). Without `section` it returns the overview and an index of section names; with `section` it returns one reference section (FILTERS, ICONS, WORKING NOTES, TOOL NOTES <tool>).",
       inputSchema: {
         workspace: z.string().optional().describe('Workspace name or id to map (optional).'),
         section: z
@@ -1253,6 +1277,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // moved grammars, so each piece is its own section, fetched by name. A tool's section is its full description, verbatim.
       const sections = new Map<string, string>();
       sections.set(FILTERS_SECTION, FILTER_GUIDE);
+      sections.set(WORKING_NOTES_SECTION, WORKING_NOTES_TEXT);
       for (const [toolName, full] of [...toolNotes].sort(([x], [y]) => Number(handWritten.has(y)) - Number(handWritten.has(x)))) {
         sections.set(toolNotesSection(toolName), `[${toolName}]\n${full}`);
       }
@@ -1316,7 +1341,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List databases',
       description:
-        'Databases in a workspace. `ref` is the canonical space/database slug — use it (not the bare name) to target a database unambiguously, since the same name can exist in two spaces.',
+        'Databases in a workspace. `ref` is the canonical space/database slug, which identifies one database unambiguously; a bare name can be ambiguous because the same name can exist in two spaces.',
       inputSchema: { workspace: z.string().describe('Workspace name or id.') },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -1342,7 +1367,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Describe database',
       description:
-        'The schema of one database: every field with its exact api_name, type, select options and relation targets. READ THIS before create/query so you use real api_names, not guesses.',
+        'The schema of one database: every field with its exact api_name, type, select options and relation targets. These are the exact api_names that record writes and queries are keyed by.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -1396,7 +1421,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'search',
     {
       title: 'Search records',
-      description: 'Full-text search records across a workspace by title. Use this to turn a name ("the Acme project") into a real record id.',
+      description: 'Full-text search records across a workspace by title. Turns a name ("the Acme project") into a real record id.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         query: z.string().describe('Text to search for.'),
@@ -1430,8 +1455,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Count records',
       description:
         'Count records in a database, or total/average a numeric field — computed in the database, ' +
-        'returning one number. USE THIS FOR ANY "how many" QUESTION rather than fetching records and ' +
-        'counting them: query_records is paginated, so counting its results gives you the size of one ' +
+        'returning one number. Answers "how many" questions exactly: the count is made in the database, whereas ' +
+        'counting the results of query_records, which is paginated, gives the size of one ' +
         'page, not the total. Takes the same filter AST as query_records — select/workflow/user labels ' +
         '("Done", not an option id) resolve the same way too — so "how many are still open" is one call.',
       inputSchema: {
@@ -1442,7 +1467,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .optional()
           .describe('Default "count". The others need `field` and aggregate its numeric values.'),
         field: z.string().optional().describe('Field api_name to aggregate. Required for everything except count.'),
-        filter: z.any().optional().describe('Same filter AST as query_records — see get_started section="FILTERS".'),
+        filter: z.any().optional().describe('Same filter AST as query_records. See also: get_started section "FILTERS".'),
         q: z.string().optional().describe('Free-text match on the title, same as query_records.'),
       },
     },
@@ -1509,7 +1534,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .optional()
           .describe('Default "count". The others need `field` and aggregate its numeric values within each group.'),
         field: z.string().optional().describe('Field api_name to aggregate. Required for everything except count.'),
-        filter: z.any().optional().describe('Same filter AST as query_records — see get_started section="FILTERS".'),
+        filter: z.any().optional().describe('Same filter AST as query_records. See also: get_started section "FILTERS".'),
         q: z.string().optional().describe('Free-text match on the title, same as query_records.'),
       },
     },
@@ -1549,7 +1574,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Query records',
       description:
-        'List/filter/sort records in a database. filter is the structured AST (see get_started section="FILTERS" for the ' +
+        'List/filter/sort records in a database. filter is the structured AST (See also: get_started section "FILTERS" for the ' +
         'full op cheat-sheet). Both a grouped filter — { "and": [{ "field": "priority", "op": "eq", ' +
         '"value": "Urgent" }] } — and a bare single condition — { "field": "priority", "op": "eq", ' +
         '"value": "Urgent" } — are accepted; no group wrapper is required for one condition. Returns ' +
@@ -1563,7 +1588,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Filter AST — grouped { and: [{ field, op, value }] }/{ or: [...] }, or a bare ' +
               '{ field, op, value } condition. Example: { "field": "priority", "op": "eq", "value": "Urgent" }. ' +
-              'See get_started section="FILTERS" for the op-by-field-type cheat sheet.',
+              'See also: get_started section "FILTERS" for the op-by-field-type cheat sheet.',
           ),
         sorts: z
           .array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']) }))
@@ -1674,7 +1699,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'get_record',
     {
       title: 'Get record',
-      description: 'One record in full — values keyed by api_name, resolved relation chips. Accepts the record uuid or its public number. `computed_values` carries an AI field\'s state beside its value: `<field_id>:computed_at`, `<field_id>:error` (a failed recompute; the last good value is kept) and `<field_id>:pending_at` (an ISO time, present while a recompute is in flight; treat it as absent once it is more than 5 minutes old, the API already drops it then).',
+      description: 'One record in full — values keyed by api_name, resolved relation chips. Accepts the record uuid or its public number. `computed_values` carries an AI field\'s state beside its value: `<field_id>:computed_at`, `<field_id>:error` (a failed recompute; the last good value is kept) and `<field_id>:pending_at` (an ISO time, present while a recompute is in flight; the API already drops it once it is more than 5 minutes old).',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -1818,7 +1843,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create record',
       description:
-        'Create a record. values are keyed by api_name (call describe_database first); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Returns the created record.',
+        'Create a record. values are keyed by api_name (field names as listed by describe_database); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Returns the created record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1952,7 +1977,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: "Get record's description (document body)",
       description:
-        "The record's own rich-text description/document — the block editor content shown under its title, NOT a custom field literally named \"description\" (that would show up in get_record's values instead, if the database has one). Returns Markdown. version 0 means it has never been written.",
+        "The record's own rich-text description/document — the block editor content shown under its title, NOT a custom field literally named \"description\" (such a field appears in get_record's values, if the database has one). Returns Markdown. version 0 means it has never been written.",
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1981,7 +2006,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: "Set record's description (document body)",
       description:
-        "Overwrite the record's rich-text description/document — the block editor content shown under its title, NOT a custom field literally named \"description\" (use update_record's values for that). content is Markdown (headings/lists/links parsed into real blocks, same as a rich_text field). Omit expected_version to overwrite unconditionally; pass the version from a prior get_record_description to fail safely (409) if it changed since you read it.",
+        "Overwrite the record's rich-text description/document — the block editor content shown under its title, NOT a custom field literally named \"description\" (that field is set through update_record's values). content is Markdown (headings/lists/links parsed into real blocks, same as a rich_text field). Omit expected_version to overwrite unconditionally; pass the version from a prior get_record_description to fail safely (409) if it changed since you read it.",
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2052,7 +2077,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Link records',
       description:
-        'Link a record through a relation field to target records (by uuid or public number). Default ADDS links. Use replace:true to set the link set to exactly `targets` — that is how you re-point or clear a one-to-many link (adding a second target without replace returns a 409). Get target ids from search / query_records first.',
+        'Link a record through a relation field to target records (by uuid or public number). Default ADDS links; `replace: true` sets the link set to exactly `targets`, which is how a one-to-many link is re-pointed or cleared (adding a second target without replace returns a 409). Target ids come from search / query_records.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2101,7 +2126,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Unlink records',
       description:
-        'Remove specific links from a record\'s relation field, leaving the relation and every other link intact. Use this (or link_records with replace) to fix a mis-link — never delete_relation, which drops the relation everywhere (#81).',
+        'Remove specific links from a record\'s relation field, leaving the relation and every other link intact. Fixes a mis-link (link_records with replace does too); unlike delete_relation, which drops the relation everywhere, it touches only the named links (#81).',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2198,7 +2223,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List trash',
       description:
-        'The deleted records of a database, newest first — restorable for 30 days, then gone for good. Call this before restore_records (a deleted record no longer resolves by public number anywhere else) and after a delete you are unsure about.',
+        'The deleted records of a database, newest first — restorable for 30 days, then gone for good. A deleted record no longer resolves by public number anywhere else, so this is where the ids restore_records takes come from; it also shows whether a delete took effect.',
       inputSchema: { workspace: z.string(), database: z.string() },
     },
     handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
@@ -2216,7 +2241,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete records',
       description:
-        'Move up to 200 records to trash in one call (restorable 30 days via list_trash / restore_records). Records are uuids or public numbers. Use delete_record for a single one — this exists so cleaning up a query result is one call instead of two hundred.',
+        'Move up to 200 records to trash in one call (restorable 30 days via list_trash / restore_records). Records are uuids or public numbers. Exists so cleaning up a query result is one call instead of two hundred; delete_record handles a single one.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2289,7 +2314,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Duplicate record',
       description:
-        'Copy a record: its values, its description document, and its single/many-to-many links. Owned collections (the "many" side a record owns) are NOT copied — a duplicated project does not clone its tasks. Returns the new record, so use it as a template-instantiation step rather than re-typing a filled-in record.',
+        'Copy a record: its values, its description document, and its single/many-to-many links. Owned collections (the "many" side a record owns) are NOT copied — a duplicated project does not clone its tasks. Returns the new record, which makes it a template-instantiation step (a filled-in record need not be re-typed).',
       inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
     },
     handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
@@ -2466,7 +2491,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List comments',
       description:
-        'Read a record\'s comment thread, newest first, as plain text — including the ones you posted with add_comment. Each comment carries its id (for update_comment / delete_comment), author, timestamps, and #734\'s real `source` (human/agent/automation/mcp, plus agent_id/agent_name when source is "agent") — read this instead of hand-typing your own name into a comment body to establish provenance; null means the comment predates this field.',
+        'Read a record\'s comment thread, newest first, as plain text — including the ones you posted with add_comment. Each comment carries its id (for update_comment / delete_comment), author, timestamps, and #734\'s real `source` (human/agent/automation/mcp, plus agent_id/agent_name when source is "agent") — the recorded provenance, so a comment body needs no author name typed into it; null means the comment predates this field.',
       inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
     },
     handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
@@ -2656,7 +2681,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update comment',
       description:
-        'Replace the text of a comment you authored (get its id from list_comments). Editing someone else\'s is refused by the API — correct a mistake of your own rather than posting a second comment that contradicts the first.',
+        'Replace the text of a comment you authored (id from list_comments). Editing someone else\'s is refused by the API; an edit replaces the text in place, so the thread holds one comment, not a correction after the original.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2686,7 +2711,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete comment',
       description:
-        'Delete a comment you authored (workspace admins may delete any). Get the id from list_comments. Unlike a record, a comment does not go to a trash you can browse — deleting is the end of it.',
+        'Delete a comment you authored (workspace admins may delete any). The id comes from list_comments. Unlike a record, a comment does not go to a trash you can browse — deleting is the end of it.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2714,7 +2739,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get record history',
       short:
-        "What happened to a record, newest first, through one of four lenses (`kind`): \"fields\" (default; per-field changes with before/after, for \"who changed the status and when\"), \"versions\" (whole-record snapshots; a version id goes to restore_version), \"activity\" (the full trail including comments, links and attachments) and \"document_versions\" (snapshots of the description document; an id goes to restore_document_version). Pick one lens by what you are answering. Every row carries `source` (human/agent/automation/mcp). Full notes: call get_started section='TOOL NOTES get_history'.",
+        "What happened to a record, newest first, through one of four lenses (`kind`): \"fields\" (default; per-field changes with before/after, for \"who changed the status and when\"), \"versions\" (whole-record snapshots; a version id goes to restore_version), \"activity\" (the full trail including comments, links and attachments) and \"document_versions\" (snapshots of the description document; an id goes to restore_document_version). Each lens answers a different question. Every row carries `source` (human/agent/automation/mcp). [Full notes: get_started section \"TOOL NOTES get_history\"]",
       description:
         'What happened to this record, newest first, through one of four lenses. kind:"fields" (default) = per-field changes with readable before/after values — use this to answer "who changed the status and when". kind:"versions" = whole-record snapshots, each with a version id you can hand to restore_version. kind:"activity" = the full trail including comments, links and attachments, not just value edits. kind:"document_versions" = snapshots of the record\'s DESCRIPTION document (BlockNote), each with a version id you can hand to restore_document_version — #677, separate from "versions" above which never covers the description. Four lenses on one question, so pick by what you are answering rather than calling all four. Every row carries `source` (human/agent/automation/mcp); an agent-made row also carries `agent_id` and `agent_name` (null otherwise), so "which agent did that" needs no second call.',
       inputSchema: {
@@ -2772,7 +2797,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Restore version',
       description:
-        'Roll a record back to a previously captured snapshot. Get the version id from get_history with kind:"versions". This OVERWRITES the current values with the old ones and is itself recorded as a new version, so it is undoable — but read the version first (a snapshot list gives you titles and timestamps, not values) rather than restoring blind.',
+        'Roll a record back to a previously captured snapshot. The version id comes from get_history with kind:"versions". This OVERWRITES the current values with the old ones and is itself recorded as a new version, so it is undoable. A snapshot list carries titles and timestamps, not values.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2801,7 +2826,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Restore document version',
       description:
-        '#677 — roll a record\'s DESCRIPTION document back to a previously captured version. Get the version id from get_history with kind:"document_versions". Separate from restore_version, which only ever touches field values, never the description. This OVERWRITES the current document content with the old content and is itself recorded as a new version, so it is undoable too.',
+        '#677 — roll a record\'s DESCRIPTION document back to a previously captured version. The version id comes from get_history with kind:"document_versions". Separate from restore_version, which only ever touches field values, never the description. This OVERWRITES the current document content with the old content and is itself recorded as a new version, so it is undoable too.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2829,7 +2854,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List backlinks',
       description:
-        'Records whose description document MENTIONS this record — the "Mentioned in" list. This is prose cross-referencing, NOT relation links: use get_record (or describe_database for the relation fields) for structural links, and this to find where a record is being talked about. #512: paged like query_records — total is the true count (not just this page), pass next_cursor back to get the rest.',
+        'Records whose description document MENTIONS this record — the "Mentioned in" list. This is prose cross-referencing, NOT relation links (structural links appear in get_record, and describe_database lists the relation fields). #512: paged like query_records — total is the true count (not just this page), pass next_cursor back to get the rest.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2897,7 +2922,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List watchers',
       description:
-        'Who gets notified when this record changes, and whether the caller is among them. Read this before assuming a change will reach anyone — a record with no watchers notifies nobody except through an explicit mention.',
+        'Who gets notified when this record changes, and whether the caller is among them. A record with no watchers notifies nobody except through an explicit mention.',
       inputSchema: { workspace: z.string(), database: z.string(), record: z.string().describe('Record uuid or public number.') },
     },
     handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
@@ -2916,7 +2941,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get git branch name',
       description:
-        'The git branch name for a record, derived from its number and title (never stored): [lane/]<number>-<slug>, e.g. api/1219-git-branch-names. Pass lane (docs, mcp, api, web or fix) for the repo\'s lane prefix. Open the PR from this branch and the GitHub integration links the PR back to the record by its number.',
+        'The git branch name for a record, derived from its number and title (never stored): [lane/]<number>-<slug>, e.g. api/1219-git-branch-names. Pass lane (docs, mcp, api, web or fix) for the repo\'s lane prefix. A PR opened from this branch is linked back to the record by its number through the GitHub integration.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2944,7 +2969,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Watch record',
       description:
-        'Subscribe (or unsubscribe) the CALLING identity to a record\'s changes. Note what this is not: it cannot subscribe someone else — a token watches on behalf of whoever it belongs to. To make a person aware of a record, mention them in add_comment instead.',
+        'Subscribe (or unsubscribe) the CALLING identity to a record\'s changes. Note what this is not: it cannot subscribe someone else — a token watches on behalf of whoever it belongs to. Mentioning a person in add_comment is how a record is brought to someone else\'s attention.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -2998,7 +3023,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .string()
           .optional()
           .describe(
-            'An attachment FIELD to put the file in (name or id), instead of the record-level bag. Use this when the record has a "Cover"/"Video" style column — a gallery card renders the FIRST file of its cover field, so upload order is the order they appear.',
+            'An attachment FIELD to put the file in (name or id), instead of the record-level bag. For a record with a "Cover"/"Video" style column: a gallery card renders the FIRST file of its cover field, so upload order is the order they appear.',
           ),
       },
     },
@@ -3173,7 +3198,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Propose a schema',
       description:
-        'Turn a plain-language goal ("track clients, their projects and invoices") into a PLAN — databases, fields, relations and states, each marked create-new or reuse-existing. Creates NOTHING. Show the plan, then pass it to build_schema. This is the fast path for building a workspace: one call instead of one add_field per field.',
+        'Turn a plain-language goal ("track clients, their projects and invoices") into a PLAN — databases, fields, relations and states, each marked create-new or reuse-existing. Creates NOTHING; the plan is the input build_schema takes. This is the fast path for building a workspace (one call replaces one add_field per field).',
       inputSchema: {
         workspace: z.string(),
         goal: z.string().max(2000).describe('What the workspace is for, in plain language.'),
@@ -3200,7 +3225,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Build a proposed schema',
       description:
-        'Build an approved plan from propose_schema in ONE call — every database, field, relation and state together, reusing existing databases where the plan says reuse. Returns a summary of what was created vs reused, with ids. Prefer this over a sequence of create_database/add_field calls.',
+        'Build an approved plan from propose_schema in ONE call — every database, field, relation and state together, reusing existing databases where the plan says reuse. Returns a summary of what was created vs reused, with ids. Replaces a sequence of create_database/add_field calls.',
       inputSchema: {
         workspace: z.string(),
         plan: z
@@ -3244,7 +3269,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Install a pack',
       short:
-        "Install a Business Pack by slug (from list_packs): creates its databases, fields, relations and views in one call. Idempotent. Pass preview:true first to see, changing nothing, per database create / reuse / collision and what it would add. Automations that send anything outside the workspace or run an agent, and state-bound agent triggers, install SWITCHED OFF: name them in enable_automations / enable_agent_triggers to switch one on. A failed install rolls back everything that request installed. Full syntax (reuse_databases, required_packs, update_agents, existing_elsewhere, scheduled pack agents): call get_started section='TOOL NOTES install_pack'.",
+        "Install a Business Pack by slug (from list_packs): creates its databases, fields, relations and views in one call. Idempotent. `preview: true` reports, changing nothing, per database create / reuse / collision and what it would add. Automations that send anything outside the workspace or run an agent, and state-bound agent triggers, install SWITCHED OFF: name them in enable_automations / enable_agent_triggers to switch one on. A failed install rolls back everything that request installed. Covers reuse_databases, required_packs, update_agents, existing_elsewhere, scheduled pack agents. [Full notes: get_started section \"TOOL NOTES install_pack\"]",
       description:
         'Install a Business Pack by slug (from list_packs) — creates its databases, fields, relations and views in one call. Idempotent. Set preview to see exactly what it would do WITHOUT changing anything: per database create / reuse / collision, and for a database that already exists a `gains` list of the fields, select options and views it would ADD plus anything it would keep as it is (with the reason) or refuse. Installing a newer version of a pack already installed brings its agents up to date: an agent nobody changed is updated automatically, and one a person edited is KEPT as it is unless you name it in update_agents (preview shows each agent\'s agent_update status and a diff). A database of the same name in ANOTHER space the person can edit shows as `existing_elsewhere`: `reusable` says whether the pack fits it, and when it does `record_count` (live records) and `fields_added` ({name,type} the pack would add) say what reusing it means. With several same-named databases, `existing_elsewhere.candidates` lists each one you can edit ({database_id, space_name, reusable, reason?, record_count?, fields_added?}); pick one with reuse_databases {"Name": database_id}. Automations that send anything outside the workspace or run an agent install SWITCHED OFF (the result says which, and why); name them in enable_automations to switch one on. An agent that wakes by itself when a record reaches a state (a state-bound trigger) also installs SWITCHED OFF, so installing never starts an agent nobody chose; preview and the result list each one in `triggers` with enabled_on_install / enabled and switched_off_because "wakes_agent", and you name it in enable_agent_triggers to switch one on. A trigger with human_gate true never starts by itself (a person starts the run) and is not held off. Re-installing or updating never changes a trigger that already exists. A pack that builds on another pack (preview `required_packs`: pack, installed, linked, fields_added, choices) is linked to that pack\'s databases when it is installed; when it is not, choose required_packs {"agency-os": "also_install"} to install it first and link, or "create_here" (the default) to make the linked databases inside this pack. If the install then fails, everything THIS request installed first is rolled back with it, its databases and records included (the error names it; a pack that was already installed before the request is never touched). Uninstalling never removes the other pack\'s databases. A pack can SCHEDULE its own agent ("Deal Coach reviews the pipeline every Monday"): an automation with a schedule trigger whose `run_agent` action names the pack\'s agent by manifest ref (`$agent:deal-coach`) installs against that agent\'s real id, switched OFF like any rule that runs an agent; an unknown ref or an invalid schedule is refused before anything is built. Name the rule ("Database.Rule name") in enable_automations to switch it on; a scheduled firing is one wake of the agent.',
       inputSchema: {
@@ -3253,12 +3278,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         preview: z
           .boolean()
           .optional()
-          .describe('Show what would be created and create nothing. Worth doing first on a workspace that already has data.'),
+          .describe('Show what would be created and create nothing; on a workspace that already has data the report says per database whether it is reused or collides.'),
         space: z
           .string()
           .optional()
           .describe(
-            'Install INTO this existing space (name, slug or id from list_spaces) instead of creating the pack\'s own: every database, view and automation lands in it and no space is created. Only for a pack whose databases all sit in one space; a multi-space pack is refused, and so is one whose databases already exist in a different space. You need edit access to the space; a personal space is refused. Omit it for the usual install. Combine with preview to check first.',
+            'Install INTO this existing space (name, slug or id from list_spaces), not into a space of the pack\'s own: every database, view and automation lands in it and no space is created. Only for a pack whose databases all sit in one space; a multi-space pack is refused, and so is one whose databases already exist in a different space. You need edit access to the space; a personal space is refused. Omit it for the usual install. Works with preview, which reports the outcome without installing.',
           ),
         update_agents: z
           .array(z.string())
@@ -3276,7 +3301,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .record(z.string(), z.string())
           .optional()
           .describe(
-            'Reuse an EXISTING database instead of creating the pack\'s own, and say WHICH one when you have several of that name: {"Issues": "<database id>"}. The id must be one of the `existing_elsewhere.candidates` the preview lists for that database (editable by you, reusable: true); a database synced from Linear, a built-in one, a personal-space one, one you cannot edit or one the pack does not fit is refused with the reason. Without it, a database name that exists once elsewhere is not reused (preview says why), and with several the install stops at the ambiguity.',
+            'Reuse an EXISTING database instead of creating the pack\'s own, with the id naming WHICH one when several share that name: {"Issues": "<database id>"}. The id must be one of the `existing_elsewhere.candidates` the preview lists for that database (editable by you, reusable: true); a database synced from Linear, a built-in one, a personal-space one, one you cannot edit or one the pack does not fit is refused with the reason. Without it, a database name that exists once elsewhere is not reused (preview says why), and with several the install stops at the ambiguity.',
           ),
         enable_agent_triggers: z
           .array(z.string())
@@ -3339,7 +3364,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create records (batch)',
       description:
-        'Create up to 100 records in ONE atomic call — all succeed or none do. Values are keyed by api_name exactly as create_record takes them. Use this instead of calling create_record in a loop. If a gate on this agent holds creates, the whole batch is held as one approval and the response is { pending_approval, approval_id } with nothing created.',
+        'Create up to 100 records in ONE atomic call — all succeed or none do. Values are keyed by api_name exactly as create_record takes them. Replaces calling create_record in a loop. If a gate on this agent holds creates, the whole batch is held as one approval and the response is { pending_approval, approval_id } with nothing created.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -3494,7 +3519,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List icon set',
       description:
-        'List the curated StoryOS icon names, grouped by category, as the "set:<name>" refs accepted by the icon param on create_database, update_database, create_space and update_space (#251) — plus the "brand:<slug>" third-party/product logo set (#298, e.g. "brand:github", "brand:notion") under the `brands` key. Call this before setting an icon so you pick a real name/slug.',
+        'List the curated StoryOS icon names, grouped by category, as the "set:<name>" refs accepted by the icon param on create_database, update_database, create_space and update_space (#251) — plus the "brand:<slug>" third-party/product logo set (#298, e.g. "brand:github", "brand:notion") under the `brands` key. Every name and slug returned is one the icon param really accepts.',
       inputSchema: {},
     },
     handle<Record<string, never>>(async () => text(buildIconCatalog())),
@@ -3505,7 +3530,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create database',
       description:
-        'Create a new database (table) in a space. Returns it with its auto-created system fields (id, name). Then shape it with add_field and create_view.',
+        'Create a new database (table) in a space. Returns it with its auto-created system fields (id, name). Shaped further with add_field and create_view.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space name or id the database belongs to. Never a personal space: those hold documents and views only (422).'),
@@ -3563,7 +3588,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     z.object({
       label: z.string(),
       color: z.string().optional(),
-      icon: z.string().max(120).optional().describe('Curated icon ref: "set:<name>" or "brand:<slug>" (names: get_started section="ICONS").'),
+      icon: z.string().max(120).optional().describe('Curated icon ref: "set:<name>" or "brand:<slug>" (See also: get_started section "ICONS").'),
       category: z.enum(STATE_CATEGORIES).optional().describe(STATE_CATEGORY_PARAM),
     }),
   ]);
@@ -3580,7 +3605,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Preview formula',
       short:
-        "Dry-run a formula BEFORE saving it with add_field / update_field: checks `expression` against the database's fields and evaluates it on up to 5 recent records. Saves NOTHING. Returns valid, return_type, samples and positioned errors with a suggestion; fix and call again until valid. Full result shape and rules: call get_started section='TOOL NOTES preview_formula'.",
+        "Dry-run a formula without saving it (add_field and update_field are what save one): checks `expression` against the database's fields and evaluates it on up to 5 recent records. Saves NOTHING. Returns valid, return_type, samples and positioned errors with a suggestion. [Full notes: get_started section \"TOOL NOTES preview_formula\"]",
       description:
         'Dry-run a formula BEFORE saving it with add_field / update_field: parses and type-checks `expression` against the database\'s ' +
         'fields and evaluates it on up to 5 of the most recent records you can read. Saves NOTHING. Returns ' +
@@ -3620,7 +3645,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Add field',
       short:
-        "Add a field to a database. select/multi_select/workflow take options as labels; use `workflow` (not `select`) for the one lifecycle status field a database is tracked by (at most ONE; board grouping and My Work key off it). lookup/rollup/formula/ai need `config`; dry-run a formula with preview_formula first (it saves nothing). Relations are not added here (use create_relation). Full config grammar (formula format and currency, rollup ops and filters, AI field prompt/output): call get_started section='TOOL NOTES add_field'.",
+        "Add a field to a database. select/multi_select/workflow take options as labels; `workflow` is the type of the one lifecycle status field a database is tracked by (at most ONE; board grouping and My Work key off it), whereas `select` is an ordinary choice field. lookup/rollup/formula/ai need `config`; a formula can be checked with preview_formula, which saves nothing. Relations are not added here (create_relation adds them). Covers formula format and currency, rollup ops and filters, AI field prompt/output. [Full notes: get_started section \"TOOL NOTES add_field\"]",
       description:
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
@@ -3708,7 +3733,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             }),
           )
           .optional()
-          .describe('Delete options. Refuses with a usage count unless confirmed — read that count before confirming.'),
+          .describe('Delete options. Refuses with a usage count unless confirmed; the count is what confirming accepts.'),
       },
     },
     handle<{
@@ -4122,7 +4147,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
-        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started section="FILTERS").'),
+        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (See also: get_started section "FILTERS").'),
         sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
         form_title: z.string().max(200).optional().describe('form: heading shown to the visitor (defaults to the database name).'),
         form_description: z.string().max(2000).optional().describe('form: helper text shown under the title.'),
@@ -4174,7 +4199,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         date_field: z.string().optional().describe('calendar: the date field.'),
         start_date_field: z.string().optional().describe('timeline: start date field.'),
         end_date_field: z.string().optional().describe('timeline: end date field.'),
-        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (see get_started section="FILTERS").'),
+        filters: z.any().optional().describe('Filter AST by field api_name — same shape as query_records (See also: get_started section "FILTERS").'),
         sorts: z.array(z.object({ field: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sort keys by field api_name.'),
       },
     },
@@ -4221,7 +4246,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         form_success_message: z.string().max(500).optional(),
         form_redirect_url: z.string().url().max(500).refine(isHttpUrl, { message: HTTP_URL_MESSAGE }).optional(),
         folder: z.string().optional().describe('#347 — move the view into this sidebar FOLDER (name or id). Pass null to move it back under its database. Placement only; the view still belongs to its database.'),
-        unfile: z.boolean().optional().describe('#347 — move the view back out of its folder, to nest under its database again. Use this rather than folder:null, which MCP cannot express.'),
+        unfile: z.boolean().optional().describe('#347 — move the view back out of its folder, to nest under its database again. Takes the place of folder:null, which MCP cannot express.'),
       },
     },
     handle<{ workspace: string; database: string; view: string; rename_to?: string; folder?: string; unfile?: boolean } & ViewOpts>(
@@ -4295,7 +4320,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_views_trash',
     {
       title: 'List deleted views',
-      description: '#37 — deleted views on this database. Call before restore_view — a deleted view no longer resolves by name via list_views/get_database.',
+      description: '#37 — deleted views on this database. A deleted view no longer resolves by name via list_views/get_database, so the ids restore_view takes are found here.',
       inputSchema: { workspace: z.string(), database: z.string() },
     },
     handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
@@ -4312,7 +4337,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'restore_view',
     {
       title: 'Restore view',
-      description: '#37 — bring a deleted view back (see list_views_trash for the id). Only for a view deleted on its own; a view that went with its whole database or space comes back via restore_database/restore_space instead.',
+      description: '#37 — bring a deleted view back (see list_views_trash for the id). Only for a view deleted on its own; a view that went with its whole database or space comes back with restore_database/restore_space.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -4336,7 +4361,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get links',
       description:
-        'Resolve web-app URLs — for records, a database, and/or its saved views — without a round-trip per record. get_record / query_records / create_record / update_record already include a `url` on each record; reach for this tool for a database link, a view link, or a batch of record links in one call.',
+        'Resolve web-app URLs — for records, a database, and/or its saved views — without a round-trip per record. get_record / query_records / create_record / update_record already include a `url` on each record; this tool returns a database link, a view link, or a batch of record links in one call.',
       inputSchema: {
         workspace: z.string(),
         database: z.string().optional().describe('Database name, api slug, or id. Required to resolve `records` or `views`; on its own, returns just the database link.'),
@@ -4443,7 +4468,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List documents',
       description:
-        'The standalone documents in a space — the pages that live in the sidebar next to databases, belonging to no record. Titles and ids only; call get_document for the text of one.',
+        'The standalone documents in a space — the pages that live in the sidebar next to databases, belonging to no record. Titles and ids only; the text of one is returned by get_document.',
       inputSchema: { workspace: z.string(), space: z.string().describe('Space name, slug, or id (from list_spaces).') },
     },
     handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
@@ -4463,7 +4488,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get document',
       description:
-        'Read a standalone document as Markdown. `version` comes back with it — pass it to update_document to be told about a conflicting edit instead of silently overwriting someone.',
+        'Read a standalone document as Markdown. `version` comes back with it; update_document accepts it to report a conflicting edit instead of silently overwriting someone.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space the document lives in.'),
@@ -4486,7 +4511,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create document',
       description:
-        'Write a standalone page in a space — a summary, a plan, a write-up, meeting notes. Reach for this instead of inventing a database to hold one page of prose, or cramming prose into a record it is not about. `content` is Markdown (headings, lists, links, code). Optionally file it in a folder.',
+        'Write a standalone page in a space — a summary, a plan, a write-up, meeting notes. A document is a page of prose; it is not a database and not the body of an unrelated record. `content` is Markdown (headings, lists, links, code). Optionally file it in a folder.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space name, slug, or id (from list_spaces).'),
@@ -4535,7 +4560,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update document',
       description:
-        'Change a document\'s title, icon, folder, or body. `content` REPLACES the whole body — read it with get_document and send the full new text, rather than the paragraph you meant to add. Pass the `version` you read to be told about a conflicting edit (409) instead of overwriting it; omit it and the last write wins.',
+        'Change a document\'s title, icon, folder, or body. `content` REPLACES the whole body, so it carries the full new text (as get_document returns it), not just the paragraph being added. Pass the `version` you read to be told about a conflicting edit (409) instead of overwriting it; omit it and the last write wins.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space the document lives in.'),
@@ -4599,7 +4624,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete document',
       description:
-        'Delete a standalone document. Unlike a record this does not appear in any trash you can browse, so treat it as permanent.',
+        'Delete a standalone document. Unlike a record this does not appear in any trash you can browse, so it is permanent.',
       inputSchema: {
         workspace: z.string(),
         space: z.string(),
@@ -4690,7 +4715,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List folders',
       description:
-        'The folders in a space — the sidebar groups that documents, databases and views can be filed under. Read this before create_document\'s `folder` so you file a page in an existing group instead of inventing a near-duplicate.',
+        'The folders in a space — the sidebar groups that documents, databases and views can be filed under. These are the existing groups create_document\'s `folder` accepts, so a page can be filed in one instead of a near-duplicate being invented.',
       inputSchema: { workspace: z.string(), space: z.string() },
     },
     handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
@@ -4710,7 +4735,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create folder',
       description:
-        'Add a sidebar folder to a space. Worth doing when you have just built several related things — a folder is how a person finds them later. Call list_folders first: a second "Reports" next to an existing one is worse than no folder.',
+        'Add a sidebar folder to a space. A folder is how a person finds several related things later. list_folders shows the existing ones; a second "Reports" next to an existing one is worse than no folder.',
       inputSchema: {
         workspace: z.string(),
         space: z.string(),
@@ -4801,7 +4826,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List space groups',
       description:
-        'The workspace\'s sidebar groups — a presentational tier above spaces, distinct from list_folders (which groups things INSIDE one space). Read this before create_space_group so you file a space under an existing group instead of inventing a near-duplicate.',
+        'The workspace\'s sidebar groups — a presentational tier above spaces, distinct from list_folders (which groups things INSIDE one space). These are the existing groups a space can be filed under, instead of a near-duplicate being invented.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -4817,7 +4842,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'create_space_group',
     {
       title: 'Create space group',
-      description: 'Add a presentational sidebar group. Move a space into it with update_space\'s `group` param.',
+      description: 'Add a presentational sidebar group. A space joins it through update_space\'s `group` param.',
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Group name, max 100 chars.'),
@@ -4979,7 +5004,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List relations',
       description:
         'The whole relation graph of a workspace in one call — what is connected to what, one entry per relation with both sides resolved (database and field name on each). ' +
-        'READ THIS BEFORE structural work: adding a field, moving a database, planning a migration, or answering "what would break if I deleted this". The alternative is describe_database on every database and de-duplicating the two sides of each relation by hand, which is what this replaces. ' +
+        'Useful for structural work: adding a field, moving a database, planning a migration, or answering "what would break if I deleted this". It replaces describing every database with describe_database and de-duplicating the two sides of each relation by hand. ' +
         'A self-relation appears ONCE with both its field names. Narrow with `space` or `database` when a workspace is large.',
       inputSchema: {
         workspace: z.string(),
@@ -5009,7 +5034,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get relation',
       description:
-        "A relation's configuration: both sides, its cardinality, its auto-link rules if any, and — the part worth reading — the COMPARABLE FIELDS on each side. Those are the fields set_auto_link will accept, so read this before writing a rule rather than guessing a pairing the server will reject.",
+        "A relation's configuration: both sides, its cardinality, its auto-link rules if any, and the COMPARABLE FIELDS on each side. Those are the fields set_auto_link accepts; a pairing outside them is rejected by the server.",
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -5033,7 +5058,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Set auto-link rules',
       description:
-        'Teach a relation to link itself: give it field pairs, and a record on one side links to a record on the other whenever ALL the pairs match — e.g. this database\'s `customer_email` equals the target\'s `email`. Setting a rule does NOT link anything that already exists; call run_auto_link for that. Pass clear:true to remove the rules. Read get_relation first for the comparable fields on each side; an empty value never matches, and matching is case-insensitive unless you say otherwise.',
+        'Teach a relation to link itself: give it field pairs, and a record on one side links to a record on the other whenever ALL the pairs match — e.g. this database\'s `customer_email` equals the target\'s `email`. Setting a rule does NOT link anything that already exists (run_auto_link links existing records). Pass clear:true to remove the rules. get_relation lists the comparable fields on each side; an empty value never matches, and matching is case-insensitive unless the rule says otherwise.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -5078,7 +5103,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Run auto-link',
       description:
-        'Apply a relation\'s auto-link rules to the records that already exist, and return a summary of what got linked. This is the tool that pays for itself after an import: create_records writes 100 rows in one call, and this links them in one more instead of a hundred link_records calls. Needs a rule set first (set_auto_link).',
+        'Apply a relation\'s auto-link rules to the records that already exist, and return a summary of what got linked. It pays for itself after an import: create_records writes 100 rows in one call and this links them in one more, replacing a hundred link_records calls. Needs a rule to be set (set_auto_link).',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -5154,7 +5179,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Convert a user field to a Members relation',
       description:
-        'Convert a person field (assignee, owner, reviewer...) into a real relation to the Members database, so the person is a linkable record rather than a bare id. THIS IS A DRY RUN BY DEFAULT and changes nothing until you pass dry_run: false, so show the person the dry-run result first. The dry run reports how many records link, which values cannot be resolved (a user id with no Members row), the name of the field it would create, and a per-role permission check. Applying KEEPS the original field (renamed "<name> (user)", same api_name, so views and automations on it keep working until repointed), creates the relation under the original name with a hidden paired field on Members, and PARKS anything unresolvable on the retained field: nothing is dropped. The conversion is refused, naming the guest and what they would gain, if it is not permission-neutral, and is rolled back if a post-change probe finds a leak. Admin only. Undo with convert_members_relation_to_user_field.',
+        'Convert a person field (assignee, owner, reviewer...) into a real relation to the Members database, so the person is a linkable record rather than a bare id. THIS IS A DRY RUN BY DEFAULT and changes nothing until dry_run: false is passed (the dry-run result previews what applying would do). The dry run reports how many records link, which values cannot be resolved (a user id with no Members row), the name of the field it would create, and a per-role permission check. Applying KEEPS the original field (renamed "<name> (user)", same api_name, so views and automations on it keep working until repointed), creates the relation under the original name with a hidden paired field on Members, and PARKS anything unresolvable on the retained field: nothing is dropped. The conversion is refused, naming the guest and what they would gain, if it is not permission-neutral, and is rolled back if a post-change probe finds a leak. Admin only. Undo with convert_members_relation_to_user_field.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -5243,7 +5268,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Fix select↔relation drift',
       description:
-        'Link every currently-drifted child to the parent, in one call. Run find_select_drift first and show the list — this writes links to records the caller has not named individually, so "it matched on a label" is worth a person seeing before it happens rather than after.',
+        'Link every currently-drifted child to the parent, in one call. find_select_drift lists them. This writes links to records the caller has not named individually, and the match is made on a label.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -5308,7 +5333,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List installed packs',
       description:
-        'What is already installed in this workspace, with the install id uninstall_pack needs. CHECK THIS BEFORE install_pack: installing a pack a workspace already has creates a second copy of its databases, which reads to the user as the agent duplicating their schema.',
+        'What is already installed in this workspace, with the install id uninstall_pack needs. Installing a pack a workspace already has (install_pack) creates a second copy of its databases, which reads to the user as the agent duplicating their schema; this list shows what is already installed.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -5325,7 +5350,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Uninstall pack',
       description:
-        'Remove a tracked pack install. Get the install id from list_installed_packs — it is the INSTALL, not the pack slug. Read what the install covers first: uninstalling reaches the databases the pack created, and any records a person has since put in them are the part they will miss.',
+        'Remove a tracked pack install. The install id comes from list_installed_packs (it is the INSTALL, not the pack slug). Uninstalling reaches the databases the pack created, and any records a person has since put in them are the part they will miss.',
       inputSchema: {
         workspace: z.string(),
         install_id: z.string().describe('Install id from list_installed_packs.'),
@@ -5388,7 +5413,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Browse the pack marketplace',
       description:
-        'Community-published packs, as opposed to list_packs\' built-in gallery. Pass `pack` for one pack\'s manifest, changelog and versions. Worth checking alongside list_packs before building a workspace by hand — someone may have already modelled the thing being asked for.',
+        'Community-published packs, as opposed to list_packs\' built-in gallery. Pass `pack` for one pack\'s manifest, changelog and versions. Someone may already have modelled the thing being asked for.',
       inputSchema: { pack: z.string().optional().describe('Marketplace pack slug. Omit to list them all.') },
     },
     handle<{ pack?: string }>(async ({ pack }) => {
@@ -5423,7 +5448,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List starter templates',
       description:
-        'Starter templates — smaller than a pack: a single database shape, or a space with a few. Reach for one before hand-building an ordinary shape (a CRM, a content calendar); apply_template is one call against a modelled answer.',
+        'Starter templates — smaller than a pack: a single database shape, or a space with a few. Each is a modelled answer for an ordinary shape (a CRM, a content calendar); apply_template creates one in a single call.',
       inputSchema: {},
     },
     handle<Record<string, never>>(async () => {
@@ -5441,7 +5466,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List record templates',
       description:
-        "A database's record templates (ticket #1218): name, preset field values keyed by api_name, and a Markdown body with its sections. Packs ship some (Dev Tracker: Bug, Feature, Improvement for Issues). NOT list_templates, which lists starter database shapes. Use create_record_from_template to make a record from one.",
+        "A database's record templates (ticket #1218): name, preset field values keyed by api_name, and a Markdown body with its sections. Packs ship some (Dev Tracker: Bug, Feature, Improvement for Issues). NOT list_templates, which lists starter database shapes. create_record_from_template makes a record from one.",
       inputSchema: { workspace: z.string(), database: z.string() },
     },
     handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
@@ -5613,7 +5638,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Remove sample data',
       description:
-        'Delete exactly the sample records a template created, and nothing a person has added since. Run it once the real data is in — sample rows left in a live database are the thing that makes a workspace look unfinished.',
+        'Delete exactly the sample records a template created, and nothing a person has added since. Sample rows left in a live database make a workspace look unfinished; this removes them once the real data is in.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -5629,7 +5654,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_spaces',
     {
       title: 'List spaces',
-      description: 'List the spaces in a workspace (id, name, slug, description). Databases live in spaces; use a space name/slug with create_database.',
+      description: 'List the spaces in a workspace (id, name, slug, description). Databases live in spaces; create_database takes a space name/slug.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -5652,7 +5677,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'create_space',
     {
       title: 'Create space',
-      description: 'Create a space (a named group of databases). Returns it with its slug — pass that to create_database to build inside it.',
+      description: 'Create a space (a named group of databases). Returns it with its slug, which create_database accepts to build inside it.',
       inputSchema: {
         workspace: z.string(),
         name: z.string().describe('Space name, e.g. "Client Work".'),
@@ -5795,7 +5820,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_spaces_trash',
     {
       title: 'List deleted spaces',
-      description: '#37 — deleted spaces in this workspace. Call before restore_space — a deleted space no longer resolves by name anywhere else.',
+      description: '#37 — deleted spaces in this workspace. A deleted space no longer resolves by name anywhere else, so the ids restore_space takes are found here.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -5930,7 +5955,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_databases_trash',
     {
       title: 'List deleted databases',
-      description: '#37 — deleted databases in this workspace. Call before restore_database — a deleted database no longer resolves by name anywhere else.',
+      description: '#37 — deleted databases in this workspace. A deleted database no longer resolves by name anywhere else, so the ids restore_database takes are found here.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -6279,7 +6304,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get skill',
       description:
-        "Read one skill in full, including its `instructions` — which list_skills omits to keep the catalog small. Read this before update_skill (a patch replaces a field WHOLE, so editing instructions means sending the full new text) and before following a skill you did not write.",
+        "Read one skill in full, including its `instructions` — which list_skills omits to keep the catalog small. update_skill replaces a field WHOLE, so editing instructions means sending the full new text; the current text is returned here, as is the full text of a skill someone else wrote.",
       inputSchema: { workspace: z.string(), skill: z.string().describe('Skill name or id (from list_skills).') },
     },
     handle<{ workspace: string; skill: string }>(async ({ workspace, skill }) => {
@@ -6314,7 +6339,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create skill',
       short:
-        "Save a reusable skill: a named instruction bundle you or another agent can run later with run_skill. Call list_skill_templates first for a worked example. The skill is recorded as authored by an agent, and unless you pass `visibility: \"personal\"` it is created SHARED with the whole workspace (every member's AI can find and run it), so write it as instructions you would be content for a teammate's AI to follow. `visibility: \"members\"` (with `members`) shares with only the named people; you can ASK for `public`, but that only raises an approval a person must give in the app Inbox and it is never public until they do. Full notes: call get_started section='TOOL NOTES create_skill'.",
+        "Save a reusable skill: a named instruction bundle that you or another agent can run later with run_skill (list_skill_templates shows a worked example). The skill is recorded as authored by an agent, and unless `visibility: \"personal\"` is passed it is created SHARED with the whole workspace (every member's AI can find and run it), so teammates' AI will follow its text as instructions. `visibility: \"members\"` (with `members`) shares with only the named people; `public` can be requested, but that only raises an approval a person must give in the app Inbox and it is never public until they do. [Full notes: get_started section \"TOOL NOTES create_skill\"]",
       description:
         'Save a reusable skill — a named instruction bundle you or another agent can run later with run_skill. Write one when you have just worked out how to do something in this workspace that will be asked for again; that is the moment the knowledge exists, and it is otherwise thrown away when the session ends. Call list_skill_templates first for a worked example of the level of detail that makes a skill re-runnable. ' +
         'TWO THINGS TO KNOW: the skill is recorded as authored by an agent (derived from your credential — you cannot set this), and unless you pass `visibility: "personal"` it is created SHARED with the whole workspace, like a person\'s skill: every member\'s AI can find it with list_skills and may run it, so write it as instructions you would be content for a teammate\'s AI to follow. (An admin can switch AI publishing off for a workspace in Settings > General; then it is created personal and a request for shared is refused.) You can ASK for `public` (anyone with a link), but that only raises an approval a person must give in the app Inbox; it is never public until they do. You can also pass `visibility: "members"` with `members` to share with only the named people.',
@@ -6330,7 +6355,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         instructions: z
           .string()
           .describe(
-            'The actual procedure, as numbered steps. Write it for a reader with NO memory of this session: name the databases and fields explicitly, and say what NOT to do (invent a price, send anything). Max 20000 chars.',
+            'The actual procedure, as numbered steps, read later by someone with NO memory of this session: it names the databases and fields explicitly and says what NOT to do (invent a price, send anything). Max 20000 chars.',
           ),
         examples: z
           .array(z.object({ input: z.string(), output: z.string() }))
@@ -6395,7 +6420,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update skill',
       short:
-        "Edit a skill you own (each field you pass REPLACES that field whole, so read it with get_skill first; editing someone else's skill is refused). Pass `visibility` to move it between `personal`, `members` (only the people in `members`; that list REPLACES the whole set), `shared` (the whole workspace) and `public` (only raises an approval a person must give in the app Inbox). Full notes: call get_started section='TOOL NOTES update_skill'.",
+        "Edit a skill you own (each field passed REPLACES that field whole, and get_skill returns the current text; editing someone else's skill is refused). Pass `visibility` to move it between `personal`, `members` (only the people in `members`; that list REPLACES the whole set), `shared` (the whole workspace) and `public` (only raises an approval a person must give in the app Inbox). [Full notes: get_started section \"TOOL NOTES update_skill\"]",
       description:
         'Edit a skill you own — typically to sharpen `instructions` after running it and finding a step that was ambiguous. Each field you pass REPLACES that field whole, so read it with get_skill first and send the full new text rather than a fragment. Editing someone else\'s skill is refused. Pass `visibility` to move your skill between `personal`, `members` (only the people in `members`; that list REPLACES the whole set, so get_skill first to add or remove one person), `shared` (the whole workspace; refused only if an admin switched AI publishing off), and `public` (only raises an approval a person must give in the app Inbox; see create_skill).',
       inputSchema: {
@@ -6404,7 +6429,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         name: z.string().optional(),
         description: z.string().optional(),
         when_to_use: z.string().optional(),
-        instructions: z.string().optional().describe('Replaces the whole procedure — get_skill first.'),
+        instructions: z.string().optional().describe('Replaces the whole procedure (get_skill returns the current one).'),
         examples: z.array(z.object({ input: z.string(), output: z.string() })).optional(),
         version: z.string().optional().describe('Semver, e.g. "1.1.0". Bump it when you change the procedure.'),
         visibility: skillTierArg,
@@ -6446,7 +6471,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete skill',
       description:
-        'Delete a skill you own. Unlike a record there is no trash and no 30-day window — a skill is gone. If the goal is to stop it being suggested rather than to destroy it, edit its when_to_use instead. Deleting someone else\'s is refused even if you can see it.',
+        'Delete a skill you own. Unlike a record there is no trash and no 30-day window — a skill is gone. Editing its when_to_use stops it being suggested without destroying it. Deleting someone else\'s is refused even if you can see it.',
       inputSchema: {
         workspace: z.string(),
         skill: z.string().describe('Skill name or id (from list_skills).'),
@@ -6524,7 +6549,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           })
           .strict()
           .optional()
-          .describe('Fields to supply or replace — use this for what the report lists under `missing`.'),
+          .describe('Fields to supply or replace — covers what the report lists under `missing`.'),
       },
     },
     handle<{
@@ -6558,13 +6583,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Run skill',
       short:
-        "Run a saved skill by name or id (from list_skills). This call invokes NO model: it resolves the skill's instructions and records the run, and YOU — the connected AI, on your own subscription, never metered — are the one who carries out `instructions` against `inputs`. To have an agent apply a skill instead, name it in that agent's Skills field. Full notes: call get_started section='TOOL NOTES run_skill'.",
+        "Run a saved skill by name or id (from list_skills). This call invokes NO model: it resolves the skill's instructions and records the run, and YOU — the connected AI, on your own subscription, never metered — are the one who carries out `instructions` against `inputs`. An agent applies a skill when the skill is named in that agent's Skills field. [Full notes: get_started section \"TOOL NOTES run_skill\"]",
       description:
         'Run a saved skill by name or id (from list_skills). This call invokes NO model: it resolves the skill\'s ' +
         'instructions/when_to_use and records the run (last_run_at/last_run_status), and ' +
         'YOU — the connected AI, on your own subscription, never metered — are the one who carries out `instructions` against `inputs`. ' +
         '`inputs` is free-form and is only echoed back for you to act on; the skill endpoint does not send it to StoryOS AI ' +
-        '(the credit-metered model that runs agents set to "StoryOS AI"). To have a skill applied by an agent instead, name it in that agent\'s Skills field.',
+        '(the credit-metered model that runs agents set to "StoryOS AI"). An agent applies a skill when the skill is named in that agent\'s Skills field.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         name: z.string().describe('Skill name or id (from list_skills).'),
@@ -6652,7 +6677,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What an agent has done',
       description:
-        '#541 — field changes + creation events attributed to ONE agent, in a date range (default: last 30 days). "Which agent, under whose authority, at what time" — each row carries agent_id, agent_name (the name at the time of the write), source and time, but NO run id: to see a run, use get_runs / get_run. Admin only. Returns at most 500 field changes and 500 events for the range. Only writes made through a credential minted FOR this agent (its own token or its Runner\'s run credential) show up; an ordinary token\'s writes never carry agent attribution.',
+        '#541 — field changes + creation events attributed to ONE agent, in a date range (default: last 30 days). "Which agent, under whose authority, at what time" — each row carries agent_id, agent_name (the name at the time of the write), source and time, but NO run id: a run is shown by get_runs / get_run. Admin only. Returns at most 500 field changes and 500 events for the range. Only writes made through a credential minted FOR this agent (its own token or its Runner\'s run credential) show up; an ordinary token\'s writes never carry agent attribution.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
@@ -6696,7 +6721,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Run agent',
       description:
-        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so read the returned run rather than assuming success from the absence of an exception. For an agent set to "Your own AI" the Run comes back Queued, not finished: it is a wake waiting for a Runner (see list_agent_wakes for its run_state), and asking again while it waits returns the SAME Run. Use delegate_to_agent instead when the agent should work ON a particular record. To run an agent on a schedule, use create_automation with a schedule trigger and a run_agent action.',
+        'Run an agent by hand and get back its Run record, including the step log. Works with no model configured — the run class is stamped at dispatch and a runtime error lands as a Failed run rather than an error here, so the absence of an exception does not mean the run succeeded; the returned run says. For an agent set to "Your own AI" the Run comes back Queued, not finished: it is a wake waiting for a Runner (see list_agent_wakes for its run_state), and asking again while it waits returns the SAME Run. Use delegate_to_agent instead when the agent should work ON a particular record. To run an agent on a schedule, use create_automation with a schedule trigger and a run_agent action.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from the Agents database)."),
@@ -6747,7 +6772,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create agent trigger',
       short:
-        "Fire an agent whenever a record reaches a given state (or, with relation_field instead of a state, whenever a record's relation field is linked to the agent). By default it starts the agent by itself, so create one only for an agent you want to run on its own. A run is not held for approval as a whole: outward actions its writes set off (email, Slack, webhook, HTTP, social post) are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email. human_gate:true means it NEVER fires by itself (a person starts each run). describe_database first: the state field must be a select/workflow and the option one of its own. Full notes: call get_started section='TOOL NOTES create_agent_trigger'.",
+        "Fire an agent whenever a record reaches a given state (or, with relation_field instead of a state, whenever a record's relation field is linked to the agent). By default it starts the agent by itself, so it fits an agent meant to run on its own. A run is not held for approval as a whole: outward actions its writes set off (email, Slack, webhook, HTTP, social post) are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email. human_gate:true means it NEVER fires by itself (a person starts each run). The state field must be a select/workflow and the option one of its own (describe_database shows them). [Full notes: get_started section \"TOOL NOTES create_agent_trigger\"]",
       description:
         'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. By default the trigger starts the agent by itself the moment a record reaches the state, so only create one for an agent you want to run on its own (a run is not held for approval as a whole: outward automation actions its record writes set off — email, Slack, webhook, HTTP, social post — are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent\'s approval_policy lists email, and its deletes and own outward steps are held only when its approval_policy or an action gate says so). With human_gate:true the trigger NEVER fires by itself: it is \'ask me before each run\', a person has to start each run, and it is stored enabled but starts nothing on its own. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) A pack\'s own triggers are created for you by install_pack, switched OFF until a person turns one on in the install review. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
@@ -6760,7 +6785,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         human_gate: z
           .boolean()
           .optional()
-          .describe('true = "ask me before each run": this trigger never starts a run by itself; a person starts each run (ADR-0010). Leave it off (the default) for an agent that should wake by itself. Not the same as holding the agent\'s writes for approval.'),
+          .describe('true = "ask me before each run": this trigger never starts a run by itself; a person starts each run (ADR-0010). The default is false: the agent wakes by itself. Not the same as holding the agent\'s writes for approval.'),
         enabled: z.boolean().optional().describe('Default true.'),
       },
     },
@@ -6865,7 +6890,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get run quota',
       description:
-        "This month's automation-run usage against the plan allowance, with a projection of where the pace lands. Worth checking before building something that fires on every record change — a rule that looks harmless can be the one that exhausts the month.",
+        "This month's automation-run usage against the plan allowance, with a projection of where the pace lands. A rule that fires on every record change can look harmless and still be the one that exhausts the month.",
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -6899,7 +6924,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List my connected AI clients',
       short:
-        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens, each with its `reaches`: all_workspaces, one_workspace, needs_reconnect or this_workspace. An OAuth connection has no access level of its own: it acts as the person, so their workspace role and grants decide what it can do. A personal access token (connected: token) DOES carry a scope, read, write or admin, set when it was created and enforced on every call: a read token is refused a write. Lists only the caller's own connections; read-only (disconnecting is a person's act in Settings). Full field list: call get_started section='TOOL NOTES list_ai_connections'.",
+        "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens, each with its `reaches`: all_workspaces, one_workspace, needs_reconnect or this_workspace. An OAuth connection has no access level of its own: it acts as the person, so their workspace role and grants decide what it can do. A personal access token (connected: token) DOES carry a scope, read, write or admin, set when it was created and enforced on every call: a read token is refused a write. Lists only the caller's own connections; read-only (disconnecting is a person's act in Settings). [Full notes: get_started section \"TOOL NOTES list_ai_connections\"]",
       description:
         "The AI clients the CALLING person has connected, as one list: hosted-MCP OAuth clients (Claude, ChatGPT, ...) and personal access tokens for this workspace, each with its name, how it connected (oauth or token), when, and for a token when it was last used (null for OAuth, which is not tracked). Each row says what it `reaches`: all_workspaces (the default for an OAuth connection: every workspace the person belongs to), one_workspace (limited to the one in `approved`), needs_reconnect (refused until the client is reconnected), or this_workspace (a token). An OAuth connection has no access level of its own: it acts as the person, so their workspace role and grants decide what it can do (a guest's AI reaches only what that guest has been granted). A personal access token (connected: token) DOES carry a scope, read, write or admin, set when it was created and enforced on every call: a read token is refused a write, and it can never exceed the person's own role. It needs no admin role and lists only the caller's own connections, never a colleague's. Read-only: disconnecting a client is something a person does in Settings, never an assistant, so there is no tool for it.",
       inputSchema: { workspace: z.string() },
@@ -6918,7 +6943,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Re-run a failed action',
       description:
-        "Retry ONE failed action from a run, with its original frozen inputs — so it repeats what it was actually asked to do, not what the record says now. Use it after fixing the cause (a bad credential, a missing field). Get the action's index from get_run. It re-runs a single action, never the whole run: for that use rerun_run.",
+        "Retry ONE failed action from a run, with its original frozen inputs — so it repeats what it was actually asked to do, not what the record says now. It is for after the cause is fixed (a bad credential, a missing field). The action's index comes from get_run. It re-runs a single action, never the whole run (rerun_run covers the whole run).",
       inputSchema: {
         workspace: z.string(),
         run: z.string().describe('Run id (from get_runs).'),
@@ -7023,7 +7048,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Set the default view',
       description:
-        'Choose which view people land on when they open this database. Worth setting deliberately after building several: an agent that creates the right board and leaves the wrong view in front of everyone has done the work and hidden it. This changes what EVERY member sees, unlike a personal filter.',
+        'Choose which view people land on when they open this database. This changes what EVERY member sees, unlike a personal filter.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -7167,7 +7192,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get my personal filter',
       description:
-        "The extra filter the CALLING identity has layered on a view, on top of what everyone else sees, or null if none. Worth checking when a person says a view looks wrong: a personal filter is invisible to teammates by design, so \"my board is empty and yours isn't\" usually means this.",
+        "The extra filter the CALLING identity has layered on a view, on top of what everyone else sees, or null if none. A personal filter is invisible to teammates by design, so \"my board is empty and yours isn't\" usually means this.",
       inputSchema: { workspace: z.string(), database: z.string(), view: z.string() },
     },
     handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
@@ -7190,7 +7215,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Set my personal filter',
       description:
         'Narrow a view for YOURSELF only, leaving what teammates see untouched — "the team board, but just my rows". Pass clear:true to remove it. ' +
-        'It writes for the identity this token belongs to and cannot filter anyone else\'s screen; to change the view for everyone, use update_view instead. Filter syntax is identical to query_records.',
+        'It writes for the identity this token belongs to and cannot filter anyone else\'s screen; update_view changes the view for everyone. Filter syntax is identical to query_records.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -7308,7 +7333,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Set my dismissed hints',
       description:
-        'Replace the list of hint cards YOU have dismissed in this workspace (a hint id is letters, digits and . _ : - up to 100 characters; at most 200; no repeats). This REPLACES the list, so read get_dismissed_hints first and send it back with your change. Pass clear:true to show every hint again. It affects only the identity this token belongs to.',
+        'Replace the list of hint cards YOU have dismissed in this workspace (a hint id is letters, digits and . _ : - up to 100 characters; at most 200; no repeats). This REPLACES the list, so a change means sending the full list (get_dismissed_hints returns the current one). Pass clear:true to show every hint again. It affects only the identity this token belongs to.',
       inputSchema: {
         workspace: z.string(),
         hint_ids: z.array(z.string()).optional().describe('The full list of dismissed hint ids. Omit with clear:true.'),
@@ -7455,7 +7480,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create a space view',
       description:
-        'Create a space-level DASHBOARD — the only view type that lives on a space rather than a database, because it is the only one that reads from several. Use this for a "how is everything going" page; use create_view for anything scoped to one database.',
+        'Create a space-level DASHBOARD — the only view type that lives on a space rather than a database, because it is the only one that reads from several. It suits a "how is everything going" page; create_view covers anything scoped to one database.',
       inputSchema: {
         workspace: z.string(),
         space: z.string(),
@@ -7480,7 +7505,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get view',
       description:
-        'One view by id, whether it belongs to a database or a space. describe_database covers a database\'s own views; reach for this when you hold a view id from a shared link or list_space_views and do not know which it is.',
+        'One view by id, whether it belongs to a database or a space. describe_database covers a database\'s own views; this tool resolves a view id from a shared link or list_space_views when it is not known whether it belongs to a database or a space.',
       inputSchema: { workspace: z.string(), view: z.string().describe('View id.') },
     },
     handle<{ workspace: string; view: string }>(async ({ workspace, view }) => {
@@ -7497,7 +7522,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update or move a space view',
       description:
-        'Rename a space-level view, change its config, or MOVE a database dashboard into a space so it stops being scoped to one database. Pass `space` to move it. For a database view\'s filters and layout, use update_view.',
+        'Rename a space-level view, change its config, or MOVE a database dashboard into a space so it stops being scoped to one database. Pass `space` to move it. A database view\'s filters and layout are updated with update_view.',
       inputSchema: {
         workspace: z.string(),
         view: z.string().describe('View id (from list_space_views or get_view).'),
@@ -7536,7 +7561,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete a space view',
       description:
-        'Delete a space-level view. Deletes the VIEW, never the records it showed — a dashboard is a lens, and removing it removes nothing underneath. Use delete_view for a database\'s own views.',
+        'Delete a space-level view. Deletes the VIEW, never the records it showed — a dashboard is a lens, and removing it removes nothing underneath. A database\'s own views are deleted with delete_view.',
       inputSchema: { workspace: z.string(), view: z.string().describe('View id.') },
     },
     handle<{ workspace: string; view: string }>(async ({ workspace, view }) => {
@@ -7566,7 +7591,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List members',
       description:
-        "Who is in this workspace and what role they hold — the list to check BEFORE writing a `user` field, because an address that is not a member is rejected and there was previously no way to find that out except by failing. Returns name, role and user id; the id is what a user field wants. " +
+        "Who is in this workspace and what role they hold — the list of valid values for a `user` field, because an address that is not a member is rejected. Returns name, role and user id; the id is what a user field wants. " +
         'Read-only: this cannot invite, remove, or change anyone\'s access. Those are human decisions and have no tool at any scope.',
       inputSchema: { workspace: z.string() },
     },
@@ -7605,7 +7630,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List access grants',
       description:
-        'Who can reach which spaces and databases, beyond their workspace role. Read this when a person reports that a database is missing for them and present for you — a grant, or its absence, is usually the answer. Read-only: granting and revoking are human decisions.',
+        'Who can reach which spaces and databases, beyond their workspace role. When a database is missing for one person and present for another, a grant, or its absence, is usually the answer. Read-only: granting and revoking are human decisions.',
       inputSchema: {
         workspace: z.string(),
         user: z.string().optional().describe('Narrow to one user id (from list_members).'),
@@ -7664,7 +7689,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List pending invites',
       description:
-        'Invitations sent but not yet accepted. Worth checking before telling someone a colleague "is not in the workspace" — they may simply not have clicked the link yet, which is a different problem with a different fix. Read-only: inviting and revoking are human decisions.',
+        'Invitations sent but not yet accepted. A colleague who "is not in the workspace" may simply not have clicked the link yet, which is a different problem with a different fix. Read-only: inviting and revoking are human decisions.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -7681,7 +7706,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What I am working on',
       short:
-        "The surfaces a person actually opens, for the identity this token belongs to, as `kind`: \"assigned\" (default; open records assigned to them, with who set them and when), \"created\", \"assigned_by_me\", \"waiting\" (approvals they can decide and unanswered mentions), \"recent\", \"favorites\". Finished records are never returned; lists are per database, at most 50 rows each, with an exact `total` and `truncated: true` when cut, so a count is never the size of one page. Worth calling at the START of a session. Your own surfaces only. Full notes: call get_started section='TOOL NOTES get_my_work'.",
+        "The surfaces a person actually opens, for the identity this token belongs to, as `kind`: \"assigned\" (default; open records assigned to them, with who set them and when), \"created\", \"assigned_by_me\", \"waiting\" (approvals they can decide, each with `rule_label` (the automation rule asking: its name if you may read that database's automations, else \"A rule in <database>\") and unanswered mentions), \"recent\", \"favorites\". Finished records are never returned; lists are per database, at most 50 rows each, with an exact `total` and `truncated: true` when cut, so a count is never the size of one page. Your own surfaces only. [Full notes: get_started section \"TOOL NOTES get_my_work\"]",
       description:
         'The surfaces a person actually opens, for the identity this token belongs to. kind:"assigned" (default) = open records assigned to them, each with `assigned_by` ({id, name, kind: "user"|"agent"}) and `assigned_at` = who LAST set them into a person field and when (both null when no change ever did: the record was created with them set, or imported); kind:"created" = open records they made (assigned_by is null there); kind:"assigned_by_me" = open records whose current assignee THEY set to someone else, with `assigned_at` (what they are waiting on from others); kind:"waiting" = what waits on THEM: `approvals` they can decide (pending, not expired) and `mentions` of them they have neither replied to nor read, each list with its own exact `total`; kind:"recent" = what they touched most recently; kind:"favorites" = what they starred. ' +
         'Finished records (a completed or canceled state) are never returned. Record lists come per database, ordered overdue, due within a week, in progress, then the rest, each by most recently changed, at most 50 rows per database; every group and the top level carry the exact `total`, and `truncated: true` when rows were cut, so a count is never the size of one page. ' +
@@ -7722,7 +7747,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Star or unstar',
       description:
-        'Star a record or database for the calling identity, or remove a star. Starring is how a person finds something again, so this is worth doing after you build something they asked for — an unstarred new database is one they have to go looking for. Stars are per-person: this cannot star anything for a teammate.',
+        'Star a record or database for the calling identity, or remove a star. Starring is how a person finds something again; an unstarred new database is one they have to go looking for. Stars are per-person: this cannot star anything for a teammate.',
       inputSchema: {
         workspace: z.string(),
         target_type: z.enum(['record', 'database']),
@@ -7846,7 +7871,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Mark my notifications',
       description:
         'Mark notifications read, or archive them, for the calling identity only. Pass `all: true` with action "read" to clear the whole inbox at once. ' +
-        'Think before archiving on someone\'s behalf: it is their inbox, and a notification archived by an agent is one they never saw. Reading and reporting is usually the useful act; clearing is theirs to ask for.',
+        'It is the person\'s own inbox, and a notification archived by an agent is one they never saw; reading and reporting leave it as it was.',
       inputSchema: {
         workspace: z.string(),
         action: z.enum(['read', 'archive', 'unarchive']).describe('What to do with them.'),
@@ -7899,7 +7924,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List approvals',
       description:
-        'MN-255: list this workspace\'s require_approval gate items (pending/approved/rejected/expired) — the preview text, status and approver of each. ' +
+        'MN-255: list this workspace\'s require_approval gate items (pending/approved/rejected/expired) — the preview text, status and approver of each, and the automation rule asking: `rule_label` is its current name when you may read that database\'s automations (then `rule_id`/`rule_name` are set too), else a neutral "A rule in <database>" with `rule_id`/`rule_name` null; all three null when no rule wrote it (an agent proposal) or the rule was deleted. ' +
         'Returns { approvals, total }: the list is capped at 100 rows, `total` is the exact number matching (status=pending counts only those still waiting: pending and not expired). ' +
         'Read-only: approving or rejecting happens in the app Inbox, not via MCP, so a human always makes that call.',
       inputSchema: {
@@ -7947,7 +7972,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List the gates on agents\' record writes',
       description:
         '#1104: the gates that hold an agent\'s record create and/or update for a person\'s approval, instead of applying it. Each has the agent_id (an Agents-database record), operations (create, update), database_id (null = every database), fields (null = any write; otherwise only a write that touches one of those api_names) and enabled. ' +
-        'When a gate holds your write, the write call answers { pending_approval: true, approval_id } and NOTHING is changed until a person approves it in the Approvals inbox; do not retry it. Pass agent_id to see one agent\'s gates: an admin may omit it to see every gate; an agent\'s owner (a member) must pass it and sees only that agent\'s; anyone else, and an unknown agent, hears "not found" (#1111). An agent cannot read its own gates through its owner\'s access, and an admin-role caller needs an admin-scoped token. Read-only: declaring, switching off or removing a gate is for a person who is an admin and not reachable via MCP, because an agent that could lift the gate meant to constrain it would defeat it.',
+        'When a gate holds your write, the write call answers { pending_approval: true, approval_id } and NOTHING is changed until a person approves it in the Approvals inbox. Pass agent_id to see one agent\'s gates: an admin may omit it to see every gate; an agent\'s owner (a member) must pass it and sees only that agent\'s; anyone else, and an unknown agent, hears "not found" (#1111). An agent cannot read its own gates through its owner\'s access, and an admin-role caller needs an admin-scoped token. Read-only: declaring, switching off or removing a gate is for a person who is an admin and not reachable via MCP, because an agent that could lift the gate meant to constrain it would defeat it.',
       inputSchema: {
         workspace: z.string(),
         agent_id: z.string().optional().describe('Limit to one agent (its record uuid).'),
@@ -7969,7 +7994,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List my Runners',
       short:
-        "The StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code, on your own subscription), each with status, connection (online, offline, paused, outdated, tool_missing, revoked), working hours, reserve and hold. Read this to see why an agent is not running: an agent set to \"Your own AI\" with no active, online Runner waits. Only your own, never a colleague's. Adding or changing a Runner is done by a person in StoryOS (Settings, Runners); there is deliberately no tool for it. Full field list: call get_started section='TOOL NOTES list_runners'.",
+        "The StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code, on your own subscription), each with status, connection (online, offline, paused, outdated, tool_missing, revoked), working hours, reserve and hold. An agent set to \"Your own AI\" with no active, online Runner waits, which is the usual reason an agent is not running. Only your own, never a colleague's. Adding or changing a Runner is done by a person in StoryOS (Settings, Runners); there is deliberately no tool for it. [Full notes: get_started section \"TOOL NOTES list_runners\"]",
       description:
         '#1131: the StoryOS Runners YOU own (a Runner is a program on your own computer that wakes your agents inside your own Claude Code, on your own subscription). Only your own, never a colleague\'s, even for an admin. Each has status (pending = paired but not turned on yet; active; a removed Runner is not listed), connection (online, offline, paused, outdated = needs an update, tool_missing = the chosen tool is no longer found, revoked), tools (what it found on that computer), chosen_tool, runner_version, protocol_version, last_seen_at, offline_since (derived: set only while the Runner is active and has not been heard from for 2 minutes), paused_until and agents (the agents assigned to it). #1137: how the person shares their subscription: working_hours (days, start, end, timezone; null = any hour), reserve_percent ("leave me X%"), reserve_measurable (false = the tool does not report plan usage, so the reserve cannot be kept: say so, never claim it is) and hold (why it is not claiming right now: limit_reached, working_hours or reserve, and when it resumes). ' +
         'Read this to see why an agent is not running: an agent set to "Your own AI" with no active, online Runner waits. Adding, turning on, changing and removing a Runner are done by a person in StoryOS (Settings, Runners); there is deliberately no tool for them, because a Runner decides where your agents\' instructions and the workspace\'s data go.',
@@ -7989,7 +8014,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List the agent wake queue',
       short:
-        "The queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason), how many events merged into it (coalesced_count) and ONE derived run_state you should read and never recompute (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_hours, waiting_for_reserve, waiting_for_budget, waiting_for_turn). Filter with agent and record. Only wakes whose record and agent you can read are listed. Waking, claiming and finishing a wake are not tools. Full notes: call get_started section='TOOL NOTES list_agent_wakes'.",
+        "The queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason), how many events merged into it (coalesced_count) and ONE derived run_state, computed by the server and not meant to be recomputed (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_hours, waiting_for_reserve, waiting_for_budget, waiting_for_turn). Filter with agent and record. Only wakes whose record and agent you can read are listed. Waking, claiming and finishing a wake are not tools. [Full notes: get_started section \"TOOL NOTES list_agent_wakes\"]",
       description:
         "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_hours (until the Runner's working hours open), waiting_for_reserve (the person's reserve, where the tool reports it), waiting_for_budget (the agent used its monthly token budget or run cap, ticket #1138: `until` is when the UTC month resets and `budget_metric` says tokens or runs; raising the budget resumes it sooner), waiting_for_turn (one job at a time). " +
         "Newest first. Filter with agent (the Agents-database record's uuid) and record (a record uuid, or its number together with `database`). Only wakes whose record and agent YOU can read are listed; a hidden one is neither shown nor counted. The answer carries `visibility` (ticket #1228): 'full' means this is everything the queue holds; 'limited' means at least one wake (or the whole Agents database) is not yours to read, so an EMPTY or short list does not mean nothing woke the agent: say you cannot see all of it, never \"nothing has woken it\". It is a yes/no, never a count of what you cannot see. Use it to answer \"is the agent working on this?\" after setting an agent in a record's agent field or @-mentioning it. Waking, claiming and finishing a wake are not tools: they happen when something changes in the workspace, or are done by a Runner.",
@@ -8064,7 +8089,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: "An agent's monthly budget and usage",
       short:
-        "One agent's monthly token budget and run cap and what it has used this UTC month, counted from its Run records (state: unlimited, ok, warning, paused, not_measured). `tokens.used` is null, never 0, when the runs' tool reported no usage, and a partial total is a lower bound: say \"at least\". Quote these numbers, never estimate them. Raise a budget with update_record on the agent's record (a person can; an agent cannot change its own). Full field list: call get_started section='TOOL NOTES get_agent_budget'.",
+        "One agent's monthly token budget and run cap and what it has used this UTC month, counted from its Run records (state: unlimited, ok, warning, paused, not_measured). `tokens.used` is null, never 0, when the runs' tool reported no usage, and a partial total is a lower bound (\"at least\"). The numbers are measured, not estimates. A budget is raised with update_record on the agent's record (a person can; an agent cannot change its own). [Full notes: get_started section \"TOOL NOTES get_agent_budget\"]",
       description:
         "#1138: one agent's monthly budget (tokens, and a cap on runs) and what it has used this UTC calendar month, counted from its Run records. `limits` are the two number fields on the agent's record (`Monthly token budget`, `Monthly run cap`; null = no limit). `tokens` and `runs` each carry limit, used, percent (whole number, rounded down) and state: unlimited, ok, warning (80% or more: its manager was told once), paused (100%: the agent is not given new work until the budget is raised or the month resets, and its queued work waits) or not_measured. READ `tokens.used` CAREFULLY: it is null, never 0, when the finished runs' tool did not report token usage (the Claude Code CLI may not), and `tokens.measurement` (full, partial, not_reported, no_finished_runs) with `unmeasured_runs` says how much of the total is real. A partial total is a lower bound: say \"at least\". `tokens.used` also includes the tokens AI fields used when THIS agent's write caused the recompute (`tokens.ai_field`: tokens (null when the calls finished and the vendor reported none), calls, unmeasured_calls); a person's write and another agent's are not counted, and a call that failed is not counted. `state` is the worst of the two, `paused_reason` names which, and `resumes_at` is the month reset. To SET or RAISE a budget, update those fields on the agent's record with update_record (a person can; the API refuses an agent changing its own budget, so do not try to raise yours). You can read it only if you can read both the Agents and the Runs databases. Quote these numbers, never estimate them.",
       inputSchema: { workspace: z.string(), agent: z.string().describe("The agent record's uuid (from the Agents database; list_agent_wakes and get_agent_wake_summary show it).") },
@@ -8081,7 +8106,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List validation rules',
       description:
-        '#231: the validation rules on a database. A rule REFUSES a record write (yours included: there is no bypass for any writer) when its condition is not met, and returns the rule\'s own message, so read these before writing if a write is being refused. Each rule has a trigger (create, update, or transition to a status), the condition that must hold, the message, `dangling` (it names a deleted field and is skipped) and `violation_count` (how many stored records break it now). A rule fires only when a field it references changes, so a record can already be invalid without being blocked. Read-only: changing a rule is an admin act, not reachable via MCP.',
+        '#231: the validation rules on a database. A rule REFUSES a record write (yours included: there is no bypass for any writer) when its condition is not met, and returns the rule\'s own message (these are the rules behind a refused write). Each rule has a trigger (create, update, or transition to a status), the condition that must hold, the message, `dangling` (it names a deleted field and is skipped) and `violation_count` (how many stored records break it now). A rule fires only when a field it references changes, so a record can already be invalid without being blocked. Read-only: changing a rule is an admin act, not reachable via MCP.',
       inputSchema: { workspace: z.string(), database: z.string() },
     },
     handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
@@ -8099,7 +8124,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List records that already break a validation rule',
       description:
-        '#231: the stored records that ALREADY break a validation rule (a rule only fires when a field it references changes, so existing violations persist and are otherwise invisible). Use it to report on data quality or to find records to fix; fixing one is an ordinary update. Returns a count, a page of record ids/numbers/titles, and `next_cursor` (pass it as `after`). Admin only.',
+        '#231: the stored records that ALREADY break a validation rule (a rule only fires when a field it references changes, so existing violations persist and are otherwise invisible). It reports on data quality and finds records to fix; fixing one is an ordinary update. Returns a count, a page of record ids/numbers/titles, and `next_cursor` (pass it as `after`). Admin only.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -8208,8 +8233,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List sources',
       description:
         'The scheduled syncs feeding this database from an external provider — provider, schedule, status, field_mapping, connection_id and last_sync_at for each. ' +
-        'Use this to diagnose data freshness ("is this database still syncing?") before trusting its records as current. ' +
-        'Configuring a source IS reachable over MCP (#438): list_source_providers → discover_source_fields → create_source, then sync_source and list_source_runs. ' +
+        'It diagnoses data freshness ("is this database still syncing?"). ' +
+        'Configuring a source IS reachable over MCP (#438): list_source_providers, discover_source_fields, create_source, sync_source and list_source_runs. ' +
         'For a connection_id: this shows one already IN USE by a source; list_connections (#491) shows every connected account, including ones with no source yet.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -8463,7 +8488,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create source',
       short:
-        "Configure a scheduled sync from an external provider INTO a database, and start it running. CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and pass its `connection_id` (from list_connections, or from list_sources). Run list_source_providers then discover_source_fields first; field_mapping maps provider keys to this database's fields, and external_key_field (one of its targets) is what makes a re-sync update instead of duplicate. Full syntax (field_mapping directions, conflict_policy, write_back and push approval, defaults): call get_started section='TOOL NOTES create_source'.",
+        "Configure a scheduled sync from an external provider INTO a database, and start it running. CREDENTIALS NEVER PASS THROUGH THIS TOOL: the account is connected once in the app (Settings → Connections) and referenced by `connection_id` (from list_connections, or from list_sources). list_source_providers and discover_source_fields describe what a provider offers; field_mapping maps provider keys to this database's fields, and external_key_field (one of its targets) is what makes a re-sync update instead of duplicate. Covers field_mapping directions, conflict_policy, write_back and push approval, defaults. [Full notes: get_started section \"TOOL NOTES create_source\"]",
       description:
         'Configure a scheduled sync from an external provider INTO this database, and start it running. ' +
         'CREDENTIALS NEVER PASS THROUGH THIS TOOL: connect the account once in the app (Settings → Connections) and reference it by `connection_id` — get one from list_connections (#491), or from list_sources if the target database already has a source. ' +
@@ -8490,7 +8515,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             ]),
           )
           .describe(
-            '{ "provider_external_key": "field name or id" } for a pull-only mapping (the common case), or { "provider_external_key": { field, direction } } — direction "in" (default), "out" (push-only, never overwritten by a sync), or "both". Start from discover_source_fields\' proposed_field_mapping.',
+            '{ "provider_external_key": "field name or id" } for a pull-only mapping (the common case), or { "provider_external_key": { field, direction } } — direction "in" (default), "out" (push-only, never overwritten by a sync), or "both". discover_source_fields returns a proposed_field_mapping in this shape.',
           ),
         external_key_field: z
           .string()
@@ -8575,7 +8600,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .record(z.string(), z.any())
           .optional()
           .describe(
-            'Replacement provider config (replaces the whole object — read the current one from list_sources first if you\'re only changing one key). May include conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins", write_back (required true before any "out"/"both" field_mapping entry actually pushes — see create_source\'s description), and require_approval_for_push (default false — holds each push as an Inbox approval instead of sending it immediately).',
+            'Replacement provider config (replaces the whole object, so changing one key means sending the current config from list_sources with that key changed). May include conflict_policy: "external_wins" (default) | "storyos_wins" | "newest_wins", write_back (required true before any "out"/"both" field_mapping entry actually pushes — see create_source\'s description), and require_approval_for_push (default false — holds each push as an Inbox approval instead of sending it immediately).',
           ),
         field_mapping: z
           .record(
@@ -8670,7 +8695,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'Stop syncing and discard the source configuration — its field mapping, schedule and sync cursor. ' +
         'RECORDS ARE NOT DELETED: every record the source ever created stays in the database, it simply stops being updated. ' +
-        'The configuration itself is NOT recoverable, so `confirm` must equal the source\'s name exactly. To stop a sync temporarily, use update_source with status:"paused" instead — that keeps the configuration.',
+        'The configuration itself is NOT recoverable, so `confirm` must equal the source\'s name exactly. A sync can be paused temporarily with update_source status:"paused", which keeps the configuration.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -8709,7 +8734,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Sync source now',
       description:
         'Run one sync cycle immediately, ignoring the schedule. Returns that run\'s outcome — records fetched, created, updated, and the error if it failed. ' +
-        'Use it to prove a newly created source actually works instead of waiting for its schedule, and to refresh data on demand. ' +
+        'It proves a newly created source works without waiting for its schedule, and refreshes data on demand. ' +
         'The run is recorded in the same log as a scheduled one, so list_source_runs shows it alongside the rest.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -8845,7 +8870,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'List what one credential did',
       description:
         'Every action (activity event: type, record id, source, time) performed with one API token, newest first, 50 per page (pass `cursor` from `next_cursor`). ' +
-        'Pair it with get_credential: together they answer "what could this token reach, and what did it do". Works for revoked tokens. Admin only. ' +
+        'Together with get_credential it answers "what could this token reach, and what did it do". Works for revoked tokens. Admin only. ' +
         'Only actions made with a personal access token carry a credential; a session, an OAuth grant, an automation or anything before this was recorded has none, so an empty list is not proof the token did nothing before it was recorded.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -9133,7 +9158,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Get automation',
       description:
         "#334: one automation rule's full, editable definition — trigger, condition and actions with human-readable database/field/" +
-        'select names alongside their stable ids, plus enabled state and last-run status. Feed the same shape back into update_automation.',
+        'select names alongside their stable ids, plus enabled state and last-run status. update_automation accepts the same shape.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -9163,7 +9188,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create automation',
       short:
-        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Full syntax (every trigger and action shape, templates, top-N sort/limit): call get_started section='TOOL NOTES create_automation'.",
+        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Covers every trigger and action shape, templates, top-N sort/limit. [Full notes: get_started section \"TOOL NOTES create_automation\"]",
       description:
 /*
          * #393 — the capability sentence comes FIRST, in words.
@@ -9225,8 +9250,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id (the rule\'s home database).'),
         name: z.string().describe('Human name for the rule.'),
-        trigger: z.any().describe('Trigger object — shapes: get_started section="TOOL NOTES create_automation". record_linked accepts direction:"link"|"unlink".'),
-        actions: z.any().describe('Array of 1–10 action objects — shapes: get_started section="TOOL NOTES create_automation". Each may carry its own optional `condition` (api_names).'),
+        trigger: z.any().describe('Trigger object. See also: get_started section "TOOL NOTES create_automation" for shapes. record_linked accepts direction:"link"|"unlink".'),
+        actions: z.any().describe('Array of 1–10 action objects. See also: get_started section "TOOL NOTES create_automation" for shapes. Each may carry its own optional `condition` (api_names).'),
         condition: z
           .any()
           .optional()
@@ -9559,7 +9584,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Rotate a portal recipient\'s token',
       description:
-        '#602 — issues a new signed token for this recipient and atomically invalidates the old one (no window where both or neither work). Use this when a token may have leaked but the recipient should keep access — revoke ends access permanently instead.',
+        '#602 — issues a new signed token for this recipient and atomically invalidates the old one (no window where both or neither work). For a token that may have leaked while the recipient should keep access (revoke_portal_recipient, by contrast, ends access permanently).',
       inputSchema: {
         workspace: z.string(),
         recipient: z.string().describe('Recipient id (from list_portal_recipients).'),

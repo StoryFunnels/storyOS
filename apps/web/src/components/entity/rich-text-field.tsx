@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
+import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import type { Field } from '@/components/table-view/use-table-data';
@@ -12,6 +13,7 @@ import { MentionScope, MentionSuggestionMenus, mentionSchema } from './mentions'
 import { FieldMenu } from './field-controls';
 import { CollapsibleBody, useCollapsedSection } from './collapsible-section';
 import { isEmptyBlocks } from './entity-field-utils';
+import { SECTION_LABEL } from './section-label';
 import type { Zone } from './entity-field-utils';
 
 /** Full-width BlockNote section for a rich_text field (MN-041). */
@@ -84,7 +86,7 @@ export function RichTextFieldSection({
       <button
         type="button"
         onClick={() => setOpened(true)}
-        className="group mb-1 flex h-6 items-center gap-1.5 rounded-[var(--radius-control)] px-1 text-label font-medium uppercase tracking-wider text-muted hover:bg-hover hover:text-ink"
+        className={cn('group mb-1 flex h-6 items-center gap-1.5 rounded-[var(--radius-control)] px-1 hover:bg-hover hover:text-ink', SECTION_LABEL)}
       >
         <Plus className="h-3 w-3 text-faint group-hover:text-ink" aria-hidden />
         {field.displayName}

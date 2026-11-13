@@ -7,7 +7,8 @@
  * and is neither hidden nor relabelled.
  *
  * "Runs" alone is never shown: it collides with the "Automation runs" page, which is a different thing (rule runs).
- * Members is also `is_system` and is deliberately not here (ADR-0017): it keeps its place and its name.
+ * Members is also `is_system` and is deliberately not here (ADR-0017): it keeps its name, and nothing here renames it. Ticket
+ * #1273 item 6 only takes its ROW out of the sidebar tree (`isMembersDatabase`), because Members is managed in Settings.
  */
 export type AgentSystemKey = 'agents' | 'runs' | 'agent triggers';
 
@@ -62,4 +63,13 @@ export function isSystemOnlySpace(
   if (!databases.every((d) => agentSystemKey(d) !== null)) return false;
   if (extras === undefined) return true;
   return extras.documents + extras.folders + extras.views === 0;
+}
+
+/**
+ * The workspace people database (ADR-0017). Needs the `is_system` flag AND the stored name: the flag cannot be set over HTTP,
+ * so a person's own database that merely happens to be called "Members" is never matched (#317/#318). Used only to leave its
+ * row out of the sidebar tree; the database, its URL, its records and the MCP refs are untouched.
+ */
+export function isMembersDatabase(db: DatabaseLike | null | undefined): boolean {
+  return Boolean(db?.isSystem) && db!.name.trim().toLowerCase() === 'members';
 }

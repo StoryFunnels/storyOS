@@ -28,7 +28,7 @@ export function SettingsSidebarMenu({ ws }: { ws: string }) {
   return (
     <nav aria-label="Settings" className="scroll-quiet flex-1 overflow-y-auto pb-2 pt-0.5">
       <SidebarRow depth={0} className={SETTINGS_BACK_ROW_CLASS}>
-        <Link href={backHref} className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-body">
+        <Link href={backHref} className="flex h-full min-w-0 flex-1 items-center gap-1.5">
           <GlyphSlot>
             <ChevronLeft className="h-3.5 w-3.5" />
           </GlyphSlot>
@@ -63,7 +63,7 @@ function MenuRow({
 }) {
   return (
     <SidebarRow depth={0} active={active}>
-      <Link href={href} aria-current={active ? 'page' : undefined} className={cn('flex min-w-0 flex-1 items-center gap-2 text-body', settingsRowWeightClass(active))}>
+      <Link href={href} aria-current={active ? 'page' : undefined} className={cn('flex min-w-0 flex-1 items-center gap-2', settingsRowWeightClass(active))}>
         <GlyphSlot>
           <Icon className="h-3.5 w-3.5" />
         </GlyphSlot>
