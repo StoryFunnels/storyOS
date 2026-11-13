@@ -7901,6 +7901,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         'MN-255: list this workspace\'s require_approval gate items (pending/approved/rejected/expired) — the preview text, status and approver of each, and the automation rule asking: `rule_label` is its current name when you may read that database\'s automations (then `rule_id`/`rule_name` are set too), else a neutral "A rule in <database>" with `rule_id`/`rule_name` null; all three null when no rule wrote it (an agent proposal) or the rule was deleted. ' +
         'Returns { approvals, total }: the list is capped at 100 rows, `total` is the exact number matching (status=pending counts only those still waiting: pending and not expired). ' +
+        'A row whose stored details cannot be read (an older or hand-made one) is still listed, as `unknown: true` with preview_text "Unknown request" and a null action_snapshot; nobody can approve or reject it (422 approval_unreadable), it expires on its own. `unknown` is false on every other row. ' +
         'Read-only: approving or rejecting happens in the app Inbox, not via MCP, so a human always makes that call.',
       inputSchema: {
         workspace: z.string(),
