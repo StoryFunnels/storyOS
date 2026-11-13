@@ -2151,7 +2151,7 @@ function SpaceSection({
           ))}
           <DragPreview>
             {itemDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-body text-ink shadow-[var(--shadow-lifted)]">
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-label text-ink shadow-[var(--shadow-lifted)]">
                 {itemLabel(itemDrag.activeId) ?? ''}
               </div>
             )}
@@ -3096,7 +3096,7 @@ function RenameInline({ initial, onDone }: { initial: string; onDone: (name: str
       // #717 — plain `rounded` bypassed the radius token; --radius-control is
       // the fix, not the `<Input>` primitive (its `sm` size would also swap
       // this compact px-1/py-0.5/border-strong treatment for a restyle).
-      className="w-full rounded-[var(--radius-control)] border border-border-strong bg-card px-1 py-0.5 text-body text-ink"
+      className="w-full rounded-[var(--radius-control)] border border-border-strong bg-card px-1 py-0.5 text-label text-ink"
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => onDone(value.trim())}

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { agentSystemKey, isMembersDatabase } from '@/lib/system-databases';
@@ -32,6 +32,62 @@ describe('item 2: tree rows are 22px with a 12px label', () => {
     for (const src of [aiSrc, sidebarSrc]) {
       expect(src).not.toMatch(/flex min-w-0 flex-1 items-center gap-2 text-body/);
     }
+  });
+});
+
+/**
+ * #1273 (send-back) — the 13px guard is DERIVED, not a hand list. The first version scanned two named files and missed Personal
+ * and every Settings row. Now the file set is "every component under src/components that renders a SidebarRow", found by scanning,
+ * so a new row kind in a new file is covered the moment it exists. Any 13px class in those files must be listed with a reason.
+ */
+describe('item 2 (derived guard): no 13px label class in any file that renders a SidebarRow', () => {
+  const root = fileURLToPath(new URL('.', import.meta.url));
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}${e.name}/`) : [`${dir}${e.name}`]));
+  const rowFiles = walk(root).filter((f) => f.endsWith('.tsx') && !f.endsWith('sidebar-row.tsx') && /<SidebarRow\b/.test(readFileSync(f, 'utf8')));
+  const THIRTEEN = /\btext-body\b|\btext-sm\b|\btext-\[13px\]/;
+  // [file suffix, source fragment, reason]. Everything here is NOT a tree-row label. Phone drawer: no 13px class is needed there
+  // (rows are 34px/44px by height only, the label stays 12px), so nothing is exempt on the finger-size rule.
+  const EXCEPTIONS: Array<[string, string, string]> = [
+    ['sidebar.tsx', 'bg-primary text-body font-bold', 'the 34px "+" button glyph, not a row label'],
+    ['sidebar.tsx', 'className="text-body" />', 'EntityIcon emoji glyph size (x2: document, folder), not the label'],
+    ['sidebar.tsx', 'px-3 py-1 text-body', 'dialog buttons (Cancel / Confirm)'],
+    ['sidebar.tsx', 'px-2 py-1 text-body text-ink outline-none', 'dialog text input'],
+    ['sidebar.tsx', '<p className="text-body text-muted">', 'delete-database dialog paragraph'],
+    ['sidebar-view-row.tsx', 'justify-center text-[13px]', 'emoji glyph of a view\'s database icon'],
+    ['personal-section.tsx', 'px-2 py-1.5 text-left text-body', 'template-picker dialog option, not a tree row'],
+  ];
+
+  it('finds the row files by scanning (sidebar, AI section, view row, personal, settings menu)', () => {
+    const names = rowFiles.map((f) => f.slice(root.length));
+    for (const n of ['sidebar.tsx', 'sidebar-ai-section.tsx', 'sidebar-view-row.tsx', 'personal-section.tsx', 'settings/settings-sidebar-menu.tsx']) {
+      expect(names).toContain(n);
+    }
+  });
+
+  it('every 13px class in those files is a listed non-label exception', () => {
+    const offenders: string[] = [];
+    for (const f of rowFiles) {
+      const lines = readFileSync(f, 'utf8').split('\n');
+      lines.forEach((line, i) => {
+        if (/^\s*(\/\/|\*|\/\*)/.test(line) || !THIRTEEN.test(line)) return;
+        const ok = EXCEPTIONS.some(([file, frag]) => f.endsWith(file) && line.includes(frag));
+        if (!ok) offenders.push(`${f.slice(root.length)}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the exceptions are not stale: each still matches a line (an exception outliving its line would hide a future regression)', () => {
+    for (const [file, frag] of EXCEPTIONS) {
+      const hit = rowFiles.filter((f) => f.endsWith(file)).some((f) => readFileSync(f, 'utf8').split('\n').some((l) => l.includes(frag) && THIRTEEN.test(l)));
+      expect(hit, `${file} :: ${frag}`).toBe(true);
+    }
+  });
+
+  it('the drag ghost and the inline rename input match the 12px row label', () => {
+    expect(sidebarSrc).toMatch(/px-2 py-\[3px\] text-label text-ink shadow/);
+    expect(sidebarSrc).toMatch(/px-1 py-0\.5 text-label text-ink"/);
   });
 });
 
