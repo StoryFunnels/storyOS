@@ -30,6 +30,7 @@ import { CATCH_UP_FAILED, startedToast } from '@/lib/runners/catch-up-copy';
 import { useCatchUp, useCatchUpScope } from '@/lib/runners/use-catch-up';
 import { useAgentScope, useAgentWakeLines } from '@/lib/runners/use-agent-facts';
 import { canReadWakeFacts } from '@/lib/runners/wake-facts';
+import { isAgentWorkable } from '@/lib/runners/works-in';
 import { NonAiLine, RunNowButton } from './let-it-think';
 import { FirstRunCard } from './first-run-card';
 import { AgentAdvanced } from './agent-advanced';
@@ -230,8 +231,8 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
 
       <Facts
         agent={agent}
-        wakes={readsFacts ? <WakesWhenValue state={wakeLines} ws={ws} linkDatabaseId={firstDatabaseId(wakeLines, scope)} /> : null}
-        works={readsFacts ? <WorksInValue state={scope} ws={ws} /> : null}
+        wakes={readsFacts ? <WakesWhenValue state={wakeLines} ws={ws} linkDatabaseId={firstDatabaseId(wakeLines, scope, databases.data ?? [])} /> : null}
+        works={readsFacts ? <WorksInValue state={scope} ws={ws} databases={databases.data} /> : null}
       />
       {/* Ticket #1180 — only an agent a Runner serves has tools and a model to choose; a guest is never shown it (same gate as the machine name). */}
       {usesRunner && !masked && (
@@ -276,12 +277,15 @@ function SystemTables({ ws, databases }: { ws: string; databases: readonly Datab
 }
 
 /** Where the "Automations" link goes: the database of its first trigger, else the first database it works in. Automations has no page of its own, it lives in a database's menu. */
-function firstDatabaseId(wakes: ReturnType<typeof useAgentWakeLines>, scope: ReturnType<typeof useAgentScope>): string | null {
+function firstDatabaseId(wakes: ReturnType<typeof useAgentWakeLines>, scope: ReturnType<typeof useAgentScope>, listed: readonly DatabaseSummary[]): string | null {
   if (wakes.status === 'ready') {
     const hit = wakes.value.find((l) => l.databaseId);
     if (hit?.databaseId) return hit.databaseId;
   }
-  return scope.status === 'ready' ? (scope.value.databases?.[0]?.id ?? null) : null;
+  if (scope.status !== 'ready') return null;
+  // The same filter as the Works in row: never link Automations to a system database the row does not list (ticket #1296 is the real fix).
+  const sys = new Set(listed.filter((l) => !isAgentWorkable(l)).map((l) => l.id));
+  return scope.value.databases?.find((d) => !sys.has(d.id))?.id ?? null;
 }
 
 function Facts({ agent, wakes, works }: { agent: AgentView; wakes: ReactNode; works: ReactNode }) {

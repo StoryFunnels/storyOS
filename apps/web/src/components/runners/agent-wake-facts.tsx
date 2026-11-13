@@ -55,9 +55,11 @@ export function WakesWhenValue({ state, ws, linkDatabaseId }: { state: FactsStat
   );
 }
 
-export function WorksInValue({ state, ws }: { state: FactsState<AgentScopeDto>; ws: string }) {
+/** `databases` is the workspace's database list (undefined while loading): the scope alone cannot say which are system databases. */
+export function WorksInValue({ state, ws, databases }: { state: FactsState<AgentScopeDto>; ws: string; databases: ReadonlyArray<{ id: string; isSystem?: boolean }> | undefined }) {
   if (state.status !== 'ready') return <Pending failed={state.status === 'failed'} />;
-  const f = worksInFact(state.value);
+  if (!databases) return <Pending failed={false} />;
+  const f = worksInFact(state.value, databases);
   if (isEmptyWorksIn(f)) return <span className="text-muted">No database chosen.</span>;
   const unresolved = unresolvedLine(f.unresolved);
   const withheld = withheldLine(f.withheld);

@@ -1,4 +1,5 @@
 import { databaseNoun } from '@/lib/records';
+import { isAgentWorkable } from './works-in';
 import type { TriggerBindingLike } from './catch-up';
 
 /**
@@ -139,9 +140,23 @@ export interface WorksInFact {
   withheld: number;
 }
 
-export function worksInFact(scope: AgentScopeDto): WorksInFact {
+/**
+ * `workspaceDatabases` is the workspace's own database list (it carries `isSystem`; the scope DTO does not).
+ *
+ * Whole-space agents must never reach system databases (Members, Agents, Runs, Triggers). The server still returns them in the
+ * resolved scope today, so this FILTERS them out of what the page lists, with the SAME predicate the hire picker uses
+ * (`isAgentWorkable`), which keeps the page and the picker showing the same count. That is a display patch, not the fix: the real fix
+ * is server-side (ticket #1296, the scope resolver must not return them). It also applies to an explicit scope target that points
+ * at a system database: it is not listed either, because the picker would not have offered it and the agent must not reach it.
+ * A database id missing from the list cannot be proven system, so it stays (never guess).
+ */
+export function worksInFact(scope: AgentScopeDto, workspaceDatabases: ReadonlyArray<{ id: string; isSystem?: boolean }>): WorksInFact {
   const spaces = scope.spaces ?? [];
-  const dbs = scope.databases ?? [];
+  const byId = new Map(workspaceDatabases.map((d) => [d.id, d]));
+  const dbs = (scope.databases ?? []).filter((d) => {
+    const known = byId.get(d.id);
+    return known ? isAgentWorkable(known) : true;
+  });
   const inSpace = new Set(spaces.map((s) => s.id));
   return {
     spaces: spaces.map((s) => ({ id: s.id, name: s.name, databases: dbs.filter((d) => d.space_id === s.id).map((d) => d.name) })),

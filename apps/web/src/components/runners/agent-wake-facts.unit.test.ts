@@ -3,6 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { WakesWhenValue, WorksInValue } from './agent-wake-facts';
+import { pickerGroups } from '@/lib/runners/works-in';
 import { canReadWakeFacts, wakeLines } from '@/lib/runners/wake-facts';
 import type { DbLookup } from '@/lib/runners/wake-facts';
 
@@ -68,26 +69,61 @@ describe('Wakes when', () => {
 describe('Works in', () => {
   const dbs = [{ id: 'd1', name: 'Clients', space_id: 's1', via: 'space' as const }, { id: 'd2', name: 'Contacts', space_id: 's1', via: 'space' as const }, { id: 'd3', name: 'Projects', space_id: 's2', via: 'database' as const }];
   it('populated: a whole space with its resolved databases now, a named database linked', () => {
-    const html = draw(createElement(WorksInValue, { state: { status: 'ready', value: { enforced: true, spaces: [{ id: 's1', name: 'Client Work' }], databases: dbs, unresolved: [], withheld_count: 0 } }, ws: 'w1' }));
+    const html = draw(createElement(WorksInValue, { state: { status: 'ready', value: { enforced: true, spaces: [{ id: 's1', name: 'Client Work' }], databases: dbs, unresolved: [], withheld_count: 0 } }, ws: 'w1', databases: [] }));
     expect(html).toContain('<b>Client Work</b> · whole space');
     expect(html).toContain('2 databases now: Clients, Contacts. Databases added to Client Work later are included.');
     expect(html).toContain('href="/w/w1/d/d3"');
     expect(html).not.toContain('Clients</a>');
   });
   it('databases only: names, no whole-space note', () => {
-    const html = draw(createElement(WorksInValue, { state: { status: 'ready', value: { databases: [dbs[2]!], spaces: [], unresolved: [], withheld_count: 0 } }, ws: 'w1' }));
+    const html = draw(createElement(WorksInValue, { state: { status: 'ready', value: { databases: [dbs[2]!], spaces: [], unresolved: [], withheld_count: 0 } }, ws: 'w1', databases: [] }));
     expect(html).toContain('Projects');
     expect(html).not.toContain('whole space');
   });
   it('dangling targets are counted, never named; hidden ones are said', () => {
-    const html = draw(createElement(WorksInValue, { state: { status: 'ready', value: { spaces: [], databases: [dbs[2]!], unresolved: ['3f2a1b9c-0000-4000-8000-000000000000', 'Old name'], withheld_count: 1 } }, ws: 'w1' }));
+    const html = draw(createElement(WorksInValue, { state: { status: 'ready', value: { spaces: [], databases: [dbs[2]!], unresolved: ['3f2a1b9c-0000-4000-8000-000000000000', 'Old name'], withheld_count: 1 } }, ws: 'w1', databases: [] }));
     expect(html).toContain('2 targets no longer exist or are private.');
     expect(html).toContain('1 more is not open to its manager');
     expect(html).not.toContain('3f2a1b9c');
     expect(html).not.toContain('Old name');
   });
   it('empty says no database chosen', () => {
-    expect(draw(createElement(WorksInValue, { state: { status: 'ready', value: { spaces: [], databases: [], unresolved: [], withheld_count: 0 } }, ws: 'w1' }))).toContain('No database chosen.');
+    expect(draw(createElement(WorksInValue, { state: { status: 'ready', value: { spaces: [], databases: [], unresolved: [], withheld_count: 0 } }, ws: 'w1', databases: [] }))).toContain('No database chosen.');
+  });
+});
+
+describe('Works in never lists system databases (ticket #1289, ruling on ticket #1296)', () => {
+  const resolved = [
+    { id: 's1a', name: 'Clients', space_id: 's1', via: 'space' as const },
+    { id: 's1m', name: 'Members', space_id: 's1', via: 'space' as const },
+    { id: 's1u', name: 'Agent runs', space_id: 's1', via: 'space' as const },
+  ];
+  const state = (databases: typeof resolved) => ({ status: 'ready' as const, value: { enforced: true, spaces: [{ id: 's1', name: 'Client Work' }], databases, unresolved: [], withheld_count: 0 } });
+  const list = [
+    { id: 's1a', name: 'Clients', spaceId: 's1', isSystem: false },
+    { id: 's1m', name: 'Members', spaceId: 's1', isSystem: true },
+    { id: 's1u', name: 'Runs', spaceId: 's1', isSystem: true },
+  ];
+  it('a whole-space agent lists only the normal databases, and the count is the picker\'s count', () => {
+    const html = draw(createElement(WorksInValue, { state: state(resolved), ws: 'w1', databases: list }));
+    expect(html).toContain('1 database now: Clients.');
+    expect(html).not.toContain('Members');
+    // the hire picker's own count for the same space, from the same data
+    expect(pickerGroups([{ id: 's1', name: 'Client Work', position: 0, personal: false } as never], list as never, '')[0]!.databases).toHaveLength(1);
+  });
+  it('a user database NAMED Members (is_system false) still shows', () => {
+    const own = [{ id: 's1m', name: 'Members', spaceId: 's1', isSystem: false }];
+    const html = draw(createElement(WorksInValue, { state: state(resolved.slice(0, 2)), ws: 'w1', databases: own.concat({ id: 's1a', name: 'Clients', spaceId: 's1', isSystem: false }) }));
+    expect(html).toContain('2 databases now: Clients, Members.');
+  });
+  it('an explicit scope target that points at a system database is filtered the same way', () => {
+    const direct = { status: 'ready' as const, value: { spaces: [], databases: [{ id: 's1m', name: 'Members', space_id: 's9', via: 'database' as const }], unresolved: [], withheld_count: 0 } };
+    const html = draw(createElement(WorksInValue, { state: direct, ws: 'w1', databases: list }));
+    expect(html).toContain('No database chosen.');
+    expect(html).not.toContain('Members');
+  });
+  it('waits for the workspace list rather than guess', () => {
+    expect(draw(createElement(WorksInValue, { state: state(resolved), ws: 'w1', databases: undefined }))).toContain('Loading');
   });
 });
 

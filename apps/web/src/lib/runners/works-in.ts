@@ -8,6 +8,15 @@ import type { WorkTarget } from './hire';
  * and Members holds every colleague's email), and anything in a PERSONAL space (private even from admins, and an agent acts for
  * its manager, never inside someone's private space; personal content is documents and views, not databases, in v1).
  */
+/**
+ * THE one answer to "may an agent work in this database?" as far as system databases go. Identity is the `is_system` FLAG, never
+ * the display name: a person's own database called "Members" has the flag off and stays (ADR-0017). The hire picker, the rule picker
+ * and the agent page's "Works in" row all call this, so they cannot disagree about which databases count.
+ */
+export function isAgentWorkable(d: { isSystem?: boolean }): boolean {
+  return !d.isSystem;
+}
+
 export interface PickerGroup {
   space: Pick<Space, 'id' | 'name' | 'icon' | 'color'>;
   databases: DatabaseSummary[];
@@ -18,7 +27,7 @@ export function pickerGroups(spaces: readonly Space[], databases: readonly Datab
   const out: PickerGroup[] = [];
   for (const space of [...spaces].sort((a, b) => a.position - b.position)) {
     if (space.personal) continue;
-    const own = databases.filter((d) => d.spaceId === space.id && !d.isSystem).sort((a, b) => a.position - b.position);
+    const own = databases.filter((d) => d.spaceId === space.id && isAgentWorkable(d)).sort((a, b) => a.position - b.position);
     const spaceHit = q !== '' && space.name.toLowerCase().includes(q);
     // A search that names the SPACE shows all of it; one that names a database shows only the databases that match.
     const shown = q === '' || spaceHit ? own : own.filter((d) => d.name.toLowerCase().includes(q));
@@ -52,7 +61,7 @@ export function watchableDatabases(works: readonly WorkTarget[], databases: read
   for (const w of works) if (w.kind === 'db') out.set(w.id, w);
   const spaceIds = new Set(works.filter((w) => w.kind === 'space').map((w) => w.id));
   for (const d of databases) {
-    if (!d.isSystem && spaceIds.has(d.spaceId) && !out.has(d.id)) out.set(d.id, { kind: 'db', id: d.id, name: d.name, spaceId: d.spaceId });
+    if (isAgentWorkable(d) && spaceIds.has(d.spaceId) && !out.has(d.id)) out.set(d.id, { kind: 'db', id: d.id, name: d.name, spaceId: d.spaceId });
   }
   return [...out.values()];
 }
