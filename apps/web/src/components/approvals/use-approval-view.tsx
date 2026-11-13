@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { approvalView, decidedSummary, type ApprovalRow, type ApprovalView } from './approval-state';
 import { useDateFormat } from '@/lib/preferences';
+import { approvalRuleTail } from './rule-label';
 
 /**
  * One request per list, shared by every row on screen (keys are workspace-scoped, not row-scoped).
@@ -79,4 +80,17 @@ export function ApprovalRowTag({ ws, approvalId }: { ws: string; approvalId: str
       {text}
     </span>
   );
+}
+
+/**
+ * The rule asking, appended to "needs your approval to run" on an approval row (ticket #1280). Read from the same two lists the
+ * row's gate already reads, so it costs no request. An approval neither list knows yet renders nothing (the existing sentence), never a guess.
+ */
+export function ApprovalRuleTail({ ws, approvalId }: { ws: string; approvalId: string }) {
+  const pending = useApprovalList(ws, 'pending');
+  const all = useApprovalList(ws, 'all');
+  const found = pending.data?.find((a) => a.id === approvalId) ?? all.data?.find((a) => a.id === approvalId);
+  const tail = approvalRuleTail(found);
+  if (!tail) return null;
+  return <span data-testid="approval-rule"> {tail}</span>;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { ApprovalGate, ApprovalRowTag, ApprovalRuleTail } from '@/components/approvals/use-approval-view';
 import { announceDecision, notificationWho, type CausedBy } from '@/components/approvals/caused-by';
 import { WhoAvatar } from '@/components/approvals/who';
 import { PostApprovalPreview } from '@/components/social/post-approval-preview';
@@ -417,6 +417,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                       {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
                       <span className={notificationActorClass(isUnreadRow(n))}>{notificationWho(n).name}</span>{' '}
                       {notificationVerb(n.type)}
+                      {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRuleTail ws={ws} approvalId={n.ref_id} />}
                       {n.count > 1 ? ` · ${n.count}×` : ''}
                       {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                     </span>

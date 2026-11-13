@@ -6,7 +6,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { ApprovalGate, ApprovalRowTag, useApprovalList } from '@/components/approvals/use-approval-view';
+import { ApprovalGate, ApprovalRowTag, ApprovalRuleTail, useApprovalList } from '@/components/approvals/use-approval-view';
 import { PageHeading } from '@/components/page-heading';
 import { CountBadge } from '@/components/sidebar-ai-section';
 import { APPROVALS_LIST_LIMIT } from '@/lib/sidebar-ai';
@@ -223,6 +223,7 @@ export default function InboxPage() {
                   {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
                   <span className={notificationActorClass(unread)}>{notificationWho(n).name}</span>{' '}
                   {notificationVerb(n.type)}
+                  {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRuleTail ws={ws} approvalId={n.ref_id} />}
                   {n.count > 1 ? ` · ${n.count}×` : ''}
                   {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                 </span>
@@ -280,6 +281,7 @@ export default function InboxPage() {
                     <p className="text-prose text-ink">
                       <span className="font-medium">{selectedWho!.name}</span>{' '}
                       {notificationVerb(selected.type)}
+                      {selected.type === 'action_approval_requested' && selected.ref_id && <ApprovalRuleTail ws={ws} approvalId={selected.ref_id} />}
                     </p>
                     <p className="text-label text-faint">{relativeTime(selected.created_at)} ago</p>
                   </div>
