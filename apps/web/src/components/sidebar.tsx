@@ -116,7 +116,7 @@ function FavoritesSection({ ws }: { ws: string }) {
           <SidebarRow key={`${f.target_type}:${f.target_id}`} depth={0} className="hover:bg-hover">
             <Link
               href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
-              className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary"
+              className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary"
             >
               <GlyphSlot>
                 <Star className="h-3.5 w-3.5 shrink-0 fill-primary-text text-primary-text" />
@@ -998,7 +998,7 @@ function HiddenRow({
         href={href}
         onClick={onNavigate}
         aria-current={active ? 'page' : undefined}
-        className="flex min-w-0 flex-1 items-center gap-2 text-body text-muted"
+        className="flex min-w-0 flex-1 items-center gap-2 text-muted"
       >
         <GlyphSlot>{mark}</GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>

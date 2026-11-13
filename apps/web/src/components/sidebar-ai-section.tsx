@@ -145,7 +145,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
       <Link
         href={href}
         aria-current={active ? 'page' : undefined}
-        className="flex min-w-0 flex-1 items-center gap-2 text-body"
+        className="flex min-w-0 flex-1 items-center gap-2"
       >
         <GlyphSlot>
           <Icon className="h-3.5 w-3.5 text-accent-text" />
@@ -183,7 +183,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
             <Link
               href={agentsHref}
               aria-current={onAgents(agentsHref) ? 'page' : undefined}
-              className="flex min-w-0 flex-1 items-center gap-2 text-body"
+              className="flex min-w-0 flex-1 items-center gap-2"
             >
               <GlyphSlot>
                 <Bot className="h-3.5 w-3.5 text-accent-text" />
@@ -200,7 +200,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
                 <Link
                   href={c.href}
                   aria-current={onAgents(c.href) ? 'page' : undefined}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-body"
+                  className="flex min-w-0 flex-1 items-center gap-2"
                 >
                   <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{c.label}</span>
                 </Link>
