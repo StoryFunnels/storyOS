@@ -30,14 +30,14 @@ interface DatabaseRef {
 }
 
 /** Every binding in the Agent Triggers database, fetched once per workspace (the box filters by agent). */
-async function fetchBindings(ws: string, triggersDbId: string): Promise<TriggerBindingLike[]> {
+export async function fetchBindings(ws: string, triggersDbId: string): Promise<TriggerBindingLike[]> {
   const body = unwrap<{ data: TriggerBindingLike[] }>(
     await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', { params: { path: { ws, db: triggersDbId }, query: { limit: 100 } } } as never),
   );
   return body.data;
 }
 
-const bindingsKey = (ws: string, dbId: string) => ['agent-trigger-bindings', ws, dbId] as const;
+export const bindingsKey = (ws: string, dbId: string) => ['agent-trigger-bindings', ws, dbId] as const;
 
 /**
  * The noun and state the copy uses for this agent. While anything is still loading, or if a read fails (a viewer who cannot read the
