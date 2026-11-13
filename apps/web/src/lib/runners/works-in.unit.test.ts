@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DatabaseSummary, Space } from '@/lib/queries';
-import { addWork, isCovered, pickerGroups, removeWork } from './works-in';
+import { addWork, isCovered, pickerGroups, removeWork, watchableDatabases } from './works-in';
 import type { WorkTarget } from './hire';
 import { agentRelationField, isWatchableField, newRule, rebaseRules, singular } from './wake-rules';
 import type { WakeRule } from './wake-rules';
@@ -88,4 +88,18 @@ describe('rules follow Works in, and only offer what can be watched', () => {
     expect(agentRelationField([f('x', 'tasks')], 'AGENTS')).toBeNull();
     expect(agentRelationField(undefined, 'AGENTS')).toBeNull();
   });
+});
+
+describe('what a wake rule may watch once a whole space is a chip (ticket #1289 item 7)', () => {
+  const spaceChip: WorkTarget = { kind: 'space', id: 's1', name: 'Client Work' };
+  it('a space chip makes its databases watchable, without the system ones', () => {
+    expect(watchableDatabases([spaceChip], DBS).map((d) => d.id)).toEqual(['a', 'b']); // not Members (system), not Episodes (another space)
+  });
+  it('KEEPS named databases, once, whether or not their space is also a chip', () => {
+    const named: WorkTarget = { kind: 'db', id: 'c', name: 'Episodes', spaceId: 's2' };
+    const both: WorkTarget = { kind: 'db', id: 'a', name: 'Clients', spaceId: 's1' };
+    expect(watchableDatabases([named], DBS).map((d) => d.id)).toEqual(['c']);
+    expect(watchableDatabases([both, spaceChip, named], DBS).map((d) => d.id)).toEqual(['a', 'c', 'b']);
+  });
+  it('no chips, nothing to watch', () => expect(watchableDatabases([], DBS)).toEqual([]));
 });
