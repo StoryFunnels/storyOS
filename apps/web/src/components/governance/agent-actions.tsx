@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useInfiniteQuery, useQueries } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
 import { useDatabases, useSpaces } from '@/lib/queries';
+import { databaseQuery, type DatabaseDetail } from '@/components/table-view/use-table-data';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Rocket } from 'lucide-react';
 import {
@@ -14,8 +15,10 @@ import {
   describeAction,
   missingCredentialNote,
   isAgentAction,
+  triggerInWords,
   type AuditEventRow,
   type CredentialDto,
+  type TriggerFields,
 } from '@/lib/governance';
 
 /**
@@ -65,6 +68,52 @@ export function AgentActions({ ws }: { ws: string }) {
   const credentialOf = (id: string | null | undefined): CredentialDto | null | undefined =>
     id ? credentials[credentialIds.indexOf(id)]?.data : undefined;
 
+  // Wake rules (Agent Triggers records) are shown in words from their own fields, never by their stored title (ticket #1284, Otto
+  // 2026-11-13). READ-ONLY: this only reads the rules and the databases they name; nothing is written back.
+  const pack = useQuery({
+    queryKey: ['agents-pack', ws],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/agents', { params: { path: { ws } } } as never);
+      if (error) throw error;
+      return data as unknown as { exists: boolean; id?: string; triggers?: { id: string } | null };
+    },
+  });
+  const triggersDbId = pack.data?.exists ? pack.data.triggers?.id : undefined;
+  const triggerRows = useQuery({
+    queryKey: ['governance-triggers', ws, triggersDbId],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases/{db}/records', {
+        params: { path: { ws, db: triggersDbId! }, query: { limit: 100 } },
+      } as never);
+      if (error) throw error;
+      return (data as unknown as { data: Array<{ id: string; values: TriggerFields }> }).data;
+    },
+    enabled: Boolean(triggersDbId),
+  });
+  const triggerById = new Map((triggerRows.data ?? []).map((t) => [t.id, t.values]));
+  const shownTriggerDbs = [
+    ...new Set(
+      rows
+        .map((r) => triggerById.get(r.record_id)?.database)
+        .map((v) => (Array.isArray(v) ? v[0] : v))
+        .filter((id): id is string => typeof id === 'string' && Boolean(id)),
+    ),
+  ];
+  const triggerDbs = useQueries({ queries: shownTriggerDbs.map((id) => ({ ...databaseQuery(ws, id), enabled: Boolean(ws) })) });
+  const detailOf = (id: string): DatabaseDetail | undefined => triggerDbs[shownTriggerDbs.indexOf(id)]?.data;
+  const triggerWordsOf = (recordId: string): string | null => {
+    const values = triggerById.get(recordId);
+    if (!values) return null;
+    return triggerInWords(values, {
+      agent: () => null,
+      database: (id) => (databases.data ?? []).find((d) => d.id === id)?.name ?? null,
+      field: (dbId, fieldId) => {
+        const f = detailOf(dbId)?.fields.find((x) => x.id === fieldId);
+        return f ? { name: f.displayName, option: (oid) => f.options?.find((o) => o.id === oid)?.label ?? null } : null;
+      },
+    });
+  };
+
   const names = {
     space: (id: string) => (spaces.data ?? []).find((s) => s.id === id)?.name ?? null,
     database: (id: string) => (databases.data ?? []).find((d) => d.id === id)?.name ?? null,
@@ -103,7 +152,7 @@ export function AgentActions({ ws }: { ws: string }) {
                   <span className="ml-auto shrink-0 text-label text-muted">{dateTime(r.created_at)}</span>
                 </span>
                 <span className="text-body text-ink">
-                  {describeAction(r)}
+                  {describeAction(r, triggerWordsOf(r.record_id))}
                   {meta && <span className="text-label text-ink-secondary">{` · ${meta}`}</span>}
                 </span>
               </span>
@@ -125,7 +174,7 @@ export function AgentActions({ ws }: { ws: string }) {
         <Dialog open onOpenChange={(o) => !o && setOpen(null)}>
           <DialogContent title="Who did this, and on whose authority">
             <dl className="flex flex-col gap-2.5">
-              {chainOf(open, credentialOf(open.credential_id), names, dateTime).map((s) => (
+              {chainOf(open, credentialOf(open.credential_id), names, dateTime, triggerWordsOf(open.record_id)).map((s) => (
                 <div key={s.label} className="flex flex-col gap-0.5">
                   <dt className="text-label text-ink-secondary">{s.label}</dt>
                   <dd className={s.absent ? 'text-body text-muted' : 'text-body text-ink'}>{s.value}</dd>
