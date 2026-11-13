@@ -260,8 +260,12 @@ export type AssignedByLine =
   | { kind: 'set'; name: string; byAgent: boolean; at: string | null }
   | { kind: 'unrecorded'; explanation: string };
 
-export const ASSIGNED_BY_UNRECORDED =
-  'Not recorded. You were set on this record when it was created or imported, or the change is not in its history.';
+/** The value a field grid shows when no assigner is on record: two words, never a paragraph. The reason is its tooltip. */
+export const ASSIGNED_BY_UNRECORDED_LABEL = 'Not recorded';
+export const ASSIGNED_BY_UNRECORDED_DETAIL =
+  'You were set on this record when it was created or imported, or the change is not in its history.';
+/** Label + detail as one sentence pair, for a reader that has no hover (the tooltip's text, kept whole for screen readers). */
+export const ASSIGNED_BY_UNRECORDED = `${ASSIGNED_BY_UNRECORDED_LABEL}. ${ASSIGNED_BY_UNRECORDED_DETAIL}`;
 
 export function assignedByLine(
   record: Pick<MyWorkRecord, 'assigned_by' | 'assigned_at'>,

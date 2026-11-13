@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, ChevronRight, Database, ExternalLink, MoreHoriz
 import { CellDisplay } from '@/components/table-view/cells';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip } from '@/components/ui/tooltip';
 import { recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { HIT_AREA_24 } from '@/components/ui/header-action';
@@ -16,7 +17,7 @@ import {
   type DenseField,
   type MyWorkDbConfig,
 } from './group-config';
-import { assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
+import { ASSIGNED_BY_UNRECORDED_DETAIL, ASSIGNED_BY_UNRECORDED_LABEL, assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
 import { databaseColor } from '@/lib/entity-color';
 
 export const rowKey = (row: Pick<MyWorkRow, 'dbId' | 'record'>) => `${row.dbId}:${row.record.id}`;
@@ -234,7 +235,13 @@ export function MyWorkPreview({
         )}
         {assigned.kind === 'unrecorded' && (
           <Fact label="Assigned by">
-            <span className="text-muted">{assigned.explanation}</span>
+            <Tooltip label={ASSIGNED_BY_UNRECORDED_DETAIL} side="top" align="start">
+              <span tabIndex={0} className="cursor-help text-muted">
+                {ASSIGNED_BY_UNRECORDED_LABEL}
+                {/* The reason is a tooltip for the mouse and keyboard; this keeps it for a screen reader too. */}
+                <span className="sr-only">. {ASSIGNED_BY_UNRECORDED_DETAIL}</span>
+              </span>
+            </Tooltip>
           </Fact>
         )}
         {extra.map((f) => (

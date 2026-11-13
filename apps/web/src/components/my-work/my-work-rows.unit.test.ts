@@ -92,3 +92,27 @@ describe('row geometry (ticket #1280 item 3)', () => {
   });
 });
 
+describe('"Assigned by" with no assigner is two words, not a paragraph (ticket #1280 item 6)', () => {
+  const row = buildRows(GROUPS, {}, new Map())[0]!;
+  const html = renderToStaticMarkup(
+    createElement(TooltipProvider, null, createElement(MyWorkPreview, {
+      ws: 'w', row, tab: 'assigned', onBack: () => {}, fmtDate, now: NOW, memberNames: new Map(), memberImages: new Map(),
+    })),
+  );
+  it('shows "Not recorded" and keeps the reason for a screen reader', () => {
+    expect(html).toContain('Not recorded');
+    expect(html).toContain('sr-only');
+    expect(html).toContain('created or imported');
+  });
+  it('the value is focusable, so the keyboard reaches the tooltip too', () => {
+    expect(html).toMatch(/tabindex="0"[^>]*>Not recorded/);
+  });
+  it('KEEPS "Assigned by" off the Created tab, where it means nothing', () => {
+    const created = renderToStaticMarkup(
+      createElement(TooltipProvider, null, createElement(MyWorkPreview, {
+        ws: 'w', row, tab: 'created', onBack: () => {}, fmtDate, now: NOW, memberNames: new Map(), memberImages: new Map(),
+      })),
+    );
+    expect(created).not.toContain('Assigned by');
+  });
+});
