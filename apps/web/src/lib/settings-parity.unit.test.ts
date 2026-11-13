@@ -269,7 +269,7 @@ export const elementsLabelled = (file: string, needle: string): number => elemen
 const PINS: Record<string, Counts> = {
   // PINS-BEGIN
   "app/w/[ws]/settings/account/page.tsx": { button: 8, field: 5, disclosure: 1, confirm: 2 },
-  "app/w/[ws]/settings/agent-rules/page.tsx": { switch: 1 },
+  "app/w/[ws]/settings/agent-rules/page.tsx": { switch: 1, link: 1, disclosure: 1 },
   "app/w/[ws]/settings/api/page.tsx": { button: 6, link: 1, field: 3, disclosure: 1, confirm: 2 },
   "app/w/[ws]/settings/audit-log/page.tsx": { button: 1, field: 3, choice: 2, disclosure: 1 },
   "app/w/[ws]/settings/billing/page.tsx": { button: 3, link: 2 },
