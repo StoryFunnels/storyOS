@@ -14,8 +14,17 @@ import { describe, expect, it } from 'vitest';
  */
 const SRC = fileURLToPath(new URL('../../', import.meta.url));
 
+/*
+ * Round 2 (Vera, PR 1519): the first pattern was a list of nouns ("No packs", "No webhooks", ...) and so it saw only the empties its author
+ * had already listed. Seven lists in the repo ("Nothing in the trash", "No deleted spaces.", "Nothing is connected yet.", "No tokens in this
+ * workspace yet.", "No Runner yet", "No community packs published yet.", "No databases here that you can access.", "No AI client is
+ * connected", "No earlier document versions yet.", two admin table rows) said nothing in the noun list and passed unseen. What they share
+ * is not a noun but a SHAPE: an element whose visible text OPENS with "No"/"Nothing". So the pattern is now that shape (JSX text after a
+ * tag, or on a line of its own), kept alongside the older phrase list for quoted strings ('No matches', "No job written yet").
+ * A prop NAMED empty*= (emptyText, emptyLabel) is copy handed to a component, like title=/body=, and is checked where it is rendered.
+ */
 const SENTENCE =
-  /(Nothing (here|archived|linked|assigned|matches|in this range)|\bNo [a-z]+( [a-z]+)? (yet|match(es)?|found)\b|No (matches|results|packs|webhooks|agents|runs|rules|buttons|templates|sources|syncs|activity|deliveries|mappings|submissions|unread)\b|You['’]re all caught up|You haven['’]t created)/;
+  /((^|>\s*)(No|Nothing)\s[A-Za-z]|\b(title|description|body)=\{?["'`](No|Nothing)\s[A-Za-z]|Nothing (here|archived|linked|assigned|matches|in this range)|\bNo [a-z]+( [a-z]+)? (yet|match(es)?|found)\b|No (matches|results|packs|webhooks|agents|runs|rules|buttons|templates|sources|syncs|activity|deliveries|mappings|submissions|unread)\b|You['’]re all caught up|You haven['’]t created)/;
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
@@ -23,6 +32,16 @@ function files(dir: string): string[] {
     if (statSync(p).isDirectory()) return files(p);
     return /\.tsx$/.test(n) && !/\.test\./.test(n) ? [p] : [];
   });
+}
+
+/** The component whose opening tag most recently began at or before line i (a prop on a continuation line belongs to it). */
+function nearestOpenTag(src: string[], i: number): string | null {
+  for (let k = i; k >= Math.max(0, i - 12); k--) {
+    // Skip an element that opened AND closed on its own line above (a quill={<Quill … />} prop is not the tag we are inside).
+    const all = [...src[k]!.matchAll(/<([A-Z][A-Za-z]*)\b/g)].filter((m) => k === i || !new RegExp(`/>|</${m[1]}>`).test(src[k]!.slice(m.index!)));
+    if (all.length) return all[all.length - 1]![1]!;
+  }
+  return null;
 }
 
 /** Lines that print an empty sentence as their own element rather than as an EmptyState prop. Comments are not rendering. */
@@ -38,11 +57,23 @@ function adHoc(): { key: string; line: string }[] {
     src.forEach((line, i) => {
       const t = line.trim();
       if (/^(\/\/|\*|\/\*|\{\/\*)/.test(t)) return;
+      // A copy prop passed on (emptyText="…") is rendered by the receiver: the receiver is checked below, where it prints the prop.
+      if (/\bempty[A-Za-z]*=/.test(t)) return;
       if (!SENTENCE.test(t)) return;
-      // Handed to the component: title=…, body=… or title: …, or part of a multi-line prop whose opening line was one of those.
+      // Handed to the component: title=/body= ON an <EmptyState> (the nearest opening tag before the prop says so; a title= on a
+      // SettingsRow or a Card is a hand-rolled empty state wearing a prop, which is how "Nothing in the trash" passed round 1),
+      // title:/body: of a config object, or part of a multi-line prop whose opening line was one of those.
+      const m = /\b(title|body)=/.exec(t);
+      const openTag = m ? [...(t.slice(0, m.index).matchAll(/<([A-Z][A-Za-z]*)/g))].pop()?.[1] ?? nearestOpenTag(src, i) : null;
       const opened = src.slice(Math.max(0, i - 4), i).some((l) => /\b(title|body)=\{?\s*$/.test(l.trimEnd()));
-      if (/\b(title|body)=/.test(t) || /\b(title|body):/.test(t) || opened) return;
+      if ((m && openTag === 'EmptyState') || /\b(title|body):/.test(t) || (opened && nearestOpenTag(src, i) === 'EmptyState')) return;
       out.push({ key: rel, line: t });
+    });
+    // The receiver of an emptyText copy prop must hand it to <EmptyState>, not print it in a row or a <p>.
+    src.forEach((line, i) => {
+      if (!/\{emptyText\}/.test(line) || /^\s*(\/\/|\*)/.test(line)) return;
+      if (/<EmptyState\b/.test(line) || nearestOpenTag(src, i) === 'EmptyState') return;
+      out.push({ key: rel, line: line.trim() });
     });
   }
   return out;
@@ -56,29 +87,50 @@ const PICKER = 'an option list inside a popover/menu/dialog picker: "no option m
 const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/entity/mentions.tsx': { n: 1, why: PICKER },
   'components/quick-add-fab.tsx': { n: 1, why: PICKER },
-  'components/runners/works-in-picker.tsx': { n: 1, why: PICKER },
+  'components/runners/works-in-picker.tsx': { n: 2, why: PICKER + ' (one); the other is the "Nothing yet." value of a field row, an inline value, not a pane' },
   'components/table-view/batch-bar.tsx': { n: 1, why: PICKER },
-  'components/table-view/button-actions-editor.tsx': { n: 1, why: PICKER },
+  'components/table-view/button-actions-editor.tsx': { n: 5, why: PICKER + ' (one); the others are "No options", the "No auth" option and two "No … connection yet" hints beside a connection field in the button-action form: form copy, not a pane' },
   'components/table-view/cells.tsx': { n: 1, why: PICKER },
   'components/tyron/thread-menu.tsx': { n: 1, why: PICKER },
   'components/ui/icon-picker.tsx': { n: 1, why: PICKER },
-  'components/views/form-view.tsx': { n: 2, why: PICKER + ' (one); the other, "No fields yet — add one below" in the form builder, is DEFERRED (ticket #1291 list): a builder pane that wants its own pass' },
+  'components/views/form-view.tsx': { n: 4, why: PICKER + ' (one); "No members" is an inline label in a member field (second); the third is the dependency rule hint (emptyText, "Always required — …"), also an inline hint; the fourth, "No fields yet — add one below" in the form builder, is DEFERRED (ticket #1291 list): a builder pane that wants its own pass' },
   'components/views/view-switcher.tsx': { n: 1, why: PICKER },
-  'components/views/view-toolbar.tsx': { n: 2, why: PICKER },
+  'components/views/view-toolbar.tsx': { n: 3, why: PICKER + ' (two); the third is the "No filters on this view." line inside the Filter popover: menu content, not a pane' },
   'components/table-view/formula-editor.tsx': { n: 2, why: 'the formula editor autocomplete list and its field-reference hint: inline editor assistance, not a pane' },
   'components/views/empty-view-notice.tsx': { n: 1, why: 'the second line of a prop object handed to EmptyState (body copy), on a continuation line the scanner cannot attribute' },
   'app/w/[ws]/agents/page.tsx': { n: 1, why: 'a table cell placeholder for one agent with no job text, not an empty list' },
   'app/w/[ws]/settings/webhooks/page.tsx': { n: 1, why: 'an inline status label on a webhook row ("No deliveries yet"), not a pane' },
   'components/automations-panel.tsx': { n: 1, why: 'text inside a collapsible last-payload box, a status line of one automation, not a list' },
+  // Round 2 (the widened shape): found by the broader pattern, each read and judged. None is a list or pane with nothing in it.
+  'app/(auth)/login/page.tsx': { n: 1, why: '"No account?" before the sign-up link: a prompt, not an empty state' },
+  'app/f/[token]/page.tsx': { n: 1, why: '"No one to pick from": the empty options of a member field on a public form, a field value, not a pane' },
+  'app/new-workspace/page.tsx': { n: 1, why: '"No databases. Build your own from scratch.": the description of the Start empty choice card' },
+  'app/packs/[slug]/page.tsx': { n: 1, why: '"No credit card required": marketing copy beside a button' },
+  'app/w/[ws]/settings/agent-rules/page.tsx': { n: 1, why: 'a sentence explaining that no approval gate is declared: the rule\'s state, shown with its own form' },
+  'app/w/[ws]/settings/connect-ai/page.tsx': { n: 1, why: 'a troubleshooting step in a numbered help list ("No sign-in window appears")' },
+  'app/w/[ws]/settings/integrations/delegate-agent/page.tsx': { n: 1, why: '"Nothing to connect — this is a built-in capability": the explanation on the card of a connection-less provider' },
+  'app/w/[ws]/settings/integrations/linear/page.tsx': { n: 2, why: 'import wizard copy: "Nothing else to fill in" and the footnote under a preview, both sentences inside a form step' },
+  'components/entity/scalar-fields.tsx': { n: 1, why: PICKER },
+  'components/my-work/group-config.tsx': { n: 1, why: 'the "No grouping" <option> of a select' },
+  'components/my-work/my-work-toolbar.tsx': { n: 1, why: 'the line inside the Filter popover when there are no groups to filter: popover content, like a picker' },
+  'components/pack-install-dialog.tsx': { n: 1, why: '"No notes from the author.": the value of one labelled section of the install dialog' },
+  'components/runners/runs-on-line.tsx': { n: 1, why: '"Runs on No Runner yet": an inline value in one sentence with its own Change action, not a pane' },
+  'components/skills/skill-editor.tsx': { n: 1, why: 'a hint under the trigger field of the skill editor' },
+  'components/social/post-social-editor.tsx': { n: 2, why: 'a connection hint and the "No image" <option> inside the post editor form' },
+  'components/table-view/option-editors.tsx': { n: 1, why: 'the "No category" <option> of a select' },
+  'components/views/dashboard-widgets.tsx': { n: 1, why: '"No data to chart yet.": the placeholder inside one chart tile, a widget state, not the dashboard' },
+  'components/views/display-menu.tsx': { n: 1, why: 'a hint inside the Display menu explaining why a control is missing: menu copy' },
+  'components/views/timeline-view.tsx': { n: 1, why: 'a configuration prompt ("No start-date field has been chosen"): the view is unconfigured, not empty; an empty Timeline database is covered by the database empty state' },
+  'app/admin/page.tsx': { n: 1, why: '"No entitlement override — plan defaults apply.": the state of one workspace\'s override field in the instance-admin form' },
+  'components/views/dashboard-view.tsx': { n: 1, why: '"No access": the label of one tile whose database the viewer cannot read, not an empty list' },
 };
 const DEFERRED: Record<string, { n: number; why: string }> = {
   'components/command-palette.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: the command palette has its own designed empty row (ticket #1280 reworks the palette)' },
   'app/v/[token]/public-view-client.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: the public view page is a separate document with its own neutral tokens and a table cell, outside the app shell' },
-  'app/admin/page.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: a table row in the instance-admin run table (a <td> inside <tbody>), a table-empty shape this component does not have yet' },
   'app/w/[ws]/settings/integrations/google-calendar/page.tsx': { n: 2, why: 'DEFERRED, ticket #1291 list: a mapping form hint and a status sentence, one settings page the settings pass (ticket #1282) owns' },
   'components/automations/run-agent-editor.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: a sentence inside an automation action editor, not a list' },
   'components/entity/record-chrome.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: an agent picker hint inside the record header' },
-  'components/workspace-home-blocks.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: Home blocks are being rebuilt in open PR #1511 (declared overlap); migrating here would conflict' },
+  'components/workspace-home-blocks.tsx': { n: 2, why: 'DEFERRED, ticket #1291 list: Home blocks ("No automation runs yet", "Nothing is waiting on a person") are being rebuilt in open PR #1511 (declared overlap); migrating here would conflict' },
 };
 
 describe('one EmptyState component (ticket #1291)', () => {
