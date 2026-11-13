@@ -252,13 +252,122 @@ const ACTION_VERB: Record<string, string> = {
   'record.updated': 'Updated',
   'record.deleted': 'Deleted',
   'record.restored': 'Restored',
+  'relation.linked': 'Linked',
+  'relation.unlinked': 'Unlinked',
+  'comment.created': 'Commented on',
+  'attachment.added': 'Added a file to',
 };
 
-/** "Updated “Fix the header”": what the action did, in words. An event type this page has no word for is shown as itself, not hidden. */
-export function describeAction(row: Pick<AuditEventRow, 'type' | 'payload'>): string {
-  const verb = (row.type && ACTION_VERB[row.type]) ?? row.type ?? 'Changed';
-  const title = typeof row.payload?.['title'] === 'string' ? (row.payload['title'] as string).trim() : '';
-  return title ? `${verb} “${title}”` : `${verb} a record`;
+/** An event type this page has no word for, as plain words ("comment.added" becomes "Comment added"): never the dotted code itself. */
+export function humaniseEventType(type: string): string {
+  const words = type.replace(/[._]+/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Changed';
+}
+
+/**
+ * A wake rule (an Agent Triggers record) in words, derived from the rule's own fields (ticket #1284, Otto 2026-11-13): "a wake rule for
+ * Onboarding Assistant: Clients' Status becomes Onboarding". DISPLAY ONLY: the stored record, its title and its fields are never
+ * rewritten, and nothing here is written back. A part that cannot be resolved (a deleted agent, database, field or option) is left out
+ * and the sentence stays neutral ("a wake rule"); it is never an id and never the stored `Agent ← Database.Field = Option` syntax.
+ */
+export interface TriggerFields {
+  agent?: unknown;
+  database?: unknown;
+  state_field?: unknown;
+  state_option?: unknown;
+  relation_field?: unknown;
+}
+
+export interface TriggerNames {
+  /** Resolves a bare agent id; the records API normally hands the agent over as `[{ id, title }]`, which needs no lookup. */
+  agent: (id: string) => string | null;
+  database: (id: string) => string | null;
+  /** The field's display name and, for a select, a label for one option id; null when the field cannot be found. */
+  field: (databaseId: string, fieldId: string) => { name: string; option: (id: string) => string | null } | null;
+}
+
+const idOf = (v: unknown): string | null => {
+  const x = Array.isArray(v) ? v[0] : v;
+  return typeof x === 'string' && x ? x : null;
+};
+
+function agentNameOf(v: unknown, names: Pick<TriggerNames, 'agent'>): string | null {
+  const x = Array.isArray(v) ? v[0] : v;
+  if (x && typeof x === 'object') {
+    const title = (x as { title?: unknown }).title;
+    return typeof title === 'string' && title.trim() ? title.trim() : null;
+  }
+  return typeof x === 'string' && x ? names.agent(x) : null;
+}
+
+const possessive = (name: string): string => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
+
+export function triggerInWords(t: TriggerFields, names: TriggerNames): string {
+  const agent = agentNameOf(t.agent, names);
+  const subject = agent ? `a wake rule for ${agent}` : 'a wake rule';
+  const dbId = idOf(t.database);
+  const db = dbId ? names.database(dbId) : null;
+  const stateFieldId = idOf(t.state_field);
+  const relationFieldId = idOf(t.relation_field);
+  const fieldId = stateFieldId ?? relationFieldId;
+  const field = dbId && fieldId ? names.field(dbId, fieldId) : null;
+  if (!field) return subject;
+  const where = db ? `${possessive(db)} ${field.name}` : field.name;
+  if (relationFieldId && !stateFieldId) return `${subject}: a record is linked in ${where}`;
+  const optionId = idOf(t.state_option);
+  const option = optionId ? field.option(optionId) : null;
+  return `${subject}: ${where} ${option ? `becomes ${option}` : 'changes'}`;
+}
+
+/** The stored title of a wake rule is `Agent ← Database.Field = Option`: that exact shape is how a row recognises a trigger it cannot resolve (an ordinary title that merely contains an arrow is left alone). */
+export function looksLikeTriggerTitle(title: string): boolean {
+  return /^.+ ← .+\..+ (= .+|links it)$/.test(title);
+}
+
+/**
+ * "Updated “Fix the header”": what the action did, in words. An event type this page has no word for is shown in plain words
+ * (never as its dotted code), not hidden. The record's own title is data and is shown as it is, EXCEPT a wake rule: it is shown as
+ * `triggerWords` (see `triggerInWords`), or, when its fields cannot be read, as "a wake rule" (never the stored trigger syntax).
+ */
+export function describeAction(row: Pick<AuditEventRow, 'type' | 'payload'>, triggerWords?: string | null): string {
+  const known = row.type ? ACTION_VERB[row.type] : undefined;
+  const raw = typeof row.payload?.['title'] === 'string' ? (row.payload['title'] as string).trim() : '';
+  const isTrigger = Boolean(triggerWords) || looksLikeTriggerTitle(raw);
+  const what = isTrigger ? (triggerWords ?? 'a wake rule') : raw ? `“${raw}”` : '';
+  if (!known && row.type) return what ? `${humaniseEventType(row.type)} ${what}` : humaniseEventType(row.type);
+  const verb = known ?? 'Changed';
+  return `${verb} ${what || 'a record'}`;
+}
+
+/** Who the row is about: the agent when one is recorded, else the credential's name, else what kind of AI it was. Actor stays the member (shown as "for"). */
+export function actionSubject(row: Pick<AuditEventRow, 'agent_name' | 'source'>, credential: Pick<CredentialDto, 'name'> | null | undefined): string {
+  if (row.agent_name) return row.agent_name;
+  if (credential?.name) return credential.name;
+  return row.source === 'mcp' ? 'A connected AI' : 'An agent';
+}
+
+/** The small line under a row: the member it ran as, and the credential when one was recorded. A missing credential is said once above the list, not here. */
+export function actionMeta(
+  row: Pick<AuditEventRow, 'actor_name' | 'credential_id' | 'agent_name'>,
+  credential: Pick<CredentialDto, 'name' | 'revoked_at'> | null | undefined,
+): string {
+  const parts: string[] = [];
+  if (row.actor_name) parts.push(`for ${row.actor_name}`);
+  if (row.credential_id) {
+    // The credential's name already leads the row when it is the subject; only add it when the agent leads.
+    const label = credential ? `${credential.name}${credential.revoked_at ? ' (revoked)' : ''}` : 'A credential';
+    if (row.agent_name || !credential) parts.push(`credential ${label}`);
+    else if (credential.revoked_at) parts.push('credential revoked');
+  }
+  return parts.join(' · ');
+}
+
+/** Said ONCE above the list when any row on it names no credential. */
+export const NO_CREDENTIAL_NOTE =
+  'Some actions name no credential. They were made before credentials were tracked, or through a sign-in session or an OAuth connection.';
+
+export function missingCredentialNote(rows: Array<Pick<AuditEventRow, 'credential_id'>>): string | null {
+  return rows.some((r) => !r.credential_id) ? NO_CREDENTIAL_NOTE : null;
 }
 
 /**
@@ -312,6 +421,7 @@ export function chainOf(
   credential: CredentialDto | null | undefined,
   names: { space: (id: string) => string | null; database: (id: string) => string | null },
   fmt: (iso: string) => string,
+  triggerWords?: string | null,
 ): ChainStep[] {
   const steps: ChainStep[] = [
     { label: 'Authorised for', value: row.actor_name ?? 'Nobody was recorded', absent: !row.actor_name },
@@ -327,7 +437,7 @@ export function chainOf(
     steps.push({ label: 'Allowed to', value: SCOPE_WORDS_LONG[credential.scope] });
   }
   if (row.agent_name) steps.push({ label: 'Agent', value: row.agent_name });
-  steps.push({ label: 'Action', value: `${describeAction(row)} · ${fmt(row.created_at)}` });
+  steps.push({ label: 'Action', value: `${describeAction(row, triggerWords)} · ${fmt(row.created_at)}` });
   return steps;
 }
 
