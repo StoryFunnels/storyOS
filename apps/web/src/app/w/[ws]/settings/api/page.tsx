@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRevokeToken } from '@/lib/settings-confirmations';
 import { canConnectAi } from '@/lib/settings-nav';
+import { SettingsRefusal } from '@/components/settings/settings-chrome';
 import { useWorkspace } from '@/lib/queries';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
@@ -44,13 +45,10 @@ export default function ApiSettingsPage() {
   }
   if (!canConnectAi(workspace.data.role)) {
     return (
-      <div className="p-6" data-testid="guests-cannot">
-        <h1 className="text-title font-semibold text-ink">API tokens</h1>
-        <p className="mt-2 max-w-prose text-body text-muted">
-          API tokens are for workspace members and admins. You are a guest here, so you cannot create or manage them. Ask a workspace admin if you need
-          access.
-        </p>
-      </div>
+      <SettingsRefusal title="API tokens" testId="guests-cannot">
+        API tokens are for workspace members and admins. You are a guest here, so you cannot create or manage them. Ask a workspace admin if you need
+        access.
+      </SettingsRefusal>
     );
   }
   return <ApiTokensContent />;

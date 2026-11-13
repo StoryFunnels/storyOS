@@ -15,6 +15,7 @@ import { canUseRunners, GUEST_RUNNERS_MESSAGE } from '@/lib/runners/access';
 import { canEditSharing } from '@/lib/runners/sharing';
 import { confirmRemoveRunner, COPY, SUPPORTED_TOOLS } from '@/lib/runners/words';
 import { useWorkspace } from '@/lib/queries';
+import { SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 
 /**
  * Ticket #1139 AC4 — Settings › Runners: the person's OWN Runners (members and admins alike, never anyone else's: a Runner is
@@ -36,10 +37,9 @@ export default function RunnersPage() {
   if (workspace.isPending) return <p className="p-6 text-body text-muted">Loading…</p>;
   if (!allowed) {
     return (
-      <div className="p-6" data-testid="runners-guest">
-        <h1 className="text-title font-semibold text-ink">Runners</h1>
-        <p className="mt-2 max-w-prose text-body text-muted">{GUEST_RUNNERS_MESSAGE}</p>
-      </div>
+      <SettingsRefusal title="Runners" testId="runners-guest">
+        {GUEST_RUNNERS_MESSAGE}
+      </SettingsRefusal>
     );
   }
 

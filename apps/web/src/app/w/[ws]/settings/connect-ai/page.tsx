@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AiConnectionsSection } from '@/components/settings/ai-connections-list';
 import { CopyBox, copyToClipboard as copy } from '@/components/settings/copy-box';
-import { SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 import { NEEDS_RECONNECT_REASON, clientFor, connectBody, useAiConnections } from '@/lib/ai-connections';
 import type { AiConnection } from '@/lib/ai-connections';
 import { ClientLogo } from '@/components/connect-ai-logos';
@@ -408,12 +408,9 @@ export default function ConnectAiPage() {
   }
   if (!canConnectAi(workspace.data.role)) {
     return (
-      <div className="p-6">
-        <h1 className="text-title font-semibold text-ink">Connect your AI</h1>
-        <p className="mt-2 max-w-prose text-body text-muted">
-          Connecting an AI client needs a personal access token, which guests cannot create. Ask a workspace admin if you need access.
-        </p>
-      </div>
+      <SettingsRefusal title="Connect your AI">
+        Connecting an AI client needs a personal access token, which guests cannot create. Ask a workspace admin if you need access.
+      </SettingsRefusal>
     );
   }
   return <ConnectAiContent workspaceName={workspace.data.name} />;

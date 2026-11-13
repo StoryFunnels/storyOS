@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Lock } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -137,5 +137,23 @@ export function AdvancedSection({ title, summary, children }: { title: string; s
       </summary>
       {children}
     </details>
+  );
+}
+
+/**
+ * Ticket #1282 — the ONE "you cannot open this page" state of a Settings page: the page's own title, then a dashed box with a lock and
+ * the reason (the prototype's `sGuard`). Eight pages each drew their own (a 16px/600 heading and a bare paragraph, an 18px/600 heading,
+ * a 13px line, a red alert), so a member reached a different refusal on every page. The words are the caller's: the box fixes the
+ * shape, not the copy.
+ */
+export function SettingsRefusal({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
+  return (
+    <div data-testid={testId}>
+      <SettingsPageHeader title={title} />
+      <div className="flex items-start gap-2.5 rounded-[var(--radius-card)] border border-dashed border-border-strong p-4 text-body text-ink-secondary">
+        <Lock className="mt-0.5 h-[15px] w-[15px] shrink-0 text-muted" aria-hidden />
+        <p className="m-0 max-w-prose">{children}</p>
+      </div>
+    </div>
   );
 }
