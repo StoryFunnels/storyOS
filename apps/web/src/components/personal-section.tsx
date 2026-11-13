@@ -511,7 +511,7 @@ export function PersonalSection({ ws }: { ws: string }) {
         }
       >
         {/* The name opens the Personal page (#1097), like a space's name opens its page. */}
-        <Link href={`/w/${ws}/personal`} className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary">
+        <Link href={`/w/${ws}/personal`} className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary">
           <GlyphSlot>
             <UserRound className="h-3.5 w-3.5 text-faint" />
           </GlyphSlot>

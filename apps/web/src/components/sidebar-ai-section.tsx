@@ -135,7 +135,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
       <Link
         href={href}
         aria-current={active ? 'page' : undefined}
-        className="flex min-w-0 flex-1 items-center gap-2 text-body"
+        className="flex min-w-0 flex-1 items-center gap-2"
       >
         <GlyphSlot>
           <Icon className="h-3.5 w-3.5 text-accent-text" />
@@ -148,8 +148,8 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
 
   return (
     <div data-testid="sidebar-ai-section">
-      {/* #805 — the quiet tier label (10px, wide tracking); gold, and a notch heavier so it reads as a mark. */}
-      <SidebarTierLabel className="text-accent-text">AI</SidebarTierLabel>
+      {/* #805 — the quiet tier label, the shared one; gold, and a notch heavier so it reads as a mark. */}
+      <SidebarTierLabel className="font-semibold text-accent-text">AI</SidebarTierLabel>
       {rows.slice(0, 1).map(renderRow)}
       {agentsHref && (
         <>
@@ -160,7 +160,7 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
             <Link
               href={agentsHref}
               aria-current={onAgents(agentsHref) ? 'page' : undefined}
-              className="flex min-w-0 flex-1 items-center gap-2 text-body"
+              className="flex min-w-0 flex-1 items-center gap-2"
             >
               <GlyphSlot>
                 <Bot className="h-3.5 w-3.5 text-accent-text" />
