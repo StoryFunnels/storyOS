@@ -9,7 +9,7 @@ import { useWorkspace } from '@/lib/queries';
 import { useDateFormat } from '@/lib/preferences';
 import { settingsPageHref } from '@/lib/settings-nav';
 import { PROVIDER_PAGES, providerPageHref, providerPageSnapshot, type IntegrationEndpoint, type IntegrationFacts, type PageSnapshot } from '@/lib/provider-pages';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { useConnections, useIntegrationFacts, useProviders } from '@/components/connections/use-connections';
 import { PROVIDER_ICONS } from '@/components/settings/provider-icons';
 import { SettingsPill } from '@/components/settings/provider-card';
@@ -138,10 +138,8 @@ export default function IntegrationsPage() {
                   </span>
                   {!canConnect && !builtin && <SettingsPill tone="quiet">{s.overall.pill.label}</SettingsPill>}
                   {(canConnect || builtin) && (
-                    <Link href={providerPageHref(ws, s.def.id)}>
-                      <Button size="sm" variant="secondary">
-                        {builtin ? 'Open' : 'Connect'}
-                      </Button>
+                    <Link href={providerPageHref(ws, s.def.id)} className={buttonVariants({ size: 'sm', variant: 'secondary' })}>
+                      {builtin ? 'Open' : 'Connect'}
                     </Link>
                   )}
                   {!canConnect && !builtin && (
