@@ -2,11 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { Activity, Bot, ChevronRight, Library, Package, Plug } from 'lucide-react';
+import { Activity, Bot, Library, Package, Plug } from 'lucide-react';
 import { GlyphSlot, SidebarRow } from '@/components/sidebar-row';
-import { CARET_HIT_AREA } from '@/components/sidebar-row-style';
 import { SidebarTierLabel } from '@/components/sidebar-tier-label';
 import {
   CONNECT_AI_MOVED_HINT,
@@ -51,9 +50,11 @@ export function CountBadge({ count, hint, agent }: { count: string; hint?: strin
  * 2.07:1 on the sidebar in light mode, below both the 4.5:1 text bar and the 3:1 bar for a glyph
  * (#706), so the same hue is used one step darker where it carries text or a glyph.
  *
- * #1058 — Skills · Agents ▸ (Agent runs, Triggers) · Automation runs · Connect your AI (until connected) · Business Packs.
- * The three Agentic OS system databases are reached from HERE and no longer sit in the Spaces list; "Agents" opens the agents page
- * (ticket #1139: each agent and where it runs, with the Agents database one link away) and its two children each keep their own URL. A child (or the group) is absent until its database exists.
+ * #1058, amended by ticket #1289 item 8 — Skills · Agents · Automation runs · Connect your AI (until connected) · Business Packs.
+ * The Agentic OS system databases no longer sit in the Spaces list; "Agents" opens the agents page (ticket #1139: each agent and
+ * where it runs, with the Agents database one link away). "Agent runs" and "Triggers" are NOT sidebar rows any more (ticket #1289
+ * item 8, Otto 2026-11-13: their raw database syntax is not the main way in): each keeps its URL and is linked from the agent page.
+ * The row is absent until the Agents database exists.
  *
  * Rows: Skills · Automation runs (gold count = actions waiting for approval) · Business Packs (gold
  * count = installed packs with an update). "Connect your AI" is NOT here yet: whether the
@@ -81,24 +82,13 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
 
   const databases = useDatabases(ws);
   const agentDbs = agentSystemDatabases(databases.data ?? []);
-  const [agentsOpen, setAgentsOpen] = useState(false);
   const dbHref = (id: string) => `/w/${ws}/d/${id}`;
-  const agentChildren = [
-    { key: 'runs' as const, db: agentDbs.runs },
-    { key: 'agent triggers' as const, db: agentDbs['agent triggers'] },
-  ].flatMap((c) => (c.db ? [{ label: AGENT_SYSTEM_LABELS[c.key], href: dbHref(c.db.id) }] : []));
   const agentsDbHref = agentDbs.agents ? dbHref(agentDbs.agents.id) : null;
   // ticket #1139 — the row opens the agents PAGE (each agent, and where it runs); the Agents database stays one link away from it.
   const agentsHref = agentsDbHref ? `/w/${ws}/agents` : null;
   const onAgents = (href: string | null) => href !== null && (pathname === href || !!pathname?.startsWith(`${href}/`));
   // The number of agents that SHOULD be working and cannot: no Runner serves them. The server derives it (`agents_that_cannot_run`).
   const cannotRun = cannotRunCount(useWakeSummary(ws).data);
-  // Open on arrival at one of the group's pages, so the active row is never hidden inside a closed group.
-  const inGroup = onAgents(agentsHref) || onAgents(agentsDbHref) || agentChildren.some((c) => onAgents(c.href));
-  useEffect(() => {
-    if (inGroup) setAgentsOpen(true);
-  }, [inGroup]);
-
   const rows = [
     {
       href: `/w/${ws}/skills`,
@@ -166,19 +156,6 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
           <SidebarRow
             depth={0}
             active={onAgents(agentsHref)}
-            caret={
-              agentChildren.length > 0 ? (
-                <button
-                  type="button"
-                  aria-label={agentsOpen ? 'Collapse Agents' : 'Expand Agents'}
-                  aria-expanded={agentsOpen}
-                  onClick={() => setAgentsOpen((v) => !v)}
-                  className={cn('rounded text-faint hover:text-ink', CARET_HIT_AREA)}
-                >
-                  <ChevronRight className={cn('h-3 w-3 transition-transform', agentsOpen && 'rotate-90')} />
-                </button>
-              ) : undefined
-            }
           >
             <Link
               href={agentsHref}
@@ -194,18 +171,6 @@ export function SidebarAiSection({ ws, canConnectAi = true }: { ws: string; canC
               )}
             </Link>
           </SidebarRow>
-          {agentsOpen &&
-            agentChildren.map((c) => (
-              <SidebarRow key={c.href} depth={1} lens active={onAgents(c.href)}>
-                <Link
-                  href={c.href}
-                  aria-current={onAgents(c.href) ? 'page' : undefined}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-body"
-                >
-                  <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">{c.label}</span>
-                </Link>
-              </SidebarRow>
-            ))}
         </>
       )}
       {rows.slice(1).map(renderRow)}
