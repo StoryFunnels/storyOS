@@ -3,16 +3,27 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { Copy } from 'lucide-react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useWorkspace } from '@/lib/queries';
 import { useDateFormat } from '@/lib/preferences';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { Button } from '@/components/ui/button';
+import { Tooltip } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MenuSelect } from '@/components/ui/menu-select';
-import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
-import { AUDIT_TYPE_FILTERS, describeStructuralEvent } from '@/lib/audit-events';
+import {
+  AdvancedSection,
+  SettingsBox,
+  SettingsPageBody,
+  SettingsPageHeader,
+  SettingsRefusal,
+} from '@/components/settings/settings-chrome';
+import { SourceBadge } from '@/components/entity/source-badge';
+import { AUDIT_TYPE_FILTERS, describeAuditEvent } from '@/lib/audit-events';
+import { auditActorLabel, describeFieldChange } from '@/lib/audit-values';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
 
@@ -26,7 +37,9 @@ interface AuditLogEntry {
   field?: string;
   actor_id: string | null;
   actor_name: string | null;
-  source: string;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  /** The agent's name when an agent made the write (a snapshot taken then). Null for everything else. */
+  agent_name?: string | null;
   payload?: unknown;
   old_value?: unknown;
   new_value?: unknown;
@@ -39,10 +52,26 @@ interface AuditLogPage {
   has_more: boolean;
 }
 
-function renderValue(v: unknown): string {
-  if (v === null || v === undefined) return '—';
-  if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
+/** Copies a row's record id for the "Record or object ID" filter: this PR had removed the id outright, so an admin could no longer take it. */
+function CopyRecordIdButton({ id }: { id: string }) {
+  return (
+    <Tooltip label="Copy record ID">
+      <button
+        type="button"
+        aria-label="Copy record ID"
+        data-testid="audit-copy-record-id"
+        onClick={() => {
+          navigator.clipboard.writeText(id).then(
+            () => toast.success('Record ID copied'),
+            () => toast.error('Could not copy the record ID'),
+          );
+        }}
+        className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-hover hover:text-ink"
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </button>
+    </Tooltip>
+  );
 }
 
 /** The Settings pages' field label: the prototype's 12px semibold, one step under the field it labels (#974 design). */
@@ -67,9 +96,16 @@ export default function AuditLogPage() {
   const { dateTime } = useDateFormat();
 
   const [input, setInput] = useState(EMPTY_AUDIT_FILTERS);
-  const set = (patch: Partial<typeof EMPTY_AUDIT_FILTERS>) => setInput((cur) => ({ ...cur, ...patch }));
+  const set = (patch: Partial<typeof EMPTY_AUDIT_FILTERS>) =>
+    setInput((cur) => ({ ...cur, ...patch }));
 
   const members = useMembers(ws, isAdmin);
+
+  const memberNames = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])),
+    [members.data],
+  );
+  const memberName = (id: string) => memberNames.get(id);
 
   const resolved = useMemo(() => resolveAuditFilters(input), [input]);
   const filters = resolved.query;
@@ -79,7 +115,10 @@ export default function AuditLogPage() {
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET('/api/v1/workspaces/{ws}/audit-log', {
-        params: { path: { ws }, query: { ...filters, ...(pageParam ? { cursor: pageParam } : {}) } } as never,
+        params: {
+          path: { ws },
+          query: { ...filters, ...(pageParam ? { cursor: pageParam } : {}) },
+        } as never,
       } as never);
       if (error) throw error;
       return data as unknown as AuditLogPage;
@@ -94,7 +133,9 @@ export default function AuditLogPage() {
 
   if (!isAdmin) {
     return (
-      <SettingsRefusal title="Audit log">Only workspace admins can view the audit log.</SettingsRefusal>
+      <SettingsRefusal title="Audit log">
+        Only workspace admins can view the audit log.
+      </SettingsRefusal>
     );
   }
 
@@ -106,7 +147,10 @@ export default function AuditLogPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <SettingsPageHeader title="Audit log" lead="Who did what, people and agents, across the whole workspace" />
+      <SettingsPageHeader
+        title="Audit log"
+        lead="Who did what, people and agents, across the whole workspace"
+      />
 
       <SettingsPageBody>
         {log.isLoading ? (
@@ -114,49 +158,87 @@ export default function AuditLogPage() {
         ) : entries.length === 0 ? (
           <SettingsBox>
             <p className="px-3.5 py-3 text-body text-muted" data-testid="audit-empty">
-              {resolved.applied > 0 ? 'Nothing matches these filters. Open Filter below to change them.' : 'Nothing in this range.'}
+              {resolved.applied > 0
+                ? 'Nothing matches these filters. Open Filter below to change them.'
+                : 'Nothing in this range.'}
             </p>
           </SettingsBox>
         ) : (
           <SettingsBox>
             {entries.map((e) => {
-              const structural = e.kind === 'event' ? describeStructuralEvent(e.type, e.payload) : null;
+              const event = e.kind === 'event' ? describeAuditEvent(e.type, e.payload) : null;
+              const change =
+                e.kind === 'field_change'
+                  ? describeFieldChange(e.field, e.old_value, e.new_value, memberName)
+                  : null;
+              // The API names the member; "(unknown)" is its word for one it could not resolve, and an id is never printed (ticket #1287).
+              const actor = auditActorLabel(e.actor_name, e.actor_id, memberName);
               return (
                 <div
                   key={e.id}
                   data-testid="audit-row"
                   className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-border-default px-3.5 py-2 first:border-t-0"
                 >
-                  <span className="shrink-0 text-label text-muted sm:w-36">{dateTime(e.created_at)}</span>
-                  <span className="min-w-0 flex-1 truncate text-body text-ink sm:w-32 sm:flex-none sm:shrink-0">
-                    {e.actor_name ?? '(unknown)'}
+                  <span className="shrink-0 text-label text-muted sm:w-36">
+                    {dateTime(e.created_at)}
                   </span>
-                  <span className="rounded-[var(--radius-chip)] bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">{e.source}</span>
-                  <span
-                    className={`min-w-0 basis-full text-body text-ink-secondary sm:basis-0 sm:flex-1 ${structural ? 'break-words' : 'truncate'}`}
-                  >
-                    {structural ? (
-                      <>
-                        {structural.verb} the {structural.noun} <span className="font-medium text-ink">{structural.name}</span>
-                        {structural.suffix}
-                        {structural.detail && <span className="text-muted"> · {structural.detail}</span>}
-                      </>
-                    ) : e.kind === 'event' ? (
-                      <>{e.record_id ? e.type : `${e.type} · no record`}</>
-                    ) : (
-                      <>
-                        <span className="font-medium text-ink">{e.field}</span>
-                        {' — '}
-                        {renderValue(e.old_value)} → {renderValue(e.new_value)}
-                      </>
-                    )}
-                  </span>
-                  {/* The full id used to be the row's hover title. It is the value the "Record or object ID" filter takes, so it is written out. */}
-                  {e.record_id && (
-                    <span className="basis-full break-all font-mono text-meta text-muted" data-testid="audit-record-id">
-                      record {e.record_id}
+                  <span className="flex min-w-0 flex-1 flex-col sm:w-44 sm:flex-none sm:shrink-0">
+                    <span className="flex min-w-0 items-center gap-1.5 text-body text-ink">
+                      <span className="truncate">{actor}</span>
+                      <span className="shrink-0">
+                        <SourceBadge source={e.source} agentName={e.agent_name} inlineName />
+                      </span>
                     </span>
-                  )}
+                    {/* actor = the member (ADR-0016); the badge, shared with the record's Activity, names the agent inline (ticket #1277). */}
+                  </span>
+                  <span
+                    className="min-w-0 basis-full break-words text-body text-ink-secondary sm:basis-0 sm:flex-1"
+                    data-testid="audit-what"
+                  >
+                    {event ? (
+                      <>
+                        {event.lead}
+                        {event.name && (
+                          <>
+                            {' '}
+                            <span className="font-medium text-ink">“{event.name}”</span>
+                          </>
+                        )}
+                        {event.tail}
+                        {event.detail && (
+                          <span className="text-muted">
+                            {' '}
+                            · {event.known ? event.detail : `Event code: ${event.detail}`}
+                          </span>
+                        )}
+                      </>
+                    ) : change ? (
+                      <>
+                        {change.kind === 'set' ? (
+                          <>
+                            Set <span className="font-medium text-ink">{change.field}</span> to{' '}
+                            {change.to}
+                          </>
+                        ) : change.kind === 'cleared' ? (
+                          <>
+                            Cleared <span className="font-medium text-ink">{change.field}</span>
+                            <span className="text-muted"> · was {change.from}</span>
+                          </>
+                        ) : change.from === null ? (
+                          <>
+                            Changed <span className="font-medium text-ink">{change.field}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-medium text-ink">{change.field}</span>:{' '}
+                            {change.from} → {change.to}
+                          </>
+                        )}
+                      </>
+                    ) : null}
+                  </span>
+                  {/* The id is the value the "Record or object ID" filter takes. It is not printed (an id is not a sentence); it is one click away. */}
+                  {e.record_id && <CopyRecordIdButton id={e.record_id} />}
                 </div>
               );
             })}
@@ -165,7 +247,12 @@ export default function AuditLogPage() {
 
         {log.hasNextPage && (
           <div>
-            <Button variant="secondary" size="sm" onClick={() => void log.fetchNextPage()} disabled={log.isFetchingNextPage}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void log.fetchNextPage()}
+              disabled={log.isFetchingNextPage}
+            >
               {log.isFetchingNextPage ? 'Loading…' : 'Load more'}
             </Button>
           </div>
@@ -237,7 +324,10 @@ export default function AuditLogPage() {
                 className={resolved.invalid.includes('to') ? 'border-error' : undefined}
               />
             </div>
-            <p id="audit-dates-hint" className={`text-label sm:col-span-2 ${resolved.invalid.length > 0 ? 'text-error' : 'text-muted'}`}>
+            <p
+              id="audit-dates-hint"
+              className={`text-label sm:col-span-2 ${resolved.invalid.length > 0 ? 'text-error' : 'text-muted'}`}
+            >
               {resolved.invalid.length > 0
                 ? 'That date is not understood yet, so it is not applied. Try 2026-10-27, 27.10.2026, jul 15, today or yesterday.'
                 : 'Type a date as 2026-10-27, 27.10.2026, jul 15, today or yesterday. Leave a box empty for no limit.'}

@@ -169,11 +169,12 @@ describe('no explanation lives only in a tooltip (ticket #900)', () => {
     expect('<SettingsBox title="Spaces">').not.toMatch(NATIVE_TITLE);
   });
 
-  it('the two converted tooltips are now visible text: the export detail and the audit record id', () => {
+  it('the converted tooltip is visible text (the export detail), and the audit record id is no longer shown at all (ticket #1287)', () => {
     expect(page('export')).toContain('Large workspaces stream, so the download may take a moment to start.');
     const audit = page('audit-log');
-    expect(audit).toContain('data-testid="audit-record-id"');
-    expect(audit).toContain('record {e.record_id}');
+    // It was text so that no hover held it; ticket #1287 removes the raw id from the row altogether, which satisfies the same rule.
+    expect(audit).not.toContain('audit-record-id');
+    expect(audit).not.toContain('record {e.record_id}');
   });
 });
 

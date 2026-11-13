@@ -86,8 +86,9 @@ export const AGENT_GOLD: Record<string, number> = {
   'components/runners/status-mark.tsx': 5,
   // The change-log badge for source != human (agent / automation / mcp)
   'components/entity/record-history.tsx': 2,
-  // The Activity panel's 'made by an agent / automation / MCP' badge (ticket #831's original gold-means-agency mark; ticket #1206 restored it)
-  'components/entity/panels.tsx': 2,
+  // The 'made by an agent / automation / MCP' badge (ticket #831's original gold-means-agency mark; ticket #1206 restored it). It moved
+  // out of the Activity panel into its own file in ticket #1287 so the audit log wears the same one; the two gold sites moved with it.
+  'components/entity/source-badge.tsx': 2,
 };
 
 /** Files that DEFINE or carry the tokens rather than paint with them. */
