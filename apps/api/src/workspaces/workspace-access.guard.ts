@@ -13,6 +13,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { memberships } from '../db/schema';
 import type { AuthedRequest } from '../auth/auth.guard';
+import { resolveRecordRef } from '../common/record-ref';
 
 export type Membership = typeof memberships.$inferSelect & {
   /**
@@ -91,6 +92,18 @@ export class WorkspaceAccessGuard implements CanActivate {
         ceiling
           ? 'This token is bound to specific spaces or databases; this route is outside that boundary'
           : `Requires ${minRole} role`,
+      );
+    }
+
+    // ticket #1295 — `{rec}` is a uuid or the record's public number on every `records/{rec}/...` route. Resolved here, once, AFTER
+    // membership and the role floor (a non-member costs no lookup), so no handler repeats it and a new route in the family is covered
+    // without opting in. The uuid it yields goes through every downstream access check unchanged — see common/record-ref.ts.
+    const rec = (request.params as { rec?: string; db?: string }).rec;
+    if (typeof rec === 'string') {
+      (request.params as { rec?: string }).rec = await resolveRecordRef(
+        this.db,
+        (request.params as { db?: string }).db,
+        rec,
       );
     }
 

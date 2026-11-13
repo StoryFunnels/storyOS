@@ -3291,8 +3291,10 @@ export class RecordsService implements OnModuleInit {
     min: EffectiveRole,
   ): Promise<void> {
     await this.access.assertBoundDatabaseReach(membership, databaseId);
-    // #613 — :rec only ever accepts a uuid (by-number/:number is the
-    // separate public-number path). Without this, a non-uuid string reached
+    // #613 — by the time :rec gets here it is a uuid: WorkspaceAccessGuard
+    // already turned a public number into one (ticket #1295, common/record-ref.ts;
+    // by-number/:number stays as the explicit form). What is left is junk, and
+    // without this check a non-uuid string reached
     // `eq(records.id, recordId)` below and the driver's own
     // "invalid input syntax for type uuid" escaped as a bare 500, the same
     // shape #458 already fixed for the links/buttons routes' :field param —
