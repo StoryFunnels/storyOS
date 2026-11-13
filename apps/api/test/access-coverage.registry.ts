@@ -403,6 +403,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   // #1130 / ADR-0021 §1-2, §11 — the wake queue: the read is filtered per viewer, the Runner routes are the Runner's own.
   'GET /api/v1/workspaces/:ws/agent-wakes': scoped('effectiveForDatabase + effectiveForRecords', 'runners/agent-wakes.controller.ts'),
   'GET /api/v1/workspaces/:ws/agents/:agent/catch-up': scoped('effectiveForDatabase + narrowTitles', 'runners/agent-catch-up.service.ts'), // ticket #1224: the owner's visibility decides what counts, the CALLER's decides what is named; owner/admin only, a guest 403, anyone else the same 404 as an unknown agent
+  'GET /api/v1/workspaces/:ws/agents/:agent/wake-sources': scoped('effectiveForDatabases', 'agents/agent-wake-sources.ts'), // manager or admin; a source on a database the CALLER cannot open is counted, never named (ticket #1289)
   'GET /api/v1/workspaces/:ws/agents/:agent/scope': adminOnly(), // class-level @MinRole('admin'); lists database names, narrowed to what the agent's manager can open
   'GET /api/v1/workspaces/:ws/agents/:agent/budget': scoped('effectiveForDatabase', 'runners/agent-wakes.service.ts'), // budgetFor: the Agents database AND (mayReadRuns) the Runs database; anything else is the same 404 as an unknown agent
   'GET /api/v1/workspaces/:ws/agent-wakes/summary': scoped('effectiveForDatabase + effectiveForRecords', 'runners/agent-wakes.controller.ts'),
