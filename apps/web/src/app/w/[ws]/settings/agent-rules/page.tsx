@@ -226,7 +226,7 @@ export default function AgentRulesPage() {
             lead={`${pending.length} waiting. Of the latest ${summary.shown}: ${summary.approved} approved, ${summary.rejected} rejected, ${summary.expired} expired.`}
           >
             {recent.length === 0 ? (
-              <p className="text-body text-muted">Nobody has decided an approval yet.</p>
+              <EmptyState variant="list" title="Nobody has decided an approval yet." className="px-0" />
             ) : (
               <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
                 {recent.map((a) => (

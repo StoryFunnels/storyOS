@@ -24,7 +24,7 @@ const SRC = fileURLToPath(new URL('../../', import.meta.url));
  * A prop NAMED empty*= (emptyText, emptyLabel) is copy handed to a component, like title=/body=, and is checked where it is rendered.
  */
 const SENTENCE =
-  /((^|>\s*)(No|Nothing)\s[A-Za-z]|\b(title|description|body)=\{?["'`](No|Nothing)\s[A-Za-z]|Nothing (here|archived|linked|assigned|matches|in this range)|\bNo [a-z]+( [a-z]+)? (yet|match(es)?|found)\b|No (matches|results|packs|webhooks|agents|runs|rules|buttons|templates|sources|syncs|activity|deliveries|mappings|submissions|unread)\b|You['’]re all caught up|You haven['’]t created)/;
+  /((^|>\s*)(No|Nobody|No one|Nothing)\s[A-Za-z]|\b(has|have|had|is|are) (no|nothing|nobody)\b[^.]*\b(yet|here)\b|\b[Nn]o [a-z]+( [a-z]+){0,3} (here|yet)\b|\b(title|description|body)=\{?["'`](No|Nobody|Nothing)\s[A-Za-z]|Nothing (here|archived|linked|assigned|matches|in this range)|\bNo [a-z]+( [a-z]+)? (yet|match(es)?|found)\b|No (matches|results|packs|webhooks|agents|runs|rules|buttons|templates|sources|syncs|activity|deliveries|mappings|submissions|unread)\b|You['’]re all caught up|You haven['’]t created)/;
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
@@ -93,14 +93,14 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/table-view/cells.tsx': { n: 1, why: PICKER },
   'components/tyron/thread-menu.tsx': { n: 1, why: PICKER },
   'components/ui/icon-picker.tsx': { n: 1, why: PICKER },
-  'components/views/form-view.tsx': { n: 4, why: PICKER + ' (one); "No members" is an inline label in a member field (second); the third is the dependency rule hint (emptyText, "Always required — …"), also an inline hint; the fourth, "No fields yet — add one below" in the form builder, is DEFERRED (ticket #1291 list): a builder pane that wants its own pass' },
+  'components/views/form-view.tsx': { n: 3, why: PICKER + ' (one); "No members" is an inline label in a member field (second); the third is the dependency rule hint (emptyText, "Always required — …"), also an inline hint' },
   'components/views/view-switcher.tsx': { n: 1, why: PICKER },
   'components/views/view-toolbar.tsx': { n: 3, why: PICKER + ' (two); the third is the "No filters on this view." line inside the Filter popover: menu content, not a pane' },
   'components/table-view/formula-editor.tsx': { n: 2, why: 'the formula editor autocomplete list and its field-reference hint: inline editor assistance, not a pane' },
   'components/views/empty-view-notice.tsx': { n: 1, why: 'the second line of a prop object handed to EmptyState (body copy), on a continuation line the scanner cannot attribute' },
   'app/w/[ws]/agents/page.tsx': { n: 1, why: 'a table cell placeholder for one agent with no job text, not an empty list' },
   'app/w/[ws]/settings/webhooks/page.tsx': { n: 1, why: 'an inline status label on a webhook row ("No deliveries yet"), not a pane' },
-  'components/automations-panel.tsx': { n: 1, why: 'text inside a collapsible last-payload box, a status line of one automation, not a list' },
+  'components/automations-panel.tsx': { n: 2, why: 'text inside a collapsible last-payload box ("No delivery received yet.", a status line of one automation) and a hint in the relation-action form ("has no relation fields yet — add one first"); neither is a list' },
   // Round 2 (the widened shape): found by the broader pattern, each read and judged. None is a list or pane with nothing in it.
   'app/(auth)/login/page.tsx': { n: 1, why: '"No account?" before the sign-up link: a prompt, not an empty state' },
   'app/f/[token]/page.tsx': { n: 1, why: '"No one to pick from": the empty options of a member field on a public form, a field value, not a pane' },
@@ -116,16 +116,20 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/pack-install-dialog.tsx': { n: 1, why: '"No notes from the author.": the value of one labelled section of the install dialog' },
   'components/runners/agent-wake-facts.tsx': { n: 1, why: '"No database chosen.": an inline value of the "Works in" facts row (ticket #1289), not a pane' },
   'components/runners/runs-on-line.tsx': { n: 1, why: '"Runs on No Runner yet": an inline value in one sentence with its own Change action, not a pane' },
-  'components/skills/skill-editor.tsx': { n: 1, why: 'a hint under the trigger field of the skill editor' },
+  'components/skills/skill-editor.tsx': { n: 2, why: 'a hint under the trigger field of the skill editor, and the "nobody else … to share it with yet" line beside the share-with control: both are form copy inside the editor, not a pane' },
   'components/social/post-social-editor.tsx': { n: 2, why: 'a connection hint and the "No image" <option> inside the post editor form' },
   'components/table-view/option-editors.tsx': { n: 1, why: 'the "No category" <option> of a select' },
   'components/views/dashboard-widgets.tsx': { n: 1, why: '"No data to chart yet.": the placeholder inside one chart tile, a widget state, not the dashboard' },
   'components/views/display-menu.tsx': { n: 1, why: 'a hint inside the Display menu explaining why a control is missing: menu copy' },
   'components/views/timeline-view.tsx': { n: 1, why: 'a configuration prompt ("No start-date field has been chosen"): the view is unconfigured, not empty; an empty Timeline database is covered by the database empty state' },
-  'app/admin/page.tsx': { n: 1, why: '"No entitlement override — plan defaults apply.": the state of one workspace\'s override field in the instance-admin form' },
+  'app/admin/page.tsx': { n: 2, why: '"No entitlement override — plan defaults apply.": the state of one workspace\'s override field in the instance-admin form; and a sentence of explanatory prose ("no managed run has executed yet") in a cost note' },
+  'components/settings/provider-card.tsx': { n: 3, why: 'three JS status strings returned from the connection check ("has no live check yet", "cannot connect yet"): messages shown after an action, not an empty list' },
+  'components/sidebar-ai-section.tsx': { n: 1, why: 'a count hint string on the AI section row ("Your workspace has no connected AI yet"): row meta copy, not a pane' },
+  'components/skills/skills-library.tsx': { n: 1, why: 'the "no skills yet" count label in the library toolbar; the empty list itself is an EmptyState' },
   'components/views/dashboard-view.tsx': { n: 1, why: '"No access": the label of one tile whose database the viewer cannot read, not an empty list' },
 };
 const DEFERRED: Record<string, { n: number; why: string }> = {
+  'components/views/form-view.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list (Vera\'s call, PR 1519 round 3): "No fields yet — add one below" in the form builder is a real empty state, kept hand-rolled on purpose; the builder pane wants its own pass' },
   'components/command-palette.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: the command palette has its own designed empty row (ticket #1280 reworks the palette)' },
   'app/v/[token]/public-view-client.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: the public view page is a separate document with its own neutral tokens and a table cell, outside the app shell' },
   'app/w/[ws]/settings/integrations/google-calendar/page.tsx': { n: 2, why: 'DEFERRED, ticket #1291 list: a mapping form hint and a status sentence, one settings page the settings pass (ticket #1282) owns' },
@@ -133,6 +137,13 @@ const DEFERRED: Record<string, { n: number; why: string }> = {
   'components/entity/record-chrome.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: an agent picker hint inside the record header' },
   'components/workspace-home-blocks.tsx': { n: 2, why: 'DEFERRED, ticket #1291 list: Home blocks ("No automation runs yet", "Nothing is waiting on a person") are being rebuilt in open PR #1511 (declared overlap); migrating here would conflict' },
 };
+
+/** A file may sit in both lists (a picker line AND a deferred pane): its allowance is the sum, and both reasons are kept. */
+function merged(): Record<string, { n: number; why: string }> {
+  const out: Record<string, { n: number; why: string }> = {};
+  for (const src of [NOT_AN_EMPTY_STATE, DEFERRED]) for (const [k, v] of Object.entries(src)) out[k] = out[k] ? { n: out[k]!.n + v.n, why: out[k]!.why + ' | ' + v.why } : { ...v };
+  return out;
+}
 
 describe('one EmptyState component (ticket #1291)', () => {
   const found = adHoc();
@@ -146,20 +157,20 @@ describe('one EmptyState component (ticket #1291)', () => {
   });
 
   it('no file renders an empty sentence outside <EmptyState> beyond its reasoned allowance', () => {
-    const allowed = { ...NOT_AN_EMPTY_STATE, ...DEFERRED };
+    const allowed = merged();
     const over = [...counts].filter(([k, n]) => n > (allowed[k]?.n ?? 0)).map(([k, n]) => `${k}: ${n} (allowed ${allowed[k]?.n ?? 0})`);
     expect(over).toEqual([]);
   });
 
   it('the allowlist does not go stale: every entry still matches exactly its count', () => {
-    const stale = Object.entries({ ...NOT_AN_EMPTY_STATE, ...DEFERRED })
+    const stale = Object.entries(merged())
       .filter(([k, v]) => (counts.get(k) ?? 0) !== v.n)
       .map(([k, v]) => `${k}: expected ${v.n}, found ${counts.get(k) ?? 0}`);
     expect(stale).toEqual([]);
   });
 
   it('every allowance carries a reason', () => {
-    for (const [k, v] of Object.entries({ ...NOT_AN_EMPTY_STATE, ...DEFERRED })) expect(v.why.length, k).toBeGreaterThan(15);
+    for (const [k, v] of Object.entries(merged())) expect(v.why.length, k).toBeGreaterThan(15);
   });
 
   it('the one component exists and the old database-only copy is gone', () => {

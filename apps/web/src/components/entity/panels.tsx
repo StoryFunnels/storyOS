@@ -838,7 +838,7 @@ export function AboutPanel({
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
-          {watcherIds.length === 0 && <p className="text-body text-muted">Nobody is watching this item.</p>}
+          {watcherIds.length === 0 && <EmptyState variant="list" title="Nobody is watching this item." className="px-0" />}
           {watcherIds.map((id) => {
             const m = memberById.get(id);
             return (
