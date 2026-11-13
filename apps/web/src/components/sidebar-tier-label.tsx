@@ -6,8 +6,9 @@ import { cn } from '@/lib/utils';
  * Ticket #1273 item 3: the build had two different tier styles stacked on each other (AI 10px/1.6px, Spaces 11px/0.55px, a
  * hand-rolled span); the prototype uses one: mono, 9px, 0.16em (1.44px) tracking. Every tier label goes through this component.
  *
- * Font: `font-mono` is the platform monospace stack. The prototype names IBM Plex Mono, which this build does not self-host
- * (#797: fonts are self-hosted, no third-party fetch), so the face falls back; size, tracking and case match.
+ * Font: `font-mono` is the platform monospace stack. The prototype names IBM Plex Mono; the build does not self-host it
+ * (#797: fonts are self-hosted, no third-party fetch). Ticket #1273 ruling, 2026-11-13: the platform stack is ACCEPTED, no font
+ * file or licence to manage. Do not add one to close the small glyph difference; size, tracking and case match.
  *
  * Weight is the caller's call: the default is regular, and the one tier that is a mark (the gold AI label) passes `font-semibold`.
  *
