@@ -266,3 +266,26 @@ describe('isCompletedState (#1017): finished is the option\'s state CATEGORY', (
     expect(isCompletedState(wf, ['c'])).toBe(true);
   });
 });
+
+import { databaseLabels } from './my-work-model';
+describe('databaseLabels (ticket #1280 item 2)', () => {
+  const dbs = [
+    { id: 'a', name: 'Tasks' },
+    { id: 'b', name: 'tasks ' },
+    { id: 'c', name: 'Issues' },
+  ];
+  const space = (id: string) => ({ a: 'Team', b: 'Client Work', c: 'Team' } as Record<string, string>)[id];
+  it('qualifies only names shared by another database, case- and space-insensitively', () => {
+    const l = databaseLabels(dbs, space);
+    expect(l.get('a')).toBe('Team / Tasks');
+    expect(l.get('b')).toBe('Client Work / tasks ');
+    expect(l.get('c')).toBe('Issues');
+  });
+  it('never guesses a space that is not known yet: a shared name stays as it is', () => {
+    expect(databaseLabels(dbs, () => undefined).get('a')).toBe('Tasks');
+    expect(databaseLabels(dbs, (id) => (id === 'a' ? 'Team' : undefined)).get('b')).toBe('tasks ');
+  });
+  it('a single database is never qualified', () => {
+    expect(databaseLabels([{ id: 'x', name: 'Tasks' }], () => 'Team').get('x')).toBe('Tasks');
+  });
+});

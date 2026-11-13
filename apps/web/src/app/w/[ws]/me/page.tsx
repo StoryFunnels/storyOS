@@ -11,6 +11,7 @@ import { Database, UserRound } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { useMembers } from '@/components/table-view/use-table-data';
+import { useDatabases, useSpaces } from '@/lib/queries';
 import {
   type DenseField,
   type MyWorkDbConfig,
@@ -23,6 +24,7 @@ import { MyWorkToolbar, type MyWorkGrouping } from '@/components/my-work/my-work
 import { MyWorkPreview, MyWorkRowButton, SectionHeader, rowKey } from '@/components/my-work/my-work-rows';
 import {
   buildRows,
+  databaseLabels,
   sortRows,
   type MyWorkGroup,
   type MyWorkRow,
@@ -183,12 +185,23 @@ function MyWorkInner() {
   });
 
   const groups = useMemo(() => grouped.data?.groups ?? [], [grouped.data]);
+  // The space is read from the workspace's own lists (no API change): it only matters when two databases share a name.
+  const spaces = useSpaces(ws, listTab);
+  const allDatabases = useDatabases(ws, listTab);
+  const dbLabels = useMemo(() => {
+    const spaceName = new Map((spaces.data ?? []).map((s) => [s.id, s.name]));
+    const spaceOfDb = new Map((allDatabases.data ?? []).map((d) => [d.id, d.spaceId]));
+    return databaseLabels(
+      groups.map((g) => g.database),
+      (dbId) => spaceName.get(spaceOfDb.get(dbId) ?? ''),
+    );
+  }, [groups, spaces.data, allDatabases.data]);
   const recent = activity.data?.records ?? [];
 
   // filter → sort → (group) ONCE, and read the rendered structure and the flat ↑/↓ order out of that single
   // result: deriving the order separately would be a second ordering implementation, free to drift from the screen.
   const view = useMemo(() => {
-    const rows = buildRows(groups, myWork);
+    const rows = buildRows(groups, myWork, dbLabels);
     if (choice.grouping === 'none') {
       const merged = sortRows(rows, choice.sort);
       return { merged, sections: [] as Section[], queue: merged };
@@ -214,7 +227,7 @@ function MyWorkInner() {
       for (const sg of s.subGroups) queue.push(...sg.rows);
     }
     return { merged: [] as MyWorkRow[], sections, queue };
-  }, [groups, myWork, choice, memberNames, collapsed]);
+  }, [groups, myWork, choice, memberNames, collapsed, dbLabels]);
 
   const activeRow = selectedKey ? view.queue.find((r) => rowKey(r) === selectedKey) ?? null : null;
   // Desktop previews the first row so the right pane is never empty; under md the list shows until a row is tapped.
@@ -366,6 +379,7 @@ function MyWorkInner() {
                       <SectionHeader
                         ws={ws}
                         database={group.database}
+                        label={dbLabels.get(group.database.id)}
                         count={count}
                         collapsed={isCollapsed}
                         onToggle={() =>

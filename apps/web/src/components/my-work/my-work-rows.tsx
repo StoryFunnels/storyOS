@@ -84,7 +84,7 @@ export function MyWorkRowButton({
 }) {
   const { record, database, facets, config, fields } = row;
   const tint = rowColor(record.values, fields, config);
-  const meta = [record.number != null ? `#${record.number}` : null, database.name, facets.priority?.label].filter(Boolean).join(' · ');
+  const meta = [record.number != null ? `#${record.number}` : null, row.databaseLabel, facets.priority?.label].filter(Boolean).join(' · ');
   return (
     <button
       type="button"
@@ -120,6 +120,7 @@ export function MyWorkRowButton({
 export function SectionHeader({
   ws,
   database,
+  label,
   count,
   collapsed,
   onToggle,
@@ -130,6 +131,8 @@ export function SectionHeader({
 }: {
   ws: string;
   database: MyWorkRow['database'];
+  /** The database as the rows name it (`databaseLabel`): with its space when another database shares the name. */
+  label?: string;
   count: number;
   collapsed: boolean;
   onToggle: () => void;
@@ -145,7 +148,7 @@ export function SectionHeader({
       </button>
       <Link href={`/w/${ws}/d/${database.id}`} className="flex min-w-0 items-center gap-1.5 hover:text-ink">
         <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
-        <span className="truncate">{database.name}</span>
+        <span className="truncate">{label ?? database.name}</span>
         <span className="text-faint">{count}</span>
       </Link>
       <span className="flex-1" />
@@ -201,7 +204,7 @@ export function MyWorkPreview({
           <p className="text-prose font-medium text-ink">{record.title || 'Untitled'}</p>
           <p className="text-label text-muted">
             {record.number != null && <>#{record.number} · </>}
-            {database.name}
+            {row.databaseLabel}
           </p>
         </div>
         <Link

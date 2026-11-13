@@ -141,14 +141,42 @@ export function dueBucket(due: string | null, now: Date, completed = false): Due
 export interface MyWorkRow {
   dbId: string;
   database: MyWorkGroup['database'];
+  /** What this row calls its database: the name, or "Space / Name" when another database on the page shares the name (see `databaseLabels`). */
+  databaseLabel: string;
   fields: DenseField[];
   config: MyWorkDbConfig;
   record: MyWorkRecord;
   facets: Facets;
 }
 
+/**
+ * What each database is called on a My Work row. Two databases can share a name (install two packs that both ship
+ * "Tasks"), and then "#4 · Tasks" twice cannot be told apart. Only a name that is NOT unique among the databases on the
+ * page gains its space ("Team / Tasks"): the common row keeps the short form the design draws. Uniqueness is judged
+ * case-insensitively, since "tasks" and "Tasks" read as the same word. A space that is not known yet (still loading)
+ * adds nothing, never a guess; two same-named databases in ONE space stay identical, and that is the limit of this.
+ */
+export function databaseLabels(
+  databases: Array<{ id: string; name: string }>,
+  spaceNameOf: (databaseId: string) => string | undefined,
+): Map<string, string> {
+  const norm = (n: string) => n.trim().toLocaleLowerCase();
+  const counts = new Map<string, number>();
+  for (const d of databases) counts.set(norm(d.name), (counts.get(norm(d.name)) ?? 0) + 1);
+  const labels = new Map<string, string>();
+  for (const d of databases) {
+    const space = spaceNameOf(d.id)?.trim();
+    labels.set(d.id, (counts.get(norm(d.name)) ?? 0) > 1 && space ? `${space} / ${d.name}` : d.name);
+  }
+  return labels;
+}
+
 /** Every record the saved per-database filters let through, as rows with their facets. */
-export function buildRows(groups: MyWorkGroup[], configs: Record<string, MyWorkDbConfig | undefined>): MyWorkRow[] {
+export function buildRows(
+  groups: MyWorkGroup[],
+  configs: Record<string, MyWorkDbConfig | undefined>,
+  labels?: ReadonlyMap<string, string>,
+): MyWorkRow[] {
   const rows: MyWorkRow[] = [];
   for (const group of groups) {
     const config = configs[group.database.id] ?? {};
@@ -157,6 +185,7 @@ export function buildRows(groups: MyWorkGroup[], configs: Record<string, MyWorkD
       rows.push({
         dbId: group.database.id,
         database: group.database,
+        databaseLabel: labels?.get(group.database.id) ?? group.database.name,
         fields: group.fields,
         config,
         record,
