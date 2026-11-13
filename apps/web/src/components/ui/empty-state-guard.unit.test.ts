@@ -114,6 +114,7 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/my-work/group-config.tsx': { n: 1, why: 'the "No grouping" <option> of a select' },
   'components/my-work/my-work-toolbar.tsx': { n: 1, why: 'the line inside the Filter popover when there are no groups to filter: popover content, like a picker' },
   'components/pack-install-dialog.tsx': { n: 1, why: '"No notes from the author.": the value of one labelled section of the install dialog' },
+  'components/runners/agent-wake-facts.tsx': { n: 1, why: '"No database chosen.": an inline value of the "Works in" facts row (ticket #1289), not a pane' },
   'components/runners/runs-on-line.tsx': { n: 1, why: '"Runs on No Runner yet": an inline value in one sentence with its own Change action, not a pane' },
   'components/skills/skill-editor.tsx': { n: 1, why: 'a hint under the trigger field of the skill editor' },
   'components/social/post-social-editor.tsx': { n: 2, why: 'a connection hint and the "No image" <option> inside the post editor form' },
