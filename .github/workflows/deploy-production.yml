@@ -99,6 +99,26 @@ jobs:
             StrictHostKeyChecking yes
           EOF
 
+      # #1292 — the sender of every email lives in the box's .env, which this
+      # workflow used to leave alone (it only rewrites IMAGE_TAG), so changing it
+      # meant ssh-ing in by hand. Set the MAIL_FROM variable on the GitHub
+      # `production` environment and it is written here, on every deploy.
+      #  - Skipped when the variable is unset: the box keeps whatever it has.
+      #  - It runs BEFORE the version is recorded, so a refused value (bad shape,
+      #    full-width @) fails the run with the box untouched and the rollback
+      #    step, which needs the recorded version, does not fire.
+      #  - The value reaches the shell through `env`, never as ${{ }} text inside
+      #    the script (that would be shell injection from a repo variable), is
+      #    base64-encoded for the trip, and is never echoed.
+      # Guards and tests: scripts/set-env-var.sh, scripts/set-env-var.test.mjs.
+      - name: Apply MAIL_FROM from the production environment
+        if: ${{ vars.MAIL_FROM != '' }}
+        env:
+          MAIL_FROM: ${{ vars.MAIL_FROM }}
+        run: |
+          b64=$(printf '%s' "$MAIL_FROM" | base64 | tr -d '\n')
+          ssh prod "bash -s -- MAIL_FROM $b64" < scripts/set-env-var.sh
+
       # Recorded in its OWN step, before anything changes: if the deploy below
       # dies halfway, the rollback still knows where to go back to.
       - name: Record the currently deployed version

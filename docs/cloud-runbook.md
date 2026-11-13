@@ -51,6 +51,24 @@ they only go forward, so rolling back across a migration is only safe when
 the older code tolerates the newer schema. To undo a data change, restore the
 pre-deploy backup ([backup-restore.md](backup-restore.md)).
 
+## Changing the email sender (`MAIL_FROM`)
+
+Emails are sent as `MAIL_FROM` in `~/storyOS/.env`. To change it without
+logging in to the box, set a **variable** (not a secret) named `MAIL_FROM` on
+the GitHub **production** environment, for example
+`Quill from StoryOS <quill@storyos.dev>`, then run **Deploy production**.
+
+- With the variable set, every deploy writes it into `.env` before anything
+  else changes. With it unset, the box keeps whatever it has: unsetting the
+  variable does not remove the sender.
+- The value must be `Name <name@host.tld>` or `name@host.tld`, with an ASCII
+  `@`. A full-width `＠`, a quote, `$`, a backslash or a newline is refused and
+  the run fails before the server is touched. The script is
+  `scripts/set-env-var.sh`.
+- The workflow never prints the value or the rest of `.env`.
+- The sending domain must already be verified with the mail provider; that is
+  not something the workflow can check.
+
 ## Secrets
 
 `~/storyOS/.env` on the box. `BETTER_AUTH_SECRET` and `CONNECTIONS_MASTER_KEY`
