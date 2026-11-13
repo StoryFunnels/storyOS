@@ -19,6 +19,7 @@ import {
 } from './group-config';
 import { ASSIGNED_BY_UNRECORDED_DETAIL, ASSIGNED_BY_UNRECORDED_LABEL, assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
 import { databaseColor } from '@/lib/entity-color';
+import { buttonVariants } from '@/components/ui/button';
 
 export const rowKey = (row: Pick<MyWorkRow, 'dbId' | 'record'>) => `${row.dbId}:${row.record.id}`;
 
@@ -243,7 +244,7 @@ export function MyWorkPreview({
         </div>
         <Link
           href={`/w/${ws}/d/${database.id}/r/${recordSegment(record)}`}
-          className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-label font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+          className={cn(buttonVariants({ variant: 'primary' }), 'shrink-0')}
         >
           <ExternalLink className="h-3.5 w-3.5" /> Open
         </Link>
