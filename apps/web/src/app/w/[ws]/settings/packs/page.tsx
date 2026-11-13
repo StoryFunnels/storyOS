@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Package } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { InstallDialog, useInstalledPacks, useRegistry, type InstallSummary } from '@/components/pack-install-dialog';
 import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsPill, SettingsRow } from '@/components/settings/settings-chrome';
@@ -52,7 +53,7 @@ export default function PacksSettingsPage() {
   const registrySlugs = new Set((registry.data ?? []).map((p) => p.slug));
   const packs = installed.data ?? [];
   const browse = (
-    <Link href={`/w/${ws}/packs`} className={buttonVariants({ variant: 'secondary' })}>
+    <Link href={`/w/${ws}/packs`} className={cn(buttonVariants({ variant: 'secondary' }))}>
       Browse packs
     </Link>
   );

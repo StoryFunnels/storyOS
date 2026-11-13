@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { useDateFormat } from '@/lib/preferences';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -719,7 +719,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
               {calendarPresent.actionable ? (
                 <Link
                   href={`/w/${ws}/settings/integrations/google-calendar`}
-                  className="inline-flex h-8 w-fit items-center rounded-[var(--radius-control)] bg-primary px-3 text-body font-medium text-[var(--text-on-dark)] hover:bg-primary-hover"
+                  className={cn(buttonVariants({ variant: 'primary' }), 'w-fit')}
                   onClick={onDone}
                 >
                   Open Calendar integration →
