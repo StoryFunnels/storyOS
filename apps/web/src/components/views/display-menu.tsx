@@ -41,6 +41,7 @@ import { OPEN_DISPLAY_MENU_EVENT } from './display-menu-open';
 import { groupingPatch } from './view-grouping';
 import type { ViewConfig } from './use-view-state';
 import { TOOLBAR_BTN } from './toolbar-chip';
+import { POPOVER_SECTION, POPOVER_TITLE } from './popover-heading';
 
 /* #739 T8 — hoisted so the array identity is stable across renders (Segmented takes a readonly list). */
 const ROW_HEIGHT_OPTIONS = [
@@ -57,8 +58,7 @@ function GalleryNoCoverFieldNotice() {
   );
 }
 
-const SECTION =
-  'block px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted';
+const SECTION = POPOVER_SECTION;
 /** #1114 — a labelled row whose `<option>` children become the menu's items (value, label, disabled). */
 function SelectRow({
   label,
@@ -195,6 +195,10 @@ export function DisplayMenu({
           </button>
         </PopoverTrigger>
         <PopoverContent className="max-h-[28rem] w-72 overflow-y-auto p-1">
+          {/* #1281 — every toolbar popover opens with the same title row (Filter and Sort already did). */}
+          <div className="-mx-1 -mt-1 mb-1 flex h-[30px] items-center border-b border-border-default px-3">
+            <span className={POPOVER_TITLE}>Display</span>
+          </div>
           {hasFieldsMenu && (
             <>
               <span className={SECTION}>Columns</span>
@@ -534,7 +538,7 @@ function CardFieldPicker({
     <>
       {shownFields.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1 text-meta font-semibold uppercase tracking-wider text-muted">
+          <div className={POPOVER_SECTION}>
             Shown · drag to reorder
           </div>
           <DndContext
@@ -563,7 +567,7 @@ function CardFieldPicker({
       )}
       {available.length > 0 && (
         <>
-          <div className="px-2 pb-0.5 pt-1.5 text-meta font-semibold uppercase tracking-wider text-muted">
+          <div className={POPOVER_SECTION}>
             Add
           </div>
           {available.map((field) => (
@@ -636,7 +640,7 @@ function RowGutterToggle({
 }) {
   return (
     <div className="mt-1 border-t border-border-default pt-1">
-      <p className="px-1.5 pb-1 text-meta font-medium uppercase tracking-wide text-muted">
+      <p className={POPOVER_SECTION}>
         Row gutter
       </p>
       <button

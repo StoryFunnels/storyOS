@@ -91,6 +91,7 @@ import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass 
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { MenuSelect } from '@/components/ui/menu-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { POPOVER_TITLE } from './popover-heading';
 import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -1594,7 +1595,7 @@ export function FiltersSection({
                   #965 — M is every condition built (either section), N the ones that actually run (not disabled,
                   not unfinished). */}
               <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
-                <span className="font-mono text-[9px] uppercase tracking-[0.13em] text-faint">Filter</span>
+                <span className={POPOVER_TITLE}>Filter</span>
                 {buttonState.configured > 0 && (
                   <span className="text-micro text-faint" aria-live="polite">
                     {buttonState.applied} of {buttonState.configured} applied
@@ -2819,7 +2820,7 @@ export function SortButton({
           <div className={cn('phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]', sorts.length > 1 ? 'w-[27.5rem]' : 'w-64')}>
             <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
               {/* #427 — it sorts CARDS; column order lives in the Filter panel's Groups section. */}
-              <span className="font-mono text-micro font-semibold uppercase tracking-wider text-muted">Sort by</span>
+              <span className={POPOVER_TITLE}>Sort by</span>
               {sorts.length > 1 && <span className="text-micro text-faint">first rule wins, the rest break ties</span>}
             </div>
 
