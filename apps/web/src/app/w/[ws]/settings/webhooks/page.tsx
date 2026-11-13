@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleHelp } from 'lucide-react';
+import { CircleHelp, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
@@ -14,6 +14,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsPill, SettingsRow } from '@/components/settings/settings-chrome';
 
 /** MN-032. The event names are the activity-event taxonomy (ADR-0004). */
 const EVENTS = [
@@ -111,138 +112,127 @@ export default function WebhooksSettingsPage() {
     onError: () => toast.error('Could not delete the webhook'),
   });
 
+  const hooks = webhooks.data ?? [];
+
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-ink">Webhooks</h1>
-        <CreateWebhookDialog ws={ws} databases={databases.data ?? []} />
-      </div>
-      <p className="mb-2 text-body text-muted">
-        A webhook is a message StoryOS sends to a URL of your choice whenever something
-        happens here — a record gets created, updated, or changed. It&apos;s how you push
-        those changes into an automation tool like <span className="text-ink">n8n</span>,{' '}
-        <span className="text-ink">Make</span>, or <span className="text-ink">Zapier</span>,
-        or into your own app.
-      </p>
-      <p className="mb-4 text-body text-muted">
-        Add one below with the URL your tool gives you, and choose which changes should
-        trigger it. Failed deliveries are retried automatically for about 15 minutes.
-      </p>
+      <SettingsPageHeader
+        title="Webhooks"
+        lead="Tell another system when something changes here"
+        action={<CreateWebhookDialog ws={ws} databases={databases.data ?? []} />}
+      />
 
-      <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-        <summary className="cursor-pointer select-none text-body font-medium text-ink">
-          Advanced — for developers
-        </summary>
-        <p className="mt-2 text-body text-muted">
-          Each payload is signed so you can verify it really came from StoryOS: check the{' '}
-          <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> header against{' '}
-          <code className="rounded bg-hover px-1">
-            sha256=HMAC(secret, &quot;{'{timestamp}'}.{'{body}'}&quot;)
-          </code>{' '}
-          using the timestamp in{' '}
-          <code className="rounded bg-hover px-1">X-StoryOS-Timestamp</code>. Most no-code
-          tools handle this for you and don&apos;t need it at all.{' '}
-          <a
-            href="https://docs.storyos.dev/concepts/webhooks"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-ink underline underline-offset-2 hover:no-underline"
-          >
-            <CircleHelp className="h-3.5 w-3.5" /> Full signing docs
-          </a>
-        </p>
-      </details>
-
-      <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
-        {(webhooks.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-body text-muted">
-            No webhooks yet. Add one to push changes into another tool.
-          </p>
+      <SettingsPageBody>
+        {hooks.length === 0 ? (
+          <SettingsBox>
+            <p className="flex items-start gap-2.5 px-3.5 py-3 text-body text-muted" data-testid="webhooks-empty">
+              <Zap className="mt-0.5 h-[15px] w-[15px] shrink-0" aria-hidden />
+              <span>
+                <b className="font-medium text-ink">No webhooks yet.</b> To call another system from one database, a button or automation with a{' '}
+                {'\u201C'}Send webhook{'\u201D'} step is usually simpler.
+              </span>
+            </p>
+          </SettingsBox>
+        ) : (
+          <SettingsBox title="Your webhooks" aside={hooks.length}>
+            {hooks.map((hook) => (
+              <div key={hook.id} className="border-t border-border-default first:border-t-0">
+                <SettingsRow
+                  className="border-t-0 sm:items-start"
+                  title={hook.url}
+                  description={
+                    <>
+                      {dbName(hook.database_id)} · {hook.events.length} event{hook.events.length === 1 ? '' : 's'} · added {fmt.date(hook.created_at)}
+                      <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <StatusPill hook={hook} fmt={fmt} />
+                        {!hook.enabled && <SettingsPill>Disabled</SettingsPill>}
+                      </span>
+                      {/* Why the last delivery failed: it was a hover-only tooltip on the pill (#974 rule: explanations are visible text). */}
+                      {hook.last_status && hook.last_status !== 'ok' && hook.last_error && (
+                        <span className="mt-1 block break-words" data-testid="webhook-last-error">
+                          {hook.last_error}
+                        </span>
+                      )}
+                    </>
+                  }
+                >
+                  <Button variant="ghost" size="sm" onClick={() => setExpanded(expanded === hook.id ? null : hook.id)}>
+                    {expanded === hook.id ? 'Hide' : 'Deliveries'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      if (await confirm(confirmToggleWebhook(hook.url, !hook.enabled))) toggle.mutate({ id: hook.id, enabled: !hook.enabled });
+                    }}
+                  >
+                    {hook.enabled ? 'Disable' : 'Enable'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      if (
+                        !(await confirm({
+                          title: 'Delete this webhook?',
+                          message: `${hook.url} will stop receiving events. Records are not affected.`,
+                          confirmLabel: 'Delete',
+                          danger: true,
+                        }))
+                      )
+                        return;
+                      remove.mutate(hook.id);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </SettingsRow>
+                {expanded === hook.id && <Deliveries ws={ws} id={hook.id} />}
+              </div>
+            ))}
+          </SettingsBox>
         )}
-        {(webhooks.data ?? []).map((hook) => (
-          <div key={hook.id} className="border-b border-border-default last:border-b-0">
-            <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-ink">{hook.url}</p>
-                <p className="mt-0.5 text-label text-muted">
-                  {dbName(hook.database_id)} · {hook.events.length} event
-                  {hook.events.length === 1 ? '' : 's'} · added {fmt.date(hook.created_at)}
-                </p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <StatusPill hook={hook} fmt={fmt} />
-                  {!hook.enabled && (
-                    <span className="rounded bg-hover px-1.5 py-0.5 text-meta text-muted">
-                      Disabled
-                    </span>
-                  )}
-                </div>
-                {/* Why the last delivery failed: it was a hover-only tooltip on the pill (#974 rule: explanations are visible text). */}
-                {hook.last_status && hook.last_status !== 'ok' && hook.last_error && (
-                  <p className="mt-1 break-words text-label text-muted" data-testid="webhook-last-error">
-                    {hook.last_error}
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-1 sm:shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setExpanded(expanded === hook.id ? null : hook.id)}
-                >
-                  {expanded === hook.id ? 'Hide' : 'Deliveries'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    if (await confirm(confirmToggleWebhook(hook.url, !hook.enabled))) toggle.mutate({ id: hook.id, enabled: !hook.enabled });
-                  }}
-                >
-                  {hook.enabled ? 'Disable' : 'Enable'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    if (
-                      !(await confirm({
-                        title: 'Delete this webhook?',
-                        message: `${hook.url} will stop receiving events. Records are not affected.`,
-                        confirmLabel: 'Delete',
-                        danger: true,
-                      }))
-                    )
-                      return;
-                    remove.mutate(hook.id);
-                  }}
-                >
-                  Delete
-                </Button>
-              </div>
-            </div>
-            {expanded === hook.id && <Deliveries ws={ws} id={hook.id} />}
+
+        <AdvancedSection title="How webhooks work" summary="n8n, Make, Zapier, signing">
+          <div className="flex flex-col gap-2 px-3.5 py-3 text-body text-muted">
+            <p>
+              A webhook is a message StoryOS sends to a URL of your choice whenever something happens here: a record gets created, updated, or
+              changed. It&apos;s how you push those changes into an automation tool like <span className="text-ink">n8n</span>,{' '}
+              <span className="text-ink">Make</span>, or <span className="text-ink">Zapier</span>, or into your own app. Add one with the URL
+              your tool gives you, and choose which changes should trigger it. Failed deliveries are retried automatically for about 15 minutes.
+            </p>
+            <p>
+              Each payload is signed so you can verify it really came from StoryOS: check the{' '}
+              <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> header against{' '}
+              <code className="rounded bg-hover px-1">sha256=HMAC(secret, &quot;{'{timestamp}'}.{'{body}'}&quot;)</code> using the timestamp in{' '}
+              <code className="rounded bg-hover px-1">X-StoryOS-Timestamp</code>. Most no-code tools handle this for you and don&apos;t need it at
+              all.{' '}
+              <a
+                href="https://docs.storyos.dev/concepts/webhooks"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-ink underline underline-offset-2 hover:no-underline"
+              >
+                <CircleHelp className="h-3.5 w-3.5" /> Full signing docs
+              </a>
+            </p>
           </div>
-        ))}
-      </div>
+        </AdvancedSection>
+      </SettingsPageBody>
     </div>
   );
 }
 
 function StatusPill({ hook, fmt }: { hook: Webhook; fmt: ReturnType<typeof useDateFormat> }) {
   if (!hook.last_status) {
-    return <span className="text-label text-faint">No deliveries yet</span>;
+    return <span className="text-label text-muted">No deliveries yet</span>;
   }
   const ok = hook.last_status === 'ok';
   return (
-    <span
-      className={cn(
-        'rounded px-1.5 py-0.5 text-meta',
-        ok ? 'border border-border-default bg-hover text-ink' : 'bg-hover text-error',
-      )}
-    >
+    <SettingsPill tone={ok ? 'ok' : 'bad'}>
       {ok ? `Delivered ${hook.last_status_code ?? ''}` : `Failed${hook.last_status_code ? ` ${hook.last_status_code}` : ''}`}
       {hook.last_delivered_at ? ` · ${fmt.dateTime(hook.last_delivered_at)}` : ''}
-    </span>
+    </SettingsPill>
   );
 }
 

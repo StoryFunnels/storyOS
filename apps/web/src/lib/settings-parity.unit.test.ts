@@ -410,7 +410,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, number]> = [
   ["Integrations (hub)#4", "components/settings/provider-card.tsx", "Disconnect", 1],
   ["Integrations (hub)#5", "app/w/[ws]/settings/integrations/page.tsx", "providerPageHref(ws, s.def.id)", 0],
   ["API tokens#1", "app/w/[ws]/settings/api/page.tsx", "New token", 1],
-  ["API tokens#2", "app/w/[ws]/settings/api/page.tsx", "Advanced / Developer", 1],
+  ["API tokens#2", "app/w/[ws]/settings/api/page.tsx", "How to use a token", 1], // ticket #1285: the disclosure is the shared AdvancedSection, retitled as the prototype's
   ["API tokens#3", "app/w/[ws]/settings/api/page.tsx", "the API", 1],
   ["API tokens#4", "app/w/[ws]/settings/api/page.tsx", "type=\"checkbox\"", 0],
   ["API tokens#5", "app/w/[ws]/settings/api/page.tsx", "confirmRevokeToken", 0],
@@ -471,7 +471,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, number]> = [
   ["Connections#38", "components/connections/connect-dialogs.tsx", "Cancel", 2],
   ["Connections#39", "components/connections/connect-dialogs.tsx", "create.isPending ? 'Connecting\u2026' : 'Connect'", 0],
   ["Webhooks#1", "app/w/[ws]/settings/webhooks/page.tsx", "Add webhook", 1],
-  ["Webhooks#2", "app/w/[ws]/settings/webhooks/page.tsx", "Advanced \u2014 for developers", 1],
+  ["Webhooks#2", "app/w/[ws]/settings/webhooks/page.tsx", "How webhooks work", 1], // ticket #1285: the disclosure is the shared AdvancedSection, last on the page; the signing text moved inside it
   ["Webhooks#3", "app/w/[ws]/settings/webhooks/page.tsx", "Full signing docs", 1],
   ["Webhooks#4", "app/w/[ws]/settings/webhooks/page.tsx", "expanded === hook.id ? 'Hide' : 'Deliveries'", 0],
   ["Webhooks#5", "app/w/[ws]/settings/webhooks/page.tsx", "confirmToggleWebhook", 0],

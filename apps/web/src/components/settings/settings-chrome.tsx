@@ -12,7 +12,10 @@ import { cn } from '@/lib/utils';
 export function SettingsPageHeader({ title, lead, action }: { title: string; lead?: ReactNode; action?: ReactNode }) {
   return (
     <div className="mb-[18px] flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
+      {/* `flex-1` + a basis: a long lead (API tokens') wraps inside its own column and the action stays on the title's line, as in the
+          prototype's sHead, instead of the action dropping under a lead that is as wide as the page. A phone is narrower than the basis, so
+          there the action still takes its own line. */}
+      <div className="min-w-0 flex-1 basis-[min(100%,24rem)]">
         <h1 className="text-lg font-bold leading-[1.3] tracking-[-0.01em] text-ink">{title}</h1>
         {lead && <p className="mt-1 text-body text-muted">{lead}</p>}
       </div>
