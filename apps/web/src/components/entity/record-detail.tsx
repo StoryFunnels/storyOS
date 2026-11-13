@@ -53,6 +53,9 @@ import {
   useCollapsedSection,
 } from '@/components/entity/collapsible-section';
 import { SECTION_LABEL } from '@/components/entity/section-label';
+import { Tabs, tabId, tabPanelId } from '@/components/ui/tabs';
+import { PEEK_TABS } from '@/components/entity/peek-tabs';
+import type { PeekTab } from '@/components/entity/peek-tabs';
 import { AboutPanel, ActivityPanel, AttachmentsStrip, CommentsPanel, useWatchers } from '@/components/entity/panels';
 import { Segmented } from '@/components/ui/segmented';
 import {
@@ -439,6 +442,9 @@ export function RecordDetail({
   // #740 AC2 — three tabs (Activity/Comments/About), per Ievgen's answer to the
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
   const [tab, setTab] = useState<'activity' | 'comments' | 'about'>('activity');
+  // Ticket #1277 item 6 — the peek's own tabs: Details (everything the peek already showed) and Comments (the full page's component).
+  // Activity stays on the full page only; the peek has no third tab.
+  const [peekTab, setPeekTab] = useState<PeekTab>('details');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   // #937 — the title is a textarea that grows to its text: a record title wraps, it is never cut to one line with an ellipsis.
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -765,10 +771,24 @@ export function RecordDetail({
           scrollers" failure #462 fixed — that was two scrollers BOTH trying
           to scroll the SAME content; here exactly one of the three regions
           scrolls at a time, by design. */}
+      {peek && (
+        <Tabs
+          label="Item sections"
+          idBase={`peek-${recordId}`}
+          options={PEEK_TABS}
+          value={peekTab}
+          onChange={setPeekTab}
+          className="shrink-0"
+        />
+      )}
       <div className="flex min-h-0 flex-1">
         {/* MAIN: title, status strip, unified fields, collections + rich
             sections, description, attachments. Its own scroll region. */}
-        <div className="min-w-0 flex-1 overflow-y-auto px-[26px] pb-[60px] pt-[22px]" style={{ minWidth: SIDEBAR_MIN_BODY_W }}>
+        <div
+          className={cn('min-w-0 flex-1 overflow-y-auto px-[26px] pb-[60px] pt-[22px]', peek && peekTab !== 'details' && 'hidden')}
+          style={{ minWidth: SIDEBAR_MIN_BODY_W }}
+          {...(peek ? { role: 'tabpanel', id: tabPanelId(`peek-${recordId}`, 'details'), 'aria-labelledby': tabId(`peek-${recordId}`, 'details') } : {})}
+        >
           <div className={cn(pageLayout && 'mx-auto w-full max-w-[720px]')}>
           <div className="mb-4 flex items-center gap-2">
             {/* #675 — this placeholder STAYS faint, and it is measured rather than
@@ -1141,6 +1161,30 @@ export function RecordDetail({
           />
           </div>
         </div>
+
+        {/* Ticket #1277 item 6 — the peek's Comments tab: the SAME CommentsPanel the full page's side panel mounts (read and answer
+            without leaving the view). Mounted only while its tab is selected, so it fetches nothing for a peek nobody reads. */}
+        {peek && peekTab === 'comments' && (
+          <div
+            role="tabpanel"
+            id={tabPanelId(`peek-${recordId}`, 'comments')}
+            aria-labelledby={tabId(`peek-${recordId}`, 'comments')}
+            className="min-w-0 flex-1 overflow-y-auto px-[26px] pb-[60px] pt-[16px]"
+          >
+            {!canComment ? (
+              <p className="text-body text-muted">You can view this item but not comment on it.</p>
+            ) : (
+              <CommentsPanel
+                ws={ws}
+                db={db}
+                rec={recordId}
+                members={memberList}
+                currentUserId={session?.user.id ?? ''}
+                isAdmin={workspace.data?.role === 'admin'}
+              />
+            )}
+          </div>
+        )}
 
         {/* #780 — SIDE: fixed 344px, never flexes, hidden entirely below a
             900px TOTAL width (the artifact's own breakpoint — deliberately

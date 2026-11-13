@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SECTION_LABEL } from './section-label';
+import { PEEK_TABS } from './peek-tabs';
+import { nextTabIndex, tabId, tabPanelId } from '../ui/tabs';
 import { ROW_LABEL_CLS, ROW_VALUE_CLS } from './scalar-fields';
 import { describeScalarChange, formatActivityValue, isEmptyActivityValue } from './activity-format';
 import { DEFAULT_REGIONAL, formatDate, formatDateTime } from '@/lib/format';
@@ -187,6 +189,59 @@ describe('#335 is not reversed: Activity formats at render, what is stored is un
     expect(activityPanel).not.toMatch(/useMutation|api\.(POST|PATCH|PUT|DELETE)/);
     const format = read('activity-format.ts');
     expect(format).not.toMatch(/api\.(POST|PATCH|PUT|DELETE)|fetch\(|useMutation/);
+  });
+});
+
+describe('item 6: the peek has a Comments tab, Activity stays on the full page', () => {
+  const detail = read('record-detail.tsx');
+  const tabs = read('../ui/tabs.tsx');
+
+  it('exactly two peek tabs: Details and Comments. Activity is not one of them', () => {
+    expect(PEEK_TABS.map((t) => t.value)).toEqual(['details', 'comments']);
+    expect(PEEK_TABS.map((t) => t.label)).toEqual(['Details', 'Comments']);
+  });
+
+  it('is a real tablist: role=tablist with a name, role=tab + aria-selected + aria-controls, a roving tabindex, tabpanels named by their tab', () => {
+    expect(tabs).toContain('role="tablist"');
+    expect(tabs).toContain('aria-label={label}');
+    expect(tabs).toContain('role="tab"');
+    expect(tabs).toContain('aria-selected={selected}');
+    expect(tabs).toContain('aria-controls={tabPanelId(idBase, o.value)}');
+    expect(tabs).toContain('tabIndex={selected ? 0 : -1}');
+    expect(detail).toContain("role=\"tabpanel\"");
+    expect(detail).toContain("aria-labelledby={tabId(`peek-${recordId}`, 'comments')}");
+    expect(tabId('p', 'comments')).toBe('p-tab-comments');
+    expect(tabPanelId('p', 'comments')).toBe('p-panel-comments');
+  });
+
+  it('arrow keys move and wrap, Home and End jump, other keys are left alone', () => {
+    expect(nextTabIndex('ArrowRight', 0, 2)).toBe(1);
+    expect(nextTabIndex('ArrowRight', 1, 2)).toBe(0);
+    expect(nextTabIndex('ArrowLeft', 0, 2)).toBe(1);
+    expect(nextTabIndex('Home', 1, 2)).toBe(0);
+    expect(nextTabIndex('End', 0, 2)).toBe(1);
+    expect(nextTabIndex('Tab', 0, 2)).toBeNull();
+    expect(nextTabIndex('a', 0, 2)).toBeNull();
+    expect(nextTabIndex('ArrowRight', 0, 0)).toBeNull();
+  });
+
+  it('the tabs are on the peek only, and the comments tab mounts the SAME CommentsPanel the full page does', () => {
+    expect(detail).toMatch(/\{peek && \(\s*<Tabs/);
+    expect((detail.match(/<CommentsPanel/g) ?? []).length).toBe(2); // the full page's side panel, and the peek's tab
+    expect(detail).toMatch(/peek && peekTab === 'comments'/);
+  });
+
+  it('KEEPS the peek\'s current content: Details is hidden, not unmounted, so a half-typed field survives a look at the comments', () => {
+    expect(detail).toMatch(/peek && peekTab !== 'details' && 'hidden'/);
+  });
+
+  it('KEEPS the trimmed header (ticket #996): Expand, More and Close are still there; no tab replaced them', () => {
+    expect(detail).toContain("'Expand to full page'");
+    expect(detail).toContain('<X className="h-4 w-4" />');
+  });
+
+  it('a peek that cannot comment says so instead of showing a dead composer', () => {
+    expect(detail).toContain('You can view this item but not comment on it.');
   });
 });
 
