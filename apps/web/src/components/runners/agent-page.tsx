@@ -1,7 +1,8 @@
 'use client';
 
+import { entityGateView } from '@/components/quill/entity-gate';
 import { Plus } from 'lucide-react';
-import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -48,6 +49,7 @@ import { RunsOnLine } from './runs-on-line';
  */
 export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const router = useRouter();
+  const qc = useQueryClient();
   const me = useMyUserId();
   const { agents, dbId, myAccess, settingsFieldsReady, loading, error } = useAgents(ws);
   const agent = agents.find((a) => a.id === agentId);
@@ -80,19 +82,10 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const scope = useAgentScope(ws, agentId, readsFacts);
 
   if (loading) return <p className="p-6 text-body text-muted">Loading…</p>;
-  if (error || !agent) {
-    return (
-      <div className="p-6" data-testid="agent-missing">
-        <h1 className="text-title font-semibold text-ink">Agent not found</h1>
-        <p className="mt-2 text-body text-muted">
-          It may have been removed, or you may not have access to it.{' '}
-          <Link className="font-medium text-primary-text underline" href={`/w/${ws}/agents`}>
-            See all agents
-          </Link>
-        </p>
-      </div>
-    );
-  }
+  // #1291 — an agent that is not in the list this person may read is the 404 page (the same one every other missing thing gets);
+  // a list that failed to load says nothing about the agent, so that is a Retry.
+  if (error) return entityGateView({ kind: 'failed', error: null }, () => void qc.invalidateQueries());
+  if (!agent) return entityGateView({ kind: 'gone' });
 
   const isOwner = canChangeRunsOn(agent.ownerId, me);
   const ownerName = isOwner ? 'you' : (members.data?.find((x) => x.user.id === agent.ownerId)?.user.name ?? 'its owner');

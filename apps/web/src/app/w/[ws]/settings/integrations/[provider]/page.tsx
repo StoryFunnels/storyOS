@@ -1,5 +1,6 @@
 'use client';
 
+import { QuillNotFound } from '@/components/quill/not-found-view';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { providerPage, providerPageHref } from '@/lib/provider-pages';
@@ -22,18 +23,8 @@ const AFTER_CONNECT: Record<string, string> = {
 export default function GenericProviderPage() {
   const { ws, provider } = useParams<{ ws: string; provider: string }>();
   const def = providerPage(provider);
-  if (!def || def.backing.kind === 'builtin') {
-    return (
-      <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <p className="text-body text-muted">
-          There is no integration called “{provider}”.{' '}
-          <Link href={`/w/${ws}/settings/integrations`} className="text-ink underline underline-offset-2">
-            Back to Integrations
-          </Link>
-        </p>
-      </div>
-    );
-  }
+  // #1291 — a provider that does not exist is the 404 page (the same one every other missing thing gets), not a one-off sentence.
+  if (!def || def.backing.kind === 'builtin') return <QuillNotFound />;
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-[18px] p-4 sm:p-8">
       <ProviderPageHeader ws={ws} id={def.id} />

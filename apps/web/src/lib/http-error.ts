@@ -28,6 +28,26 @@ function isJsonResponse(res: Response): boolean {
 }
 
 /**
+ * #1291 — StoryOS's own JSON error, with the HTTP status stamped on `error.meta.status`. The SDK client hands back the BODY of a
+ * failed call, not the response, so without this a page could not tell a 404 from a 500 (it would have to guess from a message).
+ * Everything else in the body, and the response's status and headers, are unchanged; a body that is not the envelope is left alone.
+ */
+async function withStatusInEnvelope(res: Response): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await res.clone().json();
+  } catch {
+    return res;
+  }
+  const envelope = (body as { error?: { meta?: Record<string, unknown> } } | null)?.error;
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) return res;
+  const headers = new Headers(res.headers);
+  headers.delete('content-length');
+  const stamped = { ...(body as object), error: { ...envelope, meta: { ...(envelope.meta ?? {}), status: res.status } } };
+  return new Response(JSON.stringify(stamped), { status: res.status, statusText: res.statusText, headers });
+}
+
+/**
  * Wrap a fetch so a 4xx/5xx that is NOT JSON comes back as StoryOS's own error envelope, with a fixed
  * message. A JSON error (StoryOS's envelope) and any success pass through untouched, so every API
  * message the user sees today they still see.
@@ -35,7 +55,8 @@ function isJsonResponse(res: Response): boolean {
 export function withSafeErrors(inner: typeof globalThis.fetch): typeof globalThis.fetch {
   return async (input, init) => {
     const res = await inner(input, init);
-    if (res.status < 400 || isJsonResponse(res)) return res;
+    if (res.status < 400) return res;
+    if (isJsonResponse(res)) return withStatusInEnvelope(res);
     // The body is the proxy's page, not ours: drop it unread.
     void res.body?.cancel().catch(() => undefined);
     return new Response(
