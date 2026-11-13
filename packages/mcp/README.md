@@ -17,7 +17,7 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 | `get_started` | Orientation + a workspace map; with `section` it returns one reference section (the filter cheat-sheet, icons, working notes, a tool's full notes). |
 | `list_workspaces` | Workspaces the token can access. |
 | `list_databases` | Databases in a workspace. |
-| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets. **Read before writing.** |
+| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets: what a write is keyed by. |
 | `search` | Full-text record search — turn a name into a real id. |
 | `query_records` | Filter / sort / paginate records (structured filter AST). |
 | `get_record` | One record in full, by uuid or public number. |

@@ -198,6 +198,13 @@ describe('ticket #1288 - WORKING NOTES: where the behavioural guidance lives now
     expect(WORKING_NOTES_TEXT).toContain('do not retry it');
     expect(WORKING_NOTES_TEXT).toContain('list_installed_packs before install_pack');
     expect(WORKING_NOTES_TEXT).toContain('quote them and never estimate');
+    // the sentences the directory-policy send-back moved OUT of descriptions (each one is behaviour guidance, so it lives here)
+    expect(WORKING_NOTES_TEXT).toContain('create_document holds one page of prose');
+    expect(WORKING_NOTES_TEXT).toContain('install_pack with preview:true first shows per database create / reuse / collision');
+    expect(WORKING_NOTES_TEXT).toContain("archive nothing with mark_notifications on someone's behalf");
+    expect(WORKING_NOTES_TEXT).toContain('edit its when_to_use rather than delete_skill');
+    expect(WORKING_NOTES_TEXT).toContain('Read the run run_agent returns');
+    expect(WORKING_NOTES_TEXT).toContain('set_default_view deliberately after building several views');
   });
 
   it('every tool-shaped name in it is a real tool (a note that names a tool that does not exist is a promise nobody can keep)', () => {

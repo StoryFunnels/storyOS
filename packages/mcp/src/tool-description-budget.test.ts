@@ -215,9 +215,9 @@ describe('ticket #1262 - a short description carries its pointer, and the gramma
     expect(d('create_automation')).toContain('a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled)');
     expect(d('create_automation')).toMatch(/send real email, call any public HTTP API and post to Slack/);
     expect(d('create_automation')).toContain('below 10 is refused');
-    expect(d('install_pack')).toContain('preview:true');
+    expect(d('install_pack')).toContain('`preview: true` reports, changing nothing');
     expect(d('install_pack')).toContain('SWITCHED OFF');
-    expect(d('add_field')).toContain('use `workflow` (not `select`)');
+    expect(d('add_field')).toContain('`workflow` is the type of the one lifecycle status field');
     expect(d('create_source')).toContain('CREDENTIALS NEVER PASS THROUGH THIS TOOL');
     expect(d('create_agent_trigger')).toContain("a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email");
     expect(d('delete_webhook')).toMatch(/permanently/);

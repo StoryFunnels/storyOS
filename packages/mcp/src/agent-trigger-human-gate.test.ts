@@ -64,6 +64,7 @@ describe('create_agent_trigger wording about human_gate (#1183, #1212)', () => {
     // The zod shape is opaque at runtime, so pin the source text of the input description next to the tool.
     const src = readFileSync(fileURLToPath(new URL('./tools.ts', import.meta.url)), 'utf8');
     expect(src).toMatch(/true = "ask me before each run": this trigger never starts a run by itself; a person starts each run/);
-    expect(src).toMatch(/Leave it off \(the default\) for an agent that should wake by itself/);
+    // ticket #1288: this pinned the sentence "Leave it off (the default) for an agent that should wake by itself", which is an instruction; the fact it carried is the default.
+    expect(src).toMatch(/The default is false: the agent wakes by itself/);
   });
 });
