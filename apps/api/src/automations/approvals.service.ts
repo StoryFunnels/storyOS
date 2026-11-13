@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
-import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
@@ -228,10 +228,12 @@ function presentSnapshot(snapshot: unknown): unknown {
   return { ...snap, ...(ctx ? { ctx } : {}), action: presentActionHeaders([snap.action])[0] };
 }
 
-function toDto(row: ApprovalRow, causedBy: PresentedOrigin | null = null) {
+function toDto(row: ApprovalRow, causedBy: PresentedOrigin | null = null, ruleName: string | null = null) {
   return {
     id: row.id,
     rule_id: row.ruleId,
+    /** #1280 — the automation rule's CURRENT name, read at request time (never stored, so a rename shows). null when no rule wrote this approval (an agent proposal, a skill, a button) or the rule was deleted (`rule_id` is then null too). */
+    rule_name: ruleName,
     run_id: row.runId,
     record_id: row.recordId,
     action_index: row.actionIndex,
@@ -578,8 +580,11 @@ export class ApprovalsService implements OnModuleInit {
   private async toDtos(rows: ApprovalRow[]) {
     const origins = rows.map((r) => (r.actionSnapshot as ApprovalActionSnapshot).ctx?.origin ?? null);
     const presented = await presentEventOrigins(this.db, origins.filter((o): o is EventOrigin => Boolean(o)));
+    const ruleIds = [...new Set(rows.map((r) => r.ruleId).filter((v): v is string => Boolean(v)))];
+    const named = ruleIds.length ? await this.db.select({ id: automations.id, name: automations.name }).from(automations).where(inArray(automations.id, ruleIds)) : [];
+    const nameById = new Map(named.map((a) => [a.id, a.name]));
     let next = 0;
-    return rows.map((r, i) => toDto(r, origins[i] ? presented[next++]! : null));
+    return rows.map((r, i) => toDto(r, origins[i] ? presented[next++]! : null, (r.ruleId && nameById.get(r.ruleId)) || null));
   }
 
   /**

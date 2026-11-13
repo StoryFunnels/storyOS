@@ -6,7 +6,7 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { approvals, automationJobs, memberships, notifications, user } from '../src/db/schema';
+import { approvals, automationJobs, automations, memberships, notifications, user } from '../src/db/schema';
 import { AutomationsService } from '../src/automations/automations.service';
 import { ApprovalsService } from '../src/automations/approvals.service';
 import { JobRunnerService } from '../src/automations/job-runner.service';
@@ -283,6 +283,24 @@ describe('approval gate (MN-255)', () => {
     const pendingOnly = (await inject('GET', `/workspaces/${wsId}/approvals?status=pending`)).json();
     expect(pendingOnly.every((a: { status: string }) => a.status === 'pending')).toBe(true);
     expect(pendingOnly.some((a: { id: string }) => a.id === approval.id)).toBe(true);
+  });
+
+  it('#1280: the list names the rule behind each approval (rule_id + its current rule_name); no-rule and deleted-rule approvals list with both null', async () => {
+    const rule = await createRule();
+    const named = (await db.query.automations.findFirst({ where: eq(automations.id, rule.id) }))!;
+    const rec = await createRecordAndSettle('Who is asking');
+    const approval = await pendingApprovalFor(rec.id, rule.id);
+    const row = async (id: string) => ((await inject('GET', `/workspaces/${wsId}/approvals`)).json() as Array<{ id: string; rule_id: string | null; rule_name: string | null }>).find((a) => a.id === id)!;
+    expect(await row(approval.id)).toMatchObject({ rule_id: rule.id, rule_name: named.name });
+    // derived at read time: a rename is visible on the next read, nothing stored to go stale
+    await inject('PATCH', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`, { name: 'Renamed gate' });
+    expect((await row(approval.id)).rule_name).toBe('Renamed gate');
+    // MUST KEEP: an approval no rule wrote (an agent proposal, a skill, a button with no rule) is not an error
+    const [loose] = await db.insert(approvals).values({ workspaceId: wsId, actionIndex: 0, actionSnapshot: { ctx: { databaseId: dbId }, action: { type: 'send_webhook' } }, previewText: 'no rule', approverId: adminId } as never).returning();
+    expect(await row(loose!.id)).toMatchObject({ rule_id: null, rule_name: null });
+    // MUST KEEP: deleting the rule (approvals.rule_id is SET NULL) leaves the approval, with nothing to name
+    await inject('DELETE', `/workspaces/${wsId}/databases/${dbId}/automations/${rule.id}`);
+    expect(await row(approval.id)).toMatchObject({ rule_id: null, rule_name: null });
   });
 
   /**

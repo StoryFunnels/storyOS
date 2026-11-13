@@ -5,7 +5,7 @@ import { connectTestDb } from './helpers/db';
 import { signUpUser } from './helpers/users';
 import { call, joinAs, setRestricted } from './helpers/members';
 import { eq } from 'drizzle-orm';
-import { approvals, comments, databases, notifications } from '../src/db/schema';
+import { approvals, automations, comments, databases, notifications } from '../src/db/schema';
 
 /**
  * Ticket #1250 — My work gains `waiting` (approvals the caller can decide + mentions they have not answered or read) and `assigned_by_me`,
@@ -216,6 +216,55 @@ describe('#1250 waiting', () => {
     const item = w.approvals.items.find((x: { approval_id: string }) => x.approval_id === a.id);
     expect(item, 'the named approver can decide it').toBeTruthy();
     expect(item.record, 'but the record behind it is not theirs to see').toBeNull();
+  });
+
+  // ticket #1280 — the row says WHICH rule is asking. Derived at read time from the live rule: no column to go stale.
+  const rule = async (name: string) =>
+    (await raw.insert(automations).values({ databaseId: tasks, name, enabled: false, trigger: { type: 'record_created' }, actions: [] } as never).returning())[0]!;
+  const waitingItem = async (token: string, id: string) => {
+    const w = await tab(token, 'waiting');
+    const item = w.approvals.items.find((x: { approval_id: string }) => x.approval_id === id);
+    expect(item, 'the approval is listed').toBeTruthy();
+    return item as { rule_id: string | null; rule_name: string | null; preview_text: string };
+  };
+
+  it('#1280 approvals: a rule-gated approval carries the rule id and its CURRENT name; a rename shows up on the next read', async () => {
+    const r = await rule('Notify finance on big deals');
+    const a = await approval(tasks, me.id, { ruleId: r.id });
+    const first = await waitingItem(me.token, a.id);
+    expect(first.rule_id).toBe(r.id);
+    expect(first.rule_name).toBe('Notify finance on big deals');
+    await raw.update(automations).set({ name: 'Notify finance (renamed)' }).where(eq(automations.id, r.id));
+    expect((await waitingItem(me.token, a.id)).rule_name).toBe('Notify finance (renamed)');
+  });
+
+  it('#1280 approvals: MUST KEEP WORKING - an approval with no rule (an agent proposal, a skill) lists with rule_id and rule_name null, not an error', async () => {
+    const a = await approval(tasks, me.id); // no ruleId: the shape every non-automation source writes
+    const item = await waitingItem(me.token, a.id);
+    expect(item.rule_id).toBeNull();
+    expect(item.rule_name).toBeNull();
+    expect(item.preview_text).toBe('Send the thing');
+  });
+
+  it('#1280 approvals: MUST KEEP WORKING - a rule deleted after it asked leaves the approval listed, with null rule_id and rule_name', async () => {
+    const r = await rule('Soon deleted');
+    const a = await approval(tasks, me.id, { ruleId: r.id });
+    await raw.delete(automations).where(eq(automations.id, r.id)); // approvals.rule_id is ON DELETE SET NULL
+    const item = await waitingItem(me.token, a.id);
+    expect(item.rule_id).toBeNull();
+    expect(item.rule_name).toBeNull();
+  });
+
+  it('#1280 approvals: the access rules are unchanged - the unreachable-database guest still gets no record, and the rule name rides with the approval they may decide', async () => {
+    const r = await rule('Secret rule');
+    const rec = await mk('secret record 2', {}, secret);
+    const a = await approval(secret, guest.id, { recordId: rec, ruleId: r.id });
+    const item = (await waitingItem(guest.token, a.id)) as { rule_name: string | null; record?: unknown };
+    expect(item.record).toBeNull();
+    expect(item.rule_name).toBe('Secret rule');
+    // a member who is not the approver never sees the row at all, so never the rule name
+    const other = await tab(bea.token, 'waiting');
+    expect(other.approvals.items.map((x: { approval_id: string }) => x.approval_id)).not.toContain(a.id);
   });
 
   it('mentions: unanswered and unread ones list; a reply, or a read mention notification, clears them', async () => {

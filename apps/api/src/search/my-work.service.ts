@@ -342,9 +342,11 @@ export class MyWorkService {
     const approvalCount = await this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM approvals a WHERE ${approvalWhere}`);
     const approvalRows = await this.db.execute<{
       id: string; record_id: string | null; preview_text: string; created_at: Date; expires_at: Date; database_id: string | null;
+      rule_id: string | null; rule_name: string | null;
     }>(sql`
-      SELECT a.id, a.record_id, a.preview_text, a.created_at, a.expires_at, (a.action_snapshot #>> '{ctx,databaseId}') AS database_id
-      FROM approvals a WHERE ${approvalWhere}
+      SELECT a.id, a.record_id, a.preview_text, a.created_at, a.expires_at, (a.action_snapshot #>> '{ctx,databaseId}') AS database_id,
+             a.rule_id, au.name AS rule_name
+      FROM approvals a LEFT JOIN automations au ON au.id = a.rule_id WHERE ${approvalWhere}
       ORDER BY a.expires_at ASC, a.created_at DESC LIMIT ${MY_WORK_PAGE}
     `);
     const approvalTotal = approvalCount.rows[0]?.n ?? 0;
@@ -362,6 +364,9 @@ export class MyWorkService {
       const reachable = rec ? canReachDb(rec.databaseId) || Boolean(recordGrantIds?.has(rec.id)) : false;
       return {
         approval_id: r.id,
+        // #1280 — which automation is asking, by its current name. Both null for an approval no rule wrote (or whose rule was deleted).
+        rule_id: r.rule_id,
+        rule_name: r.rule_name,
         preview_text: r.preview_text,
         created_at: new Date(r.created_at),
         expires_at: new Date(r.expires_at),
