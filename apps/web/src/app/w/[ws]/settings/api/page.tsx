@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { confirmRevokeToken } from '@/lib/settings-confirmations';
 import { canConnectAi } from '@/lib/settings-nav';
+import { AdvancedSection, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 import { useWorkspace } from '@/lib/queries';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
@@ -44,13 +45,10 @@ export default function ApiSettingsPage() {
   }
   if (!canConnectAi(workspace.data.role)) {
     return (
-      <div className="p-6" data-testid="guests-cannot">
-        <h1 className="text-title font-semibold text-ink">API tokens</h1>
-        <p className="mt-2 max-w-prose text-body text-muted">
-          API tokens are for workspace members and admins. You are a guest here, so you cannot create or manage them. Ask a workspace admin if you need
-          access.
-        </p>
-      </div>
+      <SettingsRefusal title="API tokens" testId="guests-cannot">
+        API tokens are for workspace members and admins. You are a guest here, so you cannot create or manage them. Ask a workspace admin if you need
+        access.
+      </SettingsRefusal>
     );
   }
   return <ApiTokensContent />;
@@ -118,30 +116,15 @@ function ApiTokensContent() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <div className="mb-2 flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-ink">API tokens</h1>
-        <CreateTokenDialog ws={ws} />
-      </div>
-      <p className="mb-4 text-body text-muted">
-        {showOthers
-          ? 'Showing every token on your account, across all your workspaces. A token only works in the workspace it was created for. New tokens are created for this workspace.'
-          : 'Create a token to let an outside tool or script work in this workspace on your behalf — for example a scheduled job or a script you wrote. Most people never need one.'}
-      </p>
-
-      <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-        <summary className="cursor-pointer select-none text-body font-medium text-ink">
-          Advanced / Developer
-        </summary>
-        <p className="mt-2 text-body text-muted">
-          A personal access token acts as you — anything you can do in the app, the token can do
-          through the API. Send it as{' '}
-          <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
-          <a className="underline" href={`${API_URL}/api/docs`} target="_blank" rel="noreferrer">
-            the API
-          </a>
-          .
-        </p>
-      </details>
+      <SettingsPageHeader
+        title="API tokens"
+        lead={
+          showOthers
+            ? 'Showing every token on your account, across all your workspaces. A token only works in the workspace it was created for. New tokens are created for this workspace.'
+            : 'Create a token to let an outside tool or script work in this workspace on your behalf — for example a scheduled job or a script you wrote. Most people never need one.'
+        }
+        action={<CreateTokenDialog ws={ws} />}
+      />
 
       {ready && elsewhere.length > 0 && (
         <label className="mb-3 flex items-center gap-2 text-body text-ink-secondary">
@@ -176,6 +159,20 @@ function ApiTokensContent() {
             </Button>
           </div>
         ))}
+      </div>
+
+      <div className="mt-[18px]">
+      <AdvancedSection title="Advanced" summary="how a token acts, and how to send it">
+        <p className="px-3.5 py-3 text-body text-muted">
+          A personal access token acts as you — anything you can do in the app, the token can do
+          through the API. Send it as{' '}
+          <code className="rounded bg-hover px-1">Authorization: Bearer mn_pat_…</code> against{' '}
+          <a className="underline" href={`${API_URL}/api/docs`} target="_blank" rel="noreferrer">
+            the API
+          </a>
+          .
+        </p>
+      </AdvancedSection>
       </div>
     </div>
   );

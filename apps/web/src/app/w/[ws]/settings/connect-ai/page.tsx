@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AiConnectionsSection } from '@/components/settings/ai-connections-list';
 import { CopyBox, copyToClipboard as copy } from '@/components/settings/copy-box';
-import { SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { AdvancedSection, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 import { NEEDS_RECONNECT_REASON, clientFor, connectBody, useAiConnections } from '@/lib/ai-connections';
 import type { AiConnection } from '@/lib/ai-connections';
 import { ClientLogo } from '@/components/connect-ai-logos';
@@ -298,26 +298,10 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
         </Link>
       </p>
 
-      <details className="mt-3.5 text-label text-muted">
-        <summary className="cursor-pointer font-semibold">Advanced — tokens and self-managed StoryOS</summary>
-        <p className="mt-2 leading-[1.6]">
-          Create a workspace-scoped personal access token (shown once) and send it as{' '}
-          <code className="font-mono text-[11px]">Authorization: Bearer mn_pat_…</code>. On a self-managed
-          deployment, use your own address ending in <code className="font-mono text-[11px]">/mcp</code>. Do
-          not paste a token into the hosted sign-in flow.{' '}
-          <Link
-            className="font-medium text-primary-text underline"
-            href={`/w/${ws}/settings/api`}
-            onClick={() => posthog.capture('mcp_setup_started', { client: 'advanced', auth_path: 'pat' })}
-          >
-            Manage API tokens →
-          </Link>
-        </p>
-      </details>
-
-      <details className="mt-3.5 text-label text-muted">
-        <summary className="cursor-pointer font-semibold">Troubleshooting</summary>
-        <ul className="mt-2 list-disc space-y-1 pl-[18px] leading-[1.7]">
+      <div className="mt-[18px]">
+        <AdvancedSection title="Troubleshooting" summary="if connecting fails">
+          <div className="px-3.5 py-3 text-label text-muted">
+        <ul className="list-disc space-y-1 pl-[18px] leading-[1.7]">
           <li>
             Claude says it couldn’t register with StoryOS — remove the draft connector and add it again. If it
             still fails, open <b>Advanced settings</b>, paste this public Client ID and leave Client Secret empty:
@@ -377,7 +361,28 @@ function ConnectAiContent({ workspaceName }: { workspaceName: string }) {
             <span>{checkMessage}</span>
           </div>
         )}
-      </details>
+          </div>
+        </AdvancedSection>
+      </div>
+      <div className="mt-[18px]">
+        <AdvancedSection title="Advanced" summary="tokens and self-managed StoryOS">
+          <div className="px-3.5 py-3 text-label text-muted">
+        <p className="leading-[1.6]">
+          Create a workspace-scoped personal access token (shown once) and send it as{' '}
+          <code className="font-mono text-[11px]">Authorization: Bearer mn_pat_…</code>. On a self-managed
+          deployment, use your own address ending in <code className="font-mono text-[11px]">/mcp</code>. Do
+          not paste a token into the hosted sign-in flow.{' '}
+          <Link
+            className="font-medium text-primary-text underline"
+            href={`/w/${ws}/settings/api`}
+            onClick={() => posthog.capture('mcp_setup_started', { client: 'advanced', auth_path: 'pat' })}
+          >
+            Manage API tokens →
+          </Link>
+        </p>
+          </div>
+        </AdvancedSection>
+      </div>
     </div>
   );
 }
@@ -408,12 +413,9 @@ export default function ConnectAiPage() {
   }
   if (!canConnectAi(workspace.data.role)) {
     return (
-      <div className="p-6">
-        <h1 className="text-title font-semibold text-ink">Connect your AI</h1>
-        <p className="mt-2 max-w-prose text-body text-muted">
-          Connecting an AI client needs a personal access token, which guests cannot create. Ask a workspace admin if you need access.
-        </p>
-      </div>
+      <SettingsRefusal title="Connect your AI">
+        Connecting an AI client needs a personal access token, which guests cannot create. Ask a workspace admin if you need access.
+      </SettingsRefusal>
     );
   }
   return <ConnectAiContent workspaceName={workspace.data.name} />;
