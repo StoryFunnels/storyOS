@@ -19,7 +19,9 @@
  *  - `operator_config` → state 3: operator-only. The BYO OAuth-app / API-key
  *                        path lives in the self-hosting docs; the gallery does
  *                        NOT surface per-user setup here — just a subtle
- *                        "configured by your admin" hint.
+ *                        "set up by the server operator" hint (the person who sets the
+ *                        env vars is the server's operator, which may not be the
+ *                        workspace admin reading the page: ticket #1285).
  */
 export type ProviderAvailability = 'connectable' | 'operator_config' | 'cloud_only';
 
@@ -40,7 +42,7 @@ export interface AvailabilityPresentation {
 const CLOUD_ONLY_DEFAULT =
   'Available on StoryOS Cloud — this integration isn’t offered on a self-managed deployment.';
 const OPERATOR_CONFIG_DEFAULT =
-  'Configured by your admin — set up in the self-hosting settings, not per user here.';
+  'Set up by whoever runs this StoryOS server, with environment variables (see the self-hosting docs), not per user here.';
 
 /**
  * Map a provider's server-resolved `availability` (plus its optional
@@ -65,7 +67,7 @@ export function presentAvailability(
       return {
         state: availability,
         actionable: false,
-        label: 'Configured by your admin',
+        label: 'Set up by the server operator',
         description: availabilityNote?.trim() || OPERATOR_CONFIG_DEFAULT,
       };
   }

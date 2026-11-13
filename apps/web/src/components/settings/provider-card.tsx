@@ -457,7 +457,7 @@ function ConnectArea({
         const text =
           o.availability === 'cloud_only'
             ? (o.note ?? 'Available on StoryOS Cloud: this integration is not offered on a self-managed deployment.')
-            : (o.note ?? 'Configured by your admin: set up in the self-hosting settings, not per user here.');
+            : (o.note ?? 'Set up by whoever runs this StoryOS server, with environment variables (see the self-hosting docs), not per user here.');
         notes.push(`${o.label} is unavailable. ${text}`);
       }
     }
