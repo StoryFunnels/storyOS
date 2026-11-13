@@ -1,5 +1,6 @@
 'use client';
 
+import { isAlwaysOnField } from '../views/always-on-fields';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useMemo, useRef, useState } from 'react';
 import {
@@ -133,7 +134,8 @@ export function HeaderCell({
   // #224 AC3: hide a column from its own header, not only from the toolbar's Fields
   // panel. Writes the same `hidden_field_ids` the toolbar's HiddenFieldsButton owns
   // — one persisted shape, so the two surfaces can't drift (field-surfaces.md).
-  const canHide = Boolean(config && onPatch);
+  // #1281 — never on the title: it is always shown, and no other control could bring it back.
+  const canHide = Boolean(config && onPatch) && !isAlwaysOnField(field);
   function hideField() {
     if (!config || !onPatch) return;
     if (config.hidden_field_ids.includes(field.id)) return;
