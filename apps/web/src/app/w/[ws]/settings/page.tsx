@@ -43,7 +43,7 @@ export default function SettingsHomePage() {
       <p className="mb-[18px] mt-1 text-body text-muted">
         {workspace.data ? `${workspace.data.name} · you are ${ROLE_WORDS[role ?? ''] ?? `a ${role}`}` : 'Loading…'}
       </p>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2.5" data-testid="settings-home-cards">
+      <div className="grid grid-cols-1 gap-2.5 min-[520px]:grid-cols-2" data-testid="settings-home-cards">
         {cards.map((card) => {
           const Icon = ICONS[card.id] ?? Plug;
           return (
