@@ -52,10 +52,13 @@ export function DueText({
     <span
       data-due={bucket}
       className={cn(
-        'text-meta tabular-nums',
+        // 10px like the design's date, with its 12px line so the row is not held open by the date's leading. The split
+        // (overdue red / today ink / later plain) is the build's own, kept on purpose (ticket #1280 item 4).
+        'text-micro leading-3 tabular-nums',
         bucket === 'today' && 'font-semibold text-ink',
         bucket === 'overdue' && 'font-medium text-error',
-        (bucket === 'later' || bucket === 'done') && 'text-faint',
+        // Muted, not faint: a date is something you read, and --text-faint is 3.2:1 on the page (below the 4.5 bar).
+        (bucket === 'later' || bucket === 'done') && 'text-muted',
       )}
     >
       {bucket === 'today' ? 'Today' : fmtDate(due)}
@@ -94,7 +97,7 @@ export function MyWorkRowButton({
       aria-current={selected === 'explicit' ? 'true' : undefined}
       style={tint ? { boxShadow: `inset 3px 0 0 ${tint}` } : undefined}
       className={cn(
-        'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
+        'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-2.5 text-left hover:bg-hover',
         selected === 'explicit' && 'bg-active',
         selected === 'implicit' && 'md:bg-active',
       )}
@@ -103,10 +106,10 @@ export function MyWorkRowButton({
         <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
       </span>
       <span className="min-w-0 flex-1">
-        <span data-mw-title className="block truncate text-body font-medium text-ink">
+        <span data-mw-title className="block truncate text-body font-semibold leading-snug text-ink">
           {record.title || 'Untitled'}
         </span>
-        <span className="block truncate text-label text-muted">{meta}</span>
+        <span className="block truncate text-label leading-tight text-muted">{meta}</span>
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">
         {facets.state && <FacetCell field={facets.stateField} row={row} />}
