@@ -13,6 +13,7 @@ import { RecordsService } from '../records/records.service';
 import { DatabasesService } from '../databases/databases.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { NO_RULE, presentRules, ruleFor, type PresentedRule } from './rule-visibility';
+import { readApprovalSnapshot, snapshotDatabaseId, unreadableApprovalError, UNKNOWN_REQUEST_TEXT, type ParsedApprovalSnapshot } from './approval-snapshot';
 import type { AgentPrincipal } from '../agents/agent-principal';
 import type { AgentStep, ProposedAction } from '../agents/agent-runtime';
 import { JobRunnerService } from './job-runner.service';
@@ -220,17 +221,17 @@ export interface CreateApprovalInput {
 
 /** #1068 — a rendered send_webhook/http_request snapshot holds the real header values
  * and URL userinfo. The API returns them masked; execution reads the row itself. */
-function presentSnapshot(snapshot: unknown): unknown {
-  const snap = snapshot as Partial<ApprovalActionSnapshot> | null;
-  if (!snap || typeof snap !== 'object' || !snap.action) return snapshot;
+function presentSnapshot(snap: ApprovalActionSnapshot): unknown {
   // #1174 — the stored origin is camelCase (it rides in job payloads); the API speaks snake_case.
-  const o = snap.ctx?.origin;
-  const ctx = snap.ctx && o ? { ...snap.ctx, origin: { agent_id: o.agentId, agent_name: o.agentName, run_id: o.runId, runner_id: o.runnerId, runner_name: o.runnerName } } : snap.ctx;
-  return { ...snap, ...(ctx ? { ctx } : {}), action: presentActionHeaders([snap.action])[0] };
+  const o = snap.ctx.origin;
+  const ctx = o ? { ...snap.ctx, origin: { agent_id: o.agentId, agent_name: o.agentName, run_id: o.runId, runner_id: o.runnerId, runner_name: o.runnerName } } : snap.ctx;
+  return { ...snap, ctx, action: presentActionHeaders([snap.action])[0] };
 }
 
-function toDto(row: ApprovalRow, causedBy: PresentedOrigin | null = null, rule: PresentedRule = NO_RULE) {
+function toDto(row: ApprovalRow, parsed: ParsedApprovalSnapshot, causedBy: PresentedOrigin | null = null, rule: PresentedRule = NO_RULE) {
   return {
+    /** #1298 — true when the row's stored snapshot could not be read (see approval-snapshot.ts): `action_snapshot` is null, `preview_text` says "Unknown request", `caused_by` is null, and approve/reject refuse with 422 `approval_unreadable`. The row keeps its id, status, dates and rule: it is listed, never hidden and never a 500. false on every readable row, so the shape is the same either way. */
+    unknown: !parsed.readable,
     id: row.id,
     /** #1280 — which automation rule asked, as THIS viewer may see it (`presentRules`): id + current name for someone who may read that database's automations; for anyone else both null and `rule_label` is the neutral "A rule in <database>". All three null when no rule wrote the approval (an agent proposal, a skill, a button) or the rule was deleted. */
     rule_id: rule.rule_id,
@@ -239,8 +240,8 @@ function toDto(row: ApprovalRow, causedBy: PresentedOrigin | null = null, rule: 
     run_id: row.runId,
     record_id: row.recordId,
     action_index: row.actionIndex,
-    action_snapshot: presentSnapshot(row.actionSnapshot),
-    preview_text: maskUserinfoInText(row.previewText),
+    action_snapshot: parsed.readable ? presentSnapshot(parsed.snapshot) : null,
+    preview_text: parsed.readable ? maskUserinfoInText(row.previewText) : UNKNOWN_REQUEST_TEXT,
     status: row.status,
     approver_id: row.approverId,
     decided_by: row.decidedBy,
@@ -572,19 +573,21 @@ export class ApprovalsService implements OnModuleInit {
       visible === null
         ? rows
         : rows.filter((r) => {
-            const databaseId = (r.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId;
-            return databaseId !== null && visible.has(databaseId); // a database-less approval (a skill) is not a guest's to see
+            const databaseId = snapshotDatabaseId(r.actionSnapshot);
+            // a database-less approval (a skill) is not a guest's to see - and neither is one whose database cannot be read (#1298: fail closed)
+            return typeof databaseId === 'string' && visible.has(databaseId);
           });
     return this.toDtos(membership, scoped);
   }
 
   /** The rows as the API shows them, with `caused_by` resolved for the whole page in one lookup. */
   private async toDtos(membership: Membership, rows: ApprovalRow[]) {
-    const origins = rows.map((r) => (r.actionSnapshot as ApprovalActionSnapshot).ctx?.origin ?? null);
+    const parsed = rows.map((r) => readApprovalSnapshot(r));
+    const origins = parsed.map((p) => (p.readable ? p.snapshot.ctx.origin ?? null : null));
     const presented = await presentEventOrigins(this.db, origins.filter((o): o is EventOrigin => Boolean(o)));
     const rules = await presentRules(this.db, this.access, membership, rows.map((r) => r.ruleId));
     let next = 0;
-    return rows.map((r, i) => toDto(r, origins[i] ? presented[next++]! : null, ruleFor(rules, r.ruleId)));
+    return rows.map((r, i) => toDto(r, parsed[i]!, origins[i] ? presented[next++]! : null, ruleFor(rules, r.ruleId)));
   }
 
   /**
@@ -640,8 +643,8 @@ export class ApprovalsService implements OnModuleInit {
    * proceed.
    */
   async visibleToMembership(membership: Membership, row: ApprovalRow): Promise<boolean> {
-    const databaseId = (row.actionSnapshot as ApprovalActionSnapshot).ctx.databaseId;
-    if (databaseId === null) return false;
+    const databaseId = snapshotDatabaseId(row.actionSnapshot);
+    if (typeof databaseId !== 'string') return false; // #1298 - no database to prove they may know it exists
     const database = await this.db.query.databases.findFirst({
       where: eq(databases.id, databaseId),
       columns: { id: true, spaceId: true },
@@ -740,7 +743,10 @@ export class ApprovalsService implements OnModuleInit {
     reason?: string,
   ): Promise<{ row: ApprovalRow; applied: boolean }> {
     const approval = await this.get(workspaceId, id);
-    const preSnapshot = approval.actionSnapshot as ApprovalActionSnapshot;
+    // #1298 — refused BEFORE decide(): an unreadable row stays pending, because nothing known was approved or rejected.
+    const pre = readApprovalSnapshot(approval);
+    if (!pre.readable) throw unreadableApprovalError();
+    const preSnapshot = pre.snapshot;
     if (preSnapshot.action.type === 'agent_proposed_action') {
       throw new UnprocessableEntityException(
         'This is an agent-run approval — resolve it via POST /agents/runs/:run/approve or /reject',
@@ -763,7 +769,7 @@ export class ApprovalsService implements OnModuleInit {
       );
     }
 
-    const snapshot = updated.actionSnapshot as ApprovalActionSnapshot;
+    const snapshot = preSnapshot; // the row's snapshot is frozen; read once above
     if (verdict === 'approved') {
       await this.jobs.enqueue({
         workspaceId,
