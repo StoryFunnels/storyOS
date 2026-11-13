@@ -82,10 +82,11 @@ pinewood_rig() {
   local before after
   before="$(pw_psql -d "$db" -tAc 'SELECT count(*) FROM drizzle.__drizzle_migrations' 2>/dev/null || echo 0)"
   (cd "$repo" && pw_run_with_db rig "$db" pnpm --filter @storyos/api db:migrate) || pw_refuse "migrate failed on $db"
+  echo
   after="$(pw_psql -d "$db" -tAc 'SELECT count(*) FROM drizzle.__drizzle_migrations' 2>/dev/null || echo 0)"
 
   pw_say "rig ready in $(($(date +%s) - t0))s: $db (template had $before migrations, this checkout added $((after - before)), now $after)"
-  pw_say "template: $(pw_psql -d postgres -tAc "SELECT coalesce(shobj_description(oid, 'pg_database'), '(no provenance)') FROM pg_database WHERE datname = '$tpl'")"
+  pw_say "template provenance: $(pw_psql -d postgres -tAc "SELECT coalesce(shobj_description(oid, 'pg_database'), '(no provenance)') FROM pg_database WHERE datname = '$tpl'")"
   echo "DATABASE_URL=$(pw_db_url "$db")"
 }
 

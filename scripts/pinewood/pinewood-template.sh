@@ -73,11 +73,12 @@ pinewood_template() {
   createdb -h "$PW_PGHOST" -p "$PW_PGPORT" -U "$PW_PGUSER" "$tpl" || pw_refuse "createdb $tpl failed"
 
   (cd "$repo" && pw_run_with_db template "$tpl" pnpm --filter @storyos/api db:migrate) || pw_refuse "migrate failed on $tpl"
+  echo
   if grep -q '"seed:agency"' "$repo/apps/api/package.json"; then
     (cd "$repo" && pw_run_with_db template "$tpl" LOG_LEVEL=warn pnpm --filter @storyos/api seed:agency) || pw_refuse "seed:agency failed on $tpl"
     seeded="migrations + seed:agency"
   fi
-  pw_psql -d postgres -c "COMMENT ON DATABASE \"$tpl\" IS 'pinewood template: sha=$sha, $seeded, built=$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+  pw_psql -d postgres -c "COMMENT ON DATABASE \"$tpl\" IS 'sha=$sha, $seeded, built=$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
   pw_say "template ready: $tpl @ $sha ($seeded) in $(($(date +%s) - t0))s"
 }
 

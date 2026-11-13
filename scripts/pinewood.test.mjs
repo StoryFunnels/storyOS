@@ -243,6 +243,13 @@ test('the rig script refuses a rig name that is not a plain identifier', () => {
   refused(run(RIG, ['Bad', '--repo', repo, '--dry-run']), /not a plain lower-case identifier|must be named/);
 });
 
+test('a rig database must be named storyos_<rig>, and the name is checked where it is used', () => {
+  refused(run(RIG, ['_x', '--repo', clone, '--dry-run']), /must be named storyos_<rig>/);
+  const direct = lib('pw_assert_rig_db marek');
+  assert.equal(direct.code, 2);
+  assert.match(direct.err, /must be named storyos_<rig>/);
+});
+
 test('the rig script needs a StoryOS checkout with dependencies', () => {
   refused(run(RIG, ['marek', '--repo', join(root, 'nowhere'), '--dry-run']), /not a StoryOS checkout/);
 });

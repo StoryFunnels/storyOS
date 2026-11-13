@@ -154,6 +154,7 @@ pinewood_up() {
     pw_say "  created"
   fi
   (cd "$home" && pw_run_with_db stack "$db" pnpm --filter @storyos/api db:migrate) || pw_refuse "migrate failed on $db"
+  echo
 
   pw_say "step 5/7: seed:agency"
   if grep -q '"seed:agency"' "$home/apps/api/package.json"; then
