@@ -1,3 +1,5 @@
+import type { ApprovalRuleFields } from './rule-label';
+
 /**
  * Ticket #869 — what the Inbox may offer for an approval.
  *
@@ -9,7 +11,7 @@
  *
  * Read from the approval's own status, never inferred from the notification or its age.
  */
-export interface ApprovalRow {
+export interface ApprovalRow extends ApprovalRuleFields {
   id: string;
   status: string;
   decided_by?: string | null;

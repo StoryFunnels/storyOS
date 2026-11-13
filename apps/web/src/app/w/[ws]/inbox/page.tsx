@@ -2,41 +2,45 @@
 
 import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, Inbox as InboxIcon, X } from 'lucide-react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Archive, ArchiveRestore, Check, ExternalLink, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { ApprovalGate, ApprovalRowTag, ApprovalRuleTail, useApprovalList } from '@/components/approvals/use-approval-view';
+import { PageHeading } from '@/components/page-heading';
+import { CountBadge } from '@/components/sidebar-ai-section';
+import { APPROVALS_LIST_LIMIT } from '@/lib/sidebar-ai';
+import { INBOX_TABS, inboxSubtitle, inboxTabQuery, waitingApprovalLabel, type InboxTabKey } from '@/components/inbox-page-model';
 import { notificationWho } from '@/components/approvals/caused-by';
 import { WhoAvatar } from '@/components/approvals/who';
 import { PostApprovalPreview } from '@/components/social/post-approval-preview';
 import { Textarea } from '@/components/ui/textarea';
 import { MyWorkEmailOffer } from '@/components/my-work/my-work-email-offer';
 import { cn } from '@/lib/utils';
-import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
+import { notificationVerb } from '@/components/notification-verbs';
 import {
-  NOTIFICATION_VERBS,
+  INBOX_ROW_AVATAR_SIZE,
+  INBOX_ROW_LINE,
+  INBOX_ROW_PADDING,
+  INBOX_ROW_TIME_CLASS,
+  UnreadDot,
+  isUnreadRow,
+  notificationActorClass,
+  notificationRowStateClass,
+} from '@/components/notification-unread';
+import {
   StagedActionView,
   useResolveRun,
   useResolveApproval,
   useStagedAction,
+  useUnreadCount,
   type NotificationRow,
-  type NotificationType,
 } from '@/components/inbox-panel';
 
 interface NotificationsPage {
   data: NotificationRow[];
   next_cursor: string | null;
 }
-
-const TYPE_TABS: Array<{ key: NotificationType | 'all'; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'assigned', label: 'Assigned' },
-  { key: 'mentioned', label: 'Mentions' },
-  { key: 'commented', label: 'Comments' },
-  { key: 'state_changed', label: 'Status' },
-  { key: 'action_approval_requested', label: 'Approvals' },
-];
 
 function relativeTime(iso: string): string {
   const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -55,8 +59,8 @@ export default function InboxPage() {
   const { ws } = useParams<{ ws: string }>();
   const router = useRouter();
   const qc = useQueryClient();
-  const [type, setType] = useState<NotificationType | 'all'>('all');
-  const [archived, setArchived] = useState(false);
+  const [tab, setTab] = useState<InboxTabKey>('all');
+  const { type, archived } = inboxTabQuery(tab);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const list = useInfiniteQuery({
@@ -74,6 +78,27 @@ export default function InboxPage() {
       return data as unknown as NotificationsPage;
     },
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+
+  // Ticket #1279: the page's own two numbers, both real reads. The subtitle is the unread count; the Approvals tab's gold
+  // number is the approval notifications whose approval is still waiting (a lower bound, said so, when either list is paged).
+  const unreadCount = useUnreadCount(ws);
+  const approvalRows = useQuery({
+    queryKey: ['inbox', ws, 'approvals-waiting'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/notifications', {
+        params: { path: { ws }, query: { type: 'action_approval_requested' } },
+      } as never);
+      if (error) throw error;
+      return data as unknown as NotificationsPage;
+    },
+  });
+  const pendingApprovals = useApprovalList(ws, 'pending');
+  const approvalsLabel = waitingApprovalLabel({
+    rows: approvalRows.data?.data,
+    pendingIds: pendingApprovals.data ? new Set(pendingApprovals.data.map((a) => a.id)) : undefined,
+    moreRows: Boolean(approvalRows.data?.next_cursor),
+    pendingCapped: (pendingApprovals.data?.length ?? 0) >= APPROVALS_LIST_LIMIT,
   });
 
   const rows = useMemo(() => (list.data?.pages ?? []).flatMap((p) => p.data), [list.data]);
@@ -133,49 +158,48 @@ export default function InboxPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border-default px-4">
-        <InboxIcon className="h-4 w-4 shrink-0 text-muted" />
-        <h1 className="shrink-0 text-sm font-semibold text-ink">Inbox</h1>
-        {/* Same fix as the view-tab bar (MN-230b): scrolls instead of clipping
-            under a narrow viewport — min-w-0 lets it actually shrink so
-            overflow-x-auto kicks in rather than pushing the header wide. */}
-        <div className="ml-4 flex min-w-0 flex-1 gap-1 overflow-x-auto">
-          {TYPE_TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setType(t.key)}
-              className={cn(
-                'shrink-0 rounded px-2.5 py-1 text-label font-medium',
-                type === t.key ? 'bg-active text-ink' : 'text-muted hover:bg-hover',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <button
-          onClick={() => setArchived((v) => !v)}
-          className={cn(
-            'flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-label font-medium',
-            archived ? 'bg-active text-ink' : 'text-muted hover:bg-hover',
-          )}
-        >
-          <Archive className="h-3.5 w-3.5" /> {archived ? 'Archived' : 'Show archived'}
-        </button>
-      </header>
-
       <div className="flex min-h-0 flex-1">
         {/* LIST — single-pane under md: hidden once a row's been tapped, so the
             detail view replaces it instead of squeezing beside it. Always shown
-            at md+ where both panes fit. */}
+            at md+ where both panes fit. The title, the email offer and the tabs live in THIS pane, above the rows,
+            as in the design reference (ticket #1279 items 3, 4, 6) — not in a full-width toolbar over both panes. */}
         <div
           className={cn(
             'w-full overflow-y-auto border-r border-border-default md:max-w-md md:shrink-0',
             mobileShowDetail && 'hidden md:block',
           )}
         >
-          {/* Ticket #1252: the one-time "email me my work" offer; renders nothing unless every condition is known and true. */}
+          <PageHeading title="Inbox" subtitle={inboxSubtitle(unreadCount.data)} className="px-5 pb-3.5 pt-5" />
+          {/* Ticket #1252: the one-time "email me my work" offer; renders nothing unless every condition is known and true.
+              Above the tabs (ticket #1279 item 6), where the design reference puts it. */}
           <MyWorkEmailOffer ws={ws} />
+          {/* Underlined tabs, 32px, a 2px ink underline on the selected one; scrolls instead of clipping on a narrow pane. */}
+          <div role="tablist" aria-label="Notification type" className="mx-5 mb-2 flex gap-0.5 overflow-x-auto border-b border-border-default">
+            {INBOX_TABS.map((t) => {
+              const selectedTab = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedTab}
+                  onClick={() => {
+                    setTab(t.key);
+                    setSelectedId(null);
+                  }}
+                  className={cn(
+                    '-mb-px flex h-8 shrink-0 items-center gap-1.5 border-b-2 px-2.5 text-label',
+                    selectedTab ? 'border-ink font-semibold text-ink' : 'border-transparent text-muted hover:text-ink',
+                  )}
+                >
+                  {t.label}
+                  {t.key === 'action_approval_requested' && approvalsLabel && (
+                    <CountBadge count={approvalsLabel} hint="approvals waiting for a decision" agent />
+                  )}
+                </button>
+              );
+            })}
+          </div>
           {rows.length === 0 && !list.isLoading && (
             <p className="p-6 text-center text-body text-muted">
               {archived ? 'Nothing archived.' : "You're all caught up 🎉"}
@@ -188,31 +212,33 @@ export default function InboxPage() {
               key={n.id}
               onClick={() => setSelectedId(n.id)}
               className={cn(
-                'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
+                'flex w-full items-start gap-2.5 border-b border-border-default text-left hover:bg-hover',
+                INBOX_ROW_PADDING,
                 notificationRowStateClass({ unread, selected: selected?.id === n.id }),
               )}
             >
-              <WhoAvatar who={notificationWho(n)} size={24} />
+              <WhoAvatar who={notificationWho(n)} size={INBOX_ROW_AVATAR_SIZE} />
               <span className="min-w-0 flex-1">
-                <span className="block text-body text-ink">
+                <span className={cn('block text-body text-ink', INBOX_ROW_LINE)}>
                   {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
                   <span className={notificationActorClass(unread)}>{notificationWho(n).name}</span>{' '}
-                  {NOTIFICATION_VERBS[n.type]}
+                  {notificationVerb(n.type)}
+                  {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRuleTail ws={ws} approvalId={n.ref_id} />}
                   {n.count > 1 ? ` · ${n.count}×` : ''}
                   {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                 </span>
                 {n.record ? (
                   <span
-                    className={cn('block truncate text-label', n.record.deleted ? 'text-faint line-through' : 'text-muted')}
+                    className={cn('block truncate text-label', INBOX_ROW_LINE, n.record.deleted ? 'text-faint line-through' : 'text-muted')}
                   >
                     {n.record.title || 'Untitled'} · {n.record.database_name}
                   </span>
                 ) : (
-                  n.snippet && <span className="block truncate text-label text-muted">{n.snippet}</span>
+                  n.snippet && <span className={cn('block truncate text-label text-muted', INBOX_ROW_LINE)}>{n.snippet}</span>
                 )}
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1">
-                <span className="text-meta text-faint">{relativeTime(n.created_at)}</span>
+                <span className={INBOX_ROW_TIME_CLASS}>{relativeTime(n.created_at)}</span>
                 {unread && <UnreadDot />}
               </span>
             </button>
@@ -254,7 +280,8 @@ export default function InboxPage() {
                   <div>
                     <p className="text-prose text-ink">
                       <span className="font-medium">{selectedWho!.name}</span>{' '}
-                      {NOTIFICATION_VERBS[selected.type]}
+                      {notificationVerb(selected.type)}
+                      {selected.type === 'action_approval_requested' && selected.ref_id && <ApprovalRuleTail ws={ws} approvalId={selected.ref_id} />}
                     </p>
                     <p className="text-label text-faint">{relativeTime(selected.created_at)} ago</p>
                   </div>

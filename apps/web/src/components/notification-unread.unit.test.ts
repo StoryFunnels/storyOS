@@ -1,7 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { isUnreadRow, notificationActorClass, notificationRowStateClass } from './notification-unread';
+import {
+  INBOX_ROW_AVATAR_SIZE,
+  INBOX_ROW_LINE,
+  INBOX_ROW_PADDING,
+  INBOX_ROW_TIME_CLASS,
+  isUnreadRow,
+  notificationActorClass,
+  notificationRowStateClass,
+} from './notification-unread';
 
 /** Ticket #1279 — unread is visible on the full Inbox page, one marker on both surfaces, a selected row stays selected. */
 describe('notificationRowStateClass', () => {
@@ -51,5 +59,35 @@ describe('the slide-over header icon buttons', () => {
   it('both carry an accessible name', () => {
     expect(text).toContain('aria-label="Open full inbox"');
     expect(text).toContain('aria-label="Close inbox"');
+  });
+});
+
+/** Ticket #1279 item 5 — the dense page row, and what it must KEEP. */
+describe('the dense full-page row', () => {
+  const text = read('../app/w/[ws]/inbox/page.tsx');
+  it('is 10px/20px padding, an 18px avatar and a 10px faint time', () => {
+    expect(INBOX_ROW_PADDING).toBe('px-5 py-2.5');
+    expect(INBOX_ROW_AVATAR_SIZE).toBe(18);
+    expect(INBOX_ROW_TIME_CLASS).toBe('text-micro text-faint');
+    expect(INBOX_ROW_LINE).toBe('leading-4');
+  });
+  it('draws the row from those, not from its own 12px padding / 24px avatar / 11px time', () => {
+    expect(text).toMatch(/items-start[^']*',\s*INBOX_ROW_PADDING,/); // the row's own class list takes the shared padding
+    expect(text).not.toMatch(/items-start[^']*\bpy-3\b/);
+    expect(text).toContain('size={INBOX_ROW_AVATAR_SIZE}');
+    expect(text).toContain('INBOX_ROW_TIME_CLASS');
+    expect((text.match(/INBOX_ROW_LINE/g) ?? []).length).toBeGreaterThanOrEqual(4); // import + the actor line + the record line + the snippet line
+    expect(text).not.toMatch(/WhoAvatar who=\{notificationWho\(n\)\} size=\{24\}/);
+    expect(text).not.toMatch(/text-meta text-faint/);
+  });
+  it('keeps the unread cues the density change must not cost: dot, heavier actor, selected-over-unread', () => {
+    expect(text).toMatch(/<UnreadDot \/>/);
+    expect(text).toContain('notificationActorClass(unread)');
+    expect(text).toContain('notificationRowStateClass({ unread, selected:');
+  });
+  it('shows an agent with the shared agent mark at the row size, not a re-drawn one', () => {
+    const who = read('./approvals/who.tsx');
+    expect(who).toContain('<AgentAvatar');
+    expect(who).toMatch(/size === 18 \? 'sm'/);
   });
 });
