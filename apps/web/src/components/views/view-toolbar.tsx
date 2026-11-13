@@ -1593,7 +1593,7 @@ export function FiltersSection({
               it is now always both, stacked, each labelled — reading the
               popover top to bottom IS reading the effective filter.
             */}
-            <div ref={filterPanelRef} role="dialog" aria-label="Filter" tabIndex={-1} className="phone-sheet outline-none absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[500px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+            <div ref={filterPanelRef} role="dialog" aria-label="Filter" tabIndex={-1} className="phone-sheet outline-none absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[500px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
               {/* #991 — Dara's header bar: "FILTER" in small mono caps on the left, "N of M applied" on the right.
                   #965 — M is every condition built (either section), N the ones that actually run (not disabled,
                   not unfinished). */}
@@ -2825,7 +2825,7 @@ export function SortButton({
         <>
           <BackLayer dismiss={() => setOpen(false)} />
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} />
-          <div ref={sortPanelRef} role="dialog" aria-label={emptyLabel} tabIndex={-1} className={cn('phone-sheet outline-none absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]', sorts.length > 1 ? 'w-[27.5rem]' : 'w-64')}>
+          <div ref={sortPanelRef} role="dialog" aria-label={emptyLabel} tabIndex={-1} className={cn('phone-sheet outline-none absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-w-[calc(100vw-2rem)] rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)]', sorts.length > 1 ? 'w-[27.5rem]' : 'w-64')}>
             <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
               {/* #427 — it sorts CARDS; column order lives in the Filter panel's Groups section. */}
               <span className={POPOVER_TITLE}>Sort by</span>

@@ -57,3 +57,12 @@ describe('#1281 one heading style across the toolbar popovers', () => {
     expect(ratio(token('--text-faint', 0), token('--bg-card', 0))).toBeLessThan(4.5);
   });
 });
+
+describe('#1281 item 2 one radius across the toolbar popovers', () => {
+  it('Filter and Sort panels use the popover radius the menus and Display already use, not the card radius', () => {
+    expect(toolbar).not.toMatch(/phone-sheet[^"]*rounded-\[var\(--radius-card\)\]/);
+    expect(toolbar.match(/rounded-\[var\(--radius-popover\)\] border border-border-default bg-card shadow-\[var\(--shadow-popover\)\]/g)?.length).toBe(2);
+    expect(readFileSync(join(__dirname, '../ui/popover.tsx'), 'utf8')).toContain('rounded-[var(--radius-popover)]');
+    expect(readFileSync(join(__dirname, '../ui/dropdown-menu.tsx'), 'utf8')).toContain('rounded-[var(--radius-popover)]');
+  });
+});
