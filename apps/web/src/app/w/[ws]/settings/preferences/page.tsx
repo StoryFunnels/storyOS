@@ -6,7 +6,7 @@ import { useTheme } from '@/lib/theme';
 import type { ThemePreference } from '@/lib/theme';
 import { usePreferences, useUpdatePreferences } from '@/lib/preferences';
 import type { UserPreferences } from '@/lib/preferences';
-import { formatDate, formatDateTime, DEFAULT_REGIONAL } from '@/lib/format';
+import { formatDate, formatDateTime, friendlyDateExample, DEFAULT_REGIONAL } from '@/lib/format';
 import { MenuSelect } from '@/components/ui/menu-select';
 import { Segmented } from '@/components/ui/segmented';
 import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
@@ -18,8 +18,9 @@ const THEMES: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
 ];
 
 type Regional = UserPreferences['regional'];
-const DATE_OPTIONS: { value: Regional['dateFormat']; label: string }[] = [
-  { value: 'system', label: 'Friendly (Today, 21 Oct)' },
+/** A function, not a constant: the Friendly example is drawn from today's date in the viewer's own order (ticket #1283 item 1). */
+const dateOptions = (now: Date): { value: Regional['dateFormat']; label: string }[] => [
+  { value: 'system', label: `Friendly (${friendlyDateExample(now)})` },
   { value: 'MDY', label: 'MM/DD/YYYY' },
   { value: 'DMY', label: 'DD/MM/YYYY' },
   { value: 'YMD', label: 'YYYY-MM-DD' },
@@ -79,7 +80,7 @@ export default function PreferencesPage() {
             <MenuSelect
               label="Date format"
               value={regional.dateFormat}
-              options={DATE_OPTIONS}
+              options={dateOptions(new Date())}
               disabled={prefs.isLoading}
               onChange={(v) => setRegional({ dateFormat: v as Regional['dateFormat'] })}
               className="max-w-none min-w-44"
