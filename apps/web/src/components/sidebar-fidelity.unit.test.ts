@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { agentSystemKey, isMembersDatabase } from '@/lib/system-databases';
+import { hiddenSectionModel } from '@/lib/hidden-section';
 
 /**
  * Ticket #1273 — shell fidelity against the prototype (measured at 1270, light). Source-level pins, in the style of the other
@@ -82,5 +84,70 @@ describe('item 5: the search field is 28px tall with 12px text and 9px side padd
   it('KEEPS the finger-sized phone minimum and the ⌘K hint', () => {
     expect(field).toContain('max-md:min-h-11');
     expect(sidebarSrc).toContain('{paletteKeys}');
+  });
+});
+
+describe('item 6: New space / From template move into the Spaces + menu; Members leaves the tree; Hidden only when something is hidden', () => {
+  const menuSrc = read('sidebar-spaces-add-menu.tsx');
+
+  it('the menu carries New space, From template and New group (the group dialog is kept, not dropped)', () => {
+    expect(menuSrc).toMatch(/<DropdownMenuItem[^>]*onSelect=\{onNewSpace\}>[\s\S]*?New space/);
+    expect(menuSrc).toMatch(/<DropdownMenuItem[^>]*onSelect=\{onFromTemplate\}>[\s\S]*?From template/);
+    expect(menuSrc).toMatch(/<DropdownMenuItem[^>]*>[\s\S]*?New group/);
+    expect(menuSrc).toContain('title="New group"');
+  });
+
+  it('the trigger has an accessible name and is a real button (keyboard reachable)', () => {
+    expect(menuSrc).toContain('aria-label="Add to Spaces"');
+    expect(menuSrc).toMatch(/<button\s+type="button"/);
+  });
+
+  it('the tree no longer carries the two rows, and nothing else made a second hand-rolled copy', () => {
+    expect(sidebarSrc).not.toContain('function NewSpaceButton');
+    expect(sidebarSrc).not.toContain('function NewGroupButton');
+    expect(sidebarSrc).not.toMatch(/<LayoutTemplate className="h-3\.5 w-3\.5" \/> From template/);
+    expect(sidebarSrc).not.toMatch(/<Plus className="h-3\.5 w-3\.5" \/> New space/);
+  });
+
+  it('KEEPS the gate: the + is rendered only under the canEdit check the old rows shared (a guest never had them)', () => {
+    expect(sidebarSrc).toMatch(/\{canEdit && \(\s*<SidebarSpacesAddMenu/);
+    expect(sidebarSrc).toMatch(/\{canEdit && galleryOpen && \(\s*<TemplateGalleryDialog/);
+    expect(sidebarSrc).toContain("const canEdit = workspace.data?.role !== 'guest';");
+  });
+
+  it('KEEPS what New space did: untitled space, next colour, marked for focus, opened, drawer closed, error toast', () => {
+    const fn = sidebarSrc.slice(sidebarSrc.indexOf('const createUntitledSpace'), sidebarSrc.indexOf('useSidebarNavWidth();'));
+    for (const piece of ['UNTITLED_SPACE', 'nextSpaceColor(spaces.data ?? [])', 'markNewSpace(created.id)', 'router.push(`/w/${ws}/s/${created.id}`)', 'onCloseMobile?.()', "toast.error('Could not create space')"]) {
+      expect(fn).toContain(piece);
+    }
+  });
+
+  it('Members: left out of the space\'s database list by the system flag, never by name alone', () => {
+    expect(sidebarSrc).toMatch(/agentSystemKey\(d\) === null && !isMembersDatabase\(d\)/);
+    expect(isMembersDatabase({ name: 'Members', isSystem: true })).toBe(true);
+    expect(isMembersDatabase({ name: ' members ', isSystem: true })).toBe(true);
+  });
+
+  it('KEEPS a person\'s OWN database called "Members" (no flag), and every other system database, in the tree', () => {
+    expect(isMembersDatabase({ name: 'Members', isSystem: false })).toBe(false);
+    expect(isMembersDatabase({ name: 'Members' })).toBe(false);
+    expect(isMembersDatabase({ name: 'Tasks', isSystem: true })).toBe(false);
+    expect(isMembersDatabase(null)).toBe(false);
+    // The Agentic OS databases are still handled by their own predicate, untouched.
+    expect(agentSystemKey({ name: 'Agents', isSystem: true })).toBe('agents');
+    expect(agentSystemKey({ name: 'Members', isSystem: true })).toBeNull();
+  });
+
+  it('Hidden renders nothing at zero and a collapsed section when something is hidden', () => {
+    const none = hiddenSectionModel({ spaces: [{ id: 's1' }], databases: [], isHidden: () => false, systemOnlySpaceIds: new Set() });
+    expect(none.count).toBe(0);
+    const some = hiddenSectionModel({ spaces: [{ id: 's1' }], databases: [], isHidden: (k, id) => k === 'space' && id === 's1', systemOnlySpaceIds: new Set() });
+    expect(some.count).toBe(1);
+    expect(sidebarSrc).toContain('if (count === 0) return null;');
+    expect(sidebarSrc).toContain('const [open, setOpen] = useState(false);'); // collapsed unless this person opened it
+  });
+
+  it('records the platform-monospace ruling where the tier label lives (no font file)', () => {
+    expect(read('sidebar-tier-label.tsx')).toContain('platform stack is ACCEPTED');
   });
 });
