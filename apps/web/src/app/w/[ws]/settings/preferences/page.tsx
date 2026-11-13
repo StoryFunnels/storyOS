@@ -39,9 +39,10 @@ const WEEK_OPTIONS: { value: Regional['firstDayOfWeek']; label: string }[] = [
 
 /**
  * Preferences (ticket #1189, Dara's #974 design): one box, one row per preference, the words on the left and the control on the
- * right. Every choice the page offered is still offered. The theme is the drawn segmented control; the three regional choices have
- * options too long to sit in a segmented control on a phone (a friendly date format, "System default"), so they use the product's own
- * menu, the same `MenuSelect` the rest of Settings uses instead of the browser's native select (Dara's ruling on ticket #1191).
+ * right. Every choice the page offered is still offered. A choice of two or three short options is the drawn segmented control,
+ * as in the design: the theme and the time format (ticket #1283 item 2). The date format (four options, one of them a sentence) and
+ * the first day of the week (four, including a day the design leaves out) keep the product's own menu, the same `MenuSelect` the
+ * rest of Settings uses instead of the browser's native select (Dara's ruling on ticket #1191).
  */
 export default function PreferencesPage() {
   const { preference, setPreference } = useTheme();
@@ -87,13 +88,11 @@ export default function PreferencesPage() {
             />
           </SettingsRow>
           <SettingsRow title="Time format" description={`12-hour or 24-hour clock. Now: ${formatDateTime(new Date(), regional, { relative: false })}`}>
-            <MenuSelect
+            <Segmented
               label="Time format"
               value={regional.timeFormat}
-              options={TIME_OPTIONS}
-              disabled={prefs.isLoading}
-              onChange={(v) => setRegional({ timeFormat: v as Regional['timeFormat'] })}
-              className="max-w-none min-w-44"
+              onChange={(v) => setRegional({ timeFormat: v })}
+              options={TIME_OPTIONS.map((o) => ({ ...o, disabled: prefs.isLoading }))}
             />
           </SettingsRow>
           <SettingsRow title="Week starts on" description="The first day of the week, where one is shown.">
