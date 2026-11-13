@@ -157,3 +157,36 @@ describe('item 10: the comment send button has an accessible name', () => {
     expect(send).toContain('disabled={post.isPending}');
   });
 });
+
+describe('#335 is not reversed: Activity formats at render, what is stored is untouched (Otto, 2026-11-13)', () => {
+  const entry = { from: '2026-11-13', to: '2026-11-20', extra: { keep: ['me'] } };
+  const frozen = (o: unknown): unknown => {
+    if (o && typeof o === 'object') {
+      Object.values(o).forEach(frozen);
+      Object.freeze(o);
+    }
+    return o;
+  };
+
+  it('formatting an entry never changes it: a deep-frozen history entry goes through unchanged and still holds the RAW value', () => {
+    const before = JSON.stringify(entry);
+    frozen(entry); // a write in strict mode would throw
+    expect(describeScalarChange(entry, 'date', nobody, dates)).toEqual({
+      kind: 'changed',
+      from: formatDate('2026-11-13', DEFAULT_REGIONAL),
+      to: formatDate('2026-11-20', DEFAULT_REGIONAL),
+    });
+    expect(JSON.stringify(entry)).toBe(before);
+    expect(entry.from).toBe('2026-11-13'); // the stored value is still the ISO string, not the display one
+  });
+
+  it('the Activity panel hands the API rows to the formatter as they came: no map, no write, no mutation in the read path', () => {
+    const panels = read('panels.tsx');
+    const activityPanel = panels.slice(panels.indexOf('export function ActivityPanel'), panels.indexOf('export function MentionedIn'));
+    expect(activityPanel).toContain('return (data as unknown as { data: ActivityEntry[] }).data;');
+    expect(activityPanel).not.toMatch(/useMutation|api\.(POST|PATCH|PUT|DELETE)/);
+    const format = read('activity-format.ts');
+    expect(format).not.toMatch(/api\.(POST|PATCH|PUT|DELETE)|fetch\(|useMutation/);
+  });
+});
+
