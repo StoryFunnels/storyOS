@@ -87,7 +87,8 @@ describe('item 2 (derived guard): no 13px label class in any file that renders a
 
   it('the drag ghost and the inline rename input match the 12px row label', () => {
     expect(sidebarSrc).toMatch(/px-2 py-\[3px\] text-label text-ink shadow/);
-    expect(sidebarSrc).toMatch(/px-1 py-0\.5 text-label text-ink"/);
+    // The inline rename input is the shared RenameInput (ticket #1301): its 12px label size is pinned here.
+    expect(read('ui/rename-input.tsx')).toMatch(/px-1 py-0\.5 text-label text-ink'/);
   });
 });
 

@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { RenameInput, RENAME_INPUT_KEY_GUARDS, RENAME_INPUT_POINTER_GUARDS, renameKeyDown } from '@/components/ui/rename-input';
 import { api } from '@/lib/api';
 import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
@@ -1270,6 +1271,7 @@ function SpaceSection({
   };
 
   const [renaming, setRenaming] = useState(false);
+  const renameChosen = useRef(false);
   /**
    * #922 — whether either hover-revealed menu (+ or …) is open. The actions are `display: none`
    * unless the row is hovered or has focus, and an open menu has neither: its content is a
@@ -1804,7 +1806,7 @@ function SpaceSection({
         }
       >
         {renaming ? (
-          <RenameInline
+          <RenameInput
             initial={space.name}
             onDone={(name) => {
               setRenaming(false);
@@ -1903,8 +1905,21 @@ function SpaceSection({
                   </button>
                 </DropdownMenuTrigger>
               </Tooltip>
-              <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+              <DropdownMenuContent
+                onCloseAutoFocus={(e) => {
+                  // #1301 — Rename swaps the header for an input; the menu must not hand focus back to the ⋯ trigger.
+                  if (renameChosen.current) e.preventDefault();
+                  renameChosen.current = false;
+                }}
+              >
+                <DropdownMenuItem
+                  onSelect={() => {
+                    renameChosen.current = true;
+                    setRenaming(true);
+                  }}
+                >
+                  Rename
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setDescribing(true)}>
                   {space.description ? 'Edit description' : 'Add description'}
                 </DropdownMenuItem>
@@ -2318,9 +2333,11 @@ function PromptDialog({
               autoFocus
               value={val}
               onChange={(e) => setVal(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') confirm();
-              }}
+              aria-label="Name"
+              // #1301 — the same guard as every inline rename input (Enter confirms, Escape closes, nothing else leaves).
+              onKeyDown={(e) => renameKeyDown(e, { commit: confirm, cancel: onClose })}
+              {...RENAME_INPUT_KEY_GUARDS}
+              {...RENAME_INPUT_POINTER_GUARDS}
               className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none focus:border-border-strong"
             />
           )}
@@ -2868,7 +2885,7 @@ function DatabaseRow({
       }
     >
       {renaming ? (
-        <RenameInline
+        <RenameInput
           initial={db.name}
           onDone={(name) => {
             setRenaming(false);
@@ -2943,7 +2960,7 @@ function DatabaseRow({
           label={db.name}
           contentClassName="w-56"
           actions={[
-            { label: 'Rename', onSelect: () => setRenaming(true), hidden: !schemaEditable },
+            { label: 'Rename', onSelect: () => setRenaming(true), opensInlineInput: true, hidden: !schemaEditable },
             {
               // #524 — fires immediately, no dialog and no name prompt, matching
               // the view/record duplicate precedent (view-tab.tsx) rather than
@@ -3088,26 +3105,6 @@ function DatabaseRow({
   );
 }
 
-function RenameInline({ initial, onDone }: { initial: string; onDone: (name: string) => void }) {
-  const [value, setValue] = useState(initial);
-  return (
-    <input
-      autoFocus
-      // #717 — plain `rounded` bypassed the radius token; --radius-control is
-      // the fix, not the `<Input>` primitive (its `sm` size would also swap
-      // this compact px-1/py-0.5/border-strong treatment for a restyle).
-      className="w-full rounded-[var(--radius-control)] border border-border-strong bg-card px-1 py-0.5 text-label text-ink"
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => onDone(value.trim())}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onDone(value.trim());
-        if (e.key === 'Escape') onDone(initial);
-      }}
-    />
-  );
-}
-
 /**
  * #742 finding 08 — "three marks, three jobs, no overlap": a coloured letter
  * mark is how a GROUP (and, per the same finding, a SPACE) is told apart from
@@ -3178,7 +3175,7 @@ function GroupHeaderRow({
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <LetterMark name={group.name} color={group.color} />
         {renaming ? (
-          <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
+          <RenameInput initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
         ) : (
           <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-meta font-semibold uppercase tracking-wider text-muted">
             {group.name}
@@ -3189,7 +3186,7 @@ function GroupHeaderRow({
         <SidebarRowMenu
           label={group.name}
           actions={[
-            { label: 'Rename', onSelect: () => setRenaming(true) },
+            { label: 'Rename', onSelect: () => setRenaming(true), opensInlineInput: true },
             {
               label: 'Delete group',
               danger: true,
