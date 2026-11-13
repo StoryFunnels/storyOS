@@ -1081,6 +1081,18 @@ export class AgentsService implements OnModuleInit {
     return (await this.resolveAgent(agentsDb.id, agentRef)).id;
   }
 
+  /**
+   * Ticket #1289: the agent RECORD (owner included) and the Agent Triggers database, for a READ by a caller who is not necessarily an
+   * admin. Unlike `resolveAgentId` this never provisions anything (`ensurePack` would write with a member's authority), and a workspace
+   * with no Agents database, an unknown agent and another workspace's agent are all the same 404.
+   */
+  async readAgentRecord(workspaceId: string, agentRef: string): Promise<{ agent: ProjectedRecord; triggersDbId: string | null }> {
+    const { agentsDb, triggersDb } = await this.findPackDbs(workspaceId);
+    if (!agentsDb) throw new NotFoundException('Agent not found');
+    const agent = await this.resolveAgent(agentsDb.id, agentRef);
+    return { agent, triggersDbId: triggersDb?.id ?? null };
+  }
+
   /** Resolve an agent record by uuid or public number (MN-087 pretty handles). */
   private async resolveAgent(agentsDbId: string, ref: string): Promise<ProjectedRecord> {
     if (UUID_RE.test(ref)) return this.recordsService.get(agentsDbId, ref);

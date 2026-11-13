@@ -893,6 +893,8 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   get_agents: 'read',
   // #1195 — GET /agents/{agent}/scope: where an agent works, resolved now. Read-only; the targets are fields a person edits.
   get_agent_scope: 'read',
+  // #1289 — GET /agents/{agent}/wake-sources: everything that can start an agent. Read-only.
+  get_agent_wake_sources: 'read',
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
@@ -1222,7 +1224,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
          * outward capabilities in words costs one line and is the whole fix.
          */
         // #1260 — the agents paragraph: states and queue behaviour here mirror runners/run-state.ts and wake.constants.ts; update them together.
-        'AGENTS: an agent is a record in the Agents database (agentic_os/agents) — setup_agents provisions it (idempotent), get_agents shows the pack, and you hire an agent with create_record there (ai_mode: Non-AI, Your own AI or StoryOS AI; target_databases / target_spaces say where it works, read the resolved list with get_agent_scope; approval_policy lists what needs a person; monthly_token_budget / monthly_run_cap cap it, empty = no limit). create_agent_trigger wakes it when a record reaches a state or a relation field links it, run_agent / a run_agent automation action starts it, and each wake leaves a run in the Runs database. "Your own AI" agents run on a Runner, a program on the person\'s own computer that is paired in StoryOS Settings by a person (there is no tool for it; list_runners reads yours). A wake with no active, online Runner is queued, not lost: it runs when a Runner is back (cancelled after 7 days unserved). list_agent_wakes gives each wake ONE derived run_state — e.g. running, needs_approval, waiting_for_runner, runner_offline, waiting_for_budget (the agent used its monthly budget; it resumes at the month\'s reset or when the budget is raised), done, failed — and get_agent_wake_summary the counts; the Run records themselves are in get_runs / get_run. Records already in a trigger state before the trigger existed get no wake by themselves: list_agent_catch_up names them and a person starts the catch-up. Held actions appear in list_approvals; only a person decides them. get_my_work lists what is waiting on you.',
+        'AGENTS: an agent is a record in the Agents database (agentic_os/agents) — setup_agents provisions it (idempotent), get_agents shows the pack, and you hire an agent with create_record there (ai_mode: Non-AI, Your own AI or StoryOS AI; target_databases / target_spaces say where it works, read the resolved list with get_agent_scope, and what can wake it (triggers and automation rules, with on/off) with get_agent_wake_sources; approval_policy lists what needs a person; monthly_token_budget / monthly_run_cap cap it, empty = no limit). create_agent_trigger wakes it when a record reaches a state or a relation field links it, run_agent / a run_agent automation action starts it, and each wake leaves a run in the Runs database. "Your own AI" agents run on a Runner, a program on the person\'s own computer that is paired in StoryOS Settings by a person (there is no tool for it; list_runners reads yours). A wake with no active, online Runner is queued, not lost: it runs when a Runner is back (cancelled after 7 days unserved). list_agent_wakes gives each wake ONE derived run_state — e.g. running, needs_approval, waiting_for_runner, runner_offline, waiting_for_budget (the agent used its monthly budget; it resumes at the month\'s reset or when the budget is raised), done, failed — and get_agent_wake_summary the counts; the Run records themselves are in get_runs / get_run. Records already in a trigger state before the trigger existed get no wake by themselves: list_agent_catch_up names them and a person starts the catch-up. Held actions appear in list_approvals; only a person decides them. get_my_work lists what is waiting on you.',
         'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions. ' +
         'Rules REACH OUTSIDE StoryOS — they can send real email, call any public HTTP API, and post to Slack, from scheduled and triggered rules alike, not just from buttons. ' +
         'Actions: set/create/create_records/comment/notify/send_email/send_webhook/http_request/send_slack_message/run_agent. ' +
@@ -6642,6 +6644,26 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/workspaces/{ws}/agents/{agent}/scope', { params: { path: { ws: ws.id, agent } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_agent_wake_sources',
+    {
+      title: 'What can start an agent',
+      description:
+        "Everything that can start an agent, from one call (ticket #1289). `sources[]` holds its agent triggers (`kind: agent_trigger`) and every automation rule that has a run_agent action for it (`kind: automation`). A trigger is a record entering a state, or a relation field linking to the agent: `binding` says which, `enabled` is its on/off (an installed trigger that is off is listed, not hidden), and `human_gate: true` means a person must start each run. A rule carries its `name`, `enabled`, its `database` and its `trigger`: record_created, record_updated (with the watched `field`, null = any), record_linked (with `relation_field` and `direction`) or schedule (with the cadence in `schedule`). Field, option and database labels come back by name; a deleted one has `name: null` (a deleted database `exists: false`) instead of an id standing in for a name. A source on a database the CALLER cannot open is counted in `withheld_count` and never named. A system database (such as Members) is named, but nothing inside it is described. A rule's condition, prompt and other actions are never part of this. Only the agent's manager (the person who owns its record) and workspace admins may read it: anyone else gets the same 'Agent not found' as for an agent that does not exist. It does not say whether a source would fire right now, or whether the agent itself is enabled.",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+      },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/wake-sources', { params: { path: { ws: ws.id, agent } } } as never),
       );
       return text(res);
     }),
