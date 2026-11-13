@@ -86,6 +86,7 @@ import {
   WatchButton,
   WatchMenuItem,
 } from '@/components/entity/record-chrome';
+import { EmptyState } from '@/components/ui/empty-state';
 import { parseRecordParam } from '@/lib/records';
 import {
   clampSidebarWidth,
@@ -1250,7 +1251,7 @@ export function RecordDetail({
               <SortableContext items={sidebarFields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 <div className="flex flex-col gap-0.5 p-1.5">
                   {sidebarFields.length === 0 && (
-                    <p className="px-1.5 py-2 text-label text-muted">No sidebar properties.</p>
+                    <EmptyState variant="list" title="No sidebar properties." />
                   )}
                   {/* #179: mark the first system/audit field that trails a user
                       field so SidebarField can draw a subtle group divider. */}

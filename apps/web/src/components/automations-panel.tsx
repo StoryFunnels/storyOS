@@ -682,9 +682,7 @@ function RuleEditor({
             </button>
           ))}
           {recipes.length === 0 && (
-            <p className="text-label text-muted">
-              No recipes fit this database yet — build a rule from scratch below.
-            </p>
+            <EmptyState variant="list" className="px-0" title="No recipes fit this database yet — build a rule from scratch below." />
           )}
         </div>
         <div className="flex items-center gap-2">

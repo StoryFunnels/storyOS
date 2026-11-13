@@ -31,6 +31,7 @@ import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { DashboardBlockShell } from './dashboard-block-shell';
 import { mergeBlocks, reorderBlocks, splitBlocks } from './dashboard-layout';
 import type { BlockLayout } from '@storyos/schemas';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /** One metric tile in a dashboard view's config (mirrors dashboardTileSchema). */
 export interface DashboardTile {
@@ -511,13 +512,12 @@ export function DashboardView({
       )}
 
       {isEmpty && (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="text-sm text-muted">Nothing on this dashboard yet.</p>
-          {!readOnly && (
-            <p className="text-body text-muted">
-              Add a metric tile (count, sum, average) or a chart grouped by a field.
-            </p>
-          )}
+        <div className="py-10">
+          <EmptyState
+            variant="big"
+            title="Nothing on this dashboard yet."
+            body={readOnly ? undefined : 'Add a metric tile (count, sum, average) or a chart grouped by a field.'}
+          />
         </div>
       )}
 

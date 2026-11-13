@@ -5,6 +5,7 @@ import { MessageSquarePlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parsePatch, toSplitRows } from './diff-parse';
 import type { DiffRow } from './diff-parse';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export type DiffMode = 'unified' | 'split';
 
@@ -37,9 +38,7 @@ export function DiffView({
 
   if (!patch) {
     return (
-      <div className="p-4 text-body text-muted">
-        No diff to show — binary file, or GitHub declined to compute one (very large change).
-      </div>
+      <EmptyState variant="list" className="p-4" title="No diff to show — binary file, or GitHub declined to compute one (very large change)." />
     );
   }
 
