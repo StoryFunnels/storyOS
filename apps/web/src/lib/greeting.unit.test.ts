@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dayPart, firstName, greeting } from './greeting';
+import { dayPart, firstName, greeting, homeSubLine } from './greeting';
+import { DEFAULT_REGIONAL } from './format';
 
 const at = (h: number, m: number) => new Date(2026, 10, 13, h, m, 0);
 
@@ -43,5 +44,25 @@ describe('greeting', () => {
     expect(greeting(at(19, 0), null)).toBe('Good evening');
     expect(greeting(at(9, 0), '')).toBe('Good morning');
     expect(greeting(at(9, 0), '   ')).toBe('Good morning');
+  });
+});
+
+describe('homeSubLine (ticket #1274) — the date, then the workspace', () => {
+  const tue = new Date(2026, 9, 20, 15, 0); // Tuesday 20 October 2026
+  const gb = { ...DEFAULT_REGIONAL, dateFormat: 'DMY' as const };
+  const us = { ...DEFAULT_REGIONAL, dateFormat: 'MDY' as const };
+
+  it('is the long date, a middle dot, the workspace name', () => {
+    expect(homeSubLine(tue, 'Pinewood Studio', gb)).toBe('Tuesday, 20 October · Pinewood Studio');
+    expect(homeSubLine(tue, 'Pinewood Studio', us)).toBe('Tuesday, October 20 · Pinewood Studio');
+  });
+
+  it('is only the date when there is no workspace name, never a dangling separator', () => {
+    expect(homeSubLine(tue, undefined, gb)).toBe('Tuesday, 20 October');
+    expect(homeSubLine(tue, '   ', gb)).toBe('Tuesday, 20 October');
+  });
+
+  it('is only the name when the date is invalid', () => {
+    expect(homeSubLine(new Date('nope'), 'Pinewood Studio', gb)).toBe('Pinewood Studio');
   });
 });

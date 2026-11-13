@@ -20,7 +20,7 @@ import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { takePendingShare } from '@/lib/pending-share';
 import { useSession } from '@/lib/auth-client';
-import { greeting } from '@/lib/greeting';
+import { greeting, homeSubLine } from '@/lib/greeting';
 import { ShareWorkspaceCard } from '@/components/onboarding/share-workspace-card';
 import { BLOCK_CARD, BLOCK_TITLE, WorkspaceHomeBlocks } from '@/components/workspace-home-blocks';
 
@@ -125,7 +125,13 @@ export default function WorkspaceHome() {
       <h1 className="text-[22px] font-bold leading-[normal] tracking-[-0.44px] text-ink">
         {greetingText ?? '\u00a0'}
       </h1>
-      <p className="mb-8 mt-1 text-body text-muted">{workspace.data?.name ?? 'StoryOS'}</p>
+      {/* The date is the browser's today, so — like the greeting — it exists only after mount (`now`); until then the
+          line shows the workspace name alone, then gains the date. */}
+      <p className="mb-8 mt-1 text-body text-muted">
+        {now
+          ? homeSubLine(now, workspace.data?.name ?? 'StoryOS', preferences.data?.regional)
+          : (workspace.data?.name ?? 'StoryOS')}
+      </p>
 
       {showShare && <ShareWorkspaceCard ws={ws} onDone={() => setShowShare(false)} />}
 

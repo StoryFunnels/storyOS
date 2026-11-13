@@ -2,7 +2,7 @@
 process.env.TZ = 'America/Los_Angeles';
 
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REGIONAL, formatDate, formatDateTime, type Regional } from './format';
+import { DEFAULT_REGIONAL, formatDate, formatDateTime, formatLongDate, type Regional } from './format';
 
 const NOW = new Date(2026, 9, 21, 12, 0); // Wed 21 Oct 2026, noon local
 const sys: Regional = DEFAULT_REGIONAL;
@@ -77,5 +77,39 @@ describe('formatDateTime', () => {
   it('uses the 12-hour clock when asked', () => {
     const out = formatDateTime(new Date(2026, 9, 22, 14, 30), { ...sys, timeFormat: '12h' }, { now: NOW });
     expect(out).toMatch(/^Tomorrow, 0?2:30\s?PM$/i);
+  });
+});
+
+describe('formatLongDate, the weekday form (ticket #1274)', () => {
+  const tue = new Date(2026, 9, 20, 12, 0); // Tuesday 20 October 2026
+  const gb: Regional = { ...DEFAULT_REGIONAL, dateFormat: 'DMY' };
+  const us: Regional = { ...DEFAULT_REGIONAL, dateFormat: 'MDY' };
+
+  it('en-GB (DD/MM/YYYY) is "Tuesday, 20 October" and en-US (MM/DD/YYYY) is "Tuesday, October 20", comma included', () => {
+    expect(formatLongDate(tue, gb)).toBe('Tuesday, 20 October');
+    expect(formatLongDate(tue, us)).toBe('Tuesday, October 20');
+  });
+
+  it('system and YMD follow the viewer locale (the same Intl words, a comma after the weekday)', () => {
+    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(tue);
+    const dayMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' }).format(tue);
+    expect(formatLongDate(tue)).toBe(`${weekday}, ${dayMonth}`);
+    expect(formatLongDate(tue, { ...DEFAULT_REGIONAL, dateFormat: 'YMD' })).toBe(`${weekday}, ${dayMonth}`);
+  });
+
+  it('names the right weekday across month and year boundaries', () => {
+    expect(formatLongDate(new Date(2026, 9, 31, 12), gb)).toBe('Saturday, 31 October');
+    expect(formatLongDate(new Date(2026, 10, 1, 0, 0), gb)).toBe('Sunday, 1 November');
+    expect(formatLongDate(new Date(2026, 11, 31, 23, 59), us)).toBe('Thursday, December 31');
+    expect(formatLongDate(new Date(2027, 0, 1, 0, 0), us)).toBe('Friday, January 1');
+  });
+
+  it('a day-only string is that calendar day, even west of UTC (this file runs in Los Angeles)', () => {
+    expect(formatLongDate('2026-10-20', gb)).toBe('Tuesday, 20 October');
+  });
+
+  it('has no year, and an invalid or empty value is the empty string, never "Invalid Date"', () => {
+    expect(formatLongDate(tue, gb)).not.toMatch(/2026/);
+    for (const bad of [null, undefined, '', 'not a date', new Date('nope')]) expect(formatLongDate(bad, gb)).toBe('');
   });
 });
