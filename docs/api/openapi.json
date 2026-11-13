@@ -10496,7 +10496,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentScopeResponseDto"
+                }
+              }
+            }
           }
         },
         "summary": "Where this agent works, resolved NOW: its named databases plus every user database in its target spaces (a system database such as Members is covered only when named, never by its space; a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
@@ -10504,6 +10511,39 @@
           "agents"
         ],
         "x-min-role": "admin"
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/{agent}/wake-sources": {
+      "get": {
+        "operationId": "AgentsController_getWakeSources",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "description": "The agent record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWakeSourcesResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Everything that can start this agent: its agent triggers (a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it) and every automation rule with a run_agent action for it (rule name, its trigger: record created, field change, link, schedule or webhook, on/off, its database). Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A source on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name.",
+        "tags": [
+          "agents"
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
@@ -20836,6 +20876,442 @@
             "maxLength": 2000
           }
         }
+      },
+      "AgentScopeResponseDto": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "enforced": {
+            "type": "boolean"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          },
+          "databases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "space_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "via": {
+                  "type": "string",
+                  "enum": [
+                    "database",
+                    "space"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "space_id",
+                "via"
+              ]
+            }
+          },
+          "unresolved": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "withheld_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "agent_id",
+          "enforced",
+          "spaces",
+          "databases",
+          "unresolved",
+          "withheld_count"
+        ]
+      },
+      "AgentWakeSourcesResponseDto": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "agent_trigger"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "binding": {
+                      "type": "string",
+                      "enum": [
+                        "state",
+                        "relation"
+                      ]
+                    },
+                    "database": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "exists": {
+                          "type": "boolean"
+                        },
+                        "is_system": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "exists",
+                        "is_system"
+                      ]
+                    },
+                    "state_field": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "nullable": true
+                    },
+                    "state_option": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "nullable": true
+                    },
+                    "relation_field": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "nullable": true
+                    },
+                    "human_gate": {
+                      "type": "boolean"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "binding",
+                    "database",
+                    "state_field",
+                    "state_option",
+                    "relation_field",
+                    "human_gate",
+                    "enabled"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "automation"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "nullable": true
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "database": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "exists": {
+                          "type": "boolean"
+                        },
+                        "is_system": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "exists",
+                        "is_system"
+                      ]
+                    },
+                    "trigger": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "record_created",
+                            "record_updated",
+                            "record_linked",
+                            "schedule",
+                            "webhook_received"
+                          ]
+                        },
+                        "field": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "nullable": true
+                        },
+                        "relation_field": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "nullable": true
+                        },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "link",
+                            "unlink",
+                            null
+                          ],
+                          "nullable": true
+                        },
+                        "schedule": {
+                          "type": "object",
+                          "properties": {
+                            "every": {
+                              "type": "string",
+                              "enum": [
+                                "minutes",
+                                "hour",
+                                "day",
+                                "week"
+                              ]
+                            },
+                            "minutes": {
+                              "type": "number"
+                            },
+                            "at": {
+                              "type": "string"
+                            },
+                            "weekday": {
+                              "type": "number"
+                            },
+                            "weekdays": {
+                              "type": "array",
+                              "items": {
+                                "type": "number"
+                              }
+                            },
+                            "between": {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string"
+                                },
+                                "to": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "from",
+                                "to"
+                              ]
+                            },
+                            "timezone": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "every"
+                          ],
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "field",
+                        "relation_field",
+                        "direction",
+                        "schedule"
+                      ],
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "name",
+                    "label",
+                    "enabled",
+                    "database",
+                    "trigger"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "built_in"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "reason",
+                    "title",
+                    "description"
+                  ]
+                }
+              ]
+            }
+          },
+          "withheld_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "agent_id",
+          "sources",
+          "withheld_count"
+        ]
       },
       "ProposeDto": {
         "type": "object",

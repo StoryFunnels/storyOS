@@ -12,6 +12,7 @@ import { RelationsModule } from '../relations/relations.module';
 import { SkillsModule } from '../skills/skills.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { AgentScopeService } from './agent-scope';
+import { AgentWakeSourcesService } from './agent-wake-sources';
 import { AgentsController } from './agents.controller';
 import { AgentsService } from './agents.service';
 import { ArchitectController } from './architect.controller';
@@ -78,6 +79,7 @@ import { TyronChatClientResolver } from './tyron/tyron-chat-client-resolver';
   providers: [
     AgentsService,
     AgentScopeService,
+    AgentWakeSourcesService,
     ArchitectService,
     AgentTriggerSubscriber,
     TyronThreadsService,

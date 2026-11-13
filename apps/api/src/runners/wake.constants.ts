@@ -21,6 +21,47 @@ export const WAKE_REASONS = [
 ] as const;
 export type WakeReason = (typeof WAKE_REASONS)[number];
 
+/**
+ * Ticket #1289 (Otto, 2026-11-13) - how each wake reason shows up in "everything that can start an agent" (`GET .../agents/{a}/wake-sources`).
+ *
+ * `CONFIGURED_WAKE_REASONS` are the ones somebody SET UP, so the endpoint lists the configured items themselves (an Agent Triggers
+ * record is `state_change` or `assigned`; a `run_agent` rule is `automation`). Every OTHER reason is built in: it exists for every
+ * agent with nothing to configure, and `BUILT_IN_WAKE_SOURCES` is its fixed entry.
+ *
+ * The table is typed `Record<Exclude<WakeReason, Configured>, ...>`, so adding a reason to WAKE_REASONS above is a COMPILE error here until
+ * it is classified: the wake code and the endpoint read the same list, and the endpoint cannot quietly stop being complete.
+ */
+export const CONFIGURED_WAKE_REASONS = ['state_change', 'assigned', 'automation'] as const satisfies readonly WakeReason[];
+export type ConfiguredWakeReason = (typeof CONFIGURED_WAKE_REASONS)[number];
+export type BuiltInWakeReason = Exclude<WakeReason, ConfiguredWakeReason>;
+
+export const BUILT_IN_WAKE_SOURCES: Record<BuiltInWakeReason, { title: string; description: string }> = {
+  mention: {
+    title: '@mention in a comment',
+    description: 'A person writes a comment that @mentions the agent on a record they and the agent can both see. Nothing to set up.',
+  },
+  manual: {
+    title: 'Run now, or delegate a record',
+    description: 'A person starts the agent by hand: "Run now" on its page, the run_agent tool, or delegating a record to it. Both arrive as a manual run.',
+  },
+  approval_decided: {
+    title: 'An approval it asked for is decided',
+    description: 'The agent proposed an action that needed a person to approve it; approving or rejecting it wakes the agent to carry on with the decision.',
+  },
+  must_comment: {
+    title: 'Comment backstop',
+    description: 'A run on a record ended without commenting on it, so the agent is woken once more and asked to say what it did.',
+  },
+  retry: {
+    title: 'Woken again while running',
+    description: 'Something woke the agent while it was already running, so it gets exactly one more pass for it afterwards.',
+  },
+  catch_up: {
+    title: 'Catch-up',
+    description: 'A person clicks catch-up for records that were already in a trigger state before any wake could be made for them.',
+  },
+};
+
 export const WAKE_STATUSES = ['queued', 'claimed', 'done', 'failed', 'canceled'] as const;
 export type WakeStatus = (typeof WAKE_STATUSES)[number];
 
