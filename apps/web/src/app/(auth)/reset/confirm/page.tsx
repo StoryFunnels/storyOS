@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { authClient } from '@/lib/auth-client';
+import { resetDoneDestination } from '@/lib/invite-join';
 import { AuthCard } from '../../auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,7 +24,7 @@ function ConfirmForm() {
     }
     const result = await authClient.resetPassword({ newPassword: password, token });
     if (result.error) setError(result.error.message ?? 'Reset failed');
-    else router.replace('/login');
+    else router.replace(resetDoneDestination(params.get('next'))); // #1302: an invite goes back to its Join screen
   }
 
   return (

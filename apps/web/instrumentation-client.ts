@@ -1,5 +1,6 @@
 import posthog from 'posthog-js';
 import { withSurface } from '@/lib/funnel';
+import { scrubTokensFromEvent } from '@/lib/invite-join';
 
 const token = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
 const host = process.env.NEXT_PUBLIC_POSTHOG_HOST;
@@ -38,6 +39,7 @@ if (!token || !host) {
     // #818 — one place, not per call site: every app event carries which surface sent it. NOT
     // `posthog.register`: a registered property is cleared by `posthog.reset()` (IdentitySync calls
     // it on every identity change) and the first $pageview is captured inside init, before any register.
-    before_send: (event) => withSurface(event),
+    // #1302 — an invite or reset link carries a bearer token in its URL; no event may carry it to PostHog ($current_url, $referrer…).
+    before_send: (event) => withSurface(scrubTokensFromEvent(event)),
   });
 }

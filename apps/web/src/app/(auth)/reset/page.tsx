@@ -1,20 +1,27 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { authClient } from '@/lib/auth-client';
+import { inviteJoinPath, inviteResetRedirect, inviteTokenFromNext } from '@/lib/invite-join';
 import { AuthCard } from '../auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-export default function ResetPage() {
+function ResetForm() {
+  // Ticket #1302 — reached from an invite's Join screen: the reset email must bring the person back to it, token intact.
+  const inviteToken = inviteTokenFromNext(useSearchParams().get('next'));
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    await authClient.requestPasswordReset({ email, redirectTo: '/reset/confirm' });
+    await authClient.requestPasswordReset({
+      email,
+      redirectTo: inviteToken ? inviteResetRedirect(window.location.origin, inviteToken) : '/reset/confirm',
+    });
     setSent(true);
   }
 
@@ -34,10 +41,18 @@ export default function ResetPage() {
         </form>
       )}
       <p className="mt-4 text-body text-muted">
-        <Link className="text-ink underline" href="/login">
+        <Link className="text-ink underline" href={inviteToken ? inviteJoinPath(inviteToken) : '/login'}>
           Back to sign in
         </Link>
       </p>
     </AuthCard>
+  );
+}
+
+export default function ResetPage() {
+  return (
+    <Suspense>
+      <ResetForm />
+    </Suspense>
   );
 }

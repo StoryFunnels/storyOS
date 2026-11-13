@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { safeNextPath } from '@/lib/safe-next';
+import { inviteJoinPath, inviteTokenFromNext } from '@/lib/invite-join';
 import { Suspense, useEffect, useState } from 'react';
 import posthog from 'posthog-js';
 import { useQuery } from '@tanstack/react-query';
@@ -17,7 +18,13 @@ import { Label } from '@/components/ui/label';
 
 function LoginForm() {
   const router = useRouter();
-  const nextUrl = safeNextPath(useSearchParams().get('next')); // #1052: same-site paths only
+  const rawNext = useSearchParams().get('next');
+  const nextUrl = safeNextPath(rawNext); // #1052: same-site paths only
+  // Ticket #1302 — an invite never sees this generic form: the Join screen signs in or creates the account and joins in one action.
+  const inviteToken = inviteTokenFromNext(rawNext);
+  useEffect(() => {
+    if (inviteToken) router.replace(inviteJoinPath(inviteToken));
+  }, [inviteToken, router]);
   const { data: session } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

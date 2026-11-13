@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import posthog from 'posthog-js';
 import {
@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { guestInviteHref } from '@/lib/guest-invite';
+import { heldInviteToken, newWorkspaceGate } from '@/lib/invite-join';
 import { setPendingBuild } from '@/lib/pending-build';
 import { setPendingShare } from '@/lib/pending-share';
 import { cn } from '@/lib/utils';
@@ -126,7 +127,7 @@ function PackChoice({
  * in-workspace gallery. This removes the old split where onboarding promised a
  * static template while the real agentic pack lived elsewhere.
  */
-export default function NewWorkspacePage() {
+function NewWorkspaceForm() {
   const router = useRouter();
   const [name, setName] = useState('');
   /**
@@ -583,4 +584,21 @@ export default function NewWorkspacePage() {
       </form>
     </AuthCard>
   );
+}
+
+/**
+ * Ticket #1302 — there is NEVER a create-workspace step on an invite path. While an invite token is held in this tab the form below
+ * is not rendered at all (it would be one click from a stray empty workspace): the person goes to the Join screen instead. The
+ * hold is only ever set for an invite that is still usable, so this cannot trap anyone behind a dead link.
+ */
+export default function NewWorkspacePage() {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const gate = newWorkspaceGate(heldInviteToken(window.sessionStorage, Date.now()));
+    if (gate.allow) setOpen(true);
+    else router.replace(gate.redirectTo);
+  }, [router]);
+  if (!open) return <main className="flex min-h-screen items-center justify-center text-muted">Loading StoryOS…</main>;
+  return <NewWorkspaceForm />;
 }
