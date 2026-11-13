@@ -786,7 +786,7 @@ export function RecordDetail({
             <textarea
               ref={titleRef}
               rows={1}
-              className="w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-2xl font-semibold text-ink outline-none placeholder:text-faint read-only:cursor-default"
+              className="w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-xl font-bold tracking-[-0.02em] text-ink outline-none placeholder:text-faint read-only:cursor-default sm:text-2xl"
               placeholder="Untitled"
               value={titleDraft ?? record.data.title}
               readOnly={titleReadOnly}

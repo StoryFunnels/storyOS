@@ -64,3 +64,23 @@ describe('item 2: field rows are the design\'s 30px row, label 13px regular', ()
     expect(body).not.toContain('ROW_LABEL_CLS');
   });
 });
+
+describe('item 3: the record title is 24px / 700 with -0.02em tracking (20px on a phone)', () => {
+  const recordDetail = read('record-detail.tsx');
+  const title = recordDetail.slice(recordDetail.indexOf('resize-none overflow-hidden whitespace-pre-wrap'), recordDetail.indexOf('read-only:cursor-default') + 60);
+
+  it('is bold with -0.02em tracking, 20px below the sm breakpoint and 24px from it', () => {
+    expect(title).toContain('font-bold');
+    expect(title).toContain('tracking-[-0.02em]');
+    expect(title).toContain('text-xl');
+    expect(title).toContain('sm:text-2xl');
+    expect(title).not.toContain('font-semibold');
+  });
+
+  it('KEEPS the editable-textarea behaviour: it still wraps, hides overflow, and is read-only aware', () => {
+    expect(title).toContain('whitespace-pre-wrap break-words');
+    expect(title).toContain('overflow-hidden');
+    expect(title).toContain('placeholder:text-faint');
+    expect(title).toContain('read-only:cursor-default');
+  });
+});
