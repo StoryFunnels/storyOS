@@ -7420,9 +7420,10 @@ export interface components {
                 /** @enum {string} */
                 kind: "automation";
                 /** Format: uuid */
-                id: string;
-                name: string;
-                enabled: boolean;
+                id: string | null;
+                name: string | null;
+                label: string;
+                enabled: boolean | null;
                 database: {
                     /** Format: uuid */
                     id: string;
@@ -7456,7 +7457,13 @@ export interface components {
                         };
                         timezone?: string;
                     } | null;
-                };
+                } | null;
+            } | {
+                /** @enum {string} */
+                kind: "built_in";
+                reason: string;
+                title: string;
+                description: string;
             })[];
             withheld_count: number;
         };

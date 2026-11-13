@@ -5,18 +5,27 @@ import { AccessService } from '../access/access.service';
 import type { Db } from '../db/client';
 import { DB } from '../db/db.module';
 import { automations, databases, fields, selectOptions, spaces } from '../db/schema';
+import { presentRules, type PresentedRule } from '../automations/rule-visibility';
 import { RecordsService } from '../records/records.service';
+import { BUILT_IN_WAKE_SOURCES } from '../runners/wake.constants';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AgentsService } from './agents.service';
 
 /**
- * Ticket #1289 (Otto's ruling of 2026-11-12) — EVERYTHING that can start an agent, from one call: its agent triggers (records of the
- * Agent Triggers database, state or relation) and every automation rule with a `run_agent` action for it (record created / updated /
- * linked, a schedule, an inbound webhook). The agent page used to show only the first kind, and said "set in Automations" about the rest.
+ * Ticket #1289 (Otto's rulings of 2026-11-12 and 2026-11-13) — EVERYTHING that can start an agent, from one call: its agent triggers (records
+ * of the Agent Triggers database, state or relation), every automation rule with a `run_agent` action for it (record created / updated /
+ * linked, a schedule, an inbound webhook), and the BUILT-IN ways (@mention, a manual run or delegation, an approval being decided, the
+ * comment backstop, a re-wake, catch-up) as fixed entries. The built-in list is not written here: it is `BUILT_IN_WAKE_SOURCES` next to
+ * `WAKE_REASONS` in wake.constants.ts, typed so a new wake reason cannot be added without an entry. The agent page used to show only the
+ * first kind, and said "set in Automations" about the rest.
  *
  * Who may read it: a workspace admin, or the agent's MANAGER (its owner, `created_by`; ADR-0021 Q2). Any other caller gets the SAME 404
  * an unknown agent gets, so this endpoint is not an oracle for which agents exist. (The route's MinRole is `member`, so a guest is refused
  * by the guard before an agent id is looked at, identically for every id.)
+ *
+ * A rule's NAME, id, on/off state and trigger go through the one shared gate (`presentRules`, rule-visibility.ts: creator on the rule's
+ * database, the check GET .../automations enforces). A manager who may open the database but not read its automations sees only
+ * "A rule in <database>": the entry is there, so the list stays complete, and says nothing about how the rule is built.
  *
  * What it leaves out, deliberately:
  *  - a source on a database the CALLER cannot open: counted in `withheld_count`, never named (listing it would say it exists);
@@ -54,7 +63,7 @@ export class AgentWakeSourcesService {
     // The manager or an admin; everyone else is told the agent does not exist.
     if (membership.role !== 'admin' && agent.created_by !== membership.userId) throw new NotFoundException('Agent not found');
 
-    const raw: Array<{ databaseId: string; build: (db: DbInfo, labels: Labels) => AgentWakeSource }> = [];
+    const raw: Array<{ databaseId: string; ruleId?: string; build: (db: DbInfo, labels: Labels, rule?: PresentedRule) => AgentWakeSource }> = [];
 
     // 1. Agent triggers: records of the Agent Triggers database that point at this agent.
     if (triggersDbId) {
@@ -104,14 +113,21 @@ export class AgentWakeSourcesService {
       const trig = (r.trigger ?? {}) as Record<string, unknown>;
       raw.push({
         databaseId: r.databaseId,
-        build: (db, labels) => ({
-          kind: 'automation',
-          id: r.id,
-          name: r.name,
-          enabled: r.enabled,
-          database: dbOut(db),
-          trigger: automationTrigger(trig, labels),
-        }),
+        ruleId: r.id,
+        build: (db, labels, rule) => {
+          // `rule` comes from the shared gate. No `rule_name` = this reader may not read the database's automations: the entry stays,
+          // naming nothing but the database.
+          const readable = rule?.rule_name != null;
+          return {
+            kind: 'automation',
+            id: readable ? r.id : null,
+            name: readable ? r.name : null,
+            label: rule?.rule_label ?? 'A rule',
+            enabled: readable ? r.enabled : null,
+            database: dbOut(db),
+            trigger: readable ? automationTrigger(trig, labels) : null,
+          };
+        },
       });
     }
 
@@ -122,6 +138,12 @@ export class AgentWakeSourcesService {
     const labelDbs = [...visible].filter((id) => infos.get(id)?.exists && !infos.get(id)?.isSystem);
     const labels = await this.labelsFor(labelDbs);
 
+    const shown = raw.filter((r) => {
+      const info = infos.get(r.databaseId);
+      return !(info?.exists && !visible.has(r.databaseId));
+    });
+    const presented = await presentRules(this.db, this.access, membership, shown.map((r) => r.ruleId));
+
     const sources: AgentWakeSource[] = [];
     let withheld = 0;
     for (const r of raw) {
@@ -131,9 +153,11 @@ export class AgentWakeSourcesService {
         withheld += 1;
         continue;
       }
-      sources.push(r.build(info, labels.for(r.databaseId)));
+      sources.push(r.build(info, labels.for(r.databaseId), r.ruleId ? presented.get(r.ruleId) : undefined));
     }
-    sources.sort((a, b) => rank(a) - rank(b) || label(a).localeCompare(label(b)) || a.id.localeCompare(b.id));
+    sources.sort((a, b) => rank(a) - rank(b) || label(a).localeCompare(label(b)) || (idOf(a) ?? '').localeCompare(idOf(b) ?? ''));
+    // The built-in ways: the same for any reader, always last, in the order wake.constants.ts lists them.
+    for (const [reason, entry] of Object.entries(BUILT_IN_WAKE_SOURCES)) sources.push({ kind: 'built_in', reason, title: entry.title, description: entry.description });
     return { agent_id: agent.id, sources, withheld_count: withheld };
   }
 
@@ -237,5 +261,6 @@ function automationTrigger(trig: Record<string, unknown>, labels: Labels) {
 }
 
 /** Agent triggers first (they are the agent's own), then rules; stable inside each. */
-const rank = (s: AgentWakeSource) => (s.kind === 'agent_trigger' ? 0 : 1);
-const label = (s: AgentWakeSource) => (s.kind === 'automation' ? s.name : (s.database.name ?? ''));
+const rank = (s: AgentWakeSource) => (s.kind === 'agent_trigger' ? 0 : s.kind === 'automation' ? 1 : 2);
+const label = (s: AgentWakeSource) => (s.kind === 'automation' ? s.label : s.kind === 'agent_trigger' ? (s.database.name ?? '') : s.title);
+const idOf = (s: AgentWakeSource) => (s.kind === 'built_in' ? s.reason : s.id);

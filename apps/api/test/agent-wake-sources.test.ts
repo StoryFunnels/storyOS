@@ -3,9 +3,10 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { agentWakeSourcesResponseSchema } from '@storyos/schemas';
 import { createTestApp } from './helpers/app';
 import { signUpUser } from './helpers/users';
-import { call, joinAs, setRestricted } from './helpers/members';
+import { call, grant, joinAs, setRestricted } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
+import { BUILT_IN_WAKE_SOURCES, CONFIGURED_WAKE_REASONS, WAKE_REASONS } from '../src/runners/wake.constants';
 
 /**
  * ticket #1289 (Otto's ruling of 2026-11-12) — GET /workspaces/{ws}/agents/{agent}/wake-sources lists EVERYTHING that can start an
@@ -24,7 +25,7 @@ let other: Person;
 let guest: Person;
 let stranger: { token: string };
 let aiMode = '';
-let ticketsDb = '', secretDb = '', membersNamedDb = '';
+let ticketsDb = '', secretDb = '', membersNamedDb = '', viewerDb = '', creatorDb = '';
 let stateField = '', todoOpt = '', reviewOpt = '', teamField = '';
 let secretStateField = '';
 const { pool } = connectTestDb();
@@ -86,6 +87,13 @@ beforeAll(async () => {
   await as(admin.token, 'POST', `/workspaces/${ws}/databases/${membersNamedDb}/fields`, { display_name: 'Tier', type: 'select', config: {}, options: [{ label: 'Gold' }] });
 
   manager = await joinAs(app, admin.token, ws, 'WakeSrcManager', 'member');
+  // #1289 rule-name gate: two RESTRICTED databases, the manager holds only `viewer` on one and `creator` on the other.
+  viewerDb = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space, name: 'Ops board' })).json().id;
+  creatorDb = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space, name: 'Build board' })).json().id;
+  await setRestricted(app, admin.token, ws, 'database', viewerDb);
+  await setRestricted(app, admin.token, ws, 'database', creatorDb);
+  await grant(app, admin.token, ws, manager.id, { database_id: viewerDb }, 'viewer');
+  await grant(app, admin.token, ws, manager.id, { database_id: creatorDb }, 'creator');
   other = await joinAs(app, admin.token, ws, 'WakeSrcOther', 'member');
   guest = await joinAs(app, admin.token, ws, 'WakeSrcGuest', 'guest', [{ database_id: ticketsDb, role: 'viewer' }]);
   stranger = await signUpUser(app, 'WakeSrcStranger');
@@ -127,7 +135,7 @@ describe('#1289 what an agent is woken by', () => {
     // the contract the SDK and the agent page are built on
     expect(() => agentWakeSourcesResponseSchema.parse(out)).not.toThrow();
     const byId = new Map(out.sources.map((s) => [s.id, s]));
-    expect(out.sources.length).toBe(11); // 5 triggers + 6 rules, the secret database's trigger and rule included (an admin opens it)
+    expect(out.sources.length).toBe(11 + Object.keys(BUILT_IN_WAKE_SOURCES).length); // 5 triggers + 6 rules, the secret database's trigger and rule included (an admin opens it), then the built-in entries
 
     expect(byId.get(trigState)).toMatchObject({ kind: 'agent_trigger', binding: 'state', enabled: true, human_gate: false, database: { id: ticketsDb, name: 'Tickets', exists: true, is_system: false }, state_field: { id: stateField, name: 'Status' }, state_option: { id: todoOpt, name: 'Todo' }, relation_field: null });
     expect(byId.get(trigGated)).toMatchObject({ binding: 'state', human_gate: true, state_option: { name: 'In review' } });
@@ -154,7 +162,7 @@ describe('#1289 what an agent is woken by', () => {
     expect(out.sources.some((s) => s.name === 'Rival rule' || s.name === 'No agent here')).toBe(false);
     const rival = (await as(admin.token, 'POST', `/workspaces/${ws}/databases/${agentsDbId}/records/query`, { filter: { and: [{ field: 'name', op: 'eq', value: 'Somebody else agent' }] }, limit: 1 })).json().data?.[0];
     const rivalOut = await sourcesOf(admin.token, rival.id);
-    expect(rivalOut.sources.map((s) => s.kind).sort()).toEqual(['agent_trigger', 'automation']);
+    expect(rivalOut.sources.map((s) => s.kind).sort()).toEqual(['agent_trigger', 'automation', ...Object.keys(BUILT_IN_WAKE_SOURCES).map(() => 'built_in')]);
   });
 
   it('the manager reads it too, narrowed by what the MANAGER can open: a hidden database is counted, never named', async () => {
@@ -162,7 +170,7 @@ describe('#1289 what an agent is woken by', () => {
     expect(res.statusCode, res.body).toBe(200);
     const out = res.json();
     expect(out.withheld_count).toBe(2); // the secret database's trigger and rule
-    expect(out.sources.length).toBe(9);
+    expect(out.sources.length).toBe(9 + Object.keys(BUILT_IN_WAKE_SOURCES).length);
     expect(res.body).not.toContain(SECRET_RULE);
     expect(res.body).not.toContain(SECRET_DB_NAME);
     expect(res.body).not.toContain('Salary band');
@@ -207,7 +215,11 @@ describe('#1289 what an agent is woken by', () => {
 
   it('an agent with nothing wired answers an empty list, not an error', async () => {
     const bare = await mkAgent(manager.token, 'Bare agent');
-    expect(await sourcesOf(manager.token, bare.id)).toEqual({ agent_id: bare.id, sources: [], withheld_count: 0 });
+    // nothing configured, yet never an empty list: the built-in ways to start any agent are always there
+    const out = await sourcesOf(manager.token, bare.id);
+    expect(out.withheld_count).toBe(0);
+    expect(out.sources.every((s) => s.kind === 'built_in')).toBe(true);
+    expect(out.sources.map((s) => s.reason)).toEqual(Object.keys(BUILT_IN_WAKE_SOURCES));
   });
 });
 
@@ -261,5 +273,98 @@ describe('#1289 what a source may reveal', () => {
     const row = (await sourcesOf(admin.token, agent.id)).sources.find((s) => s.id === rule)!;
     expect(row.trigger.field).toEqual({ id: secretStateField, name: null });
     expect((await read(manager.token, agent.id)).body).not.toContain('Salary band');
+  });
+});
+
+
+/**
+ * #1289 (Otto, 2026-11-13) - the rule-name gate. A rule's name, id, on/off state and trigger are readable only by whoever may read that
+ * database's automations (creator on it, the check GET .../automations enforces; rule-visibility.ts, shared with /approvals and My work).
+ * Everyone else gets the entry, so the list stays complete, as "A rule in <database>". The manager here is a MEMBER holding only `viewer`
+ * on one restricted database and `creator` on another; before this, the viewer saw the rule's name, on/off state and trigger type.
+ */
+describe('#1289 a rule is named only for someone who may read its database automations', () => {
+  let agent: { id: string; number: number };
+  let viewerRule = '', creatorRule = '';
+  const VIEWER_RULE = 'Quarterly close alarm';
+  beforeAll(async () => {
+    agent = await mkAgent(manager.token, 'Gate agent');
+    viewerRule = await mkRule(viewerDb, VIEWER_RULE, { type: 'schedule', every: 'day', at: '08:15', timezone: 'Europe/Kyiv' }, agent.id);
+    creatorRule = await mkRule(creatorDb, 'Build watcher', { type: 'record_created' }, agent.id);
+  }, 60_000);
+
+  it('a manager with only VIEWER on the database sees the entry, labelled by the database, with no name, id, state or trigger', async () => {
+    const res = await read(manager.token, agent.id);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((await as(manager.token, 'GET', `/workspaces/${ws}/databases/${viewerDb}/automations`)).statusCode).toBe(403); // the gate this follows
+    const rows = (res.json() as { sources: Array<Record<string, any>> }).sources.filter((x) => x.kind === 'automation' && x.database.id === viewerDb);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ kind: 'automation', id: null, name: null, label: 'A rule in Ops board', enabled: null, database: { id: viewerDb, name: 'Ops board', exists: true, is_system: false }, trigger: null });
+    expect(res.body).not.toContain(VIEWER_RULE);
+    expect(res.body).not.toContain(viewerRule);
+    expect(res.body).not.toContain('08:15');
+    expect(res.body).not.toContain('Europe/Kyiv');
+    expect(() => agentWakeSourcesResponseSchema.parse(res.json())).not.toThrow();
+  });
+
+  it('KEPT: the same manager with CREATOR on another database gets that rule in full, and an admin gets both', async () => {
+    expect((await as(manager.token, 'GET', `/workspaces/${ws}/databases/${creatorDb}/automations`)).statusCode).toBe(200);
+    const mine = (await sourcesOf(manager.token, agent.id)).sources.find((x) => x.id === creatorRule);
+    expect(mine).toMatchObject({ kind: 'automation', name: 'Build watcher', label: 'Build watcher', enabled: true, trigger: { type: 'record_created' } });
+    const all = (await sourcesOf(admin.token, agent.id)).sources;
+    expect(all.find((x) => x.id === viewerRule)).toMatchObject({ name: VIEWER_RULE, label: VIEWER_RULE, enabled: true, trigger: { type: 'schedule', schedule: { every: 'day', at: '08:15' } } });
+    expect(all.find((x) => x.id === creatorRule)).toMatchObject({ name: 'Build watcher' });
+  });
+
+  it('the gate is the automations gate: the name is shown exactly when GET .../automations answers 200', async () => {
+    const listed = async (db: string) => (await as(manager.token, 'GET', `/workspaces/${ws}/databases/${db}/automations`)).statusCode === 200;
+    const sources = (await sourcesOf(manager.token, agent.id)).sources.filter((x) => x.kind === 'automation');
+    const shown = (db: string) => sources.find((x) => x.database.id === db)?.name != null;
+    expect(shown(viewerDb)).toBe(await listed(viewerDb));
+    expect(shown(creatorDb)).toBe(await listed(creatorDb));
+    expect(await listed(viewerDb)).toBe(false);
+    expect(await listed(creatorDb)).toBe(true);
+  });
+});
+
+/**
+ * #1289 (Otto, 2026-11-13) - "everything that can start an agent" has to be true: the built-in ways are listed as fixed entries, and they
+ * come from the wake code's own reason list rather than a second copy that can drift from it.
+ */
+describe('#1289 every way to wake an agent has an entry', () => {
+  it('every wake reason the runtime knows is either configured (listed per source) or has exactly one built-in entry, never both, never neither', () => {
+    const configured: string[] = [...CONFIGURED_WAKE_REASONS];
+    const builtIn = Object.keys(BUILT_IN_WAKE_SOURCES);
+    expect(builtIn.filter((r) => configured.includes(r)), 'a reason is either configured or built in').toEqual([]);
+    expect([...configured, ...builtIn].sort()).toEqual([...WAKE_REASONS].sort());
+    for (const entry of Object.values(BUILT_IN_WAKE_SOURCES)) {
+      expect(entry.title.length).toBeGreaterThan(3);
+      expect(entry.description.length).toBeGreaterThan(20);
+    }
+  });
+
+  it('the endpoint lists every built-in way, the same for an admin and for the manager, after the configured sources', async () => {
+    const bare = await mkAgent(manager.token, 'Built-in agent');
+    for (const who of [admin, manager]) {
+      const out = await sourcesOf(who.token, bare.id);
+      expect(out.sources.map((x) => x.reason)).toEqual(Object.keys(BUILT_IN_WAKE_SOURCES));
+      expect(out.sources.map((x) => x.reason)).toEqual(expect.arrayContaining(['mention', 'manual', 'approval_decided', 'catch_up', 'must_comment', 'retry']));
+      expect(() => agentWakeSourcesResponseSchema.parse(out)).not.toThrow();
+    }
+    const withConfig = await sourcesOf(admin.token, (await mkAgent(manager.token, 'Mixed agent')).id);
+    expect(withConfig.sources.at(-1)!.kind).toBe('built_in');
+  });
+
+  it('a wake the runtime really emits (an @mention in a comment) is one the endpoint lists', async () => {
+    const mentioned = await mkAgent(manager.token, 'Mentioned agent');
+    const rec = (await as(admin.token, 'POST', `/workspaces/${ws}/databases/${ticketsDb}/records`, { values: { name: 'Please look' } })).json().id as string;
+    const posted = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${ticketsDb}/records/${rec}/comments`, {
+      body: { format: 'blocknote', doc: [{ type: 'paragraph', content: [{ type: 'mention', props: { kind: 'agent', id: mentioned.id, label: 'agent' } }] }] },
+    });
+    expect(posted.statusCode, posted.body).toBe(201);
+    const emitted = (await pool.query('select distinct reason from agent_wakes where agent_id = $1', [mentioned.id])).rows.map((r) => r.reason as string);
+    expect(emitted).toEqual(['mention']); // a real wake exists; if the mention path stopped waking, this fails rather than passing vacuously
+    const listed = (await sourcesOf(admin.token, mentioned.id)).sources.filter((x) => x.kind === 'built_in').map((x) => x.reason);
+    for (const reason of emitted) expect(listed).toContain(reason);
   });
 });

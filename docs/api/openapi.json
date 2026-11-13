@@ -21104,13 +21104,19 @@
                     "id": {
                       "type": "string",
                       "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "nullable": true
                     },
                     "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "label": {
                       "type": "string"
                     },
                     "enabled": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "nullable": true
                     },
                     "database": {
                       "type": "object",
@@ -21252,16 +21258,44 @@
                         "relation_field",
                         "direction",
                         "schedule"
-                      ]
+                      ],
+                      "nullable": true
                     }
                   },
                   "required": [
                     "kind",
                     "id",
                     "name",
+                    "label",
                     "enabled",
                     "database",
                     "trigger"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "built_in"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "reason",
+                    "title",
+                    "description"
                   ]
                 }
               ]

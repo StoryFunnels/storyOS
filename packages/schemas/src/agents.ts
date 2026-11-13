@@ -59,41 +59,68 @@ export const agentTriggerWakeSourceSchema = z.object({
   enabled: z.boolean(),
 });
 
-/** One automation rule with a run_agent action for this agent. Its condition, prompt and other actions are never part of this. */
+/**
+ * One automation rule with a run_agent action for this agent. Its condition, prompt and other actions are never part of this.
+ *
+ * Who may read the rule is the SAME gate as `GET /databases/{db}/automations` (creator on its database; tickets #1280 and #1289, Otto
+ * 2026-11-13). A reader without it gets `name`, `id`, `enabled` and `trigger` all null and only `label`: "A rule in <database>". `label` is
+ * therefore the one thing to render; `name === null` is how a client tells a withheld rule from a readable one.
+ */
 export const automationWakeSourceSchema = z.object({
   kind: z.literal('automation'),
-  /** The rule's id. */
-  id: z.uuid(),
-  name: z.string(),
-  enabled: z.boolean(),
+  /** The rule's id; null when withheld. */
+  id: z.uuid().nullable(),
+  /** The rule's name; null when withheld. */
+  name: z.string().nullable(),
+  /** What to show: the name, or "A rule in <database>" when withheld. */
+  label: z.string(),
+  /** Whether the rule is on; null when withheld. */
+  enabled: z.boolean().nullable(),
   database: wakeSourceDatabaseSchema,
-  trigger: z.object({
-    type: z.enum(['record_created', 'record_updated', 'record_linked', 'schedule', 'webhook_received']),
-    /** record_updated: the one field watched (null = any field). */
-    field: wakeSourceRefSchema.nullable(),
-    /** record_linked: the relation field, and whether a link, an unlink, or both (null) fires it. */
-    relation_field: wakeSourceRefSchema.nullable(),
-    direction: z.enum(['link', 'unlink']).nullable(),
-    /** schedule: the cadence as stored (every, minutes, at, weekday(s), between, timezone). */
-    schedule: z
-      .object({
-        every: z.enum(['minutes', 'hour', 'day', 'week']),
-        minutes: z.number().optional(),
-        at: z.string().optional(),
-        weekday: z.number().optional(),
-        weekdays: z.array(z.number()).optional(),
-        between: z.object({ from: z.string(), to: z.string() }).optional(),
-        timezone: z.string().optional(),
-      })
-      .nullable(),
-  }),
+  /** null when withheld. */
+  trigger: z
+    .object({
+      type: z.enum(['record_created', 'record_updated', 'record_linked', 'schedule', 'webhook_received']),
+      /** record_updated: the one field watched (null = any field). */
+      field: wakeSourceRefSchema.nullable(),
+      /** record_linked: the relation field, and whether a link, an unlink, or both (null) fires it. */
+      relation_field: wakeSourceRefSchema.nullable(),
+      direction: z.enum(['link', 'unlink']).nullable(),
+      /** schedule: the cadence as stored (every, minutes, at, weekday(s), between, timezone). */
+      schedule: z
+        .object({
+          every: z.enum(['minutes', 'hour', 'day', 'week']),
+          minutes: z.number().optional(),
+          at: z.string().optional(),
+          weekday: z.number().optional(),
+          weekdays: z.array(z.number()).optional(),
+          between: z.object({ from: z.string(), to: z.string() }).optional(),
+          timezone: z.string().optional(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+});
+
+/**
+ * A way to start the agent that nobody configured: it applies to every agent. Listed so "everything that can start an agent" is
+ * literally true. `reason` is the runtime's own wake reason (`apps/api/src/runners/wake.constants.ts`), a string here because that list is
+ * owned by the wake code and a second copy in this package would be the drift this entry exists to prevent.
+ */
+export const builtInWakeSourceSchema = z.object({
+  kind: z.literal('built_in'),
+  /** The wake reason the runtime records (mention, manual, approval_decided, must_comment, retry, catch_up). Also the entry's id. */
+  reason: z.string(),
+  title: z.string(),
+  description: z.string(),
 });
 
 /** GET /workspaces/{ws}/agents/{agent}/wake-sources — everything that can start this agent (ticket #1289). */
 export const agentWakeSourcesResponseSchema = z.object({
   agent_id: z.uuid(),
-  sources: z.array(z.discriminatedUnion('kind', [agentTriggerWakeSourceSchema, automationWakeSourceSchema])),
-  /** Sources on databases the caller cannot open: counted, never named. */
+  /** Configured sources (agent triggers, then automation rules), then the built-in ones: the built-in set is the same for any reader. */
+  sources: z.array(z.discriminatedUnion('kind', [agentTriggerWakeSourceSchema, automationWakeSourceSchema, builtInWakeSourceSchema])),
+  /** Configured sources on databases the caller cannot open: counted, never named. */
   withheld_count: z.number().int().min(0),
 });
 export type AgentWakeSourcesResponse = z.infer<typeof agentWakeSourcesResponseSchema>;
