@@ -16,7 +16,8 @@ import { useWorkspace } from '@/lib/queries';
 import { useUninstallPack } from '@/lib/use-uninstall-pack';
 import { confirmUninstallPack } from '@/lib/settings-confirmations';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-visual';
 import { useDateFormat } from '@/lib/preferences';
@@ -143,13 +144,13 @@ export default function PacksPage() {
         <ArrowLeft className="h-3 w-3" /> Home
       </Link>
       <div className="mb-1 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">
+        <h1 className="flex items-center gap-2 text-[22px] font-bold tracking-[-0.02em] text-ink">
           <Package className="h-5 w-5" /> Business Packs
         </h1>
         {canInstall && (
           <Link
             href={`/w/${ws}/packs/submit`}
-            className="flex items-center gap-1.5 text-label text-muted hover:text-ink"
+            className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }))}
           >
             <Upload className="h-3.5 w-3.5" /> Submit a pack
           </Link>
