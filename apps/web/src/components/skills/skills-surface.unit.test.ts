@@ -125,7 +125,10 @@ describe('the public skill page (ticket #866)', () => {
     expect(code(notFound.text)).not.toMatch(/revoked|expired|deleted|never existed/i);
   });
   it('a server failure is not shown as "not found"', () => {
-    expect(code(page.text)).toMatch(/throw new Error\(`public skill read failed/);
+    // Ticket #1291: the read moved into the one shared public fetch, which throws PublicLoadError for anything but a not-found
+    // status (tested per route in app/public-routes-404.unit.test.ts); the page must go through it and keep notFound() for null.
+    expect(code(page.text)).toMatch(/fetchPublicJson<PublicSkill>/);
+    expect(code(page.text)).not.toMatch(/res\.status === 404/);
   });
 });
 

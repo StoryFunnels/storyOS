@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { SERVER_API_URL } from '@/lib/api';
+import { fetchPublicJson } from '@/lib/public-fetch';
 import { PublicViewClient } from './public-view-client';
 import type { PublicViewDef } from './public-view-client';
 
@@ -26,9 +27,8 @@ import type { PublicViewDef } from './public-view-client';
 async function getView(token: string, cursor?: string): Promise<PublicViewDef | null> {
   const url = new URL(`${SERVER_API_URL}/api/v1/public/views/${encodeURIComponent(token)}`);
   if (cursor) url.searchParams.set('cursor', cursor);
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) return null;
-  return (await res.json()) as PublicViewDef;
+  // Ticket #1291: not-found statuses are null (then notFound()); a 5xx or network failure throws to error.tsx, a retry.
+  return fetchPublicJson<PublicViewDef>(url);
 }
 
 export async function generateMetadata({
@@ -38,7 +38,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { token } = await params;
   const def = await getView(token);
-  if (!def) return { title: 'View not found' };
+  if (!def) return { title: 'Page not found' };
   const title = `${def.view.name} — ${def.database.name}`;
   const description = `A shared view from "${def.database.name}", published with StoryOS.`;
   return {
