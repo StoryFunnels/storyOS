@@ -9,9 +9,8 @@ import posthog from 'posthog-js';
 import { useQuery } from '@tanstack/react-query';
 import { authClient, useSession } from '@/lib/auth-client';
 import { api } from '@/lib/api';
-import { AuthCard } from '../auth-card';
+import { AuthCard, AuthMethods } from '../auth-card';
 import { Button } from '@/components/ui/button';
-import { GoogleIcon } from '@/components/ui/google-icon';
 import { GOOGLE_NEW_USER_CALLBACK, GOOGLE_RETURNING_CALLBACK } from '@/lib/funnel';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,9 +32,18 @@ function LoginForm() {
 
   const providers = useQuery({
     queryKey: ['auth-providers'],
-    queryFn: async () =>
-      (await api.GET('/api/v1/auth/providers')).data as { providers: string[] },
+    queryFn: async () => (await api.GET('/api/v1/auth/providers')).data as { providers: string[] },
   });
+
+  // #818 — NOT captured here: a click is not a login (the visitor can abandon the consent screen). The event fires on the
+  // redirect back, in AuthEventBeacon, as user_logged_in for a returning account and user_signed_up for a new one.
+  const onGoogle = () => {
+    void authClient.signIn.social({
+      provider: 'google',
+      callbackURL: GOOGLE_RETURNING_CALLBACK,
+      newUserCallbackURL: GOOGLE_NEW_USER_CALLBACK,
+    });
+  };
 
   useEffect(() => {
     if (session) router.replace(nextUrl);
@@ -56,53 +64,36 @@ function LoginForm() {
 
   return (
     <AuthCard title="Sign in to StoryOS">
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            required
-            className="h-11"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            type="password"
-            required
-            className="h-11"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-        {error && <p className="text-body text-error">{error}</p>}
-        <Button type="submit" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </Button>
-        {providers.data?.providers.includes('google') && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              // #818 — NOT captured here: a click is not a login (the visitor can abandon
-              // the consent screen). The event fires on the redirect back, in AuthEventBeacon,
-              // as user_logged_in for a returning account and user_signed_up for a new one.
-              authClient.signIn.social({
-                provider: 'google',
-                callbackURL: GOOGLE_RETURNING_CALLBACK,
-                newUserCallbackURL: GOOGLE_NEW_USER_CALLBACK,
-              });
-            }}
-          >
-            <GoogleIcon className="h-[18px] w-[18px]" />
-            Continue with Google
+      <AuthMethods onGoogle={providers.data?.providers.includes('google') ? onGoogle : null}>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              required
+              className="h-11"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              required
+              className="h-11"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-body text-error">{error}</p>}
+          <Button type="submit" size="auth" disabled={busy}>
+            {busy ? 'Signing in…' : 'Sign in'}
           </Button>
-        )}
-      </form>
+        </form>
+      </AuthMethods>
       {/* #707 — same tap-target fix as signup's "Sign in" link; py-3 pads each
           toward the 44px guideline without redesigning this line. */}
       <p className="mt-4 text-body text-muted">
@@ -118,7 +109,6 @@ function LoginForm() {
     </AuthCard>
   );
 }
-
 
 export default function LoginPage() {
   return (

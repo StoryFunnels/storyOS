@@ -37,7 +37,7 @@ function ResetForm() {
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-          <Button type="submit">Send reset link</Button>
+          <Button type="submit" size="auth">Send reset link</Button>
         </form>
       )}
       <p className="mt-4 text-body text-muted">

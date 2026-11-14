@@ -41,7 +41,7 @@ function ConfirmForm() {
         />
       </div>
       {error && <p className="text-body text-error">{error}</p>}
-      <Button type="submit">Set new password</Button>
+      <Button type="submit" size="auth">Set new password</Button>
     </form>
   );
 }

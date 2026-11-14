@@ -8,8 +8,15 @@ import { Suspense, useEffect, useState } from 'react';
 import posthog from 'posthog-js';
 import { authClient } from '@/lib/auth-client';
 import { attributeCapturedReferral } from '@/lib/referral';
-import { firstTouchProperties, readFirstTouch } from '@/lib/funnel';
-import { AuthCard } from '../auth-card';
+import {
+  GOOGLE_NEW_USER_CALLBACK,
+  GOOGLE_RETURNING_CALLBACK,
+  firstTouchProperties,
+  readFirstTouch,
+} from '@/lib/funnel';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { AuthCard, AuthMethods } from '../auth-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,6 +35,19 @@ function SignupForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const providers = useQuery({
+    queryKey: ['auth-providers'],
+    queryFn: async () => (await api.GET('/api/v1/auth/providers')).data as { providers: string[] },
+  });
+  // Ticket #1302 — sign-up offers Google first too (same flow as sign-in: the account is created on the way back).
+  const onGoogle = () => {
+    void authClient.signIn.social({
+      provider: 'google',
+      callbackURL: GOOGLE_RETURNING_CALLBACK,
+      newUserCallbackURL: GOOGLE_NEW_USER_CALLBACK,
+    });
+  };
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,45 +71,47 @@ function SignupForm() {
 
   return (
     <AuthCard title="Create your account">
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="name">Name</Label>
-          <Input
-            id="name"
-            required
-            className="h-11"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            required
-            className="h-11"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            type="password"
-            required
-            minLength={8}
-            className="h-11"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-        {error && <p className="text-body text-error">{error}</p>}
-        <Button type="submit" disabled={busy}>
-          {busy ? 'Creating…' : 'Create account'}
-        </Button>
-      </form>
+      <AuthMethods onGoogle={providers.data?.providers.includes('google') ? onGoogle : null}>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              required
+              className="h-11"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              required
+              className="h-11"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              required
+              minLength={8}
+              className="h-11"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-body text-error">{error}</p>}
+          <Button type="submit" size="auth" disabled={busy}>
+            {busy ? 'Creating…' : 'Create account'}
+          </Button>
+        </form>
+      </AuthMethods>
       <p className="mt-4 text-body text-muted">
         Already have an account?{' '}
         {/* #707 — a plain inline link's tap target is just its text's line box
@@ -103,7 +125,6 @@ function SignupForm() {
     </AuthCard>
   );
 }
-
 
 export default function SignupPage() {
   return (

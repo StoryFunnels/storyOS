@@ -20,10 +20,13 @@ import {
 } from '@/lib/invite-join';
 import { acceptInvite, fetchInviteDetails, joinWithToken } from '@/lib/invite-api';
 import type { JoinFailure, JoinResult } from '@/lib/invite-api';
-import { NOT_FOUND_COPY, isUserAlreadyExists, joinFailureMessage, joinModel } from '@/lib/invite-screen';
+import {
+  NOT_FOUND_COPY,
+  isUserAlreadyExists,
+  joinFailureMessage,
+  joinModel,
+} from '@/lib/invite-screen';
 import type { JoinSession } from '@/lib/invite-screen';
-import { Button } from '@/components/ui/button';
-import { GoogleIcon } from '@/components/ui/google-icon';
 import { JoinView, SignedOutForm } from '@/components/invite/join-view';
 import { AuthCard } from '../(auth)/auth-card';
 
@@ -142,7 +145,10 @@ function InviteJoin() {
         callbackURL: inviteVerificationCallback(window.location.origin, token),
       });
       if (!created.error) {
-        posthog.capture('user_signed_up', { method: 'email', ...firstTouchProperties(readFirstTouch(window.sessionStorage)) });
+        posthog.capture('user_signed_up', {
+          method: 'email',
+          ...firstTouchProperties(readFirstTouch(window.sessionStorage)),
+        });
         await attributeCapturedReferral();
         authed = true;
       } else if (!isUserAlreadyExists(created.error)) {
@@ -156,7 +162,11 @@ function InviteJoin() {
       const signedIn = await authClient.signIn.email({ email, password });
       if (signedIn.error) {
         setMode('existing');
-        setError(mode === 'existing' ? (signedIn.error.message ?? 'Sign-in failed') : 'That password does not match the account for this email.');
+        setError(
+          mode === 'existing'
+            ? (signedIn.error.message ?? 'Sign-in failed')
+            : 'That password does not match the account for this email.',
+        );
         setBusy(false);
         return;
       }
@@ -176,19 +186,21 @@ function InviteJoin() {
   }
 
   if (!token) {
-    return <JoinView model={{ kind: 'not_found', ...NOT_FOUND_COPY }} signedIn={Boolean(session?.user)} />;
+    return (
+      <JoinView
+        model={{ kind: 'not_found', ...NOT_FOUND_COPY }}
+        signedIn={Boolean(session?.user)}
+      />
+    );
   }
 
-  const google = providers.data?.providers.includes('google') ? (
-    <Button
-      type="button"
-      variant="secondary"
-      onClick={() => void authClient.signIn.social({ provider: 'google', ...inviteGoogleCallbacks(window.location.origin, token) })}
-    >
-      <GoogleIcon className="h-[18px] w-[18px]" />
-      Continue with Google
-    </Button>
-  ) : null;
+  const onGoogle = providers.data?.providers.includes('google')
+    ? () =>
+        void authClient.signIn.social({
+          provider: 'google',
+          ...inviteGoogleCallbacks(window.location.origin, token),
+        })
+    : null;
 
   return (
     <JoinView
@@ -212,7 +224,7 @@ function InviteJoin() {
             busy={busy}
             error={error}
             forgotHref={resetHrefForInvite(token)}
-            google={google}
+            onGoogle={onGoogle}
           />
         ) : null
       }

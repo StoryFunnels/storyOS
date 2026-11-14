@@ -39,22 +39,48 @@ function tags(src: string, names: string): Array<{ at: number; cls: string }> {
 }
 
 /** A class that sets the button's size: height, padding or a text size. Responsive / state prefixes count too. */
-const SIZING = /(^|[\s'"`])(?:[a-z-]+:)*(?:h|min-h|p|px|py|pt|pb)-(?:\d|\[)|(^|[\s'"`])(?:[a-z-]+:)*text-(?:xs|sm|prose|body|label|meta|caption|\[\d+px\])(?=[\s'"`]|$)/;
+const SIZING =
+  /(^|[\s'"`])(?:[a-z-]+:)*(?:h|min-h|p|px|py|pt|pb)-(?:\d|\[)|(^|[\s'"`])(?:[a-z-]+:)*text-(?:xs|sm|prose|body|label|meta|caption|\[\d+px\])(?=[\s'"`]|$)/;
 
 /**
  * The buttons that keep their own geometry ON PURPOSE. Each is a file plus a fragment of its class string, and a reason. The reasons
  * are the ruling's own classes of exception: icon-only controls, the toolbar (#964, #996), chips and pills, touch targets.
  */
 const EXCEPTIONS: Array<{ file: string; frag: string; why: string }> = [
-  { file: 'components/runners/wake-rules-editor.tsx', frag: 'h-6 w-6 px-0', why: 'icon-only remove control (24px minimum target, #1225)' },
-  { file: 'app/w/[ws]/inbox/page.tsx', frag: 'min-h-[48px]', why: 'phone inbox swipe actions: a 48px touch target, not a desktop button' },
-  { file: 'components/inbox-panel.tsx', frag: 'min-h-[44px]', why: 'phone inbox panel actions: a 44px touch target' },
-  { file: 'components/sidebar.tsx', frag: 'h-[34px] w-[34px]', why: 'the workspace avatar tile: a square icon-only control, not a labelled button' },
-  { file: 'components/sidebar.tsx', frag: 'text-faint hover:border-border-strong', why: 'the search trigger: drawn as an input, it opens the palette' },
-  { file: 'components/entity/mentions.tsx', frag: 'text-meta font-medium text-muted hover:text-ink', why: 'an inline "+N more" chip inside a field, not a button row' },
+  {
+    file: 'components/runners/wake-rules-editor.tsx',
+    frag: 'h-6 w-6 px-0',
+    why: 'icon-only remove control (24px minimum target, #1225)',
+  },
+  {
+    file: 'app/w/[ws]/inbox/page.tsx',
+    frag: 'min-h-[48px]',
+    why: 'phone inbox swipe actions: a 48px touch target, not a desktop button',
+  },
+  {
+    file: 'components/inbox-panel.tsx',
+    frag: 'min-h-[44px]',
+    why: 'phone inbox panel actions: a 44px touch target',
+  },
+  {
+    file: 'components/sidebar.tsx',
+    frag: 'h-[34px] w-[34px]',
+    why: 'the workspace avatar tile: a square icon-only control, not a labelled button',
+  },
+  {
+    file: 'components/sidebar.tsx',
+    frag: 'text-faint hover:border-border-strong',
+    why: 'the search trigger: drawn as an input, it opens the palette',
+  },
+  {
+    file: 'components/entity/mentions.tsx',
+    frag: 'text-meta font-medium text-muted hover:text-ink',
+    why: 'an inline "+N more" chip inside a field, not a button row',
+  },
 ];
 
-const excepted = (file: string, cls: string) => EXCEPTIONS.some((e) => file === e.file && cls.includes(e.frag));
+const excepted = (file: string, cls: string) =>
+  EXCEPTIONS.some((e) => file === e.file && cls.includes(e.frag));
 
 describe('the shared Button is the single source of the size (#1282)', () => {
   it('is 28px tall, 13px, weight 500, with no size variant left to pick', () => {
@@ -77,7 +103,8 @@ describe('the shared Button is the single source of the size (#1282)', () => {
     const bad: string[] = [];
     for (const f of ALL) {
       for (const t of tags(readFileSync(f, 'utf8'), 'Button')) {
-        if (SIZING.test(t.cls) && !excepted(rel(f), t.cls)) bad.push(`${rel(f)}: ${t.cls.slice(0, 80)}`);
+        if (SIZING.test(t.cls) && !excepted(rel(f), t.cls))
+          bad.push(`${rel(f)}: ${t.cls.slice(0, 80)}`);
       }
     }
     expect(bad).toEqual([]);
@@ -87,7 +114,8 @@ describe('the shared Button is the single source of the size (#1282)', () => {
     const bad: string[] = [];
     for (const f of ALL) {
       const s = readFileSync(f, 'utf8');
-      if (/<Button\b[^>]*\bsize=\{?["'](default|lg)["']/.test(s)) bad.push(`${rel(f)}: size="default|lg"`);
+      if (/<Button\b[^>]*\bsize=\{?["'](default|lg)["']/.test(s))
+        bad.push(`${rel(f)}: size="default|lg"`);
       for (const m of s.matchAll(/cn\(\s*buttonVariants\([^)]*\)\s*,\s*(['"`])([^'"`]*)\1/g)) {
         if (SIZING.test(m[2] ?? '')) bad.push(`${rel(f)}: buttonVariants + ${m[2]}`);
       }
@@ -100,7 +128,13 @@ describe('the shared Button is the single source of the size (#1282)', () => {
     for (const f of ALL) {
       const s = readFileSync(f, 'utf8');
       for (const t of tags(s, 'button|Link|a')) {
-        if (t.cls.includes('bg-primary') && t.cls.includes('text-[var(--text-on-dark)]') && t.cls.includes('rounded-[var(--radius-control)]') && SIZING.test(t.cls) && !excepted(rel(f), t.cls)) {
+        if (
+          t.cls.includes('bg-primary') &&
+          t.cls.includes('text-[var(--text-on-dark)]') &&
+          t.cls.includes('rounded-[var(--radius-control)]') &&
+          SIZING.test(t.cls) &&
+          !excepted(rel(f), t.cls)
+        ) {
           bad.push(`${rel(f)}: ${t.cls.slice(0, 90)}`);
         }
       }
@@ -114,7 +148,14 @@ describe('the shared Button is the single source of the size (#1282)', () => {
       const s = readFileSync(f, 'utf8');
       for (const t of tags(s, 'button|Link|a')) {
         const c = t.cls;
-        if (c.includes('rounded-[var(--radius-control)]') && c.includes('border-border-default') && /\bpx-\d/.test(c) && /\b(py-|h-\d)/.test(c) && !c.includes('border-dashed') && !excepted(rel(f), c)) {
+        if (
+          c.includes('rounded-[var(--radius-control)]') &&
+          c.includes('border-border-default') &&
+          /\bpx-\d/.test(c) &&
+          /\b(py-|h-\d)/.test(c) &&
+          !c.includes('border-dashed') &&
+          !excepted(rel(f), c)
+        ) {
           bad.push(`${rel(f)}: ${c.slice(0, 90)}`);
         }
       }
@@ -125,6 +166,62 @@ describe('the shared Button is the single source of the size (#1282)', () => {
   it('the exceptions are real: each names a class string that still exists (an entry for deleted code is a lie)', () => {
     for (const e of EXCEPTIONS) {
       expect(readFileSync(join(SRC, e.file), 'utf8'), e.file).toContain(e.frag);
+    }
+  });
+});
+
+/**
+ * Ticket #1302, Otto's SCOPED exception: buttons on the auth card and the invite Join screens are 44px tall (a phone tap target). It
+ * is the `size="auth"` variant of the shared Button, so it is still declared in ui/button.tsx only; what this block pins is WHERE it
+ * may be asked for. The allowance is a set of path prefixes (the auth route group, the invite route, the Join components), and a use
+ * anywhere else fails: that is the difference between a scoped exception and a second button size.
+ */
+const AUTH_SCOPE = ['app/(auth)/', 'app/invite/', 'components/invite/'];
+const inAuthScope = (file: string) => AUTH_SCOPE.some((p) => file.startsWith(p));
+const ASKS_AUTH = /\bsize=\{?["']auth["']|\bsize:\s*["']auth["']/;
+
+describe('the 44px auth size is scoped to the auth card and the Join screens (#1302)', () => {
+  it('auth is 44px, default stays 28px, and the two never share a string', () => {
+    expect(buttonVariants({ size: 'auth' })).toContain('h-11');
+    expect(buttonVariants({ size: 'auth' })).not.toContain('h-7');
+    expect(buttonVariants()).toContain('h-7');
+    expect(buttonVariants()).not.toContain('h-11');
+    expect(buttonVariants({ variant: 'secondary', size: 'auth' })).toContain('h-11');
+  });
+
+  it('size="auth" is asked for ONLY inside the auth route group, the invite route and the Join components', () => {
+    const bad = ALL.filter(
+      (f) => ASKS_AUTH.test(readFileSync(f, 'utf8')) && !inAuthScope(rel(f)),
+    ).map(rel);
+    expect(bad).toEqual([]);
+  });
+
+  it('nothing outside the scope reaches for the 44px height on a Button or a button-variant link either', () => {
+    const bad: string[] = [];
+    for (const f of ALL) {
+      if (inAuthScope(rel(f))) continue;
+      const s = readFileSync(f, 'utf8');
+      for (const t of tags(s, 'Button|button|Link|a')) {
+        if (
+          /(^|[\s'"`])h-11(?=[\s'"`]|$)/.test(t.cls) &&
+          /bg-primary|border-border-default|buttonVariants/.test(t.cls) &&
+          !excepted(rel(f), t.cls)
+        ) {
+          bad.push(`${rel(f)}: ${t.cls.slice(0, 80)}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('the scope is real: the auth card and the Join screen do use it (an allowance nobody uses is a lie)', () => {
+    for (const f of [
+      'app/(auth)/auth-card.tsx',
+      'app/(auth)/login/page.tsx',
+      'app/(auth)/signup/page.tsx',
+      'components/invite/join-view.tsx',
+    ]) {
+      expect(ASKS_AUTH.test(readFileSync(join(SRC, f), 'utf8')), f).toBe(true);
     }
   });
 });
