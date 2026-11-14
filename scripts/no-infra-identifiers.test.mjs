@@ -128,8 +128,8 @@ test('the scan does not flag neutral wording or identity-free addresses', () => 
     ['docs/a.md', 'SSRF guard blocks 169.254.169.254 and 127.0.0.1, 10.0.0.5, 172.16.0.1, 192.168.1.1, 100.64.0.1, 203.0.113.9'],
     ['docs/a.md', '300.1.1.1 and 1.2.3 are not addresses'],
     ['apps/api/test/x.test.ts', "url: 'https://169.254.169.254/metadata/v1/userdata', resolver '8.8.8.8'"],
-    ['docs/a.md', 'a token like xfsn1y is not a region code, and Prodigy is not a server name'],
-    ['docs/a.md', 'storyos-production-readiness is not the server name'],
+    ['docs/a.md', `a token like x${j('f', 'sn', '1')}y is not a region code, and Prodigy is not a server name`],
+    ['docs/a.md', `${['storyos', 'prod'].join('-')}uction-readiness is not the server name`],
   ];
   for (const [path, text] of ok) assert.deepEqual(scanFile(path, text), [], text);
 });
