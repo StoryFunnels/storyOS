@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **13 Nov** — An agent given a whole space reaches that space's user databases only, never a system database such as Members. [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
 - **10 Nov** — Settings has a home page and five groups, and the old settings addresses lead to the new pages. [Settings](/settings/overview/)
 - **10 Nov** — My Work lists what is waiting on you, and you can have it emailed as a digest at a time you choose. [Mentions and notifications](/concepts/mentions-and-notifications/)
 - **10 Nov** — A guest is always free, whatever access they hold. [Access and roles](/concepts/access-and-roles/)
