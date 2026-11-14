@@ -179,10 +179,14 @@ export const acceptInviteSchema = z.object({
 /**
  * Ticket #1302 — what an unauthenticated visitor holding an invite link may learn about it: who invited them, to what, for which
  * address, and whether it still works. Nothing else is exposed (no ids, no role, no other invites). `not_found` covers a token that
- * never existed, one that is malformed and one that was revoked or replaced (a revoke deletes the row) — all with the same body, so
- * a token cannot be probed. When status is `not_found` every other field is null.
+ * never existed, one that is malformed and one that was replaced by a resend or a re-invite — all with the same body, so a token
+ * cannot be probed. When status is `not_found` every other field is null.
+ *
+ * Ticket #1304: `revoked` is a fourth readable state. A revoke keeps the row (a tombstone), so a revoked link reads like an expired
+ * or used one: inviter_name, workspace_name, workspace_logo_url and invited_email are filled, and the screen can say "revoked, ask
+ * <inviter>". Accepting a revoked token is refused with code `invite_revoked` (404), on both accept routes.
  */
-export const inviteDetailsStatusSchema = z.enum(['valid', 'expired', 'used', 'not_found']);
+export const inviteDetailsStatusSchema = z.enum(['valid', 'expired', 'used', 'revoked', 'not_found']);
 export const inviteDetailsResponseSchema = z.object({
   status: inviteDetailsStatusSchema,
   inviter_name: z.string().nullable(),

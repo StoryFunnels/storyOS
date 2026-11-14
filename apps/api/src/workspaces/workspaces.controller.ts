@@ -263,7 +263,7 @@ export class WorkspaceController {
 
   @Delete('invites/:invite')
   @MinRole('admin')
-  @ApiOperation({ summary: 'Revoke a pending invite (admin)' })
+  @ApiOperation({ summary: 'Revoke a pending invite (admin). The invite is kept as a tombstone so its link can say "revoked"; it stops being pending at once.' })
   revokeInvite(@Req() req: WorkspaceRequest, @Param('invite') inviteId: string) {
     return this.invites.revoke(req.membership.workspaceId, inviteId);
   }
