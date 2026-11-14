@@ -7,15 +7,27 @@ import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 export const membershipRoleSchema = z.enum(['admin', 'member', 'guest']);
 export type MembershipRole = z.infer<typeof membershipRoleSchema>;
 
-export const createWorkspaceSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  /** #400 — a one-line "what this company is doing here". */
-  description: descriptionSchema,
-  slug: z
-    .string()
-    .regex(/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/, 'lowercase letters, digits and dashes')
-    .optional(),
-});
+export const createWorkspaceSchema = z
+  .object({
+    /** Required to create a workspace; ignored when `invite_token` is sent (nothing is created then). */
+    name: z.string().trim().min(1).max(100).optional(),
+    /** #400 — a one-line "what this company is doing here". */
+    description: descriptionSchema,
+    slug: z
+      .string()
+      .regex(/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/, 'lowercase letters, digits and dashes')
+      .optional(),
+    /**
+     * Ticket #1302 — an invited person's one onboarding call. With a token the invite is ACCEPTED and no workspace is created
+     * (the response is the workspace they joined, `joined_via_invite: true`); a token that cannot be accepted refuses and creates
+     * nothing, so an invite path can never end in a stray empty workspace.
+     */
+    invite_token: z.string().min(16).max(256).optional(),
+  })
+  .refine((v) => v.invite_token !== undefined || v.name !== undefined, {
+    message: 'name is required to create a workspace',
+    path: ['name'],
+  });
 
 /**
  * #539 — an agency operator's own brand on the public portal page (the
@@ -163,6 +175,23 @@ export const createInviteSchema = z
 export const acceptInviteSchema = z.object({
   token: z.string().min(16),
 });
+
+/**
+ * Ticket #1302 — what an unauthenticated visitor holding an invite link may learn about it: who invited them, to what, for which
+ * address, and whether it still works. Nothing else is exposed (no ids, no role, no other invites). `not_found` covers a token that
+ * never existed, one that is malformed and one that was revoked or replaced (a revoke deletes the row) — all with the same body, so
+ * a token cannot be probed. When status is `not_found` every other field is null.
+ */
+export const inviteDetailsStatusSchema = z.enum(['valid', 'expired', 'used', 'not_found']);
+export const inviteDetailsResponseSchema = z.object({
+  status: inviteDetailsStatusSchema,
+  inviter_name: z.string().nullable(),
+  workspace_name: z.string().nullable(),
+  workspace_logo_url: z.string().nullable(),
+  invited_email: z.string().nullable(),
+});
+export type InviteDetailsStatus = z.infer<typeof inviteDetailsStatusSchema>;
+export type InviteDetailsResponse = z.infer<typeof inviteDetailsResponseSchema>;
 
 /**
  * #177: shape returned by both `POST /invites` and `POST /invites/:invite/resend`.
