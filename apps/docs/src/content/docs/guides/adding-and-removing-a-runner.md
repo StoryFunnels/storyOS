@@ -30,7 +30,7 @@ your workspace's data go.
 
 On the screen, press **Add a Runner** (or **Add a Runner…** in an agent's **Runs on** menu, or on the
 hire card). It shows three steps: run `npx @storyos/runner` in Terminal on the computer where Claude
-Code is signed in; type the 6-character code when it asks; then, when the card says the computer is
+Code is signed in; type the 6-character code when it asks (the code is shown as one block, with a **Copy** button next to it and next to the command); then, when the card says the computer is
 connected, choose the tool it found and press **Done**. The card says that until you press Done the
 computer is connected but does nothing. If the Runner found none of the tools, the card says so and
 you add the Runner again after signing in on that computer. If the code runs out, the card says
@@ -48,7 +48,7 @@ Through the API, the same steps:
    npx @storyos/runner
    ```
 
-   Case and dashes do not matter. The Runner lists the tools it found, for example
+   Case, spaces and dashes do not matter, so you can paste the code as shown. The Runner lists the tools it found, for example
    `found    Claude Code 2.1.104, signed in`, and the Runner is now **pending**: connected, but doing
    nothing.
 3. **Check on it.** `GET /api/v1/workspaces/{ws}/runners/pairing-codes/{id}` answers `waiting`,

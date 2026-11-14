@@ -235,6 +235,35 @@ a cell draws it — none of which the "split a Full Name into First and Last" ca
 **Not yet:** transforming every item at once (a `map`). That needs a way to write "for each item, do
 this", which is a language-level decision rather than another function.
 
+## Check a formula before you save it
+
+In the editor, the result type and a preview on a real record update as you type. Over the API and
+MCP the same check is a **dry run**: it saves nothing, so you can try an expression until it is
+right and only then add or change the field.
+
+```bash
+curl -s -X POST $API/api/v1/workspaces/$WS/databases/$DB/fields/formula-preview \
+  -H "Authorization: Bearer $PAT" -H "Content-Type: application/json" \
+  -d '{"expression": "{Estimate} - {Spent}", "samples": 3}'
+```
+
+- **Request.** `expression` is required. `samples` is 1 to 5 (5 if you leave it out). Pass `field`,
+  the id of an existing formula field, when you are editing that field, so the check treats a
+  reference to itself the way saving would. A `field` that is not a formula field is refused with a
+  422.
+- **Answer when it is valid.** `valid: true`, `return_type` (`text`, `number`, `checkbox` or
+  `date`), and `samples`: for up to that many of your most recent records you can read, its
+  `record_id`, `number`, `title` and the computed `value`.
+- **Answer when it is not.** `valid: false`, no samples, and `errors`. Each error has a `message`,
+  a `position` (`start` and `end`, character offsets into your expression), `expected` and `got`
+  where they apply, and a `suggestion`: the nearest valid field or function name. A formula with a
+  mistake in it is a normal `200` answer, not an HTTP error.
+- **Who can call it.** Anyone who can read the database, with a token that may read. It is a read:
+  it does not need the access that adding a field needs.
+
+The MCP tool is `preview_formula`. An agent should call it before `add_field` or `update_field`
+with a formula, and fix what its errors name.
+
 ## Limits
 
 Field traversal is one hop and aggregate-only: `{Client.Owner}` as a plain value still needs a

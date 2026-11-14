@@ -21,7 +21,7 @@ One row per agent, with:
 - **Status**: the Runner's state, or **Waiting for a Runner**.
 - **Last run**: the time of its latest run, as a clock time for today, a date earlier this year and
   a date with the year before that. A run that is not simply done carries its state underneath
-  (Failed, Running, Needs approval, Waiting for limit, Waiting for hours, Waiting for reserve). It
+  (Failed, Running, Needs approval, Waiting for limit, Waiting for hours, Waiting for reserve, Budget reached). It
   says **Never** only when StoryOS knows the agent has no run record. When it cannot read the run
   history, or cannot tell when the agent last ran, it shows a dash instead of guessing.
 - **Manager**: the agent's owner. A person who has since left the workspace is still named, marked
@@ -78,6 +78,11 @@ a name, a job, a weekday-morning schedule and every "Asks before" box ticked.
    work once it has a Runner, and the card offers a way to add one.
 
 An agent hired here uses your own AI (through a Runner) and is switched on from the start.
+
+On the agent's page you can later start it on records that were already in its trigger state before
+it existed, switch a **Non-AI** agent to your own AI, and press **Run now**. See
+[Starting an agent on records already waiting](/guides/runner/#starting-an-agent-on-records-already-waiting)
+and [Switching an agent to your own AI, and Run now](/guides/runner/#switching-an-agent-to-your-own-ai-and-run-now).
 
 ### When something cannot be hired
 

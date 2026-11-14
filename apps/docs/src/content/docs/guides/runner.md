@@ -16,8 +16,9 @@ so it works behind a home router or a company proxy.
 :::caution[Status, as of 10 November 2026]
 - **The Runner drives Claude Code.** It is the only tool that runs agents today. A Runner set to
   any other tool claims nothing, and its agents' wakes wait in StoryOS.
-- **Agent budgets have no screen yet.** You set them as two fields on the agent's record, and they
-  work (see [Budgets](#budgets)). The web app does not yet show a budget or a budget pause by name.
+- **Agent budgets have no settings screen yet.** You set them as two fields on the agent's record, and
+  they work (see [Budgets](#budgets)). A run held by a budget is named in the web app, but the
+  app does not show how much of a budget has been used.
 - **The `@storyos/runner` package was not yet on the npm registry** when this was written, so
   `npx @storyos/runner` cannot find it until it is published.
 :::
@@ -47,7 +48,8 @@ so it works behind a home router or a company proxy.
    npx @storyos/runner
    ```
 
-3. Type the code. The Runner lists the tools it found on this computer (for example
+3. Type or paste the code. Case, spaces and dashes do not matter, and `storyos-runner pair 7PV UVC`
+   works as well as `pair 7PVUVC`. The Runner lists the tools it found on this computer (for example
    `found    Claude Code 2.1.104, signed in`), then waits.
 4. Back in StoryOS, choose the tool and press **Done**. That turns the Runner on. Until you do, the
    Runner is connected but does nothing.
@@ -201,6 +203,59 @@ If the agent has skills attached, a Runner run is given **each skill's instructi
 instructions, not just the names, as in a run inside StoryOS. See
 [Skills on a Runner](/concepts/skills/#on-a-runner-the-skills-instructions-are-sent).
 
+### Starting an agent on records already waiting
+
+An agent wakes when a record **enters** its trigger state, or is linked to it. A record that was
+already in that state before the agent or its trigger existed never fired anything, so nothing
+wakes the agent for it. The agent's page counts those records and gives you one button to start the
+agent on them.
+
+- **Where it shows.** On the agent's page, under **Runs on**, as "N records already waiting", with
+  a button such as **Start on 3 waiting records**. It shows only for an agent that runs on a Runner
+  and has one assigned, and only to the agent's manager or a workspace admin. Nothing shows when
+  the count is 0.
+- **What counts as waiting.** A record in the state of an enabled **state** trigger, or linked to
+  the agent through an enabled **assigned** trigger, that the agent has no run for yet. A record
+  whose wake is queued, running or done is not waiting. One whose wake failed, was cancelled or
+  expired is offered again. A trigger set to ask you before each run, and a disabled one, count
+  nothing.
+- **You are asked first.** The button opens a confirmation that says how many runs it will start,
+  that each one runs on your own computer and subscription, and what the agent asks you before
+  doing. **Not now** leaves everything as it was.
+- **At most 25 per click.** If more are waiting, the button says it starts the first 25, and the
+  confirmation says so. After the click, the message says how many were started and how many remain;
+  click again for the next batch. A second click never queues a record twice.
+- **Records you cannot open are not woken.** The count is taken as the agent's manager, because the
+  agent reads as its manager, so a record its manager cannot see is neither counted nor started.
+- **A budget still applies.** If the agent has a monthly budget, a click starts no more runs than
+  the budget has left, and starts none while it is paused. See [Budgets](#budgets).
+- **It is refused** for an agent that is switched off, one whose AI mode is not **Your own AI**, or
+  one whose manager has left the workspace.
+
+Over the API, `GET /api/v1/workspaces/{ws}/agents/{agent}/catch-up` lists the waiting records
+oldest first (`limit` 1 to 100, default 5, and `offset`), and
+`POST` to the same address starts them and answers `{ queued, already_waiting, remaining, skipped }`.
+The count is `catch_up` for each agent in `GET .../agent-wakes/summary`. Starting needs a signed-in
+person: a token, a connected AI or the agent's own run credential gets a 403, so an agent cannot
+start itself on a backlog. The MCP tool `list_agent_catch_up` reads the list; there is no MCP tool
+that starts it.
+
+### Switching an agent to your own AI, and Run now
+
+An agent whose AI mode is **Non-AI** runs its steps without an AI, and its page says so. If you are
+its manager or a workspace admin, the same line has a button, **Let it think with your AI**. It asks
+you to confirm, because the agent's work then runs on your own subscription and computer, the
+record content it works on goes to your own AI, and the switch does not start a run by itself. If you
+have exactly one Runner online, the agent is sent to it; otherwise you choose where it runs. If
+choosing fails, the mode still changes and the page tells you to pick a Runner. A person who
+cannot use the button sees the sentence alone.
+
+For an agent already on your own AI, **Advanced → AI mode → Run without an AI** goes back.
+
+**Run now** is on the agent's page for an agent a Runner serves, and only for workspace admins. It
+queues one run that is not about any record, and says whether a Runner can take it now. While one
+you started is still waiting or running, the button reads **Run queued** and does nothing.
+
 ## Sharing your subscription
 
 The Runner uses your own subscription, so you decide when and how much of it your agents may use.
@@ -265,9 +320,14 @@ The numbers are readable at `GET /api/v1/workspaces/{ws}/agents/{agent}/budget` 
 paused by a budget has the `run_state` `waiting_for_budget`. The notices are
 `agent_budget_warning` and `agent_budget_paused`.
 
+In the web app, a budget-paused run reads **Monthly token budget reached** or **Monthly run budget
+reached**, with the time it resumes, where the agent's runs are listed. The Agents
+list shows **Budget reached** under **Last run**. A pause by budget is a rule you set, so it is
+shown calmly, not as a failure.
+
 :::note[What is not built]
-There is no budget screen yet: you set the two fields on the agent record, and the web app's run list
-does not yet name a budget pause. AI-field calls made before agents were recorded as the cause of
+There is no budget screen yet: you set the two fields on the agent record. The web app names a budget
+pause, but it does not show usage against the budget; read that with `get_agent_budget`. AI-field calls made before agents were recorded as the cause of
 them are not counted. A money budget for agents that use an API key does not exist.
 :::
 
