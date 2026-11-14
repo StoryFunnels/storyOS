@@ -8,7 +8,7 @@ size: L
 
 ## Why
 
-The current instance runs on the founder's **personal Kamatera box** at
+The current instance runs on the founder's **personal box** at
 `os.jamescookmedia.com` — fine for a demo, wrong for a product. Move to a proper,
 disposable production environment on the **storyos.dev** domain family, off personal infra.
 
@@ -22,7 +22,7 @@ disposable production environment on the **storyos.dev** domain family, off pers
 ## Scope
 
 **Host** — replace the personal VPS with production infra we can hand off / scale.
-Candidates (decide in ticket): a dedicated VPS (Hetzner/Kamatera business acct) with
+Candidates (decide in ticket): a dedicated VPS on a business account with
 the Docker Compose stack + Caddy, **or** a managed platform (Fly.io / Render / Railway)
 for less ops. Recommend: start with a clean VPS we control (keeps the self-host story
 honest), managed Postgres if we want backups handled.
@@ -32,7 +32,7 @@ honest), managed Postgres if we want backups handled.
 Resend (MN-103): SPF, DKIM, DMARC on `storyos.dev`. Origin TLS: real Let's Encrypt
 (Caddy) or a Cloudflare origin cert — move off "Flexible".
 
-**Migration**: pg_dump from the Kamatera box → restore on the new host (or fresh start
+**Migration**: pg_dump from the old box → restore on the new host (or fresh start
 if we'd rather reset); point DNS at the app on `app.storyos.dev`; verify
 signup/import/entity pages/MCP; decommission the old box. Update `BETTER_AUTH_URL`,
 `APP_URL` (→ https://app.storyos.dev), `EMAIL_FROM`, and integration callback URLs.
@@ -43,6 +43,6 @@ with a tested restore, restart policies, and a committed `docs/cloud-runbook.md`
 ## Acceptance criteria
 - [ ] App live at https://app.storyos.dev; website at https://storyos.dev; docs at
       https://docs.storyos.dev; MCP at https://mcp.storyos.dev — all real TLS.
-- [ ] Off the personal Kamatera box; data migrated (or cleanly reset) + old box retired.
+- [ ] Off the personal box; data migrated (or cleanly reset) + old box retired.
 - [ ] Nightly offsite backup with a documented, tested restore; runbook committed.
 - [ ] Resend domain authenticated (SPF/DKIM/DMARC on storyos.dev).
