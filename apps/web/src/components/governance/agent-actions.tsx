@@ -15,6 +15,7 @@ import {
   describeAction,
   missingCredentialNote,
   isAgentAction,
+  isRuleCreationEcho,
   triggerInWords,
   type AuditEventRow,
   type CredentialDto,
@@ -50,10 +51,10 @@ export function AgentActions({ ws }: { ws: string }) {
     },
     getNextPageParam: (last) => (last.has_more ? (last.next_cursor ?? undefined) : undefined),
   });
-  const rows = (log.data?.pages ?? []).flatMap((p) => p.data).filter(isAgentAction);
+  const allRows = (log.data?.pages ?? []).flatMap((p) => p.data).filter(isAgentAction);
 
   // One credential lookup per DISTINCT credential on screen — a handful, not one per row.
-  const credentialIds = [...new Set(rows.map((r) => r.credential_id).filter((id): id is string => Boolean(id)))];
+  const credentialIds = [...new Set(allRows.map((r) => r.credential_id).filter((id): id is string => Boolean(id)))];
   const credentials = useQueries({
     queries: credentialIds.map((id) => ({
       queryKey: ['governance-credential', ws, id],
@@ -91,9 +92,17 @@ export function AgentActions({ ws }: { ws: string }) {
     enabled: Boolean(triggersDbId),
   });
   const triggerById = new Map((triggerRows.data ?? []).map((t) => [t.id, t.values]));
+  // Creating a wake rule also writes its Agent relation being linked; that echo is not a second action, so one row stands for the creation.
+  const agentIdOf = (recordId: string): string | null => {
+    const a = triggerById.get(recordId)?.agent;
+    const x = Array.isArray(a) ? a[0] : a;
+    const id = x && typeof x === 'object' ? (x as { id?: unknown }).id : x;
+    return typeof id === 'string' && id ? id : null;
+  };
+  const rows = allRows.filter((r) => !isRuleCreationEcho(r, allRows, agentIdOf));
   const shownTriggerDbs = [
     ...new Set(
-      rows
+      allRows
         .map((r) => triggerById.get(r.record_id)?.database)
         .map((v) => (Array.isArray(v) ? v[0] : v))
         .filter((id): id is string => typeof id === 'string' && Boolean(id)),

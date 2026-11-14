@@ -8,6 +8,7 @@ import {
   chainOf,
   describeAction,
   isAgentAction,
+  isRuleCreationEcho,
   reachWords,
   type AuditEventRow,
   type CredentialDto,
@@ -244,5 +245,37 @@ describe('recent agent actions and their chain (ticket #934)', () => {
 
   it('the member is named from the log, and a row with nobody recorded says that', () => {
     expect(chainOf(row({ actor_name: null }), cred(), names, fmt)[0]).toMatchObject({ value: 'Nobody was recorded', absent: true });
+  });
+});
+
+describe('the relation-link echoes of a just-created wake rule (ticket #1284)', () => {
+  const ev = (over: Partial<AuditEventRow>): AuditEventRow => ({
+    kind: 'event', id: 'e', record_id: 'rule1', type: 'record.created', actor_id: 'u1', actor_name: 'Alice', source: 'agent',
+    credential_id: 'c1', agent_id: null, agent_name: null, payload: { title: 'x' }, created_at: '2026-11-14T10:00:00Z', ...over,
+  });
+  const agentOfRule = (id: string) => (id === 'rule1' ? 'ag1' : null);
+  const created = ev({ id: 'e1' });
+  // the two events one link writes: on the rule (other = agent) and its mirror on the agent (other = rule)
+  const onRule = ev({ id: 'e2', type: 'relation.linked', payload: { relation_id: 'rel', other: { id: 'ag1', title: 'Drafter' } }, created_at: '2026-11-14T10:00:01Z' });
+  const onAgent = ev({ id: 'e3', type: 'relation.linked', record_id: 'ag1', payload: { relation_id: 'rel', other: { id: 'rule1', title: 'x' } }, created_at: '2026-11-14T10:00:01Z' });
+
+  it('create + link burst: both link events are echoes and dropped, the creation stays (ONE row)', () => {
+    const all = [onAgent, onRule, created];
+    expect(all.filter((r) => !isRuleCreationEcho(r, all, agentOfRule)).map((r) => r.id)).toEqual(['e1']);
+  });
+
+  it('a genuine later re-link of an existing rule still shows, from either side', () => {
+    const later = { created_at: '2026-11-14T12:00:00Z' };
+    for (const r of [ev({ ...onRule, ...later }), ev({ ...onAgent, ...later })]) expect(isRuleCreationEcho(r, [r, created], agentOfRule)).toBe(false);
+  });
+
+  it('keeps links between any other pair, other actors/sources, other rules, and non-links', () => {
+    const all = [onRule, created];
+    expect(isRuleCreationEcho(ev({ ...onRule, payload: { other: { id: 'other', title: 'Z' } } }), all, agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(ev({ ...onRule, actor_id: 'u2' }), all, agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(ev({ ...onRule, source: 'mcp' }), all, agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(ev({ ...onRule, record_id: 'rule2' }), all, agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(onRule, all, () => null)).toBe(false);
+    expect(isRuleCreationEcho(created, all, agentOfRule)).toBe(false);
   });
 });

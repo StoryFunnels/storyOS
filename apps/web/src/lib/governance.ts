@@ -339,6 +339,38 @@ export function describeAction(row: Pick<AuditEventRow, 'type' | 'payload'>, tri
   return `${verb} ${what || 'a record'}`;
 }
 
+/** How close (ms) a rule's relation-link event must be to its creation to count as the same burst. Creating a rule writes both in one request. */
+export const CREATION_BURST_MS = 5000;
+
+/**
+ * True for the two Agent-relation link events that creating a wake rule writes right after its `record.created`: one on the rule's own
+ * record (other = the agent) and its mirror on the agent's record (other = the rule). They echo the creation, not a rule being linked
+ * to something, so the list drops them (ticket #1284, sentences must be true). Derived from event fields only (type, record, actor,
+ * source, timing, and the pair being a rule and its own agent), never from the words. A genuine later re-link, or a link between any
+ * other pair, is NOT an echo. `agentOfRule` gives a rule record's agent id (null for a record that is not a rule). DISPLAY ONLY: stored events are untouched.
+ */
+export function isRuleCreationEcho(
+  row: Pick<AuditEventRow, 'type' | 'record_id' | 'actor_id' | 'source' | 'payload' | 'created_at'>,
+  siblings: ReadonlyArray<Pick<AuditEventRow, 'type' | 'record_id' | 'actor_id' | 'source' | 'created_at'>>,
+  agentOfRule: (recordId: string) => string | null | undefined,
+): boolean {
+  if (row.type !== 'relation.linked') return false;
+  const other = row.payload?.['other'];
+  const otherId = other && typeof other === 'object' ? (other as { id?: unknown }).id : undefined;
+  if (typeof otherId !== 'string') return false;
+  const ruleId = agentOfRule(row.record_id) === otherId ? row.record_id : agentOfRule(otherId) === row.record_id ? otherId : null;
+  if (!ruleId) return false;
+  const at = Date.parse(row.created_at);
+  return siblings.some(
+    (s) =>
+      s.type === 'record.created' &&
+      s.record_id === ruleId &&
+      s.actor_id === row.actor_id &&
+      s.source === row.source &&
+      Math.abs(Date.parse(s.created_at) - at) <= CREATION_BURST_MS,
+  );
+}
+
 /** Who the row is about: the agent when one is recorded, else the credential's name, else what kind of AI it was. Actor stays the member (shown as "for"). */
 export function actionSubject(row: Pick<AuditEventRow, 'agent_name' | 'source'>, credential: Pick<CredentialDto, 'name'> | null | undefined): string {
   if (row.agent_name) return row.agent_name;
