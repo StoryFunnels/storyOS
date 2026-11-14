@@ -1,6 +1,6 @@
 ---
 title: "Settings: Workspace"
-description: Rename the workspace, see and resend expired invitations, and manage installed packs from Settings.
+description: Rename the workspace, see and resend expired invitations, see what an invited person sees, and manage installed packs from Settings.
 sidebar:
   order: 2
 ---
@@ -33,6 +33,44 @@ Every row has a **Send again** button; on an expired invitation it is the main a
 issues a new link and a new seven days, and the old link stops working. After a send, the same
 invitation cannot be sent again for a minute: a second attempt inside that minute tells you to wait.
 The minute is counted from the last send, so an invitation that expired weeks ago is not held back.
+
+## What the person you invite sees
+
+An invitation email links to a **Join** screen, not to the general sign-in page. The screen shows the
+workspace's name and logo and, when the person who sent the invitation has a name, says "*Name*
+invited you to *Workspace*". The invited email address is shown and cannot be edited, because the
+invitation was sent to that address.
+
+- **No account yet.** The person enters their name and a password and presses **Join *Workspace***.
+  They end up in the workspace they were invited to. Signing up from an invitation never creates a
+  workspace of their own, and the create-a-workspace step does not open while the invitation is still
+  usable.
+- **An account already exists for that email.** The screen asks for that account's password instead
+  of a new one, with a **Forgot password** link; after the reset the person signs in again on the Join screen.
+- **Already signed in as the invited address.** One button, **Join *Workspace***.
+- **Signed in as a different address.** The screen says the invitation was sent to the invited
+  address and that the person is signed in as another, and offers **Switch account**. It signs them
+  out and shows the Join screen again so they can continue as the invited address. It does not join
+  the workspace under the wrong account.
+
+If the link cannot be used, the screen says so instead of the form:
+
+| The link is | The screen says |
+|---|---|
+| Expired | "This invite has expired." and to ask the person who invited you (by name, when known) for a new link. |
+| Already used | "This invite was already used." with the same request. |
+| Unknown, or revoked | "This invite link no longer works. Ask whoever invited you for a new link." It names no one. |
+
+A revoked link and a link that never existed look the same on purpose, so nobody can use the screen
+to find out which links exist. Send the person a new invitation, or use **Send again** on one that
+expired. If the screen cannot reach StoryOS at all, it says it could not check the invite and to
+reload, which is different from a dead link.
+
+For developers: `GET /api/v1/public/invites/details?token=…` needs no sign-in and returns only the
+inviter's name, the workspace name and logo, the invited email and a `status` of `valid`, `expired`,
+`used` or `not_found`. For `not_found` every other field is null. It is limited to 20 requests a
+minute per client address. `POST /api/v1/workspaces` with an `invite_token` accepts the invitation
+and creates no workspace; a token that cannot be accepted is refused and creates nothing.
 
 ## Packs
 
