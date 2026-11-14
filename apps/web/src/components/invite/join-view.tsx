@@ -27,9 +27,12 @@ export function WorkspaceMark({
 }) {
   return (
     <div className="mb-5 flex items-center gap-3" data-testid="invite-workspace">
-      <Avatar userId={name} name={name} image={logoUrl} size={64} />
-      {/* Ticket #1302 (Otto): the workspace name is on the screen ONCE. Where the headline carries it ("<Inviter> invited you to
-          <Workspace>") the mark is the avatar alone; where the headline does not (expired, used, mismatch) the name sits here. */}
+      {/* Ticket #1302 (Otto, Dara's prototype): the name is not repeated beside the logo. Where the headline carries it ("<Inviter>
+          invited you to <Workspace>") the 64px logo stands alone, labelled "<Workspace> logo" for a screen reader; where the headline
+          does not (expired, used, mismatch) the name sits here. */}
+      <span role="img" aria-label={`${name} logo`} className="inline-flex">
+        <Avatar userId={name} name={name} image={logoUrl} size={64} />
+      </span>
       {showName && <span className="text-prose font-semibold text-ink">{name}</span>}
     </div>
   );

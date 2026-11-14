@@ -36,15 +36,19 @@ export const buttonVariants = cva(
         primary: 'bg-primary text-[var(--text-on-dark)] hover:bg-primary-hover',
         secondary: 'bg-card border border-border-default text-ink hover:bg-hover',
         ghost: 'text-ink-secondary hover:bg-hover',
-        destructive: 'border border-error text-error hover:bg-error hover:text-[var(--text-on-error)]',
+        destructive:
+          'border border-error text-error hover:bg-error hover:text-[var(--text-on-error)]',
       },
     },
+    /** Dara's prototype (ticket #1302): the auth card's primary button is weight 600, not 500. */
+    compoundVariants: [{ variant: 'primary', size: 'auth', className: 'font-semibold' }],
     defaultVariants: { variant: 'primary', size: 'default' },
   },
 );
 
 export interface ButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement>,
+  extends
+    ButtonHTMLAttributes<HTMLButtonElement>,
     Omit<VariantProps<typeof buttonVariants>, 'size'> {
   /**
    * There is one size now, 28px. `'sm'` is accepted (and ignored) so the call sites that already say it, and branches that add one,
@@ -54,5 +58,13 @@ export interface ButtonProps
 }
 
 export function Button({ className, variant, size, ...props }: ButtonProps) {
-  return <button className={cn(buttonVariants({ variant, size: size === 'auth' ? 'auth' : 'default' }), className)} {...props} />;
+  return (
+    <button
+      className={cn(
+        buttonVariants({ variant, size: size === 'auth' ? 'auth' : 'default' }),
+        className,
+      )}
+      {...props}
+    />
+  );
 }

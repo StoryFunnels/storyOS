@@ -33,7 +33,7 @@ describe('the StoryOS mark is visible on the auth card in both themes (#1302)', 
   const html = renderToStaticMarkup(createElement(BrandMark));
   it('the tile and middle bar read from theme tokens; nothing is hard-coded to a dark fill', () => {
     expect(html).toContain('fill:var(--brand-mark-tile)');
-    expect(html).toContain('fill:var(--brand-mark-mid)');
+    expect(html).toContain('stroke:var(--brand-mark-stroke)');
     expect(html).not.toMatch(/fill="#0F1729"/i);
     expect(html).toContain('aria-label="StoryOS"');
   });
@@ -41,19 +41,27 @@ describe('the StoryOS mark is visible on the auth card in both themes (#1302)', 
     ['light', ':root {'],
     ['dark', ":root[data-theme='dark']"],
   ] as const) {
-    it(`${theme}: the tile clears 3:1 against the card`, () => {
-      expect(
-        ratio(token(selector, '--brand-mark-tile'), token(selector, '--bg-card')),
-      ).toBeGreaterThanOrEqual(3);
+    it(`${theme}: the mark clears 3:1 against the card (light: the navy tile; dark: the bars, since the tile is only a lifted surface)`, () => {
+      const card = token(selector, '--bg-card');
+      if (theme === 'light')
+        expect(ratio(token(selector, '--brand-mark-tile'), card)).toBeGreaterThanOrEqual(3);
+      else {
+        expect(ratio('#D4A017', card)).toBeGreaterThanOrEqual(3);
+        expect(ratio('#F5E4B8', card)).toBeGreaterThanOrEqual(3);
+      }
     });
-    it(`${theme}: the gold bars clear 3:1 against the tile and the middle bar is not lost on it`, () => {
-      expect(ratio('#D4A017', token(selector, '--brand-mark-tile'))).toBeGreaterThanOrEqual(2);
-      expect(
-        ratio(token(selector, '--brand-mark-mid'), token(selector, '--brand-mark-tile')),
-      ).toBeGreaterThanOrEqual(3);
+    it(`${theme}: the bars read on the tile (gold >= 3:1, cream >= 3:1)`, () => {
+      const tile = token(selector, '--brand-mark-tile');
+      expect(ratio('#D4A017', tile)).toBeGreaterThanOrEqual(3);
+      expect(ratio('#F5E4B8', tile)).toBeGreaterThanOrEqual(3);
     });
   }
-  it('the old fixed navy tile fails the dark card (this is the defect the tokens fix)', () => {
-    expect(ratio('#0F1729', token(":root[data-theme='dark']", '--bg-card'))).toBeLessThan(3);
+  it('dark: the tile is the prototype values and its 2px stroke lifts it off the card (the fixed navy did not)', () => {
+    const d = ":root[data-theme='dark']";
+    expect(token(d, '--brand-mark-tile').toLowerCase()).toBe('#232b3c');
+    expect(token(d, '--brand-mark-stroke').toLowerCase()).toBe('#3a4458');
+    const card = token(d, '--bg-card');
+    expect(ratio(token(d, '--brand-mark-stroke'), card)).toBeGreaterThan(ratio('#0F1729', card));
+    expect(ratio('#0F1729', card)).toBeLessThan(1.2);
   });
 });

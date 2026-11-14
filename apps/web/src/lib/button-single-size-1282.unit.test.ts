@@ -189,6 +189,12 @@ describe('the 44px auth size is scoped to the auth card and the Join screens (#1
     expect(buttonVariants({ variant: 'secondary', size: 'auth' })).toContain('h-11');
   });
 
+  it("the auth card's primary is weight 600 (the prototype), the secondary and every 28px button stay 500", () => {
+    expect(buttonVariants({ variant: 'primary', size: 'auth' })).toContain('font-semibold');
+    expect(buttonVariants({ variant: 'secondary', size: 'auth' })).not.toContain('font-semibold');
+    expect(buttonVariants({ variant: 'primary' })).not.toContain('font-semibold');
+  });
+
   it('size="auth" is asked for ONLY inside the auth route group, the invite route and the Join components', () => {
     const bad = ALL.filter(
       (f) => ASKS_AUTH.test(readFileSync(f, 'utf8')) && !inAuthScope(rel(f)),

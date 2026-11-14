@@ -34,7 +34,7 @@ const text = (html: string) =>
     .replace(/\s+/g, ' ');
 
 const formProps = {
-  action: 'Join workspace',
+  action: 'Join Pinewood Studio',
   invitedEmail: 'new.hire@pinewood.example',
   mode: 'new' as const,
   name: '',
@@ -60,7 +60,7 @@ describe('the Join screen draws every state (#1302)', () => {
       /<input[^>]*id="invited-email"[^>]*readOnly=""|<input[^>]*readonly=""[^>]*id="invited-email"|<input[^>]*id="invited-email"[^>]*readonly/i,
     );
     expect(html).toContain('value="new.hire@pinewood.example"');
-    expect(t.match(/Join workspace/g)).toHaveLength(1); // ONE action
+    expect(t.match(/Join Pinewood Studio/g)).toHaveLength(1); // ONE action
     expect(html).toContain('type="submit"');
     expect(t).not.toMatch(/create (a |your )?workspace|new workspace|name your workspace/i);
   });
@@ -99,7 +99,7 @@ describe('the Join screen draws every state (#1302)', () => {
       }),
       true,
     );
-    expect(text(html).match(/Join workspace/g)).toHaveLength(1);
+    expect(text(html).match(/Join Pinewood Studio/g)).toHaveLength(1);
     expect(html).not.toContain('type="password"');
     expect(html).toContain('id="invited-email"');
   });
@@ -120,7 +120,7 @@ describe('the Join screen draws every state (#1302)', () => {
       ),
     );
     expect(t).toContain('Switch account');
-    expect(t).not.toContain('Join workspace');
+    expect(t).not.toContain('Join Pinewood Studio');
   });
   for (const status of ['expired', 'used'] as const) {
     it(`${status}: says so, names the inviter, and has no Join button`, () => {
@@ -133,7 +133,7 @@ describe('the Join screen draws every state (#1302)', () => {
         status === 'expired' ? 'This invite has expired' : 'This invite was already used',
       );
       expect(t).toContain('Ask Maple Ridge for a new link.');
-      expect(t).not.toContain('Join workspace');
+      expect(t).not.toContain('Join Pinewood Studio');
       expect(html).not.toContain('type="submit"');
       expect(html).not.toContain('type="password"');
     });
@@ -169,9 +169,10 @@ describe('the Join screen draws every state (#1302)', () => {
   });
 });
 
-describe('the workspace name is on the Join screen once, and Google comes first (#1302, Otto)', () => {
-  const nameCount = (html: string) => (text(html).match(/Pinewood Studio/g) ?? []).length;
-  it('signed out and one-click: the name is in the headline only; the avatar stays', () => {
+describe('the workspace name is not repeated beside the logo, and Google comes first (#1302, Otto)', () => {
+  const logoBlock = (html: string) =>
+    /data-testid="invite-workspace"[\s\S]*?<\/div>/.exec(html)?.[0] ?? '';
+  it('signed out and one-click: the logo stands alone (labelled), the name is in the headline and on the action only', () => {
     const signedOut = render(
       joinModel({ details: valid, session: { status: 'signed_out' } }),
       false,
@@ -185,39 +186,44 @@ describe('the workspace name is on the Join screen once, and Google comes first 
       true,
     );
     for (const html of [signedOut, oneClick]) {
-      expect(nameCount(html)).toBe(1);
       expect(text(html)).toContain('Maple Ridge invited you to Pinewood Studio');
-      expect(html).toContain('data-testid="invite-workspace"');
-      expect(text(html)).toContain('PS');
+      expect(text(logoBlock(html))).not.toContain('Pinewood Studio');
+      expect(logoBlock(html)).toContain('aria-label="Pinewood Studio logo"');
+      expect(text(logoBlock(html))).toContain('PS');
+      expect((text(html).match(/Pinewood Studio/g) ?? []).length).toBe(2); // the headline and "Join Pinewood Studio"
     }
   });
-  it('with no inviter the headline still carries the name once', () => {
+  it('with no inviter the headline still carries the name', () => {
     const html = render(
       joinModel({ details: { ...valid, inviter_name: null }, session: { status: 'signed_out' } }),
       false,
     );
     expect(text(html)).toContain('You have been invited to Pinewood Studio');
-    expect(nameCount(html)).toBe(1);
+    expect(text(logoBlock(html))).not.toContain('Pinewood Studio');
   });
-  it('expired, used and mismatch have no name in the headline, so the name appears once beside the avatar', () => {
+  it('expired, used and mismatch have no name in the headline, so the name appears beside the logo', () => {
     for (const status of ['expired', 'used'] as const) {
       expect(
-        nameCount(
-          render(joinModel({ details: { ...valid, status }, session: { status: 'signed_out' } })),
+        text(
+          logoBlock(
+            render(joinModel({ details: { ...valid, status }, session: { status: 'signed_out' } })),
+          ),
         ),
-      ).toBe(1);
+      ).toContain('Pinewood Studio');
     }
     expect(
-      nameCount(
-        render(
-          joinModel({
-            details: valid,
-            session: { status: 'signed_in', email: 'other@pinewood.example' },
-          }),
-          true,
+      text(
+        logoBlock(
+          render(
+            joinModel({
+              details: valid,
+              session: { status: 'signed_in', email: 'other@pinewood.example' },
+            }),
+            true,
+          ),
         ),
       ),
-    ).toBe(1);
+    ).toContain('Pinewood Studio');
   });
   it('Google configured: the button, then the "or" divider, then the form, in that order, all 44px', () => {
     const html = renderToStaticMarkup(

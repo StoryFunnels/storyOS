@@ -14,14 +14,14 @@ const out = { status: 'signed_out' } as const;
 const asUser = (email: string) => ({ status: 'signed_in', email }) as const;
 
 describe('joinModel: every state of the Join screen (#1302)', () => {
-  it('valid, signed out: the invite, the locked email and ONE action that does not repeat the workspace name', () => {
+  it('valid, signed out: the invite, the locked email and ONE action named for the workspace', () => {
     expect(joinModel({ details: valid, session: out })).toEqual({
       kind: 'join_signed_out',
       title: 'Maple Ridge invited you to Pinewood Studio',
       workspaceName: 'Pinewood Studio',
       logoUrl: null,
       invitedEmail: 'new.hire@pinewood.example',
-      action: 'Join workspace',
+      action: 'Join Pinewood Studio',
     });
   });
   it('valid, signed in as the invited address (any casing): the one-click join', () => {

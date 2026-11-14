@@ -59,8 +59,7 @@ export function joinModel(input: { details: InviteDetails | null | undefined; de
 
   const invitedEmail = details.invited_email ?? '';
   const title = inviter ? `${inviter} invited you to ${workspaceName}` : `You have been invited to ${workspaceName}`;
-  // The workspace name is in the headline and nowhere else on the screen (ticket #1302, Otto), so the action does not repeat it.
-  const action = 'Join workspace';
+  const action = `Join ${workspaceName}`;
   if (session.status === 'signed_out') return { kind: 'join_signed_out', title, workspaceName, logoUrl, invitedEmail, action };
   if (sameEmail(session.email, invitedEmail)) return { kind: 'join_one_click', title, workspaceName, logoUrl, invitedEmail, action };
   return {
