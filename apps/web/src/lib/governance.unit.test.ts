@@ -275,6 +275,8 @@ describe('the relation-link echoes of a just-created wake rule (ticket #1284)', 
     expect(isRuleCreationEcho(ev({ ...onRule, actor_id: 'u2' }), all, agentOfRule)).toBe(false);
     expect(isRuleCreationEcho(ev({ ...onRule, source: 'mcp' }), all, agentOfRule)).toBe(false);
     expect(isRuleCreationEcho(ev({ ...onRule, record_id: 'rule2' }), all, agentOfRule)).toBe(false);
+    // The creation in the window belongs to ANOTHER record: the rule was not just created, so its link is not an echo.
+    expect(isRuleCreationEcho(onRule, [onRule, ev({ id: 'e9', record_id: 'other-record' })], agentOfRule)).toBe(false);
     expect(isRuleCreationEcho(onRule, all, () => null)).toBe(false);
     expect(isRuleCreationEcho(created, all, agentOfRule)).toBe(false);
   });
