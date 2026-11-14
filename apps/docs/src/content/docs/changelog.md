@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **10 Nov** — Notifications says which events also arrive by email and to which address, Email me my work is a setting there, the Inbox offers it once, and every email opens with a Quill header and fits a phone screen. [Mentions and notifications](/concepts/mentions-and-notifications/#what-goes-by-email-and-where-it-arrives)
 - **10 Nov** — Settings has a home page and five groups, and the old settings addresses lead to the new pages. [Settings](/settings/overview/)
 - **10 Nov** — My Work lists what is waiting on you, and you can have it emailed as a digest at a time you choose. [Mentions and notifications](/concepts/mentions-and-notifications/)
 - **10 Nov** — A guest is always free, whatever access they hold. [Access and roles](/concepts/access-and-roles/)
