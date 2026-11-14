@@ -197,6 +197,22 @@ figures from one measured wake, not a promise for your agents.
   role and the agent's scopes, still decides what a call may do.
 - This applies to Runner runs. An AI you connect to StoryOS yourself is offered the full set, as before.
 
+### Which model it uses
+
+The model is also set by the agent's manager, in **Advanced → Model** on the agent's page:
+**Opus** (the most capable, uses your limit fastest), **Sonnet** (a balance) or **Haiku** (the
+quickest, uses the least). **Reset to the workspace default** clears it. With nothing set on the
+agent, it uses the workspace's **Default model for agents**, which a workspace admin sets under
+**Settings → Agent rules**. If that is **Claude Code's own default**, the Runner passes no model at
+all and Claude Code's own choice stands. A smaller model uses less of each person's Claude limit.
+
+### What instructions the agent starts from
+
+A Runner run gives Claude Code a short StoryOS prompt in place of Claude Code's own coding prompt:
+who the agent is, that workspace data comes from its tools, that it must comment on its record, and
+the agent's own instructions. On one test wake this cut the input from about 29,000 tokens to about
+12,000 with the eight default tools. That is one measurement, not a promise for your agents.
+
 ### Skills
 
 If the agent has skills attached, a Runner run is given **each skill's instructions** in its own

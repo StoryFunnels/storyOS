@@ -21,6 +21,7 @@ day the change reached the product.
 ## Week of 2 November 2026
 
 - **5 Nov** — An agent's page offers one button to start it on records already waiting in its trigger state, and a Non-AI agent can be switched to your own AI from its page. [The StoryOS Runner](/guides/runner/#starting-an-agent-on-records-already-waiting)
+- **4 Nov** — An agent's manager can choose its model on the agent's page, a workspace default model exists, and Runner runs start from a short StoryOS prompt. [The StoryOS Runner](/guides/runner/#which-model-it-uses)
 - **4 Nov** — The Runner pairing code is shown as one block with Copy, and the Runner accepts it with or without spaces. [Adding and removing a Runner](/guides/adding-and-removing-a-runner/)
 - **3 Nov** — A guide to the StoryOS Runner, the program that lets an agent use your own AI. [The StoryOS Runner](/guides/runner/)
 - **3 Nov** — What wakes an agent on your own AI, and what its run record shows. [Agent runs](/concepts/agent-runs/)
