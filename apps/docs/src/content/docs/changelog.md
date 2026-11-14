@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **10 Nov** — A connected provider page leads with its card, and GitHub lists untracked repositories with a Track button. [Connecting GitHub](/guides/github/)
 - **10 Nov** — Settings has a home page and five groups, and the old settings addresses lead to the new pages. [Settings](/settings/overview/)
 - **10 Nov** — My Work lists what is waiting on you, and you can have it emailed as a digest at a time you choose. [Mentions and notifications](/concepts/mentions-and-notifications/)
 - **10 Nov** — A guest is always free, whatever access they hold. [Access and roles](/concepts/access-and-roles/)
@@ -18,6 +19,7 @@ day the change reached the product.
 
 ## Week of 2 November 2026
 
+- **5 Nov** — The sidebar has a Hidden section for the spaces and databases you hid and for system spaces. [Organising the sidebar](/concepts/organising-the-sidebar/)
 - **3 Nov** — A guide to the StoryOS Runner, the program that lets an agent use your own AI. [The StoryOS Runner](/guides/runner/)
 - **3 Nov** — What wakes an agent on your own AI, and what its run record shows. [Agent runs](/concepts/agent-runs/)
 - **3 Nov** — Guides for the Team Wiki and Dev Tracker packs. [The Team Wiki pack](/guides/team-wiki-pack/) · [The Dev Tracker pack](/guides/dev-tracker-pack/)
