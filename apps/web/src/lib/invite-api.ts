@@ -5,11 +5,11 @@ import { API_URL, api } from '@/lib/api';
  * regenerated `schema.ts`), so they are typed here, the way the agent-scope read is. When that PR merges, `InviteDetails` and
  * `joinWithToken` should move onto the generated types and this comment goes.
  *
- *   GET  /api/v1/public/invites/details?token=…   no sign-in; an unknown, malformed, revoked or replaced token is one `not_found` body
+ *   GET  /api/v1/public/invites/details?token=…   no sign-in; an unknown, malformed or replaced token is one `not_found` body; a revoked one is `revoked` (ticket #1304) and names the inviter
  *   POST /api/v1/workspaces { invite_token }      joins and creates NO workspace; the answer is the workspace joined
  *   POST /api/v1/invites/accept { token }         the same accept(), for someone already signed in
  */
-export type InviteDetailsStatus = 'valid' | 'expired' | 'used' | 'not_found';
+export type InviteDetailsStatus = 'valid' | 'expired' | 'used' | 'revoked' | 'not_found';
 
 export interface InviteDetails {
   status: InviteDetailsStatus;
@@ -19,7 +19,7 @@ export interface InviteDetails {
   invited_email: string | null;
 }
 
-const STATUSES: readonly string[] = ['valid', 'expired', 'used', 'not_found'];
+const STATUSES: readonly string[] = ['valid', 'expired', 'used', 'revoked', 'not_found'];
 const nullableString = (v: unknown): v is string | null => v === null || typeof v === 'string';
 
 /** Narrows an unknown body to `InviteDetails`; anything else is null, so a proxy's HTML page or a half answer never draws a screen. */
@@ -53,13 +53,14 @@ export async function fetchInviteDetails(token: string, fetchImpl: typeof fetch 
 }
 
 /** What went wrong with an accept, from the API's stable error codes (PR 1540). */
-export type JoinFailure = 'not_found' | 'expired' | 'mismatch' | 'already_member' | 'other';
+export type JoinFailure = 'not_found' | 'expired' | 'revoked' | 'mismatch' | 'already_member' | 'other';
 
 export type JoinResult = { ok: true; workspaceId: string } | { ok: false; failure: JoinFailure };
 
 const CODES: Record<string, JoinFailure> = {
   invite_not_found: 'not_found',
   invite_expired: 'expired',
+  invite_revoked: 'revoked',
   invite_email_mismatch: 'mismatch',
   already_a_member: 'already_member',
 };
