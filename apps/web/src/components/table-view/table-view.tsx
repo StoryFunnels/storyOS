@@ -1,4 +1,5 @@
 'use client';
+import { isAlwaysOnField } from '../views/always-on-fields';
 import { Tooltip } from '@/components/ui/tooltip';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -227,7 +228,11 @@ export function TableView({
     // would otherwise still render as a column despite never being offered
     // as one — "absent from the list" only holds if it can never appear.
     const ordinary = (database.data?.fields ?? []).filter(
-      (f) => !HIDDEN_TYPES.has(f.type) && f.type !== 'rich_text' && !(hiddenFieldIds ?? []).includes(f.id),
+      (f) =>
+        !HIDDEN_TYPES.has(f.type) &&
+        f.type !== 'rich_text' &&
+        // #1281 — the title is always on; a stale hidden id (hidden from its own header before this) is ignored.
+        (isAlwaysOnField(f) || !(hiddenFieldIds ?? []).includes(f.id)),
     );
     const numberVisible = numberEntry && !(hiddenFieldIds ?? []).includes(numberEntry.id);
     const visibleDateEntries = systemDateEntries.filter((f) => !(hiddenFieldIds ?? []).includes(f.id));
