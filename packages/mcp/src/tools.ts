@@ -3845,7 +3845,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get field usage',
       description:
-        'What depends on this field, before you delete it: records carrying a non-empty value (blank, whitespace-only and never-set records are not counted), plus views (filter/sort/group), automations (trigger/condition), and formulas that reference it. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
+        'What depends on this field, before you delete it: records carrying data in it, plus the views (filter/sort/group), automations (trigger/condition) and formulas that reference it. The records_with_value count comes from wherever the field\'s type stores its data (a relation field counts records holding links, on either side); blank, whitespace-only and never-set records are not counted. The storage value says what was counted (record_values, record_links, title, system_column, computed_values, derived_from_links or none). The complete flag is false when you cannot read the far side of a relation: the count then covers only what you can see, and a 0 is not proof that nothing is stored. Call this before delete_field — a field with live dependents will keep working after a soft-delete, but the view/automation/formula that named it silently stops.',
       inputSchema: { workspace: z.string(), database: z.string(), field: z.string() },
     },
     handle<{ workspace: string; database: string; field: string }>(async ({ workspace, database, field }) => {

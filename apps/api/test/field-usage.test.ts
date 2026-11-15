@@ -77,7 +77,7 @@ describe('GET /fields/:field/usage (#681)', () => {
     expect(body.formulas.map((f: { id: string }) => f.id)).toEqual([formula.id]);
 
     const clean = await inject('GET', `/workspaces/${wsId}/databases/${dbId}/fields/${untouched.id}/usage`);
-    expect(clean.json()).toEqual({ records_with_value: 0, views: [], automations: [], formulas: [] });
+    expect(clean.json()).toEqual({ records_with_value: 0, storage: 'record_values', complete: true, views: [], automations: [], formulas: [] });
   });
 
   it('detects a condition (not just a trigger) referencing the field', async () => {

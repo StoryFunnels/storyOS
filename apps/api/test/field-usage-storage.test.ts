@@ -224,6 +224,8 @@ describe('#1308 every field type is counted from where it is stored', () => {
     const r2 = await newRecord(d, { name: 'two', [score.apiName]: 4 });
     await newRecord(d, { name: '   ' }); // a blank title is not a value
     await setLinks(d, r1, relField, [target]);
+    // r2 links to a far record that holds NO Power: it carries a link but nothing for the lookup to show.
+    await setLinks(d, r2, relField, [await newRecord(related, { name: 'Empty T' })]);
     // An AI field's text lives in computed_values, written by a background job; write it the way the job does.
     await db.update(records).set({ computedValues: sql`${records.computedValues} || ${JSON.stringify({ [ai.id]: 'a gist' })}::jsonb` }).where(and(eq(records.id, r2)));
   });
@@ -243,7 +245,8 @@ describe('#1308 every field type is counted from where it is stored', () => {
     expect(await usageOf(d, createdAt.id)).toMatchObject({ records_with_value: 3, storage: 'system_column' });
   });
 
-  it('lookup: derived from the links, so a record with a link to a target holding a value counts', async () => {
+  it('lookup: derived from the links, so only a record linked to a target that HOLDS a value counts (r2 is linked, to a blank one)', async () => {
+    expect((await usageOf(d, relField)).records_with_value).toBe(2);
     expect(await usageOf(d, fieldIds.lookup!)).toMatchObject({ records_with_value: 1, storage: 'derived_from_links', complete: true });
   });
 
@@ -277,6 +280,7 @@ describe('#1308 the count does not leak links the caller cannot see', () => {
   let insider: { token: string; email: string }; // creator on A, viewer on B
   let lookupField: string;
   let hiddenRecord: string;
+  let rollupField: string;
 
   async function invite(name: string, grants: Array<Record<string, unknown>>) {
     const u = await signUpUser(app, name);
@@ -299,16 +303,22 @@ describe('#1308 the count does not leak links the caller cannot see', () => {
     lookupField = (await as('POST', `/workspaces/${ws}/databases/${a}/fields`, {
       display_name: 'Worth seen', type: 'lookup', config: { relation_field_id: r1.fieldA, target_field_api_name: worth.apiName },
     })).json().id;
+    rollupField = (await as('POST', `/workspaces/${ws}/databases/${a}/fields`, {
+      display_name: 'Worth total', type: 'rollup', config: { relation_field_id: r1.fieldA, op: 'sum', target_field_api_name: worth.apiName },
+    })).json().id;
     const hidden = await newRecord(b, { name: 'Hidden Co', [worth.apiName]: 7_777_777 });
     hiddenRecord = hidden;
     for (const name of ['x', 'y']) await setLinks(a, await newRecord(a, { name }), r1.fieldA, [hidden]);
+    // A third record links only to a SECOND far record that the record-scoped caller below cannot read.
+    const hiddenToo = await newRecord(b, { name: 'Other Hidden Co', [worth.apiName]: 1 });
+    await setLinks(a, await newRecord(a, { name: 'z' }), r1.fieldA, [hiddenToo]);
     narrow = await invite('Usage Narrow', [{ database_id: a, role: 'creator' }]);
     insider = await invite('Usage Insider', [{ database_id: a, role: 'creator' }, { database_id: b, role: 'viewer' }]);
   }, 120_000);
 
   it('CONTROL: the owner and a caller who can read the far side see the real count, marked complete', async () => {
-    expect(await usageOf(a, linked.fieldA)).toMatchObject({ records_with_value: 2, complete: true });
-    expect(await usageOf(a, linked.fieldA, insider.token)).toMatchObject({ records_with_value: 2, complete: true });
+    expect(await usageOf(a, linked.fieldA)).toMatchObject({ records_with_value: 3, complete: true });
+    expect(await usageOf(a, linked.fieldA, insider.token)).toMatchObject({ records_with_value: 3, complete: true });
   });
 
   it('a caller who cannot read the far side gets a count of what they can see (0) AND complete: false, never a confident zero', async () => {
@@ -324,11 +334,16 @@ describe('#1308 the count does not leak links the caller cannot see', () => {
   });
 
   it('a lookup through the same relation is held back the same way (its count would otherwise reveal the links)', async () => {
-    expect(await usageOf(a, lookupField)).toMatchObject({ records_with_value: 2, complete: true });
+    expect(await usageOf(a, lookupField)).toMatchObject({ records_with_value: 3, complete: true });
     expect(await usageOf(a, lookupField, narrow.token)).toMatchObject({ records_with_value: 0, complete: false });
   });
 
-  it('a caller who can read ONE far record counts only links to it, marked incomplete; a lookup stays held back', async () => {
+  it('a rollup through the same relation is held back the same way (a materialised value would otherwise reveal the links)', async () => {
+    expect((await usageOf(a, rollupField)).complete).toBe(true);
+    expect(await usageOf(a, rollupField, narrow.token)).toMatchObject({ records_with_value: 0, complete: false });
+  });
+
+  it('a caller who can read ONE far record counts only the records linked to it (2 of 3), marked incomplete; a lookup stays held back', async () => {
     const scoped = await invite('Usage Record Scoped', [{ database_id: a, role: 'creator' }, { record_id: hiddenRecord, role: 'viewer' }]);
     expect(await usageOf(a, linked.fieldA, scoped.token)).toMatchObject({ records_with_value: 2, complete: false });
     expect(await usageOf(a, unlinked.fieldA, scoped.token)).toMatchObject({ records_with_value: 0, complete: false });
