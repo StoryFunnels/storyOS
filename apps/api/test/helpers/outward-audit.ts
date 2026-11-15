@@ -77,6 +77,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'DELETE /me/ai-connections/:id': { verdict: 'self_guarded', why: 'assertSession: only a signed-in session may disconnect an AI connection' },
   'POST /billing/webhook': { verdict: 'public', why: 'inbound Stripe webhook, verified by signature' },
   'GET /workspaces/:ws/agent-write-gates': { verdict: 'internal', why: 'read: returns data to the caller only' },
+  'GET /workspaces/:ws/agents/:agent/wake-sources': { verdict: 'internal', why: 'read: returns data to the caller only (the agent\'s manager or an admin)' },
   'GET /workspaces/:ws/databases': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/fields/:field/personal-collection-view': { verdict: 'internal', why: 'read: returns data to the caller only' },
