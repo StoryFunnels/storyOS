@@ -3,10 +3,12 @@
 import { useMemo, useState } from 'react';
 import { DragOverlay, KeyboardSensor, MouseSensor, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import type { Announcements, DragStartEvent, DragEndEvent, DragCancelEvent, DragMoveEvent } from '@dnd-kit/core';
+import type { Announcements, DragStartEvent, DragEndEvent, DragCancelEvent, DragMoveEvent, KeyboardSensorOptions } from '@dnd-kit/core';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { blockAnnouncements } from './drag-announcements';
 import type { DragLabeller } from './drag-announcements';
 import { cn } from '@/lib/utils';
+import { isTypingTarget } from '@/lib/shortcuts';
 
 /**
  * How a drag LOOKS and SOUNDS, in one place (#409, #412, #415).
@@ -28,6 +30,27 @@ import { cn } from '@/lib/utils';
 export type { DragLabeller };
 
 /**
+ * #1301 — dnd-kit's KeyboardSensor, minus the keys that were never meant for it.
+ *
+ * Its activator is a React `onKeyDown` on the sortable row, so it also receives every key typed into an
+ * input INSIDE that row. It only ignores a child's event when the row registered a separate activator
+ * node (`setActivatorNodeRef`); none of ours do, so Space (its "pick up" key) typed into a rename input
+ * was `preventDefault()`ed and no space was inserted. Ignore an event whose target is an editable field.
+ * Keyboard drag from the row/handle itself is untouched (the target is then the row, not an input).
+ */
+export class EditableSafeKeyboardSensor extends KeyboardSensor {
+  static activators = [
+    {
+      eventName: 'onKeyDown' as const,
+      handler: (event: ReactKeyboardEvent, options: KeyboardSensorOptions, context: Parameters<(typeof KeyboardSensor.activators)[0]['handler']>[2]) => {
+        if (isTypingTarget(event.nativeEvent.target)) return false;
+        return KeyboardSensor.activators[0]?.handler(event, options, context) ?? false;
+      },
+    },
+  ];
+}
+
+/**
  * Sensors for a vertical sortable list: pointer (5px before it counts as a drag,
  * so a click still clicks) AND keyboard (#814 — Space lifts, arrows move, Space
  * drops). A list registered with only PointerSensor can be reordered by mouse
@@ -36,7 +59,7 @@ export type { DragLabeller };
 export function useSortableSensors() {
   return useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(EditableSafeKeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 }
 
@@ -51,7 +74,7 @@ export function useSidebarSortableSensors() {
   return useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(EditableSafeKeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 }
 

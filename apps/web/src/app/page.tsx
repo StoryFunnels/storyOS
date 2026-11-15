@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSession } from '@/lib/auth-client';
 import { api } from '@/lib/api';
 import { sessionVerdict } from '@/lib/session-state';
+import { heldInviteToken, postSignInDestination } from '@/lib/invite-join';
 import { SessionUnavailable } from '@/components/session-unavailable';
 
 /** Entry: route to the user's workspace, workspace creation, or login. */
@@ -32,7 +33,8 @@ export default function Home() {
       return;
     }
     if (workspaces.data) {
-      router.replace(workspaces.data.length > 0 ? `/w/${workspaces.data[0]!.id}` : '/new-workspace');
+      // #1302 — a held invite wins over "no workspace yet": that is where a new invited account used to be sent to create its own.
+      router.replace(postSignInDestination({ workspaceIds: workspaces.data.map((w) => w.id), held: heldInviteToken(window.sessionStorage, Date.now()) }));
     }
   }, [verdict, workspaces.data, router]);
 
