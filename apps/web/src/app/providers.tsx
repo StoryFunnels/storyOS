@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/reac
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import posthog from 'posthog-js';
+import { commentDrafts } from '@/components/entity/comment-draft';
 import { ThemeProvider } from '@/lib/theme';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -47,6 +48,8 @@ function IdentitySync() {
       // every key in this app is workspace-scoped, none is user-scoped, so there
       // is no subset that is safe to keep.
       queryClient.clear();
+      // #1277: a half-typed comment belongs to the previous person too.
+      commentDrafts.clear();
       posthog.reset();
     }
     seen.current = current;
