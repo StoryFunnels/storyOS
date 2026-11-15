@@ -16,7 +16,8 @@ import { useWorkspace } from '@/lib/queries';
 import { useUninstallPack } from '@/lib/use-uninstall-pack';
 import { confirmUninstallPack } from '@/lib/settings-confirmations';
 import { useConfirm } from '@/components/ui/confirm-dialog';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { PackVisual, packCountsLine, registryVertical } from '@/components/pack-visual';
 import { useDateFormat } from '@/lib/preferences';
@@ -29,6 +30,7 @@ import {
   type InstallSummary,
   type PackSource,
 } from '@/components/pack-install-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * Business Packs — gallery + one-click install (MN-219 / #161), the
@@ -143,13 +145,13 @@ export default function PacksPage() {
         <ArrowLeft className="h-3 w-3" /> Home
       </Link>
       <div className="mb-1 flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">
+        <h1 className="flex items-center gap-2 text-[22px] font-bold tracking-[-0.02em] text-ink">
           <Package className="h-5 w-5" /> Business Packs
         </h1>
         {canInstall && (
           <Link
             href={`/w/${ws}/packs/submit`}
-            className="flex items-center gap-1.5 text-label text-muted hover:text-ink"
+            className={cn(buttonVariants({ variant: 'secondary' }))}
           >
             <Upload className="h-3.5 w-3.5" /> Submit a pack
           </Link>
@@ -252,7 +254,7 @@ export default function PacksPage() {
           );
         })}
         {registry.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-body text-muted">No packs in the gallery yet.</p>
+          <EmptyState variant="list" title="No packs in the gallery yet." />
         )}
       </div>
 
@@ -320,24 +322,24 @@ export default function PacksPage() {
           );
         })}
         {marketplace.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-body text-muted">No community packs published yet.</p>
+          <EmptyState variant="list" title="No community packs published yet." />
         )}
       </div>
 
       {noMatches && (
-        <div className="mt-4 rounded-[var(--radius-card)] border border-dashed border-border-default p-8 text-center">
-          <p className="text-body font-medium text-ink">No packs match this search</p>
-          <button
-            type="button"
-            className="mt-1 text-label text-muted underline underline-offset-2"
-            onClick={() => {
+        <EmptyState
+          variant="filtered"
+          className="mt-4"
+          title="No packs match this search"
+          action={{
+            label: 'Clear filters',
+            variant: 'secondary',
+            onClick: () => {
               setQuery('');
               setVertical('all');
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
+            },
+          }}
+        />
       )}
 
       {open && (

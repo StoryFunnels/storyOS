@@ -15,9 +15,6 @@ const HAND_ROLLED = /\.toLocale(?:Date|Time)String\(|new Date\([^)]*\)\.toLocale
 
 const ALLOWED: Record<string, string> = {
   'lib/format.ts': 'the formatter itself',
-  'components/views/timeline-view.tsx': 'axis labels of the timeline (a month name or a day tick), not a stored value',
-  'components/views/calendar-view.tsx': 'the calendar’s own heading ("Oct 2026", the week range), not a stored value',
-  'components/views/calendar-time-grid.tsx': 'weekday names for the column headers',
   'app/s/[token]/page.tsx':
     'server-rendered public skill page: there is no viewer locale or preference on the server; it prints a month name, never numerals',
 };

@@ -97,6 +97,8 @@ The full local CI, which is the same set of checks the PR gate runs:
 pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:check && pnpm install --frozen-lockfile
 ```
 
+Maintainers keep one standing local stack (API :3500, web :3600) running `main` on fixed ports for screenshots and checks, with a template database that PR rigs clone in seconds: see [docs/pinewood-local-stack.md](docs/pinewood-local-stack.md).
+
 If you change API surface, run `pnpm sdk:generate` and commit the result. CI fails on OpenAPI/SDK drift. **Before your first PR, read [CONTRIBUTING.md](CONTRIBUTING.md).**
 
 ## Principles

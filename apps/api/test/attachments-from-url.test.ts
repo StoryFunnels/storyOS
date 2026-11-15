@@ -46,7 +46,7 @@ beforeEach(() => {
 describe('#1033 internal addresses are refused, directly and through redirects, and nothing is attached', () => {
   it.each([
     ['http://127.0.0.1:3001/api/v1/me', 'loopback'],
-    ['http://169.254.169.254/hetzner/v1/userdata', 'the cloud metadata service'],
+    ['http://169.254.169.254/metadata/v1/userdata', 'the cloud metadata service'],
     ['http://[::1]/', 'IPv6 loopback'],
     ['http://[::ffff:7f00:1]/', 'IPv4-mapped loopback in hex'],
     ['http://100.64.0.1/', 'CGNAT'],
@@ -73,7 +73,7 @@ describe('#1033 internal addresses are refused, directly and through redirects, 
     stub = (async (input: string | URL | Request) => {
       const url = String(input);
       requested.push(url);
-      if (url.startsWith('https://files.example.com/')) return respond(302, null, { location: 'http://169.254.169.254/hetzner/v1/userdata' });
+      if (url.startsWith('https://files.example.com/')) return respond(302, null, { location: 'http://169.254.169.254/metadata/v1/userdata' });
       return respond(200, 'SECRET-INSTANCE-USERDATA');
     }) as typeof fetch;
     const res = await fromUrl('https://files.example.com/innocent.png');

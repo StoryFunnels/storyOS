@@ -115,7 +115,7 @@ export interface paths {
         /** List workspaces I belong to */
         get: operations["WorkspacesController_list"];
         put?: never;
-        /** Create a workspace (creator becomes admin) */
+        /** Create a workspace (creator becomes admin). With invite_token the invite is accepted instead and NO workspace is created: the response is the workspace joined, with joined_via_invite true. A token that cannot be accepted refuses and creates nothing. */
         post: operations["WorkspacesController_create"];
         delete?: never;
         options?: never;
@@ -326,6 +326,23 @@ export interface paths {
         put?: never;
         /** Accept an invite by token (must match your email) */
         post: operations["InviteAcceptController_accept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/invites/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired or used. An unknown, malformed or revoked token returns status "not_found" with every other field null (same body, so tokens cannot be probed). */
+        get: operations["PublicInvitesController_details"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2214,7 +2231,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Workspace-wide activity + field changes, filterable by actor/entity/date range (admin) */
+        /**
+         * Workspace-wide activity + field changes, filterable by actor/entity/date range (admin)
+         * @description Each row about a record carries `record` {id, number, title, database_id, database_name, deleted, withheld} (ticket #1287), resolved for the reader: `withheld` rows (a record the reader may not read, or in another member's personal space) carry only the id; `deleted` rows are soft-deleted or gone. Resolved display data sits alongside the raw ids: field_type, old_display and new_display (option labels for select fields; names for a person field, single or multi: "A former member" for someone who has left, "A person you cannot see" when the reader may not read that person, and never the auth id), other_record (relation events), actor_name, actor_kind (member | system) and actor_removed.
+         */
         get: operations["AuditLogController_list"];
         put?: never;
         post?: never;
@@ -5291,9 +5311,10 @@ export interface components {
             workspace_id?: string;
         };
         CreateWorkspaceDto: {
-            name: string;
+            name?: string;
             description?: string;
             slug?: string;
+            invite_token?: string;
         };
         UpdateWorkspaceDto: {
             name?: string;
@@ -5350,6 +5371,14 @@ export interface components {
         };
         AcceptInviteDto: {
             token: string;
+        };
+        InviteDetailsResponseDto: {
+            /** @enum {string} */
+            status: "valid" | "expired" | "used" | "not_found";
+            inviter_name: string | null;
+            workspace_name: string | null;
+            workspace_logo_url: string | null;
+            invited_email: string | null;
         };
         CreateFolderDto: {
             name: string;
@@ -8081,6 +8110,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    PublicInvitesController_details: {
+        parameters: {
+            query?: {
+                /** @description The token from the invite link */
+                token?: unknown;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteDetailsResponseDto"];
+                };
             };
         };
     };

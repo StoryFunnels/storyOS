@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { EmptyState } from '@/components/views/empty-state';
+import { EmptyDatabase } from '@/components/views/empty-database';
 import { databaseNoun, pluralNoun } from './records';
 
 /** Ticket #1223 AC3 — the noun is drawn from real database names; a trailing "s" is not a plural rule. */
@@ -66,7 +66,7 @@ describe('pluralNoun', () => {
 
 describe('callers that pluralise the noun themselves', () => {
   it('the empty state says "companies", not "companys" (it used to append "s" to the broken stem)', () => {
-    const html = renderToStaticMarkup(createElement(EmptyState, { noun: databaseNoun('Companies') }));
+    const html = renderToStaticMarkup(createElement(EmptyDatabase, { noun: databaseNoun('Companies') }));
     expect(html).toContain('New companies will show up here.');
     expect(html).not.toMatch(/companys|companie\b/);
   });

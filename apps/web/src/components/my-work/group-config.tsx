@@ -6,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
+  MENU_ITEM_GEOMETRY,
 } from '@/components/ui/dropdown-menu';
 import { ColorByButton, FiltersSection, SortButton } from '@/components/views/view-toolbar';
 import type { FilterCondition, FilterGroup } from '@/components/views/filter-config';
@@ -191,13 +192,13 @@ export function MyWorkGroupToolbar({
             <SlidersHorizontal className="h-3.5 w-3.5" /> Fields
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="min-w-44">
+        <DropdownMenuContent>
           {fields.map((f) => {
             const on = currentVisible.has(f.id);
             return (
               <button
                 key={f.id}
-                className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
+                className={cn('flex w-full items-center justify-between rounded text-ink hover:bg-hover', MENU_ITEM_GEOMETRY)}
                 onClick={() => {
                   const base = fields.filter((x) => currentVisible.has(x.id)).map((x) => x.id);
                   const nextVisible = on ? base.filter((id) => id !== f.id) : [...base, f.id];
