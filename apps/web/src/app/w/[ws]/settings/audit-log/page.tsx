@@ -109,7 +109,7 @@ export default function AuditLogPage() {
     enabled: isAdmin,
   });
 
-  const entries = collapseDuplicateUpdates((log.data?.pages ?? []).flatMap((p) => p.data));
+  const entries = collapseDuplicateUpdates((log.data?.pages ?? []).flatMap((p) => p.data), { moreAfter: Boolean(log.hasNextPage) && !log.isFetchNextPageError });
   const feed = auditFeedState({ isLoading: log.isLoading, isError: log.isError, rows: entries.length, filtersApplied: resolved.applied });
 
   if (workspace.isLoading) return <p className="p-8 text-body text-muted">Loading…</p>;
@@ -161,10 +161,10 @@ export default function AuditLogPage() {
                     {dateTime(e.created_at)}
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col sm:w-44 sm:flex-none sm:shrink-0">
-                    <span className="flex min-w-0 items-center gap-1.5 text-body text-ink">
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-body text-ink">
                       {/* The API names the member; an id is never printed, and "(removed)" follows only when the API says so (ticket #1287). */}
                       <AuditActor entry={e} memberName={memberName} />
-                      <span className="shrink-0">
+                      <span className="min-w-0 max-w-full">
                         <SourceBadge source={e.source} agentName={e.agent_name} inlineName />
                       </span>
                     </span>

@@ -27,6 +27,7 @@ import {
   joinFailureMessage,
   joinModel,
   runJoinSubmit,
+  SWITCH_ACCOUNT_FAILURE,
 } from '@/lib/invite-screen';
 import type { JoinSession } from '@/lib/invite-screen';
 import { JoinView, SignedOutForm } from '@/components/invite/join-view';
@@ -197,11 +198,19 @@ function InviteJoin() {
 
   async function onSwitchAccount() {
     if (!token) return;
+    setError(null);
     setBusy(true);
-    await authClient.signOut();
-    setBusy(false);
-    // The Join screen again, token kept (URL and held entry), now signed out.
-    router.replace(inviteJoinPath(token));
+    // A signOut that THROWS (API down) resets busy and shows the retry sentence; it does not navigate (ticket #1302).
+    await runJoinSubmit(
+      async () => {
+        await authClient.signOut();
+        setBusy(false);
+        // The Join screen again, token kept (URL and held entry), now signed out.
+        router.replace(inviteJoinPath(token));
+      },
+      { setBusy, setError },
+      SWITCH_ACCOUNT_FAILURE,
+    );
   }
 
   if (!token) {

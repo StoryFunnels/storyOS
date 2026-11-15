@@ -40,6 +40,12 @@ that it needs the operator; see [self-hosting integrations](/self-hosting/config
 A connection that was paused after repeated failures shows "Paused until {time}" in its card's
 advanced details, with a **Resume** button for when the cause is fixed.
 
+Once a provider is connected, its page leads with the card. The setup that came before (GitHub's
+steps and App box, Linear's key section, a token or key form) moves under a closed **Change how
+{provider} is connected** line, and stays open while nothing is connected. GitHub's page also lists
+repositories that are sending events but are not tracked, each with a **Track** button; see
+[Connecting GitHub](/guides/github/#not-tracked-but-sending-events).
+
 Email (Resend or SMTP), Custom API, Apify and OpenAI have a page that is only the card; the page says
 what to do next, for example choosing the connection in a Send email button or automation action.
 
