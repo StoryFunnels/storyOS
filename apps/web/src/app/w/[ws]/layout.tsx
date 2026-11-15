@@ -24,6 +24,7 @@ import { useTyronPanel } from '@/lib/tyron-panel';
 import { peekPendingBuild } from '@/lib/pending-build';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
+import { commentDrafts, onWorkspaceChange } from '@/components/entity/comment-draft';
 
 /** The protected workspace shell. */
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
@@ -46,6 +47,11 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   useInputModality();
   // #1216 — Settings' "Back" returns to the last page outside it, so every page visited is remembered here.
   useRememberOutsideSettings(ws, pathname);
+  // #1277 — a half-typed comment belongs to the workspace it was typed in. Here, not in RecordDetail: this layout is mounted for
+  // every page of the workspace (home, settings, a list), so the draft goes when the active workspace changes whatever page is next.
+  useEffect(() => {
+    onWorkspaceChange(commentDrafts, ws);
+  }, [ws]);
   // Persistent, per-user collapse toggle for md+ (MN-230b new requirement).
   // #356 — FULL means the panel takes the window. Read here because <main> is the
   // thing that has to give way, and it is owned by this layout.

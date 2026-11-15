@@ -341,6 +341,8 @@ it is `required_packs`, `{"<pack slug>": "also_install" | "create_here"}` on `in
 - **Preview.** `required_packs` lists each required pack with `installed`, `linked` (this pack's
   databases that would be the other pack's), `fields_added`, `choices` and `chosen`.
 - **Install result.** `required_packs` reports each as `linked`, `installed_and_linked` or `created_here`.
+  `linked` means the install reused the other pack's database, including when it already sits in the space
+  you install into. `created_here` is reported only when the install made the database itself.
 - **A failed install undoes `also_install`.** The request is one install. If the dependent pack fails
   after the required pack was installed for it, everything that request created is rolled back, the first
   pack and its databases included, and the error says what was rolled back. A pack that was already
@@ -421,9 +423,13 @@ no `enabled` field, and one a file carries is dropped.
 - A trigger with `human_gate: true` ("ask me before each run") is not held off. It never starts a run by
   itself: a person starts every run. It reports `enabled: true` and `human_gate: true`. A manifest can
   still set it; no built-in pack does.
-- **The web install review does not list triggers yet.** It shows the automations (above) but no switch for a
-  trigger, so a trigger is switched on at install through the API or MCP, as below. The preview does list them.
-- To switch one on at install, pass `enable_agent_triggers` with its label, written
+- **The web install review has a switch for each one.** Under the agent a trigger wakes, a state-bound trigger
+  that installs off shows **Wake it automatically**, off by default, with one line naming what wakes it, for
+  example *Off until you turn it on. Wakes when Status becomes New.* Turning it on changes the line to *On once
+  installed* and sends the trigger's label as `enable_agent_triggers`; with no switch turned on, nothing is sent
+  and every trigger stays off. The review checks your choice with a second preview, as it does for automations.
+  A human-gated trigger, and one that already exists, draws no switch.
+- Over the API or MCP, switch one on at install by passing `enable_agent_triggers` with its label, written
   `Agent ← Database.Field = State` as the preview lists it. Over MCP this is the `enable_agent_triggers`
   input of `install_pack`; over REST it is `enable_agent_triggers` on `packs/install` and `packs/preview`.
   A label that matches no trigger is ignored.
@@ -432,7 +438,8 @@ no `enabled` field, and one a file carries is dropped.
 - **Install result:** each created trigger carries `enabled`, and the same `switched_off_because`.
 - A trigger that already exists is never changed by a re-install or an update, in either direction: one
   a person switched on stays on, one they left off stays off. An update that adds a trigger adds it off.
-- Existing installs are not changed. A plan the Architect builds, and a trigger a person creates by
+- Existing installs are not changed: an agent trigger installed before this switch existed keeps the state it
+  had, and nothing migrates it. A plan the Architect builds, and a trigger a person creates by
   hand, are not pack installs and stay on.
 
 ## A pack without agents adds no Agentic OS space

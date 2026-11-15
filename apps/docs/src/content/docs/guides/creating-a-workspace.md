@@ -5,7 +5,9 @@ sidebar:
   order: 2
 ---
 
-The first screen after signing up asks for a **workspace name** and **what you do**.
+The first screen after signing up asks for a **workspace name** and **What are you working on?**, with a
+grid of starting points under it. Team Board, Dev Tracker and Team Wiki come first; the other packs follow.
+Above the name, **Or describe what you do and let me build it** opens the describe step below.
 
 ## Describe your work, and it's built for you
 
@@ -23,8 +25,8 @@ that fit, connects them, and adds the views worth having. You can reshape anythi
 
 ## Starting from a template instead
 
-Prefer to begin from a known shape? **Start from a template instead**, under the description box,
-shows the starting points below; **← Back** returns to the describe step.
+The grid of starting points is the first thing you see. If you opened the describe step, **Start from a
+template instead**, under the description box, takes you back to it.
 
 ![Create workspace screen with a name typed in and no starting point chosen yet](/images/create-workspace-empty.png)
 
@@ -96,8 +98,10 @@ nothing is created until you confirm. It leads with what the pack is for:
 3. **How it fits together**: the database map, one row per link, drawn from the pack's own relations, such
    as *Tasks → Projects*. A two-way link reads *↔*, and a database linked to itself is shown with *↺* and the
    field it uses. A pack with no links says *One database, no links* or *N databases, no links*.
-4. What it would create, where it would reuse something you already have, and the automations it installs
-   switched off.
+4. What it would create, where it would reuse something you already have, and the automations and agent
+   triggers it installs switched off. Each database it adds reads *database ·* followed by up to six of its
+   fields (a state field shows its options), then *+N more*. A database that gains links reads *Links to* and
+   names them, outside that cap.
 
 A pack that declares no `why` or `can` (a community pack, say) simply shows none of this: there is no
 heading and no placeholder. The pack cards on a space's page carry the same sentence, falling back to the
@@ -113,6 +117,9 @@ Two choices in the review are yours to make, and both default to the cautious an
 - **Automations that install off.** One that sends things outside the workspace or runs an agent reads
   **Off until you turn it on**, with why and a switch. See [Automations that send things out install
   switched off](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
+- **Agents that wake on a state.** A trigger such as "wake this agent when Status becomes New" also installs
+  off. Under its agent, **Wake it automatically** is the switch. See [Agent triggers install switched
+  off](/guides/pack-manifest/#agent-triggers-install-switched-off).
 
 **After the install,** if the pack names a view its database opens on, you land on that view with the
 pack's space expanded in the sidebar, rather than on a list of what was installed. For Team Board that is
