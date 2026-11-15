@@ -26,6 +26,8 @@ const RULES = [
   ['region-code', alnum(j('h', 'el', '1'))],
   ['server-name', name(['storyos', 'prod'].join('-'))],
   ['infra-repo', name(['storyos', 'infra'].join('-'))],
+  // the previous production server's hostname (fragments, never spelled whole)
+  ['prod-hostname', alnum(j('os\\.', 'jam', 'esc', 'ook', 'med', 'ia\\.', 'com'))],
   // the previous production server's address (literal fragments, never spelled whole)
   ['prod-ip', alnum(['185', '237', '15', '102'].join('\\.'))],
 ].map(([label, src]) => [label, new RegExp(src, 'i')]);

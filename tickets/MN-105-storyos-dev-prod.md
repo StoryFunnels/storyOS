@@ -9,7 +9,7 @@ size: L
 ## Why
 
 The current instance runs on the founder's **personal box** at
-`os.jamescookmedia.com` — fine for a demo, wrong for a product. Move to a proper,
+The interim demo hostname — fine for a demo, wrong for a product. Move to a proper,
 disposable production environment on the **storyos.dev** domain family, off personal infra.
 
 ## Domain layout (decided)
