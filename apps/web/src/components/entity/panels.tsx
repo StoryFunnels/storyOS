@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +15,7 @@ import { api, API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { commentAuthorView } from './comment-author';
-import type { CommentDraftStore } from './comment-draft';
+import { commentDraftKey, createFocusTracker, type CommentDraftStore } from './comment-draft';
 import { SourceBadge } from './source-badge';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
@@ -160,7 +160,7 @@ export function CommentComposer({
   // no clean "reset to empty" — recreating via this dep is the reliable clear).
   const [resetKey, setResetKey] = useState(0);
 
-  const draftKey = `${ws}/${db}/${rec}`;
+  const draftKey = commentDraftKey(ws, db, rec);
   const editor = useCreateBlockNote(
     { schema: mentionSchema, initialContent: drafts?.get(draftKey) as never },
     [resetKey],
@@ -169,6 +169,35 @@ export function CommentComposer({
   useEffect(() => {
     if (drafts?.get(draftKey)) setHasContent(true);
   }, [drafts, draftKey]);
+
+  // #1277: this composer is remounted when the record page crosses 900px. If it holds keyboard focus as it goes, hand that to the
+  // one that mounts next; a composer that did not hold focus hands nothing over, so focus is never stolen. Focus comes from the
+  // focus/blur events, not `document.activeElement` (already <body> by cleanup time), and the teardown's own blur is told apart
+  // from a user's by whether the box is hidden or already unmounted (see `createFocusTracker`).
+  const [focusTracker] = useState(createFocusTracker);
+  useLayoutEffect(() => {
+    focusTracker.mount();
+    return () => focusTracker.unmount(); // layout cleanup = the same synchronous commit that delivers the teardown blur
+  }, [focusTracker]);
+  useEffect(() => {
+    return () => {
+      if (focusTracker.holds) drafts?.handOffFocus(draftKey);
+    };
+  }, [drafts, draftKey, focusTracker]);
+  useEffect(() => {
+    if (!drafts?.takeFocusHandoff(draftKey)) return;
+    // The crossing can remount the composer more than once in a row (observed: twice), and `focus()` lands a beat later, so a
+    // focus that has been handed to us but has not arrived yet counts as held (else the next remount would not inherit it). If it
+    // never arrives (the editor could not take it), give it up so a later unmount does not pass on focus nobody had.
+    focusTracker.expectFocus();
+    const last = editor.document[editor.document.length - 1];
+    if (last) editor.setTextCursorPosition(last, 'end');
+    editor.focus();
+    const giveUp = setTimeout(() => {
+      if (!editor.isFocused()) focusTracker.giveUp();
+    }, 500);
+    return () => clearTimeout(giveUp);
+  }, [drafts, draftKey, editor, focusTracker]);
 
   const post = useMutation({
     mutationFn: async (body: BlocknoteBody) => {
@@ -216,8 +245,12 @@ export function CommentComposer({
             submit();
           }
         }}
-        onFocusCapture={() => setFocused(true)}
+        onFocusCapture={() => {
+          focusTracker.expectFocus();
+          setFocused(true);
+        }}
         onBlurCapture={(e) => {
+          queueMicrotask(focusTracker.blur({ hidden: e.currentTarget.getClientRects().length === 0 }));
           if (!e.currentTarget.contains(e.relatedTarget as Node) && !hasContent) setFocused(false);
         }}
       >
@@ -411,7 +444,9 @@ export function CommentsPanel({
         </div>
       ))}
 
-      <CommentComposer ws={ws} db={db} rec={rec} drafts={drafts} />
+      {/* Keyed by record: an in-place record switch must remount the composer (new editor, that record's own draft), never carry A's
+          text into B's Send. */}
+      <CommentComposer key={commentDraftKey(ws, db, rec)} ws={ws} db={db} rec={rec} drafts={drafts} />
     </div>
   );
 }

@@ -314,7 +314,8 @@ item carries a reason.
 A pack automation that sends email, Slack, webhook, HTTP or social-post actions, or runs an agent, installs
 **switched off**. Pass `enable_automations` (labels written `Database.Rule name`, as `preview` lists them) to
 switch chosen ones on; the web install review shows each rule that installs off as **Off until you turn it
-on**, with why and a switch. The preview and the install result say which rules are off and why. Details:
+on**, with why and a switch. A pack's agent triggers install off too, and the review shows each under its
+agent as **Wake it automatically**; over MCP pass `enable_agent_triggers`. The preview and the install result say which rules are off and why. Details:
 [Writing a pack manifest](/guides/pack-manifest/#automations-that-send-things-out-install-switched-off).
 
 ### Packs that build on other packs
@@ -341,6 +342,8 @@ pack's databases would be linked to it, the fields this pack adds to them, the `
   databases, and the error says what was rolled back. A required pack that was installed before the
   request is not touched. If the rollback itself fails, the error names what to delete by hand.
 - **The install result** reports each required pack as `linked`, `installed_and_linked` or `created_here`.
+  A database the install reused is `linked` even when it already sits in the space you install into;
+  `created_here` means the install made it.
 
 ### A pack that schedules its own agent
 

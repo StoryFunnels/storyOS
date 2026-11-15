@@ -1,8 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { ActionWhat } from './agent-actions';
-import { isAiSource, type AuditEventRow } from '@/lib/governance';
+import { ActionWhat, FieldLines } from './agent-actions';
+import { AdvancedSection } from '@/components/settings/settings-chrome';
+import { enforcementSummary, fieldRowsOf, isAiSource, type AuditEventRow } from '@/lib/governance';
 import type { AuditRecordRef } from '@/components/settings/audit-row';
 
 // Ticket #1306: the Recent agent actions row says what happened in the audit log page's own words. Visible text only; fake data.
@@ -62,5 +63,61 @@ describe('ActionWhat: the same sentence as the audit log page (#1306)', () => {
   });
   it('gold is decided by isAiSource, which the list still imports; the row mark is the Rocket', () => {
     expect(isAiSource('agent') && isAiSource('mcp') && !isAiSource('automation') && !isAiSource('human')).toBe(true);
+  });
+});
+
+// Ticket #1284: the field-level lines under a "Record updated" row, from the field_change rows the same audit-log read already carries.
+describe('FieldLines: "Set Phase: Review → Done" under the row (#1284)', () => {
+  const at = '2026-11-14T10:00:00Z';
+  const change = (id: string, field: string, from: string, to: string, over: Partial<AuditEventRow> = {}): AuditEventRow =>
+    ({ ...row({ kind: 'field_change', id, type: undefined, created_at: at, record: rec() }), field, old_display: from, new_display: to, ...over }) as AuditEventRow;
+  const ev = row({ id: 'ev', created_at: at });
+  const lines = (entries: AuditEventRow[], e = ev) => renderToStaticMarkup(createElement(FieldLines, { lines: fieldRowsOf(e, entries), ws: 'ws-1' }));
+  it('each changed field is drawn in the audit log\'s words, and the record is not repeated on the line', () => {
+    const t = text(lines([ev, change('f1', 'Phase', 'Review', 'Done'), change('f2', 'Owner', '', 'Ada')]));
+    expect(t).toContain('Phase : Review → Done');
+    expect(t).not.toContain('Spring campaign');
+    expect(t).not.toContain('href=');
+  });
+  it('only this write\'s rows: another record, another instant, a person\'s edit and a withheld record add nothing', () => {
+    const other = [
+      change('a', 'Phase', 'x', 'y', { record_id: 'other' }),
+      change('b', 'Phase', 'x', 'y', { created_at: '2026-11-14T10:00:01Z' }),
+      change('c', 'Phase', 'x', 'y', { source: 'human' }),
+      change('d', 'Phase', 'x', 'y', { record: rec({ withheld: true, title: null, number: null, database_id: null, database_name: null }) }),
+    ];
+    expect(lines(other)).toBe('');
+    expect(fieldRowsOf(row({ type: 'comment.created', created_at: at }), [change('e', 'Phase', 'x', 'y')])).toEqual([]);
+  });
+  it('past five lines the rest is counted, not dropped silently', () => {
+    const six = ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((n, i) => change(`g${i}`, n, '1', '2'));
+    const t = text(lines(six));
+    expect(t).toContain('A : 1 → 2');
+    expect(t).not.toContain('F : 1 → 2');
+    expect(t).toContain('and 2 more fields');
+  });
+});
+
+// Ticket #1284: the "no gate" fact sits inside a closed disclosure, so its one-line summary must carry it in every state.
+describe('governance-summary: the closed disclosure carries the gate fact in every state (#1284)', () => {
+  const closed = (s: { loading: boolean; failed: boolean; ungoverned: boolean }) =>
+    text(renderToStaticMarkup(createElement(AdvancedSection, { title: 'How agent rules are enforced', summary: enforcementSummary(s), children: createElement('p', null, 'INSIDE') })));
+  it('no gate in force: says so, visibly, without opening', () => {
+    expect(closed({ loading: false, failed: false, ungoverned: true })).toContain('How agent rules are enforced no approval gate is in force');
+  });
+  it('a gate in force: says what is inside, and does not claim the absence of a gate', () => {
+    const t = closed({ loading: false, failed: false, ungoverned: false });
+    expect(t).toContain('agents, gates, approvals and what always holds');
+    expect(t).not.toContain('no approval gate');
+  });
+  it('load failed: says the gate status is unknown, and claims neither a gate nor its absence', () => {
+    const t = closed({ loading: false, failed: true, ungoverned: true });
+    expect(t).toContain('could not be loaded, so whether an approval gate is in force is unknown');
+    expect(t).not.toContain('no approval gate is in force');
+  });
+  it('loading: names what is coming and says it is loading, no gate claim either way', () => {
+    const t = closed({ loading: true, failed: false, ungoverned: true });
+    expect(t).toContain('(loading)');
+    expect(t).not.toContain('no approval gate');
   });
 });

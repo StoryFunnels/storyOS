@@ -81,9 +81,11 @@ like. It has read and write scope, and its target database is Issues.
   agent's instructions also tell it never to change an issue's State or Assignee, but that is an instruction
   to the AI, not something the platform enforces: the gate is what stops an update from landing unseen.
 - **Entering Triage can start it, once you switch it on.** The agent is bound to Issues entering the Triage
-  state. The binding installs switched off. Switch it on when you install, with `enable_agent_triggers` (the
-  preview lists it as `Triage ← Issues.State = Triage`; the web install review does not show a switch for
-  it yet), and from then on a new issue in Triage starts a run by itself, with nobody starting it. Left off, nothing starts
+  state. The binding installs switched off. Switch it on in the install review, under the agent, with **Wake it
+  automatically** (the line reads *Wakes when State becomes Triage*), or with `enable_agent_triggers` (the
+  preview lists it as `Triage ← Issues.State = Triage`). From then on a new issue in Triage starts a run by
+  itself, with nobody starting it. A pack installed before the review had this switch keeps its binding as it
+  was. Left off, nothing starts
   by itself, and you can still start a run yourself, for example with the MCP `run_agent` tool (see
   [MCP tools](/mcp/tools/)). The pack's binding is not a human gate; the human-gate option, "ask me before
   each run", stays available on bindings you create yourself.
