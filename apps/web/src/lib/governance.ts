@@ -21,6 +21,9 @@
  * none was, never a chain with a blank link.
  */
 
+import { describeAuditEvent } from '@/lib/audit-events';
+import type { AuditRecordRef } from '@/components/settings/audit-row';
+
 export type Scope = 'read' | 'write' | 'admin';
 
 const SCOPE_RANK: Record<Scope, number> = { read: 0, write: 1, admin: 2 };
@@ -232,6 +235,9 @@ export interface AuditEventRow {
   agent_id?: string | null;
   agent_name?: string | null;
   payload?: Record<string, unknown> | null;
+  /** Ticket #1287: the record the event is about, resolved for the reader by the API. Absent from an older API. */
+  record?: AuditRecordRef | null;
+  other_record?: AuditRecordRef | null;
   created_at: string;
 }
 
@@ -245,23 +251,6 @@ export interface CredentialDto {
   resource_scope: { space_ids: string[]; database_ids: string[] } | null;
   created_at: string;
   revoked_at: string | null;
-}
-
-const ACTION_VERB: Record<string, string> = {
-  'record.created': 'Created',
-  'record.updated': 'Updated',
-  'record.deleted': 'Deleted',
-  'record.restored': 'Restored',
-  'relation.linked': 'Linked',
-  'relation.unlinked': 'Unlinked',
-  'comment.created': 'Commented on',
-  'attachment.added': 'Added a file to',
-};
-
-/** An event type this page has no word for, as plain words ("comment.added" becomes "Comment added"): never the dotted code itself. */
-export function humaniseEventType(type: string): string {
-  const words = type.replace(/[._]+/g, ' ').trim();
-  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Changed';
 }
 
 /**
@@ -325,18 +314,44 @@ export function looksLikeTriggerTitle(title: string): boolean {
 }
 
 /**
- * "Updated “Fix the header”": what the action did, in words. An event type this page has no word for is shown in plain words
- * (never as its dotted code), not hidden. The record's own title is data and is shown as it is, EXCEPT a wake rule: it is shown as
- * `triggerWords` (see `triggerInWords`), or, when its fields cannot be read, as "a wake rule" (never the stored trigger syntax).
+ * ONE wording for what an agent did, shared with the audit log page (ticket #1306): the sentence is `describeAuditEvent`'s, never a
+ * second table of verbs. A wake rule is the one thing this list draws differently, because its stored title is the
+ * `Agent ← Database.Field = Option` syntax: a row about a rule shows `triggerWords` (see `triggerInWords`), or "a wake rule" when its
+ * fields cannot be read, and never the stored syntax. DISPLAY ONLY.
  */
-export function describeAction(row: Pick<AuditEventRow, 'type' | 'payload'>, triggerWords?: string | null): string {
-  const known = row.type ? ACTION_VERB[row.type] : undefined;
-  const raw = typeof row.payload?.['title'] === 'string' ? (row.payload['title'] as string).trim() : '';
-  const isTrigger = Boolean(triggerWords) || looksLikeTriggerTitle(raw);
-  const what = isTrigger ? (triggerWords ?? 'a wake rule') : raw ? `“${raw}”` : '';
-  if (!known && row.type) return what ? `${humaniseEventType(row.type)} ${what}` : humaniseEventType(row.type);
-  const verb = known ?? 'Changed';
-  return `${verb} ${what || 'a record'}`;
+export function isTriggerRow(row: Pick<AuditEventRow, 'record' | 'payload'>, triggerWords?: string | null): boolean {
+  if (triggerWords) return true;
+  const title = row.record && !row.record.withheld ? (row.record.title ?? '').trim() : '';
+  const payloadTitle = typeof row.payload?.['title'] === 'string' ? (row.payload['title'] as string).trim() : '';
+  return looksLikeTriggerTitle(title) || looksLikeTriggerTitle(payloadTitle);
+}
+
+/** The far side of a link, when it is a wake rule: its stored title is dropped so the audit sentence falls back to a neutral "Records linked". */
+export function withoutStoredTriggerSyntax<T extends Pick<AuditEventRow, 'other_record' | 'payload'>>(row: T): T {
+  const farTitle = (row.other_record?.title ?? '').trim();
+  const other = row.payload?.['other'];
+  const otherTitle = other && typeof other === 'object' ? String((other as { title?: unknown }).title ?? '').trim() : '';
+  if (!looksLikeTriggerTitle(farTitle) && !looksLikeTriggerTitle(otherTitle)) return row;
+  const payload = { ...(row.payload ?? {}) } as Record<string, unknown>;
+  delete payload['other'];
+  return { ...row, other_record: null, payload };
+}
+
+/** The row's sentence as plain text (the chain dialog): `describeAuditEvent` plus the record's own name. Wake rules in words, never their stored syntax. */
+export function actionText(row: Pick<AuditEventRow, 'type' | 'payload' | 'record' | 'other_record'>, triggerWords?: string | null): string {
+  if (isTriggerRow(row, triggerWords)) {
+    const rule = triggerWords ?? 'a wake rule';
+    // A rule's stored title is not a name to show: only its kind of event is read from the shared sentence.
+    const e = describeAuditEvent(row.type, { ...(row.payload ?? {}), title: undefined });
+    return row.type === 'record.created' ? `Created ${rule}` : `${e.lead}${e.tail} · ${rule}`;
+  }
+  const safe = withoutStoredTriggerSyntax(row);
+  const e = describeAuditEvent(safe.type, safe.payload);
+  const sentence = e.name ? `${e.lead} “${e.name}”${e.tail}` : `${e.lead}${e.tail}`;
+  const title = safe.record && !safe.record.withheld ? (safe.record.title ?? '').trim() : '';
+  // "Created “Plan”" already names the record; every other sentence is a kind of event, so the record follows a middle dot.
+  if (title) return e.name === title ? sentence : `${sentence} · “${title}”`;
+  return safe.record?.withheld ? `${sentence} · a record` : sentence;
 }
 
 /** How close (ms) a rule's relation-link event must be to its creation to count as the same burst. Creating a rule writes both in one request. */
@@ -469,7 +484,7 @@ export function chainOf(
     steps.push({ label: 'Allowed to', value: SCOPE_WORDS_LONG[credential.scope] });
   }
   if (row.agent_name) steps.push({ label: 'Agent', value: row.agent_name });
-  steps.push({ label: 'Action', value: `${describeAction(row, triggerWords)} · ${fmt(row.created_at)}` });
+  steps.push({ label: 'Action', value: `${actionText(row, triggerWords)} · ${fmt(row.created_at)}` });
   return steps;
 }
 

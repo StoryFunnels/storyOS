@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { chainOf, describeAction, triggerInWords, type AuditEventRow, type TriggerFields, type TriggerNames } from './governance';
+import { actionText, chainOf, triggerInWords, type AuditEventRow, type TriggerFields, type TriggerNames } from './governance';
 
 /** Ticket #1284 — Settings > AI fidelity: Agent rules' boxed sections and the Recent agent actions rows. Source guards, each mutation-checked. */
 const read = (rel: string) => readFileSync(join(__dirname, rel), 'utf8');
@@ -34,7 +34,10 @@ describe('Recent agent actions rows', () => {
   });
   it('a row leads with who acted (bold) and shows the event in words, through the shared helpers', () => {
     expect(rowBlock).toContain('actionSubject(r, credential)');
-    expect(rowBlock).toContain('describeAction(r, triggerWordsOf(r.record_id))');
+    expect(rowBlock).toContain('<ActionWhat row={r} ws={ws} triggerWords={triggerWordsOf(r.record_id)} />');
+    // one wording: the audit log's sentence, not a second verb table
+    expect(actions).not.toMatch(/describeAction|ACTION_VERB/);
+    expect(actions).toContain('<AuditWhat');
     expect(rowBlock).toContain('actionMeta(r, credential)');
     expect(rowBlock).toMatch(/<b className="[^"]*font-semibold[^"]*">\{actionSubject/);
   });
@@ -152,15 +155,20 @@ describe('a wake rule is shown in words, never by its stored title or ids (Otto 
   });
   it('a row about a rule says it in words; the stored title only decides that it IS a rule when the fields are unreadable', () => {
     const words = triggerInWords(state, names);
-    expect(describeAction({ type: 'record.created', payload: { title: STORED } }, words)).toBe(`Created ${words}`);
-    expect(describeAction({ type: 'record.created', payload: { title: STORED } })).toBe('Created a wake rule');
-    expect(describeAction({ type: 'record.deleted', payload: { title: STORED } })).toBe('Deleted a wake rule');
-    expect(describeAction({ type: 'record.updated', payload: { title: STORED } }, words)).not.toContain('←');
+    const created = { type: 'record.created', payload: { title: STORED } };
+    expect(actionText(created, words)).toBe(`Created ${words}`);
+    expect(actionText(created)).toBe('Created a wake rule');
+    expect(actionText({ type: 'record.deleted', payload: { title: STORED } })).toBe('Record moved to Trash · a wake rule');
+    expect(actionText({ type: 'record.updated', payload: { title: STORED } }, words)).not.toContain('←');
+    // the API's resolved record carries the stored title too: it decides the same way
+    const rec = { id: 'r', number: 3, title: STORED, database_id: 'd', database_name: 'Agent Triggers', deleted: false, withheld: false };
+    expect(actionText({ type: 'record.updated', payload: null, record: rec })).toBe('Record updated · a wake rule');
   });
   it('KEEPS an ordinary record title, even one with an arrow in it: only the exact stored rule shape is translated', () => {
-    expect(describeAction({ type: 'record.updated', payload: { title: 'Fix the header' } })).toBe('Updated “Fix the header”');
-    expect(describeAction({ type: 'record.updated', payload: { title: 'Plan ← Review notes' } })).toBe('Updated “Plan ← Review notes”');
-    expect(describeAction({ type: 'record.updated', payload: { title: 'Plan ← v2.0 shipped' } })).toBe('Updated “Plan ← v2.0 shipped”');
+    const rec = (title: string) => ({ id: 'r', number: 3, title, database_id: 'd', database_name: 'Notes', deleted: false, withheld: false });
+    for (const title of ['Fix the header', 'Plan ← Review notes', 'Plan ← v2.0 shipped']) {
+      expect(actionText({ type: 'record.updated', payload: null, record: rec(title) })).toBe(`Record updated · “${title}”`);
+    }
   });
   it('the full-chain Action line uses the same words', () => {
     const row: AuditEventRow = {
@@ -182,7 +190,7 @@ describe('a wake rule is shown in words, never by its stored title or ids (Otto 
     const stored = Object.freeze({ title: STORED, values: Object.freeze({ ...state }) });
     const snapshot = JSON.stringify(stored);
     triggerInWords(stored.values, names);
-    describeAction({ type: 'record.created', payload: { title: stored.title } }, triggerInWords(stored.values, names));
+    actionText({ type: 'record.created', payload: { title: stored.title } }, triggerInWords(stored.values, names));
     expect(JSON.stringify(stored)).toBe(snapshot);
     expect(actions).not.toMatch(/api\.(PATCH|PUT|POST|DELETE)/);
     expect(actions).not.toContain('useMutation');

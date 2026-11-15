@@ -12,7 +12,8 @@ import {
   actionMeta,
   actionSubject,
   chainOf,
-  describeAction,
+  isTriggerRow,
+  withoutStoredTriggerSyntax,
   missingCredentialNote,
   isAgentAction,
   isRuleCreationEcho,
@@ -22,6 +23,8 @@ import {
   type TriggerFields,
 } from '@/lib/governance';
 import { EmptyState } from '@/components/ui/empty-state';
+import { AuditWhat, type AuditLogEntry } from '@/components/settings/audit-row';
+import { describeAuditEvent } from '@/lib/audit-events';
 
 /**
  * Ticket #934 — the Governance screen's list of recent agent actions, each with the credential that performed it and the member it
@@ -33,6 +36,21 @@ import { EmptyState } from '@/components/ui/empty-state';
  * Each row leads with who acted (the agent), a gold mark because an agent acted (ticket #1163), then what it did in words (ticket #1284).
  */
 const PAGE = 25;
+
+/**
+ * What the row says: the audit log page's own sentence and record chip (`AuditWhat`, ticket #1287), so one wording serves both
+ * surfaces. The chip is not a link here (the row is a button that opens the chain). A wake rule is the exception, drawn from its
+ * fields as `triggerWords`; a rule the API gave no fields for is "a wake rule". Nothing here is an id.
+ */
+export function ActionWhat({ row, ws, triggerWords }: { row: AuditEventRow; ws: string; triggerWords?: string | null }) {
+  if (isTriggerRow(row, triggerWords)) {
+    const e = describeAuditEvent(row.type, { ...(row.payload ?? {}), title: undefined });
+    const rule = triggerWords ?? 'a wake rule';
+    return row.type === 'record.created' ? <>Created {rule}</> : <>{`${e.lead}${e.tail}`} <span className="text-muted">·</span> {rule}</>;
+  }
+  const entry = withoutStoredTriggerSyntax(row) as unknown as AuditLogEntry;
+  return <AuditWhat entry={entry} ws={ws} memberName={() => undefined} linked={false} />;
+}
 
 export function AgentActions({ ws }: { ws: string }) {
   const { dateTime } = useDateFormat();
@@ -162,7 +180,7 @@ export function AgentActions({ ws }: { ws: string }) {
                   <span className="ml-auto shrink-0 text-label text-muted">{dateTime(r.created_at)}</span>
                 </span>
                 <span className="text-body text-ink">
-                  {describeAction(r, triggerWordsOf(r.record_id))}
+                  <ActionWhat row={r} ws={ws} triggerWords={triggerWordsOf(r.record_id)} />
                   {meta && <span className="text-label text-ink-secondary">{` · ${meta}`}</span>}
                 </span>
               </span>

@@ -6,7 +6,7 @@ import {
   actionSubject,
   missingCredentialNote,
   chainOf,
-  describeAction,
+  actionText,
   isAgentAction,
   isRuleCreationEcho,
   reachWords,
@@ -162,15 +162,24 @@ describe('recent agent actions and their chain (ticket #934)', () => {
   });
 
   it('says what the action did, with the record title; an unknown event type is shown in plain words, never as its dotted code', () => {
-    expect(describeAction(row())).toBe('Updated “Fix the header”');
-    expect(describeAction(row({ type: 'record.created', payload: {} }))).toBe('Created a record');
-    expect(describeAction(row({ type: 'relation.linked', payload: null }))).toBe('Linked a record');
-    expect(describeAction(row({ type: 'relation.unlinked', payload: { title: 'Acme' } }))).toBe('Unlinked “Acme”');
-    expect(describeAction(row({ type: 'comment.created', payload: null }))).toBe('Commented on a record');
-    // not hidden: an event type with no word still says what it is, minus the code syntax
-    expect(describeAction(row({ type: 'thing.was_frobbed', payload: null }))).toBe('Thing was frobbed');
+    // ticket #1306: the wording is the audit log page's (describeAuditEvent); the record's name follows a middle dot.
+    const rec = (title: string | null, over: Record<string, unknown> = {}) => ({
+      id: 'r1', number: 7, title, database_id: 'd1', database_name: 'Tickets', deleted: false, withheld: false, ...over,
+    });
+    expect(actionText(row({ record: rec('Fix the header') }))).toBe('Record updated · “Fix the header”');
+    expect(actionText(row({ type: 'record.created', payload: { title: 'Plan' }, record: rec('Plan') }))).toBe('Created “Plan”');
+    expect(actionText(row({ type: 'record.created', payload: {} }))).toBe('Record created');
+    expect(actionText(row({ type: 'relation.linked', payload: null }))).toBe('Records linked');
+    expect(actionText(row({ type: 'relation.unlinked', payload: { other: { id: 'x', title: 'Acme' } } }))).toBe('Unlinked from “Acme”');
+    expect(actionText(row({ type: 'comment.created', payload: null, record: rec('Fix the header') }))).toBe('Comment added · “Fix the header”');
+    // an older API sends no `record`: the sentence stays the kind of event, it does not guess a name from anywhere else
+    expect(actionText(row({ payload: { title: 'Fix the header' } }))).toBe('Record updated');
+    // a record the reader may not read is "a record": never a name, never an id
+    expect(actionText(row({ record: rec(null, { withheld: true }) }))).toBe('Record updated · a record');
+    // not hidden: an event type with no case still says so, and keeps the dotted code out of the sentence
+    expect(actionText(row({ type: 'thing.was_frobbed', payload: null }))).toBe('Something changed');
     for (const type of ['relation.linked', 'comment.created', 'attachment.added', 'x.y_z', 'record.updated']) {
-      expect(describeAction(row({ type, payload: null }))).not.toMatch(/[a-z]\.[a-z]/);
+      expect(actionText(row({ type, payload: null }))).not.toMatch(/[a-z]\.[a-z]/);
     }
   });
 
@@ -208,13 +217,14 @@ describe('recent agent actions and their chain (ticket #934)', () => {
   });
 
   it('the FULL chain, link by link: member, credential, what it could reach, what it may do, agent, action', () => {
-    const steps = chainOf(row({ agent_name: 'Triage' }), cred({ resource_scope: { space_ids: ['s1'], database_ids: ['d1'] } }), names, fmt);
+    const record = { id: 'r1', number: 7, title: 'Fix the header', database_id: 'd1', database_name: 'Tickets', deleted: false, withheld: false };
+    const steps = chainOf(row({ agent_name: 'Triage', record }), cred({ resource_scope: { space_ids: ['s1'], database_ids: ['d1'] } }), names, fmt);
     expect(steps.map((s) => s.label)).toEqual(['Authorised for', 'Credential', 'Could reach', 'Allowed to', 'Agent', 'Action']);
     expect(steps[0]!.value).toBe('Alice');
     expect(steps[1]!.value).toBe('ci robot · Live');
     expect(steps[2]!.value).toBe('Only the space “Support” and the database “Tickets”');
     expect(steps[3]!.value).toBe('Read and change records');
-    expect(steps[5]!.value).toBe('Updated “Fix the header” · on 2026-10-23');
+    expect(steps[5]!.value).toBe('Record updated · “Fix the header” · on 2026-10-23');
     expect(steps.some((s) => s.absent)).toBe(false);
   });
 
