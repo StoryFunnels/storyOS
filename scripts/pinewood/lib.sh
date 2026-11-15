@@ -28,11 +28,102 @@ pw_refuse() {
 
 # Databases this tooling must never touch, whatever else matches. `storyos` is the
 # shared founder dev database (the silent fallback in apps/api/.env.example).
+# `storyos_test*` is every session's disposable test database (`storyos_test_local` is
+# the one CLAUDE.md names): a peer is using it right now, and "it looks like a rig name"
+# is exactly how a --recreate once dropped it.
 PW_PROTECTED_DBS=" postgres template0 template1 umh_analytics storyos "
 
 pw_is_protected_db() {
   case "$PW_PROTECTED_DBS" in *" $1 "*) return 0 ;; esac
+  case "$1" in storyos_test*) return 0 ;; esac
   return 1
+}
+
+# --- who made a database -------------------------------------------------------------
+#
+# A NAME PATTERN IS NOT OWNERSHIP. `storyos_<anything>` matched every peer session's
+# database, so `--recreate` dropped one it had never created. So the tooling records
+# what it creates, in the one place that is written in the same step as the database
+# and survives losing every script, state file and shell: the database's own comment,
+#   pinewood-<kind>:<database>[; detail]      kind = rig | stack | template
+# A database whose comment is not exactly that marker is somebody else's. It is never
+# dropped and never migrated, in a dry run or a live one (the same function decides
+# both). A comment can be written by anybody, so the name guards above run FIRST and
+# win: a forged marker on storyos_test_local still refuses.
+
+# Sets PW_DB_STATE (absent|present) and PW_DB_COMMENT. "Postgres did not answer" is a
+# refusal, never "absent": unresolvable must not read as "nothing to protect".
+pw_db_probe() {
+  local db="$1" out
+  pw_assert_ident "$db"
+  out="$(pw_psql -d postgres -tAc "SELECT 'present|' || coalesce(shobj_description(oid, 'pg_database'), '') FROM pg_database WHERE datname = '$db'")" ||
+    pw_refuse "cannot ask Postgres at $PW_PGHOST:$PW_PGPORT whether '$db' exists; refusing rather than guessing it is absent"
+  case "$out" in
+    "") PW_DB_STATE=absent PW_DB_COMMENT="" ;;
+    present\|*) PW_DB_STATE=present PW_DB_COMMENT="${out#present|}" ;;
+    *) pw_refuse "unexpected answer from Postgres while checking '$db'" ;;
+  esac
+}
+
+pw_marker() { echo "pinewood-$1:$2"; }
+
+pw_comment_has_marker() {
+  local comment="$1" marker="$2"
+  case "$comment" in "$marker" | "$marker;"*) return 0 ;; esac
+  return 1
+}
+
+# After pw_db_probe. Absent is fine (we are about to create it); present must carry
+# our marker for this kind and name.
+#   pw_require_ours <rig|stack|template> <db> <what we were about to do to it>
+pw_require_ours() {
+  local kind="$1" db="$2" what="$3" marker
+  [ "$PW_DB_STATE" = absent ] && return 0
+  marker="$(pw_marker "$kind" "$db")"
+  pw_comment_has_marker "$PW_DB_COMMENT" "$marker" ||
+    pw_refuse "database '$db' already exists and this tooling did not create it (its comment is not '$marker'); refusing to $what it. A database you made by hand is adopted deliberately: psql -d postgres -c \"COMMENT ON DATABASE $db IS '$marker'\""
+}
+
+# The decision, shared by dry run and live run: name guards, then ownership.
+pw_plan_db() {
+  pw_check_db "$1" "$2"
+  pw_db_probe "$2"
+  pw_require_ours "$1" "$2" "$3"
+}
+
+pw_mark_db() {
+  local kind="$1" db="$2" detail="${3:-}"
+  pw_psql -d postgres -c "COMMENT ON DATABASE \"$db\" IS '$(pw_marker "$kind" "$db")${detail:+; $detail}'"
+}
+
+# Create a database that did not exist, then record that we made it. If recording
+# fails the database is left unmarked, which is the safe direction: every later
+# run refuses it, and the message says why.
+#   pw_create_marked_db <kind> <db> [template-db] [detail]
+pw_create_marked_db() {
+  local kind="$1" db="$2" tpl="${3:-}" detail="${4:-}"
+  pw_check_db "$kind" "$db"
+  pw_db_probe "$db"
+  [ "$PW_DB_STATE" = absent ] || pw_refuse "internal: '$db' exists; will not create over it"
+  if [ -n "$tpl" ]; then
+    createdb -h "$PW_PGHOST" -p "$PW_PGPORT" -U "$PW_PGUSER" -T "$tpl" "$db" ||
+      pw_refuse "createdb -T $tpl failed (is something connected to the template?)"
+  else
+    createdb -h "$PW_PGHOST" -p "$PW_PGPORT" -U "$PW_PGUSER" "$db" || pw_refuse "createdb $db failed"
+  fi
+  pw_mark_db "$kind" "$db" "$detail" ||
+    pw_refuse "created $db but could not record that this tooling made it; later runs will refuse it until it is marked or dropped by hand"
+}
+
+# THE ONLY PLACE THE PINEWOOD SCRIPTS DROP A DATABASE. Re-reads ownership immediately
+# before dropping, whatever the caller planned earlier. Absent is a no-op.
+pw_drop_marked_db() {
+  local kind="$1" db="$2"
+  pw_check_db "$kind" "$db"
+  pw_db_probe "$db"
+  [ "$PW_DB_STATE" = absent ] && return 0
+  pw_require_ours "$kind" "$db" "drop"
+  pw_psql -d postgres -c "DROP DATABASE \"$db\"" || pw_refuse "could not drop $db (something is connected to it)"
 }
 
 # The standing stack's own databases: storyos_pinewood, optionally with a suffix
@@ -47,8 +138,8 @@ pw_assert_stack_db() {
   pw_assert_ident "$1"
 }
 
-# The template database rigs are cloned from. The only database any pinewood
-# script is ever allowed to DROP.
+# The template database rigs are cloned from. With a rig database, the only kind any
+# pinewood script drops, and only when its comment says this tooling made it.
 pw_assert_template_db() {
   pw_is_protected_db "$1" && pw_refuse "database '$1' is protected; this tool only touches storyos_agency_tpl*"
   case "$1" in
@@ -128,6 +219,11 @@ pw_run_with_db() {
   local kind="$1" db="$2"
   shift 2
   pw_check_db "$kind" "$db"
+  # Ownership is re-read here too: the last thing before a child process is handed this
+  # database is "did this tooling make it".
+  pw_db_probe "$db"
+  [ "$PW_DB_STATE" = present ] || pw_refuse "database '$db' does not exist"
+  pw_require_ours "$kind" "$db" "run a command against"
   # `env -i`: the child sees PATH, HOME, the DATABASE_URL built here and whatever
   # VAR=value words the caller put in front of the command. Nothing else — so a
   # RESEND_API_KEY, STRIPE_SECRET_KEY or DATABASE_URL exported in the calling shell
@@ -148,7 +244,8 @@ pw_load_pg_config() {
 pw_psql() { psql -h "$PW_PGHOST" -p "$PW_PGPORT" -U "$PW_PGUSER" -X -q -v ON_ERROR_STOP=1 "$@"; }
 
 pw_db_exists() {
-  [ "$(pw_psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$1'")" = "1" ]
+  pw_db_probe "$1"
+  [ "$PW_DB_STATE" = present ]
 }
 
 # The clone the stack runs from must be its OWN clone: named pinewood*, never inside

@@ -1,15 +1,18 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, realpathSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // Ticket #1269 — the safety refusals of the standing local Pinewood stack.
 //
-// These are dry runs and direct calls of the guard functions: no Postgres, no pnpm, no
-// network. Every refusal is exit code 2 with a message naming the reason, and every test
+// These are dry runs, live runs against a FAKE Postgres, and direct calls of the guard
+// functions: no real Postgres, no pnpm, no network. `psql`, `createdb` and `pnpm` are
+// stubs (scripts/pinewood-test-bin) that keep their "databases" (name -> comment) in a
+// directory and log every command, so a test can assert both what was refused and that
+// nothing destructive was attempted. Every refusal is exit code 2 with a message naming the reason, and every test
 // here was mutation-checked (the guard replaced by a no-op, the test watched go red);
 // the mutations are listed in the PR.
 
@@ -42,14 +45,41 @@ function makeClone(name = 'pinewood-fixture') {
 }
 
 const clone = makeClone();
+mkdirSync(join(clone, 'node_modules'), { recursive: true });
 const stateDir = join(root, 'state');
+
+// ---- a fake Postgres ---------------------------------------------------------------------
+// Files in FAKE_PG_DIR: `db.<name>` exists = the database exists, its content is the
+// database comment; `log` is every command received; `DOWN` makes psql fail like a refused
+// connection.
+const fakeBin = dir('./pinewood-test-bin');
+let pgCounter = 0;
+/** A fresh fake Postgres holding `dbs` (name -> comment). Returns its directory. */
+function fakePg(dbs = {}) {
+  const d = join(root, `pg-${pgCounter++}`);
+  mkdirSync(d);
+  writeFileSync(join(d, 'log'), '');
+  for (const [name, comment] of Object.entries(dbs)) writeFileSync(join(d, `db.${name}`), comment);
+  return d;
+}
+const pgLog = (d) => readFileSync(join(d, 'log'), 'utf8');
+const pgDbs = (d) => readdirSync(d).filter((f) => f.startsWith('db.')).map((f) => f.slice(3)).sort();
+const pgComment = (d, name) => readFileSync(join(d, `db.${name}`), 'utf8');
+/** Commands that change something. A refusal must leave none of these in the log. */
+const MUTATIONS = /^(createdb:|pnpm:|psql: (DROP|COMMENT|CREATE|ALTER))/m;
+const defaultPg = fakePg();
+mkdirSync(join(root, 'home'));
+/** The pnpm stub runs under `env -i`, so it finds the fake Postgres through HOME. */
+const pointStubsAt = (pgDir) => writeFileSync(join(root, 'home', '.fake-pg-dir'), pgDir);
 
 /** Run a pinewood script with a scrubbed environment: nothing leaks in from the caller's shell. */
 function run(script, args = [], env = {}) {
+  pointStubsAt(env.FAKE_PG_DIR ?? defaultPg);
   const r = spawnSync('bash', [script, ...args], {
     encoding: 'utf8',
     env: {
-      PATH: process.env.PATH,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      FAKE_PG_DIR: defaultPg,
       HOME: join(root, 'home'),
       PINEWOOD_HOME: clone,
       PINEWOOD_STATE: stateDir,
@@ -68,9 +98,10 @@ function refused(res, pattern) {
 
 /** Call guard functions in lib.sh directly. */
 function lib(snippet, env = {}) {
+  pointStubsAt(env.FAKE_PG_DIR ?? defaultPg);
   const r = spawnSync('bash', ['-c', `. "${LIB}"; ${snippet}`], {
     encoding: 'utf8',
-    env: { PATH: process.env.PATH, HOME: join(root, 'home'), ...env },
+    env: { PATH: `${fakeBin}:${process.env.PATH}`, FAKE_PG_DIR: defaultPg, HOME: join(root, 'home'), ...env },
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
@@ -81,7 +112,7 @@ test('a valid dry run prints the plan, exits 0 and changes nothing', () => {
   const res = run(UP, ['--dry-run']);
   assert.equal(res.code, 0, res.all);
   assert.match(res.out, /1\. git pull --ff-only origin main/);
-  assert.match(res.out, /database storyos_pinewood on localhost:5432 if missing/);
+  assert.match(res.out, /create database storyos_pinewood on localhost:5432 and mark it as made by this script/);
   assert.match(res.out, /API :3500 and web :3600/);
   assert.match(res.out, /dry run: nothing was changed/);
   assert.equal(existsSync(stateDir), false, 'a dry run must not create the state directory');
@@ -281,7 +312,9 @@ test('the child-process choke point re-checks the database before handing over D
 });
 
 test('the child process sees only DATABASE_URL, PATH, HOME, TERM and what the caller passed', () => {
+  const pg = fakePg({ storyos_pinewood: 'pinewood-stack:storyos_pinewood; created=then' });
   const r = lib('pw_run_with_db stack storyos_pinewood FOO=1 env', {
+    FAKE_PG_DIR: pg,
     PW_PGHOST: 'localhost',
     PW_PGPORT: '5432',
     PW_PGUSER: 'tester',
@@ -328,14 +361,210 @@ test('pinewood-up.sh never drops anything', () => {
   assert.doesNotMatch(src, /dropdb|DROP DATABASE|DROP SCHEMA|reset --hard|git clean|--force/i);
 });
 
-test('the only DROP DATABASE statements sit behind the template and rig guards', () => {
-  for (const [file, guard] of [
-    [TEMPLATE, 'pw_check_db template'],
-    [RIG, 'pw_check_db rig'],
-  ]) {
+test('the only DROP DATABASE statement is pw_drop_marked_db, and it re-reads ownership first', () => {
+  const lib_ = readFileSync(LIB, 'utf8');
+  const drops = [...lib_.matchAll(/DROP DATABASE/g)];
+  assert.equal(drops.length, 1, 'lib.sh should have exactly one DROP DATABASE');
+  const fn = lib_.slice(lib_.indexOf('pw_drop_marked_db()'));
+  assert.ok(fn.indexOf('pw_db_probe') !== -1 && fn.indexOf('pw_require_ours') !== -1, 'the drop function must probe and require ownership');
+  assert.ok(fn.indexOf('pw_require_ours') < fn.indexOf('DROP DATABASE'), 'ownership must be required before the DROP');
+  for (const file of [UP, TEMPLATE, RIG]) {
     const src = readFileSync(file, 'utf8');
-    const drops = [...src.matchAll(/DROP DATABASE/g)];
-    assert.equal(drops.length, 1, `${file} should have exactly one DROP DATABASE`);
-    assert.ok(src.indexOf(guard) !== -1 && src.indexOf(guard) < drops[0].index, `${guard} must precede the DROP in ${file}`);
+    assert.doesNotMatch(src, /DROP DATABASE|dropdb/i, `${file} must not drop directly`);
+    assert.doesNotMatch(src, /^\s*createdb /m, `${file} must create through pw_create_marked_db`);
   }
+});
+
+// ---- ownership: what a script created is the only thing it will drop or migrate ----------
+//
+// Ticket #1269 send-back: `pinewood-rig.sh --recreate` dropped storyos_<anything>, including a
+// peer's storyos_test_local, and the dry run said it would and "changed nothing". Every
+// scenario below runs as a dry run AND a live run against the same starting state, and both
+// must decide identically.
+
+const MARK = (kind, db, more = '') => `pinewood-${kind}:${db}${more}`;
+const TPL_MARKED = { storyos_agency_tpl: MARK('template', 'storyos_agency_tpl', '; sha=abc, migrations only, built=then') };
+
+function rigRun(pg, rig, extra = [], { dry = false, env = {} } = {}) {
+  return run(RIG, [rig, '--repo', clone, ...(dry ? ['--dry-run'] : []), ...extra], { FAKE_PG_DIR: pg, ...env });
+}
+
+/** Same scenario as a dry run and as a live run, each on its own copy of the starting state. */
+function bothWays(dbs, runner) {
+  const dry = fakePg(dbs);
+  const live = fakePg(dbs);
+  return { dry: runner(dry, true), live: runner(live, false), dryPg: dry, livePg: live };
+}
+
+test('a database the script did not create is refused for --recreate AND for plain migration, dry run or live', () => {
+  for (const [label, comment] of [
+    ['no comment at all', ''],
+    ["somebody else's comment", 'peer session scratch'],
+    ['another kind of marker', MARK('stack', 'storyos_decoy')],
+    ["another database's marker", MARK('rig', 'storyos_other')],
+    ['a marker that only starts like ours', MARK('rig', 'storyos_decoy2')],
+    ['a marker with no separator', MARK('rig', 'storyos_decoy') + 'x'],
+  ]) {
+    for (const extra of [['--recreate'], []]) {
+      const dbs = { ...TPL_MARKED, storyos_decoy: comment };
+      const { dry, live, dryPg, livePg } = bothWays(dbs, (pg, isDry) => rigRun(pg, 'decoy', extra, { dry: isDry }));
+      for (const [mode, res, pg] of [['dry', dry, dryPg], ['live', live, livePg]]) {
+        const what = `${label} ${extra.join(' ') || 'migrate'} (${mode})`;
+        refused(res, /did not create it/);
+        assert.doesNotMatch(pgLog(pg), MUTATIONS, `${what}: nothing may be dropped, created, commented or migrated`);
+        assert.deepEqual(pgDbs(pg), ['storyos_agency_tpl', 'storyos_decoy'], `${what}: the database set must be unchanged`);
+        assert.equal(pgComment(pg, 'storyos_decoy'), comment, `${what}: the decoy must be untouched`);
+      }
+      assert.equal(dry.code, live.code, `${label}: dry run and live run must exit the same`);
+      assert.equal(dry.err, live.err, `${label}: dry run and live run must refuse with the same message`);
+    }
+  }
+});
+
+test('storyos_test* is protected by name, even with a forged marker, even for a database that does not exist', () => {
+  for (const rig of ['test_local', 'test', 'test_x', 'testing', 'test_marek_1']) {
+    const db = `storyos_${rig}`;
+    for (const dbs of [{ ...TPL_MARKED }, { ...TPL_MARKED, [db]: MARK('rig', db) }, { ...TPL_MARKED, [db]: '' }]) {
+      for (const extra of [['--recreate'], []]) {
+        const { dry, live, dryPg, livePg } = bothWays(dbs, (pg, isDry) => rigRun(pg, rig, extra, { dry: isDry }));
+        refused(dry, /protected/);
+        refused(live, /protected/);
+        assert.doesNotMatch(pgLog(dryPg) + pgLog(livePg), MUTATIONS);
+        assert.deepEqual(pgDbs(livePg), Object.keys(dbs).sort(), `${db} must be left exactly as it was`);
+      }
+    }
+  }
+  for (const db of ['storyos_test_local', 'storyos_test', 'storyos_testing']) {
+    assert.equal(lib(`pw_is_protected_db ${db}`).code, 0, `${db} must be in the protected set`);
+  }
+  assert.notEqual(lib('pw_is_protected_db storyos_marek_1269').code, 0, 'an ordinary rig name is not protected by name');
+});
+
+test('the standing stack, the template and the founder database cannot be named as rigs, with or without --recreate', () => {
+  for (const rig of ['pinewood', 'pinewood_marek', 'agency_tpl', 'agency_tpl_x']) {
+    for (const extra of [['--recreate'], []]) {
+      const dbs = { ...TPL_MARKED, [`storyos_${rig}`]: MARK('rig', `storyos_${rig}`) };
+      const { dry, live, livePg } = bothWays(dbs, (pg, isDry) => rigRun(pg, rig, extra, { dry: isDry }));
+      refused(dry, /standing stack or the template/);
+      refused(live, /standing stack or the template/);
+      assert.doesNotMatch(pgLog(livePg), MUTATIONS);
+    }
+  }
+  const direct = lib('pw_assert_rig_db storyos');
+  assert.equal(direct.code, 2);
+  assert.match(direct.err, /protected/);
+});
+
+test('Postgres not answering is a refusal, never "the database is absent"', () => {
+  for (const script of [RIG, TEMPLATE, UP]) {
+    for (const dry of [true, false]) {
+      const pg = fakePg(TPL_MARKED);
+      writeFileSync(join(pg, 'DOWN'), '');
+      const args = script === RIG ? ['decoy', '--repo', clone] : script === TEMPLATE ? ['--repo', clone] : [];
+      const res = run(script, [...args, ...(dry ? ['--dry-run'] : [])], { FAKE_PG_DIR: pg });
+      refused(res, /cannot ask Postgres/);
+      assert.doesNotMatch(pgLog(pg), MUTATIONS);
+    }
+  }
+});
+
+test('KEPT: a rig this script created is recreatable, re-runnable, and carries its marker', () => {
+  const pg = fakePg(TPL_MARKED);
+  // 1. creation: cloned from the template, then marked, then migrated.
+  let res = rigRun(pg, 'marek_1269');
+  assert.equal(res.code, 0, res.all);
+  assert.match(pgLog(pg), /^createdb: .*-T storyos_agency_tpl storyos_marek_1269$/m);
+  assert.match(pgComment(pg, 'storyos_marek_1269'), /^pinewood-rig:storyos_marek_1269; template=storyos_agency_tpl; created=/);
+  assert.match(pgLog(pg), /^pnpm: DATABASE_URL=postgres:\/\/[^@]+@localhost:5432\/storyos_marek_1269 --filter @storyos\/api db:migrate$/m);
+  assert.match(res.out, /DATABASE_URL=postgres:\/\/[^@]+@localhost:5432\/storyos_marek_1269/);
+
+  // 2. a dry run of a recreate says what it will do and exits 0.
+  const dry = rigRun(pg, 'marek_1269', ['--recreate'], { dry: true });
+  assert.equal(dry.code, 0, dry.all);
+  assert.match(dry.out, /--recreate: storyos_marek_1269 exists and was created by this script; it is dropped first/);
+
+  // 3. re-running without --recreate leaves it alone: migrate only, no drop, no second create.
+  writeFileSync(join(pg, 'log'), '');
+  res = rigRun(pg, 'marek_1269');
+  assert.equal(res.code, 0, res.all);
+  assert.doesNotMatch(pgLog(pg), /^createdb:|DROP/m);
+  assert.match(pgLog(pg), /^pnpm: /m);
+
+  // 4. --recreate really drops and re-clones, and the new database is marked again.
+  writeFileSync(join(pg, 'log'), '');
+  res = rigRun(pg, 'marek_1269', ['--recreate']);
+  assert.equal(res.code, 0, res.all);
+  const log = pgLog(pg);
+  assert.ok(log.indexOf('DROP DATABASE "storyos_marek_1269"') !== -1, log);
+  assert.ok(log.indexOf('DROP DATABASE') < log.indexOf('createdb:'), 'drop comes before the re-clone');
+  assert.match(pgComment(pg, 'storyos_marek_1269'), /^pinewood-rig:storyos_marek_1269;/);
+  assert.deepEqual(pgDbs(pg), ['storyos_agency_tpl', 'storyos_marek_1269']);
+});
+
+test("a decoy next to a rig the script made is never touched by that rig's --recreate", () => {
+  const pg = fakePg({ ...TPL_MARKED, storyos_marek_1269: MARK('rig', 'storyos_marek_1269'), storyos_decoy_marek_1: 'x', storyos_test_local: 'peer' });
+  const res = rigRun(pg, 'marek_1269', ['--recreate']);
+  assert.equal(res.code, 0, res.all);
+  assert.equal(pgComment(pg, 'storyos_decoy_marek_1'), 'x');
+  assert.equal(pgComment(pg, 'storyos_test_local'), 'peer');
+  assert.doesNotMatch(pgLog(pg), /DROP DATABASE "storyos_(decoy|test)/);
+});
+
+test('the template script drops only a template it made, and decides the same in a dry run', () => {
+  for (const comment of ['', 'sha=abc, migrations only, built=then', MARK('template', 'storyos_other_tpl')]) {
+    const { dry, live, dryPg, livePg } = bothWays({ storyos_agency_tpl: comment }, (pg, isDry) =>
+      run(TEMPLATE, ['--repo', clone, ...(isDry ? ['--dry-run'] : [])], { FAKE_PG_DIR: pg }));
+    refused(dry, /did not create it/);
+    refused(live, /did not create it/);
+    assert.equal(dry.err, live.err);
+    assert.doesNotMatch(pgLog(dryPg) + pgLog(livePg), MUTATIONS);
+    assert.equal(pgComment(livePg, 'storyos_agency_tpl'), comment);
+  }
+});
+
+test('KEPT: the template script rebuilds a template it made, and re-marks it with provenance', () => {
+  const pg = fakePg(TPL_MARKED);
+  const dry = run(TEMPLATE, ['--repo', clone, '--dry-run'], { FAKE_PG_DIR: pg });
+  assert.equal(dry.code, 0, dry.all);
+  const res = run(TEMPLATE, ['--repo', clone], { FAKE_PG_DIR: pg });
+  assert.equal(res.code, 0, res.all);
+  assert.ok(pgLog(pg).indexOf('DROP DATABASE "storyos_agency_tpl"') !== -1);
+  assert.match(pgComment(pg, 'storyos_agency_tpl'), /^pinewood-template:storyos_agency_tpl; sha=[0-9a-f]+, migrations only, built=/);
+  // A first build (nothing there yet) needs no marker and creates one.
+  const fresh = fakePg();
+  const first = run(TEMPLATE, ['--repo', clone], { FAKE_PG_DIR: fresh });
+  assert.equal(first.code, 0, first.all);
+  assert.match(pgComment(fresh, 'storyos_agency_tpl'), /^pinewood-template:storyos_agency_tpl;/);
+});
+
+test('the standing stack never migrates an existing database it did not create, dry run included', () => {
+  for (const comment of ['', 'founder scratch', MARK('rig', 'storyos_pinewood')]) {
+    const pg = fakePg({ storyos_pinewood: comment });
+    for (const args of [['--dry-run'], []]) {
+      const res = run(UP, args, { FAKE_PG_DIR: pg });
+      refused(res, /did not create it/);
+      assert.doesNotMatch(pgLog(pg), MUTATIONS);
+    }
+  }
+  const mine = fakePg({ storyos_pinewood: MARK('stack', 'storyos_pinewood', '; created=then') });
+  const res = run(UP, ['--dry-run'], { FAKE_PG_DIR: mine });
+  assert.equal(res.code, 0, res.all);
+  assert.match(res.out, /database storyos_pinewood exists and was created by this script/);
+});
+
+test('the choke point itself refuses a database the script did not create, whatever the caller checked', () => {
+  const pg = fakePg({ storyos_pinewood: 'founder scratch', storyos_decoy: '' });
+  const env = { FAKE_PG_DIR: pg, PW_PGHOST: 'localhost', PW_PGPORT: '5432', PW_PGUSER: 'tester' };
+  const cases = [
+    ['pw_run_with_db stack storyos_pinewood env', /did not create it/],
+    ['pw_run_with_db rig storyos_decoy env', /did not create it/],
+    ['pw_run_with_db rig storyos_absent env', /does not exist/],
+    ['pw_drop_marked_db rig storyos_decoy', /did not create it/],
+  ];
+  for (const [snippet, pattern] of cases) {
+    const r = lib(snippet, env);
+    assert.equal(r.code, 2, `${snippet}\n${r.err}`);
+    assert.match(r.err, pattern);
+  }
+  assert.deepEqual(pgDbs(pg), ['storyos_decoy', 'storyos_pinewood']);
 });

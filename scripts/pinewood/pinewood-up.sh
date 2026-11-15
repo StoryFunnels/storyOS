@@ -73,6 +73,9 @@ pinewood_up() {
   pw_assert_clone_dir "$home"
   pw_assert_port_free_or_ours "API" "$api_port" "$state/api.pid" "$home"
   pw_assert_port_free_or_ours "web" "$web_port" "$state/web.pid" "$home"
+  # Ownership, decided identically for a dry run and a live run: an existing database
+  # of this name that this script did not create is never migrated.
+  pw_plan_db stack "$db" migrate
 
   local clone_present=0
   if [ -d "$home" ]; then
@@ -93,7 +96,11 @@ pinewood_up() {
   fi
   pw_say "  2. pnpm install --frozen-lockfile when pnpm-lock.yaml changed"
   pw_say "  3. build api + web (web baked with NEXT_PUBLIC_API_URL=http://localhost:$api_port) unless this sha is already built"
-  pw_say "  4. create database $db on $PW_PGHOST:$PW_PGPORT if missing, then migrate it (never dropped, never wiped)"
+  if [ "$PW_DB_STATE" = present ]; then
+    pw_say "  4. database $db exists and was created by this script: migrate it (never dropped, never wiped)"
+  else
+    pw_say "  4. create database $db on $PW_PGHOST:$PW_PGPORT and mark it as made by this script, then migrate it (never dropped, never wiped)"
+  fi
   pw_say "  5. seed:agency refresh when the command exists"
   pw_say "  6. restart: stop only the processes recorded in $state, start API :$api_port and web :$web_port (node dist, no watch)"
   pw_say "  7. health check, then print the running sha"
@@ -148,10 +155,10 @@ pinewood_up() {
 
   pw_say "step 4/7: database $db"
   if pw_db_exists "$db"; then
-    pw_say "  exists; leaving its data alone"
+    pw_say "  exists and was created by this script; leaving its data alone"
   else
-    createdb -h "$PW_PGHOST" -p "$PW_PGPORT" -U "$PW_PGUSER" "$db" || pw_refuse "createdb $db failed"
-    pw_say "  created"
+    pw_create_marked_db stack "$db" "" "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    pw_say "  created, marked as made by this script"
   fi
   (cd "$home" && pw_run_with_db stack "$db" pnpm --filter @storyos/api db:migrate) || pw_refuse "migrate failed on $db"
   echo
