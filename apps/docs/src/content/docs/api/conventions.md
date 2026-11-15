@@ -20,6 +20,7 @@ GET|POST         /workspaces/:ws/databases       (create takes space_id)
 GET|PATCH|DELETE /workspaces/:ws/databases/:db
 GET|POST         /.../databases/:db/fields       PATCH|DELETE /fields/:field
 POST             /.../fields/:field/options      PATCH|DELETE per option
+POST             /.../databases/:db/fields/formula-preview   ← dry-run a formula, saves nothing
 POST             /workspaces/:ws/relations        DELETE /relations/:rel
 GET|POST         /.../databases/:db/records       (POST supports batch ≤100)
 GET|PATCH|DELETE /.../records/:rec                 (:rec is a uuid — see below for a public number)

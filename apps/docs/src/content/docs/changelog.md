@@ -9,6 +9,8 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **11 Nov** — Dry-run a formula before saving it, over the API and MCP: it returns the result type and sample values, or errors with the position and the nearest valid name. [Formulas](/concepts/formulas/#check-a-formula-before-you-save-it)
+- **10 Nov** — A run held by an agent's monthly budget is named in the web app instead of showing as something else. [The StoryOS Runner](/guides/runner/#budgets)
 - **15 Nov** — An invitation link opens a Join screen that shows who invited you and to which workspace, and joining never creates a new workspace. [Settings: Workspace](/settings/workspace/)
 - **10 Nov** — The install review has a **Wake it automatically** switch for a pack agent's trigger, and each database row names its fields. [Agent triggers install switched off](/guides/pack-manifest/#agent-triggers-install-switched-off)
 - **10 Nov** — Signup opens on **What are you working on?** with Team Board, Dev Tracker and Team Wiki first. [Creating a workspace](/guides/creating-a-workspace/)
@@ -26,6 +28,9 @@ day the change reached the product.
 
 ## Week of 2 November 2026
 
+- **5 Nov** — An agent's page offers one button to start it on records already waiting in its trigger state, and a Non-AI agent can be switched to your own AI from its page. [The StoryOS Runner](/guides/runner/#starting-an-agent-on-records-already-waiting)
+- **4 Nov** — An agent's manager can choose its model on the agent's page, a workspace default model exists, and Runner runs start from a short StoryOS prompt. [The StoryOS Runner](/guides/runner/#which-model-it-uses)
+- **4 Nov** — The Runner pairing code is shown as one block with Copy, and the Runner accepts it with or without spaces. [Adding and removing a Runner](/guides/adding-and-removing-a-runner/)
 - **5 Nov** — The sidebar has a Hidden section for the spaces and databases you hid and for system spaces. [Organising the sidebar](/concepts/organising-the-sidebar/)
 - **3 Nov** — A guide to the StoryOS Runner, the program that lets an agent use your own AI. [The StoryOS Runner](/guides/runner/)
 - **3 Nov** — What wakes an agent on your own AI, and what its run record shows. [Agent runs](/concepts/agent-runs/)
