@@ -2,7 +2,8 @@ name: Publish @storyos/runner to npm
 
 # Publishes the Runner when a tag like `runner-v0.1.0` is pushed. Tag-only: there
 # is no workflow_dispatch and nothing here runs on a branch or a pull request.
-# The job runs in the `npm-publish` environment, which holds NPM_TOKEN.
+#
+# The job runs in the npm-publish environment, which holds NPM_TOKEN.
 #
 # This is a second workflow, not a second tag in npm-publish.yml, on purpose:
 # each package keeps its own tag filter, so one tag publishes one package.
