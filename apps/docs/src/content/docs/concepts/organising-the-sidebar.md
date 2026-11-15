@@ -55,6 +55,19 @@ while its views stay, so you see just the views you actually open. It is a perso
 browser, not saved on the workspace — nobody else's sidebar changes. A space with no icon of its own
 shows a coloured letter mark; one with an icon keeps its icon.
 
+## Hidden
+
+A space or database you hide with **Hide from my sidebar** (in its `⋯` menu) leaves the main list and
+goes to a **Hidden** section at the bottom of the sidebar, with a count beside the label. The section
+is collapsed until you open it, and it remembers whether you did. Each row you hid has a **Show in my
+sidebar** (eye) button that puts it back. Hiding is personal to you, on this device; nobody else's
+sidebar changes.
+
+Spaces that hold only the Agentic OS system databases are listed in Hidden too, since their databases
+live under **AI**. They open from there, and they have no show button because StoryOS keeps them out
+of the main list. Hidden lists only what you can already open: a space you have no access to does not
+appear. Choosing a space from search opens that space's own page.
+
 ## Reordering spaces
 
 Drag a space by its row to move it up or down the sidebar's top level, the same drag-and-drop
