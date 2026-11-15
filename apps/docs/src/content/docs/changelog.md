@@ -10,6 +10,7 @@ day the change reached the product.
 ## Week of 9 November 2026
 
 - **10 Nov** — A connected provider page leads with its card, and GitHub lists untracked repositories with a Track button. [Connecting GitHub](/guides/github/)
+- **10 Nov** — Notifications says which events also arrive by email and to which address, Email me my work is a setting there, the Inbox offers it once, and every email opens with a Quill header and fits a phone screen. [Mentions and notifications](/concepts/mentions-and-notifications/#what-goes-by-email-and-where-it-arrives)
 - **13 Nov** — An agent given a whole space reaches that space's user databases only, never a system database such as Members. [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
 - **12 Nov** — Deleting one record moves it to Trash and offers Undo for 10 seconds, in the table and in the record panel. [Workspaces, spaces and databases](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space)
 - **10 Nov** — Settings has a home page and five groups, and the old settings addresses lead to the new pages. [Settings](/settings/overview/)

@@ -69,6 +69,7 @@ import { DomainEventsService } from '../events/domain-events.service';
 import { MentionsService } from '../mentions/mentions.service';
 import { AbuseFlagsService } from '../abuse/abuse-flags.service';
 import { AccessService } from '../access/access.service';
+import { derivedFieldTaint, relationFieldReach } from './relation-reach';
 import { WatcherEmailService } from './watcher-email.service';
 import type { EffectiveRole } from '../access/access.service';
 import { notDeleted } from '../db/soft-delete';
@@ -5574,56 +5575,10 @@ export class RecordsService implements OnModuleInit {
     if (!membership || membership.role !== 'guest') {
       return { filterDefs: byApiName, strictDefs: byApiName, linkScope: undefined, hiddenDerived: new Set() };
     }
-    // Per relation field: 'full' (the caller reads the whole target), or what they may see of it.
-    const reach = new Map<string, 'full' | 'none' | string[]>();
-    for (const def of defs) {
-      if (def.type !== 'relation') continue;
-      const relation = await this.db.query.relations.findFirst({
-        where: eq(relations.id, def.config['relation_id'] as string),
-      });
-      if (!relation) {
-        reach.set(def.id, 'none'); // dangling: no links to see
-        continue;
-      }
-      const targetId = def.config['side'] === 'a' ? relation.databaseBId : relation.databaseAId;
-      const target = await this.db.query.databases.findFirst({
-        where: eq(databases.id, targetId),
-        columns: { id: true, spaceId: true },
-      });
-      if (!target) {
-        reach.set(def.id, 'none');
-      } else if ((await this.access.effectiveForDatabase(membership, target)) !== null) {
-        reach.set(def.id, 'full');
-      } else {
-        const scoped = await this.access.visibleRecordIds(membership, target);
-        reach.set(def.id, scoped && scoped.ids.size > 0 ? [...scoped.ids] : 'none');
-      }
-    }
+    // Per relation field: 'full' (the caller reads the whole target), or what they may see of it (#1308: shared with the usage counter).
+    const reach = await relationFieldReach(this.db, this.access, membership, defs);
     const isFull = (fieldId: string) => reach.get(fieldId) === 'full';
-
-    const taintedMemo = new Map<string, boolean>();
-    const tainted = (def: FieldDef): boolean => {
-      const known = taintedMemo.get(def.id);
-      if (known !== undefined) return known;
-      taintedMemo.set(def.id, false); // cycle guard: a cycle adds nothing new
-      let result = false;
-      if (def.type === 'rollup' || def.type === 'lookup') {
-        const via = defs.find((d) => d.id === def.config['relation_field_id']);
-        result = !!via && via.type === 'relation' && !isFull(via.id);
-      } else if (def.type === 'formula') {
-        const ast = def.config['ast'] as FormulaNode | undefined;
-        for (const apiName of ast ? formulaRefs(ast) : []) {
-          const target = byApiName.get(apiName);
-          if (!target) continue;
-          if (target.type === 'relation' ? !isFull(target.id) : tainted(target)) {
-            result = true;
-            break;
-          }
-        }
-      }
-      taintedMemo.set(def.id, result);
-      return result;
-    };
+    const tainted = derivedFieldTaint(defs, byApiName, reach);
 
     const filterDefs = new Map(byApiName);
     const strictDefs = new Map(byApiName);

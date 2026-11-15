@@ -122,7 +122,7 @@ export class FieldsController {
     @Param('field') fieldId: string,
   ) {
     const dbId = await this.db(req, databaseId);
-    return this.fieldsService.usageDetail(dbId, fieldId);
+    return this.fieldsService.usageDetail(dbId, fieldId, req.membership);
   }
 
   @Post(':field/change-type')

@@ -26,6 +26,7 @@ import {
   isUserAlreadyExists,
   joinFailureMessage,
   joinModel,
+  runJoinSubmit,
 } from '@/lib/invite-screen';
 import type { JoinSession } from '@/lib/invite-screen';
 import { JoinView, SignedOutForm } from '@/components/invite/join-view';
@@ -144,7 +145,12 @@ function InviteJoin() {
     setError(null);
     setSubmitted(true);
     const email = model.invitedEmail;
+    // A request that THROWS (API down: `Failed to fetch`) lands here: busy is reset and the same retry message the accept path uses shows.
+    await runJoinSubmit(() => signUpOrInAndJoin(email), { setBusy, setError });
+  }
 
+  async function signUpOrInAndJoin(email: string) {
+    if (!token) return;
     let authed = false;
     if (mode === 'new') {
       const created = await authClient.signUp.email({
