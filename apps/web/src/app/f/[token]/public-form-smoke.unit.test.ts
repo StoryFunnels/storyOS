@@ -37,8 +37,8 @@ describe('the public form route evaluates (#315)', () => {
     // A TDZ ReferenceError from the cycle is raised at MODULE EVALUATION, before
     // any component runs, so a bare import is a genuine reproduction of the
     // production failure rather than a weaker proxy for it.
-    const mod = await import('./page');
-    expect(typeof mod.default).toBe('function');
+    const mod = await import('./public-form-client');
+    expect(typeof mod.PublicFormClient).toBe('function');
   });
 
   it('renders the option chip it pulls from cells.tsx', async () => {

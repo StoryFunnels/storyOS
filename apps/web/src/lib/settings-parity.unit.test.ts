@@ -301,7 +301,7 @@ const PINS: Record<string, Counts> = {
   "components/free-guest-tip.tsx": { button: 1, link: 1 },
   "components/governance/agent-actions.tsx": { button: 2 },
   "components/governance/default-agent-model.tsx": { choice: 1 },
-  "components/quill/not-found-view.tsx": { link: 1 },
+  "components/quill/not-found-view.tsx": { link: 2 },
   "components/runners/pairing-blocks.tsx": { button: 1, link: 1 },
   "components/runners/pairing-card.tsx": { button: 3, choice: 1 },
   "components/runners/runner-row.tsx": { button: 1, disclosure: 1 },
