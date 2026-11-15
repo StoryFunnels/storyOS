@@ -187,7 +187,7 @@ export default function SlackIntegrationPage() {
             <Label htmlFor="slack-token">
               Bot token {config.data?.has_token && '(saved — enter to replace)'}
             </Label>
-            <Input
+            <Input size="sm"
               id="slack-token"
               type="password"
               placeholder="xoxb-…"
@@ -208,7 +208,7 @@ export default function SlackIntegrationPage() {
             <Label htmlFor="slack-webhook">
               Webhook URL {config.data?.has_webhook && '(saved — enter to replace)'}
             </Label>
-            <Input
+            <Input size="sm"
               id="slack-webhook"
               type="password"
               placeholder="https://hooks.slack.com/services/…"
@@ -231,7 +231,7 @@ export default function SlackIntegrationPage() {
         {method === 'bot' && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="slack-channel">Default channel</Label>
-            <Input
+            <Input size="sm"
               id="slack-channel"
               placeholder="#general or C0123456789"
               value={defaultChannel}

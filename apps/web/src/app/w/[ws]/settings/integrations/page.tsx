@@ -9,12 +9,13 @@ import { useWorkspace } from '@/lib/queries';
 import { useDateFormat } from '@/lib/preferences';
 import { settingsPageHref } from '@/lib/settings-nav';
 import { PROVIDER_PAGES, providerPageHref, providerPageSnapshot, type IntegrationEndpoint, type IntegrationFacts, type PageSnapshot } from '@/lib/provider-pages';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { useConnections, useIntegrationFacts, useProviders } from '@/components/connections/use-connections';
 import { PROVIDER_ICONS } from '@/components/settings/provider-icons';
 import { SettingsPill } from '@/components/settings/provider-card';
 import { cn } from '@/lib/utils';
 import { subLineClass, type ConnectionCardState } from '@/lib/connection-card';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const ROW = 'flex min-h-[46px] flex-wrap items-center gap-3 border-t border-border-default px-3.5 py-2 text-body first:border-t-0';
 
@@ -107,7 +108,7 @@ export default function IntegrationsPage() {
               <span className="flex-1" />
               <span className="text-label font-medium text-muted">{connected.length}</span>
             </div>
-            {connected.length === 0 && <p className="px-3.5 py-3 text-body text-muted">Nothing is connected yet. Add a connection below.</p>}
+            {connected.length === 0 && <EmptyState variant="list" title="Nothing is connected yet. Add a connection below." />}
             {connected.map((s) => {
               const summary = connectedSummary(s);
               return (
@@ -138,10 +139,8 @@ export default function IntegrationsPage() {
                   </span>
                   {!canConnect && !builtin && <SettingsPill tone="quiet">{s.overall.pill.label}</SettingsPill>}
                   {(canConnect || builtin) && (
-                    <Link href={providerPageHref(ws, s.def.id)}>
-                      <Button size="sm" variant="secondary">
-                        {builtin ? 'Open' : 'Connect'}
-                      </Button>
+                    <Link href={providerPageHref(ws, s.def.id)} className={buttonVariants({ variant: 'secondary' })}>
+                      {builtin ? 'Open' : 'Connect'}
                     </Link>
                   )}
                   {!canConnect && !builtin && (

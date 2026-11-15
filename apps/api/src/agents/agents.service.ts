@@ -35,11 +35,8 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AutomationActionsService } from '../automations/actions.service';
 import { JobRunnerService } from '../automations/job-runner.service';
-import {
-  ApprovalsService,
-  type AgentProposedActionSnapshot,
-  type ApprovalActionSnapshot,
-} from '../automations/approvals.service';
+import { ApprovalsService } from '../automations/approvals.service';
+import { agentProposedActionOf } from '../automations/approval-snapshot';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { ActivationService } from '../workspaces/activation.service';
@@ -2125,11 +2122,7 @@ export class AgentsService implements OnModuleInit {
     // name. Once every pre-deploy run has drained, this fallback is dead code
     // (worth deleting then, not now — it costs nothing while it's rare).
     const approvalRow = await this.approvals.findByRunId(membership.workspaceId, run.id);
-    const snapshotAction =
-      approvalRow?.actionSnapshot &&
-      (approvalRow.actionSnapshot as ApprovalActionSnapshot).action.type === 'agent_proposed_action'
-        ? ((approvalRow.actionSnapshot as ApprovalActionSnapshot).action as AgentProposedActionSnapshot)
-        : null;
+    const snapshotAction = agentProposedActionOf(approvalRow);
     const serverStaged: StagedAction | null = snapshotAction
       ? {
           action: snapshotAction.proposed,
@@ -2303,11 +2296,8 @@ export class AgentsService implements OnModuleInit {
     // #1029 — show what the SERVER staged (the approvals row), not the editable display copy: what a person is asked to
     // approve must be what would actually run.
     const approvalRow = await this.approvals.findByRunId(membership.workspaceId, run.id);
-    const snap = approvalRow?.actionSnapshot as ApprovalActionSnapshot | undefined;
-    if (approvalRow?.status === 'pending' && snap?.action.type === 'agent_proposed_action') {
-      const a = snap.action as AgentProposedActionSnapshot;
-      return { action: a.proposed, steps: a.steps };
-    }
+    const proposed = approvalRow?.status === 'pending' ? agentProposedActionOf(approvalRow) : null;
+    if (proposed) return { action: proposed.proposed, steps: proposed.steps };
     const staged = parseStaged(run.values['pending_action']);
     if (!staged) return null;
     return { action: staged.action, steps: staged.steps };

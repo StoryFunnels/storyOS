@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
  * `safeHttpUrl`, tested against javascript:, data:, vbscript: and the scheme-obfuscation variants in packages/schemas.)
  */
 describe('the public form page navigates only to an http(s) redirect (ticket #1032)', () => {
-  const src = readFileSync(join(__dirname, 'page.tsx'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+  const src = readFileSync(join(__dirname, 'public-form-client.tsx'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
   it('never assigns the server\'s redirect_url to location unfiltered', () => {
     expect(src).not.toMatch(/location\.href\s*=\s*def\??\.redirect_url/);
     expect(src).not.toMatch(/location\.(href|assign|replace)\s*[=(]\s*def/);

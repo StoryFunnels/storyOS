@@ -31,6 +31,8 @@ export interface MyWorkGroup {
   database: { id: string; name: string; icon: string | null; color: string | null };
   fields: DenseField[];
   records: MyWorkRecord[];
+  /** The server cut this database's rows at its page size (`total` > rows sent). Absent from an older server: read as not cut. */
+  truncated?: boolean;
 }
 
 /** A resolved option value: its label and the option's colour KEY (the component resolves it to a colour). */
@@ -141,14 +143,42 @@ export function dueBucket(due: string | null, now: Date, completed = false): Due
 export interface MyWorkRow {
   dbId: string;
   database: MyWorkGroup['database'];
+  /** What this row calls its database: the name, or "Space / Name" when another database on the page shares the name (see `databaseLabels`). */
+  databaseLabel: string;
   fields: DenseField[];
   config: MyWorkDbConfig;
   record: MyWorkRecord;
   facets: Facets;
 }
 
+/**
+ * What each database is called on a My Work row. Two databases can share a name (install two packs that both ship
+ * "Tasks"), and then "#4 · Tasks" twice cannot be told apart. Only a name that is NOT unique among the databases on the
+ * page gains its space ("Team / Tasks"): the common row keeps the short form the design draws. Uniqueness is judged
+ * case-insensitively, since "tasks" and "Tasks" read as the same word. A space that is not known yet (still loading)
+ * adds nothing, never a guess; two same-named databases in ONE space stay identical, and that is the limit of this.
+ */
+export function databaseLabels(
+  databases: Array<{ id: string; name: string }>,
+  spaceNameOf: (databaseId: string) => string | undefined,
+): Map<string, string> {
+  const norm = (n: string) => n.trim().toLocaleLowerCase();
+  const counts = new Map<string, number>();
+  for (const d of databases) counts.set(norm(d.name), (counts.get(norm(d.name)) ?? 0) + 1);
+  const labels = new Map<string, string>();
+  for (const d of databases) {
+    const space = spaceNameOf(d.id)?.trim();
+    labels.set(d.id, (counts.get(norm(d.name)) ?? 0) > 1 && space ? `${space} / ${d.name}` : d.name);
+  }
+  return labels;
+}
+
 /** Every record the saved per-database filters let through, as rows with their facets. */
-export function buildRows(groups: MyWorkGroup[], configs: Record<string, MyWorkDbConfig | undefined>): MyWorkRow[] {
+export function buildRows(
+  groups: MyWorkGroup[],
+  configs: Record<string, MyWorkDbConfig | undefined>,
+  labels?: ReadonlyMap<string, string>,
+): MyWorkRow[] {
   const rows: MyWorkRow[] = [];
   for (const group of groups) {
     const config = configs[group.database.id] ?? {};
@@ -157,6 +187,7 @@ export function buildRows(groups: MyWorkGroup[], configs: Record<string, MyWorkD
       rows.push({
         dbId: group.database.id,
         database: group.database,
+        databaseLabel: labels?.get(group.database.id) ?? group.database.name,
         fields: group.fields,
         config,
         record,
@@ -165,6 +196,29 @@ export function buildRows(groups: MyWorkGroup[], configs: Record<string, MyWorkD
     }
   }
   return rows;
+}
+
+/**
+ * Ticket #1280 item 7 — Assigned/Created show open work; finished records collapse under one "Done · N" group at the bottom.
+ * Splits the already-filtered rows by the same `facets.completed` that sorts finished rows last, so the two cannot disagree.
+ * Order inside each half is the caller's (sortRows), nothing is dropped, and nothing is counted twice.
+ */
+export function splitDone<T extends { facets: Pick<Facets, 'completed'> }>(rows: T[]): { open: T[]; done: T[] } {
+  const open: T[] = [];
+  const done: T[] = [];
+  for (const r of rows) (r.facets.completed ? done : open).push(r);
+  return { open, done };
+}
+
+/**
+ * The group's heading: "Done · 3". N is the number of finished rows actually LOADED. The server cuts a database's rows at a
+ * page size and cuts the least urgent first, which is where finished rows sit, so when any database was cut the real number
+ * may be higher: then it reads "Done · 3+", a lower bound said as one, never a guess. Null when nothing finished was loaded
+ * (a cut list with zero loaded finished rows has nothing to name, and "0" would be a confident zero about unseen rows).
+ */
+export function doneHeading(loadedDone: number, anyTruncated: boolean): string | null {
+  if (loadedDone <= 0) return null;
+  return `Done · ${loadedDone}${anyTruncated ? '+' : ''}`;
 }
 
 export type MyWorkSortKey = 'due' | 'updated' | 'title';
@@ -231,8 +285,12 @@ export type AssignedByLine =
   | { kind: 'set'; name: string; byAgent: boolean; at: string | null }
   | { kind: 'unrecorded'; explanation: string };
 
-export const ASSIGNED_BY_UNRECORDED =
-  'Not recorded. You were set on this record when it was created or imported, or the change is not in its history.';
+/** The value a field grid shows when no assigner is on record: two words, never a paragraph. The reason is its tooltip. */
+export const ASSIGNED_BY_UNRECORDED_LABEL = 'Not recorded';
+export const ASSIGNED_BY_UNRECORDED_DETAIL =
+  'You were set on this record when it was created or imported, or the change is not in its history.';
+/** Label + detail as one sentence pair, for a reader that has no hover (the tooltip's text, kept whole for screen readers). */
+export const ASSIGNED_BY_UNRECORDED = `${ASSIGNED_BY_UNRECORDED_LABEL}. ${ASSIGNED_BY_UNRECORDED_DETAIL}`;
 
 export function assignedByLine(
   record: Pick<MyWorkRecord, 'assigned_by' | 'assigned_at'>,

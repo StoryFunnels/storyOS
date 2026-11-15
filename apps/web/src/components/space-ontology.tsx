@@ -11,6 +11,7 @@ import { Dialog } from './ui/dialog';
 import { AddFieldDialog } from './table-view/add-field-dialog';
 import type { OntologyChip, OntologyGroup } from './space-ontology-layout';
 import { databaseColor } from '@/lib/entity-color';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * #636 — the ontology diagram: ONE database at the centre, everything it
@@ -113,9 +114,7 @@ export function SpaceOntology({
     // canvas that reads as "this space really is empty" (it might not be —
     // the viewer may simply not be able to read anything in it).
     return (
-      <p className="rounded-[var(--radius-card)] border border-border-default bg-card p-6 text-body text-muted">
-        No databases here that you can access.
-      </p>
+      <EmptyState variant="big" title="No databases here that you can access." />
     );
   }
 

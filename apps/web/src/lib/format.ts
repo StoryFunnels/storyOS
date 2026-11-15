@@ -45,6 +45,9 @@ export interface FormatOptions {
   now?: Date;
   /** Say Today / Tomorrow / Yesterday for near dates (default). A preview of the format itself turns it off. */
   relative?: boolean;
+  /** A BCP 47 locale to format in. Callers never pass one (the viewer's own locale is the default); a test does, to pin
+   *  "Nov 14" for en-US against "14 Nov" for en-GB. */
+  locale?: string;
 }
 
 /**
@@ -53,22 +56,31 @@ export interface FormatOptions {
  * hard-codes a locale. Used only for the `system` setting; a person who picked MM/DD/YYYY, DD/MM/YYYY or YYYY-MM-DD
  * asked for numerals and gets them.
  */
-function friendlyDate(d: Date, now: Date, relative: boolean): string {
+function friendlyDate(d: Date, now: Date, relative: boolean, locale?: string): string {
   if (relative) {
     const off = dayOffset(d, now);
     if (off === 0) return 'Today';
     if (off === 1) return 'Tomorrow';
     if (off === -1) return 'Yesterday';
   }
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(locale, {
     day: 'numeric',
     month: 'short',
     ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
   });
 }
 
+/**
+ * The Friendly option's own example in Preferences > Date format, drawn by the SAME function that draws the "Now:" line and the
+ * dates in views (ticket #1283 item 1). It said "Today, 21 Oct" as fixed text, so a person whose locale writes the month first read
+ * one order in the menu and got the other everywhere else. Whatever order the viewer's locale gives, this follows it.
+ */
+export function friendlyDateExample(now: Date = new Date()): string {
+  return `Today, ${friendlyDate(now, now, false)}`;
+}
+
 function datePart(d: Date, r: Regional, o: FormatOptions = {}): string {
-  if (r.dateFormat === 'system') return friendlyDate(d, o.now ?? new Date(), o.relative !== false);
+  if (r.dateFormat === 'system') return friendlyDate(d, o.now ?? new Date(), o.relative !== false, o.locale);
   return d.toLocaleDateString(DATE_LOCALE[r.dateFormat], {
     year: 'numeric',
     month: '2-digit',
@@ -97,6 +109,49 @@ export function formatDateTime(value: unknown, r: Regional = DEFAULT_REGIONAL, o
   return d ? `${datePart(d, r, o)}, ${timePart(d, r)}` : '';
 }
 
+/**
+ * Ticket #1275 item 5 — the labels a surface draws AROUND dates (a calendar's month title and weekday heads, a timeline's
+ * axis, a board's "Week of" column heading, the date picker's month) go through here too, so no surface writes a date in
+ * its own order. Month names and their order come from the viewer's locale (en-US "Nov 14", en-GB "14 Nov"); nothing here
+ * hard-codes a locale. `utc` is for a Date built with Date.UTC (a timeline bucket, a board bucket start), which would
+ * otherwise read as the day before west of UTC.
+ */
+export type DayLabelStyle = 'monthDay' | 'monthDayYear' | 'monthYear' | 'monthYearLong' | 'month' | 'weekdayShort' | 'full';
+
+const DAY_LABEL: Record<DayLabelStyle, Intl.DateTimeFormatOptions> = {
+  monthDay: { month: 'short', day: 'numeric' },
+  monthDayYear: { month: 'short', day: 'numeric', year: 'numeric' },
+  monthYear: { month: 'short', year: 'numeric' },
+  monthYearLong: { month: 'long', year: 'numeric' },
+  month: { month: 'short' },
+  weekdayShort: { weekday: 'short' },
+  full: { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' },
+};
+
+export function formatDayLabel(d: Date, style: DayLabelStyle, o: { utc?: boolean; locale?: string } = {}): string {
+  return d.toLocaleDateString(o.locale, { ...DAY_LABEL[style], ...(o.utc ? { timeZone: 'UTC' } : {}) });
+}
+
+/**
+ * How long ago a thing happened, for a notification: "now", "5m", "3h" inside a day, and past a day the SAME date words
+ * every other surface uses (Yesterday, then "Nov 11" in the viewer's locale), not a bare "12d". `relative` says which
+ * form came back, so a caller that appends "ago" does so only to the first.
+ */
+export function formatAge(
+  value: unknown,
+  r: Regional = DEFAULT_REGIONAL,
+  o: FormatOptions = {},
+): { text: string; relative: boolean } {
+  const d = toDate(value);
+  if (!d) return { text: '', relative: false };
+  const now = o.now ?? new Date();
+  const seconds = (now.getTime() - d.getTime()) / 1000;
+  if (seconds < 60) return { text: 'now', relative: true };
+  if (seconds < 3600) return { text: `${Math.floor(seconds / 60)}m`, relative: true };
+  if (seconds < 86400) return { text: `${Math.floor(seconds / 3600)}h`, relative: true };
+  return { text: datePart(d, r, { ...o, now }), relative: false };
+}
+
 /** Sunday=0 … Saturday=6, resolving 'system' to the locale's first day. */
 export function firstWeekday(r: Regional = DEFAULT_REGIONAL): number {
   if (r.firstDayOfWeek === 'sunday') return 0;
@@ -104,4 +159,31 @@ export function firstWeekday(r: Regional = DEFAULT_REGIONAL): number {
   if (r.firstDayOfWeek === 'saturday') return 6;
   // 'system': most locales start Monday; en-US/en-CA start Sunday.
   return /^en-(US|CA)\b/i.test(typeof navigator !== 'undefined' ? navigator.language : 'en-US') ? 0 : 1;
+}
+
+/* ── Long weekday form (ticket #1274, Otto 2026-11-13) ───────────────────────────────────────────────────────────────
+   Kept in its own block at the END of the file so it merges cleanly with other open edits to the formatter above. */
+
+// Which locale spells the words for each date-format choice: the two that name an order (MDY, DMY) name a locale;
+// YMD and `system` have no word order of their own, so the viewer's own locale (undefined) decides.
+const LONG_DATE_LOCALE: Record<Regional['dateFormat'], string | undefined> = {
+  system: undefined,
+  MDY: 'en-US',
+  DMY: 'en-GB',
+  YMD: undefined,
+};
+
+/**
+ * "Tuesday, 20 October" (en-GB) / "Tuesday, October 20" (en-US): the weekday, a comma, then the day and month in
+ * the locale's own order. The weekday and the day-month are formatted separately and joined here because the comma
+ * between them is not stable across ICU versions (newer ones print "Tuesday 20 October" for en-GB); the ruling is
+ * that the comma is always there. No year — this is the "today" line, not a record date. Invalid or empty → ''.
+ */
+export function formatLongDate(value: unknown, r: Regional = DEFAULT_REGIONAL): string {
+  const d = toDate(value);
+  if (!d) return '';
+  const locale = LONG_DATE_LOCALE[r.dateFormat];
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long' }).format(d);
+  const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long' }).format(d);
+  return `${weekday}, ${dayMonth}`;
 }
