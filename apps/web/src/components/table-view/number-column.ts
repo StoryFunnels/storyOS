@@ -41,6 +41,24 @@ export function countHiddenFields(hidden: string[], candidateFieldIds: ReadonlyS
 }
 
 /**
+ * #1281 — the Display field list's "Show all": every id in `candidateFieldIds` leaves the hidden array, and ids that
+ * are NOT in the list (a stale id, another surface's hidden column) are kept exactly as they were.
+ */
+export function showAllFields(hidden: string[], candidateFieldIds: readonly string[]): string[] {
+  const set = new Set(candidateFieldIds);
+  return hidden.filter((id) => !set.has(id));
+}
+
+/**
+ * #1281 — "Hide all": every candidate joins the hidden array once. The caller passes only fields that MAY be hidden,
+ * so the always-on title column (never in the list, `isAlwaysOnField`) cannot be hidden by this.
+ */
+export function hideAllFields(hidden: string[], candidateFieldIds: readonly string[]): string[] {
+  const set = new Set(hidden);
+  return [...hidden, ...candidateFieldIds.filter((id) => !set.has(id))];
+}
+
+/**
  * #1004 — one number per row. The gutter's positional counter ("1, 2, 3…") and the ID column ("#1, #2…") used to show
  * side by side, which read as one number printed twice. While the ID column is among the rendered fields it IS the
  * row's number and the gutter shows none; with it hidden the gutter keeps the row's position, so the table never has

@@ -58,7 +58,7 @@ export function parseRecordParam(seg: string): { kind: 'id'; value: string } | {
  *
  * Lives here rather than in a view component so every surface (batch bar, table,
  * empty states, dialogs) can share ONE definition; the previous home
- * (views/empty-state) re-exports it for existing importers.
+ * (views/empty-database) re-exports it for existing importers.
  */
 export function databaseNoun(name?: string | null): string {
   const trimmed = name?.trim();

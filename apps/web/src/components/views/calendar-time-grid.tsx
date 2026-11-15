@@ -6,7 +6,9 @@ import type { DragEndEvent } from '@dnd-kit/core';
 import { CellDisplay, fieldValue, isSystemDate, optionColor } from '../table-view/cells';
 import type { Field, RecordRow } from '../table-view/use-table-data';
 import { addDays, fmtDate } from '@/lib/dates';
+import { formatDayLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
 import {
   DEFAULT_DURATION_MINUTES,
   MIN_EVENT_MINUTES,
@@ -185,7 +187,7 @@ export function CalendarTimeGrid({
             return (
               <div key={iso} className="flex-1 border-l border-border-default px-2 py-1.5 text-center">
                 <div className="text-micro uppercase text-faint">
-                  {d.toLocaleDateString(undefined, { weekday: 'short' })}
+                  {formatDayLabel(d, 'weekdayShort')}
                 </div>
                 <div
                   className={cn(
@@ -414,7 +416,7 @@ function EventChip({
         onOpen();
       }}
     >
-      <p className="truncate text-meta font-medium text-ink">{row.title || 'Untitled'}</p>
+      <p className={cn('truncate text-meta text-ink', RECORD_TITLE_WEIGHT)}>{row.title || 'Untitled'}</p>
       {!compact &&
         chipFields?.map((field) => {
           const value = row.values[field.apiName];
