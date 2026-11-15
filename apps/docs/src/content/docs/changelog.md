@@ -11,6 +11,7 @@ day the change reached the product.
 
 - **11 Nov** — Dry-run a formula before saving it, over the API and MCP: it returns the result type and sample values, or errors with the position and the nearest valid name. [Formulas](/concepts/formulas/#check-a-formula-before-you-save-it)
 - **10 Nov** — A run held by an agent's monthly budget is named in the web app instead of showing as something else. [The StoryOS Runner](/guides/runner/#budgets)
+- **10 Nov** — A connected provider page leads with its card, and GitHub lists untracked repositories with a Track button. [Connecting GitHub](/guides/github/)
 - **10 Nov** — Notifications says which events also arrive by email and to which address, Email me my work is a setting there, the Inbox offers it once, and every email opens with a Quill header and fits a phone screen. [Mentions and notifications](/concepts/mentions-and-notifications/#what-goes-by-email-and-where-it-arrives)
 - **13 Nov** — An agent given a whole space reaches that space's user databases only, never a system database such as Members. [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
 - **12 Nov** — Deleting one record moves it to Trash and offers Undo for 10 seconds, in the table and in the record panel. [Workspaces, spaces and databases](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space)
@@ -26,6 +27,7 @@ day the change reached the product.
 - **5 Nov** — An agent's page offers one button to start it on records already waiting in its trigger state, and a Non-AI agent can be switched to your own AI from its page. [The StoryOS Runner](/guides/runner/#starting-an-agent-on-records-already-waiting)
 - **4 Nov** — An agent's manager can choose its model on the agent's page, a workspace default model exists, and Runner runs start from a short StoryOS prompt. [The StoryOS Runner](/guides/runner/#which-model-it-uses)
 - **4 Nov** — The Runner pairing code is shown as one block with Copy, and the Runner accepts it with or without spaces. [Adding and removing a Runner](/guides/adding-and-removing-a-runner/)
+- **5 Nov** — The sidebar has a Hidden section for the spaces and databases you hid and for system spaces. [Organising the sidebar](/concepts/organising-the-sidebar/)
 - **3 Nov** — A guide to the StoryOS Runner, the program that lets an agent use your own AI. [The StoryOS Runner](/guides/runner/)
 - **3 Nov** — What wakes an agent on your own AI, and what its run record shows. [Agent runs](/concepts/agent-runs/)
 - **3 Nov** — Guides for the Team Wiki and Dev Tracker packs. [The Team Wiki pack](/guides/team-wiki-pack/) · [The Dev Tracker pack](/guides/dev-tracker-pack/)

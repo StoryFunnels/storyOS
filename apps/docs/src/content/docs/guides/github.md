@@ -1,6 +1,6 @@
 ---
 title: Connecting GitHub
-description: Importing a GitHub repository's issues and pull requests into StoryOS, how a pull request gets linked to a record, choosing which repositories are watched, and what the "ignoring deliveries" notice means.
+description: Importing a GitHub repository's issues and pull requests into StoryOS, how a pull request gets linked to a record, choosing which repositories are watched, and what the "Not tracked, but sending events" list means.
 sidebar:
   order: 10
 ---
@@ -11,7 +11,7 @@ rules are in [Branch names and pull request linking](#branch-names-and-pull-requ
 `#number` never links.
 
 It lives at **Settings → Integrations → GitHub**. This page covers connecting, choosing repositories
-and the one notice that tends to puzzle people. The page also has a **Code & reviews** section, which
+and the one list that tends to puzzle people. The page also has a **Code & reviews** section, which
 isn't covered here.
 
 ## Connecting
@@ -23,6 +23,10 @@ inspect** (run the first sync and open the generated GitHub space). There are tw
   requests and lets you pick which repositories it watches, with no personal token.
 - **A personal access token.** Paste a token (read access to the repositories) and list the
   repositories, one `owner/name` per line.
+
+Once GitHub is connected, the page leads with the connection card. The steps, App box and token form
+move under a closed **Change how GitHub is connected** line (**Setup steps, keys and tokens**); open
+it to change the connection. Until GitHub is connected, those steps are the page and stay open.
 
 ## Branch names and pull request linking
 
@@ -65,19 +69,19 @@ other repository, and the notice below reports what it skipped. **With no reposi
 from every repository are accepted and no notice appears**, so select the ones you want to narrow
 it.
 
-## "Ignoring deliveries from repositories you have not selected"
+## "Not tracked, but sending events"
 
-If that notice appears, GitHub is sending StoryOS events for repositories you haven't selected, and
+If this box appears, GitHub is sending StoryOS events for repositories you haven't selected, and
 StoryOS is **deliberately skipping them**. It answers GitHub with a success and imports nothing.
-Without the notice that looks exactly like a healthy, quiet connection, so it says so instead.
+Without the box that looks exactly like a healthy, quiet connection, so it says so instead.
 
-- It lists each repository with how many deliveries were skipped and when the last one arrived.
-  After 50 different repositories, further ones are only counted as *"…and N more from other
-  repositories"*.
-- **Selecting a repository removes it from the list.**
+- The header shows how many repositories are listed. Each row names a repository, how many events
+  arrived, and the type and time of the latest one (for example "3 events · last push"). Older rows
+  recorded before the type was kept show the time only.
+- **Track** on a row adds that repository to your selection, with the same call the repository picker
+  uses, and the row goes away. A "Tracking {repository}" message confirms it.
+- The box shows the first three repositories; **and N more** with **Show all** opens the rest. A line
+  below counts events from repositories StoryOS does not list by name, which have no row to track.
 - Saving other settings keeps the tally, and disconnecting clears it.
 - It appears for both the GitHub App and the personal-token connection, and only to people who can
   open the integration page, which is limited to admins.
-
-If you never intended to watch that repository, nothing is wrong: the notice is information, and
-the skipped events are simply not imported.
