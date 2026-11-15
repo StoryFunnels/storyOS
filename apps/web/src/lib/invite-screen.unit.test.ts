@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { JOINING_COPY, NOT_FOUND_COPY, detailsQueryEnabled, isUserAlreadyExists, joinFailureMessage, joinModel, runJoinSubmit, sameEmail } from './invite-screen';
+import { JOINING_COPY, NOT_FOUND_COPY, detailsQueryEnabled, isUserAlreadyExists, joinFailureMessage, joinModel, runJoinSubmit, sameEmail, SWITCH_ACCOUNT_FAILURE } from './invite-screen';
 import type { InviteDetails } from './invite-api';
 
 // Pinewood, made up.
@@ -113,6 +113,23 @@ describe('runJoinSubmit (a thrown request resets the button, ticket #1302)', () 
     const { calls, h } = hooks();
     await runJoinSubmit(async () => undefined, h);
     expect(calls).toEqual([]);
+  });
+  it('a throwing signOut (API down) resets busy and shows the sign-out sentence, with no navigation', async () => {
+    const { calls, h } = hooks();
+    await runJoinSubmit(
+      async () => {
+        await Promise.reject(new TypeError('Failed to fetch'));
+        calls.push('navigate');
+      },
+      h,
+      SWITCH_ACCOUNT_FAILURE,
+    );
+    expect(calls).toEqual(['error:Could not sign out. Try again.', 'busy:false']);
+  });
+  it('the page runs Switch account through it with that sentence', () => {
+    const src = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'app/invite/page.tsx'), 'utf8');
+    expect(src).toMatch(/SWITCH_ACCOUNT_FAILURE,\s*\)/);
+    expect(src).toMatch(/await authClient\.signOut\(\);[\s\S]*router\.replace\(inviteJoinPath/);
   });
   it('the page runs the sign-up/sign-in steps through it', () => {
     const src = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'app/invite/page.tsx'), 'utf8');
