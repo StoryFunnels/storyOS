@@ -124,7 +124,7 @@ describe('where the events are emitted', () => {
     expect(signup).toMatch(/firstTouchProperties/);
   });
   it('every app event gets surface: app from ONE place, not per call site (AC4)', () => {
-    expect(code(read('../instrumentation-client.ts'))).toMatch(/before_send: \(event\) => withSurface\(event\)/);
+    expect(code(read('../instrumentation-client.ts'))).toMatch(/before_send: \(event\) => withSurface\(scrubTokensFromEvent\(event\)\)/);
     const perSite = allSources(src).filter((f) => /posthog\.capture\([^)]*surface/.test(code(readFileSync(f, 'utf8'))));
     expect(perSite).toEqual([]);
   });

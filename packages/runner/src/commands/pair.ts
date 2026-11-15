@@ -107,7 +107,7 @@ export async function pair(opts: PairOptions): Promise<number> {
   const tools = await (opts.detect ?? detectTools)();
   io.out('This computer:');
   for (const line of describeTools(tools)) io.out(line);
-  if (!tools.some((t) => t.installed)) io.out('  No supported tool was found. Install Claude Code or Cursor, then StoryOS can use this computer.');
+  if (!tools.some((t) => t.installed)) io.out('  No supported tool was found. Install Claude Code, then StoryOS can use this computer.');
 
   const existing = readConfig(home);
   if (existing) io.out('This computer was paired before. Pairing again replaces that; remove the old one from StoryOS if you no longer need it.');

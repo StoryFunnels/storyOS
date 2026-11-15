@@ -29,6 +29,7 @@ import {
   type InstallSummary,
   type PackSource,
 } from '@/components/pack-install-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * Business Packs — gallery + one-click install (MN-219 / #161), the
@@ -252,7 +253,7 @@ export default function PacksPage() {
           );
         })}
         {registry.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-body text-muted">No packs in the gallery yet.</p>
+          <EmptyState variant="list" title="No packs in the gallery yet." />
         )}
       </div>
 
@@ -320,24 +321,24 @@ export default function PacksPage() {
           );
         })}
         {marketplace.data?.length === 0 && !normalizedQuery && vertical === 'all' && (
-          <p className="text-body text-muted">No community packs published yet.</p>
+          <EmptyState variant="list" title="No community packs published yet." />
         )}
       </div>
 
       {noMatches && (
-        <div className="mt-4 rounded-[var(--radius-card)] border border-dashed border-border-default p-8 text-center">
-          <p className="text-body font-medium text-ink">No packs match this search</p>
-          <button
-            type="button"
-            className="mt-1 text-label text-muted underline underline-offset-2"
-            onClick={() => {
+        <EmptyState
+          variant="filtered"
+          className="mt-4"
+          title="No packs match this search"
+          action={{
+            label: 'Clear filters',
+            variant: 'secondary',
+            onClick: () => {
               setQuery('');
               setVertical('all');
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
+            },
+          }}
+        />
       )}
 
       {open && (

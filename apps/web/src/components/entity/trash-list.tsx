@@ -3,6 +3,7 @@
 import { useDateFormat } from '@/lib/preferences';
 import { Button } from '@/components/ui/button';
 import { SettingsBox, SettingsRow } from '@/components/settings/settings-chrome';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * #618 — the one place that renders a "deleted things, with a Restore button"
@@ -39,7 +40,7 @@ export function TrashSection<T extends { id: string; deleted_at: string }>({
   if (chrome === 'settings') {
     return (
       <SettingsBox title={title} aside={items.length}>
-        {items.length === 0 && <SettingsRow title={emptyText} />}
+        {items.length === 0 && <EmptyState variant="list" title={emptyText} />}
         {items.map((item) => (
           <SettingsRow
             key={item.id}
@@ -64,7 +65,7 @@ export function TrashSection<T extends { id: string; deleted_at: string }>({
     <div>
       <h2 className="mb-2 text-label font-medium uppercase tracking-wider text-muted">{title}</h2>
       {items.length === 0 ? (
-        <p className="text-sm text-muted">{emptyText}</p>
+        <EmptyState variant="list" className="px-0" title={emptyText} />
       ) : (
         <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
           {items.map((item) => (

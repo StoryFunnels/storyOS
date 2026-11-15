@@ -34,6 +34,9 @@
      than muted (5.36:1 on app), so the three-step hierarchy holds. */
   --text-faint: #8f8a7e;
   --text-on-dark: #faf7f1;
+  /* #1302 — the StoryOS mark's tile and its stroke (components/brand/brand-mark.tsx): navy tile on a light card, stroke the same colour. */
+  --brand-mark-tile: #0f1729;
+  --brand-mark-stroke: #0f1729;
 
   /* Borders */
   --border-default: #e8e5df;
@@ -314,6 +317,9 @@
      measured after: 3.89:1 on card, against muted's 5.66:1. */
   --text-faint: #7d786f;
   --text-on-dark: #faf7f1;
+  /* #1302 — the navy tile is 1.1:1 on this card; the prototype's dark tile and 2px stroke read on it. */
+  --brand-mark-tile: #232b3c;
+  --brand-mark-stroke: #3a4458;
 
   /* Borders */
   --border-default: #262d39;
