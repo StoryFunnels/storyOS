@@ -23,6 +23,7 @@ const KEY = ['comments', 'w', 'd', 'r'];
 function render(seed: { data?: unknown[]; error?: boolean }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (seed.data) qc.setQueryData(KEY, seed.data);
+  if (seed.error) qc.getQueryCache().build(qc, { queryKey: KEY }).setState({ status: 'error', error: new Error('boom'), data: undefined, fetchStatus: 'idle' });
   const el = createElement(
     QueryClientProvider,
     { client: qc },
@@ -46,5 +47,8 @@ describe('the Comments tab empty state (ticket #1277 item 10)', () => {
   });
   it('KEEPS: a thread that has not loaded yet claims nothing (no "No comments yet" about an unread thread)', () => {
     expect(render({})).not.toContain('No comments yet');
+  });
+  it('KEEPS: a thread that FAILED to load claims nothing either (an error is not an empty thread)', () => {
+    expect(render({ error: true })).not.toContain('No comments yet');
   });
 });
