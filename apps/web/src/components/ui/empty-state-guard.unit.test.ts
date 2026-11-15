@@ -103,7 +103,7 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/automations-panel.tsx': { n: 2, why: 'text inside a collapsible last-payload box ("No delivery received yet.", a status line of one automation) and a hint in the relation-action form ("has no relation fields yet — add one first"); neither is a list' },
   // Round 2 (the widened shape): found by the broader pattern, each read and judged. None is a list or pane with nothing in it.
   'app/(auth)/login/page.tsx': { n: 1, why: '"No account?" before the sign-up link: a prompt, not an empty state' },
-  'app/f/[token]/page.tsx': { n: 1, why: '"No one to pick from": the empty options of a member field on a public form, a field value, not a pane' },
+  'app/f/[token]/public-form-client.tsx': { n: 1, why: '"No one to pick from": the empty options of a member field on a public form, a field value, not a pane' },
   'app/new-workspace/page.tsx': { n: 1, why: '"No databases. Build your own from scratch.": the description of the Start empty choice card' },
   'app/packs/[slug]/page.tsx': { n: 1, why: '"No credit card required": marketing copy beside a button' },
   'app/w/[ws]/settings/agent-rules/page.tsx': { n: 1, why: 'a sentence explaining that no approval gate is declared: the rule\'s state, shown with its own form' },
