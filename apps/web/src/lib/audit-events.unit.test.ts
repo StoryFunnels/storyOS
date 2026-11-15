@@ -91,7 +91,9 @@ describe('the audit-log page (#1059)', () => {
     expect(page).toContain('<CopyRecordIdButton id={e.record_id} />');
     expect(page).toContain('aria-label="Copy record ID"');
     expect(page).toContain('navigator.clipboard.writeText(id)');
-    expect(page).toContain('auditActorLabel(e.actor_name, e.actor_id, memberName)');
+    // the actor cell is AuditActor (audit-row.tsx), which resolves the name through auditActorLabel and adds "(removed)" only from `actor_removed`.
+    expect(page).toContain('<AuditActor entry={e} memberName={memberName} />');
+    expect(readFileSync(fileURLToPath(new URL('../components/settings/audit-row.tsx', import.meta.url)), 'utf8')).toContain('auditActorLabel(e.actor_name, e.actor_id, memberName)');
     expect(page).not.toContain('REMOVED_MEMBER_LABEL');
     expect(page).not.toMatch(/removed member|not shown/i);
     expect(page).not.toContain('font-mono');

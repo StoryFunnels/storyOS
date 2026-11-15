@@ -22,9 +22,8 @@ import {
   SettingsRefusal,
 } from '@/components/settings/settings-chrome';
 import { SourceBadge } from '@/components/entity/source-badge';
-import { AuditWhat, type AuditLogEntry } from '@/components/settings/audit-row';
+import { AuditActor, AuditLoadError, AuditWhat, auditFeedState, collapseDuplicateUpdates, type AuditLogEntry } from '@/components/settings/audit-row';
 import { AUDIT_TYPE_FILTERS } from '@/lib/audit-events';
-import { auditActorLabel } from '@/lib/audit-values';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -110,7 +109,8 @@ export default function AuditLogPage() {
     enabled: isAdmin,
   });
 
-  const entries = (log.data?.pages ?? []).flatMap((p) => p.data);
+  const entries = collapseDuplicateUpdates((log.data?.pages ?? []).flatMap((p) => p.data));
+  const feed = auditFeedState({ isLoading: log.isLoading, isError: log.isError, rows: entries.length, filtersApplied: resolved.applied });
 
   if (workspace.isLoading) return <p className="p-8 text-body text-muted">Loading…</p>;
 
@@ -136,11 +136,13 @@ export default function AuditLogPage() {
       />
 
       <SettingsPageBody>
-        {log.isLoading ? (
+        {feed === 'loading' ? (
           <p className="text-body text-muted">Loading…</p>
-        ) : entries.length === 0 ? (
+        ) : feed === 'error' ? (
+          <AuditLoadError onRetry={() => void log.refetch()} retrying={log.isFetching} />
+        ) : feed !== 'rows' ? (
           <SettingsBox>
-            {resolved.applied > 0 ? (
+            {feed === 'empty-filtered' ? (
               <EmptyState variant="filtered" data-testid="audit-empty" title="Nothing matches these filters" body="Open Filter below to change them." />
             ) : (
               <EmptyState variant="list" data-testid="audit-empty" title="Nothing in this range." />
@@ -149,8 +151,6 @@ export default function AuditLogPage() {
         ) : (
           <SettingsBox>
             {entries.map((e) => {
-              // The API names the member; "(unknown)" is its word for one it could not resolve, and an id is never printed (ticket #1287).
-              const actor = auditActorLabel(e.actor_name, e.actor_id, memberName);
               return (
                 <div
                   key={e.id}
@@ -162,7 +162,8 @@ export default function AuditLogPage() {
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col sm:w-44 sm:flex-none sm:shrink-0">
                     <span className="flex min-w-0 items-center gap-1.5 text-body text-ink">
-                      <span className="truncate">{actor}</span>
+                      {/* The API names the member; an id is never printed, and "(removed)" follows only when the API says so (ticket #1287). */}
+                      <AuditActor entry={e} memberName={memberName} />
                       <span className="shrink-0">
                         <SourceBadge source={e.source} agentName={e.agent_name} inlineName />
                       </span>
@@ -181,6 +182,12 @@ export default function AuditLogPage() {
               );
             })}
           </SettingsBox>
+        )}
+
+        {feed === 'rows' && log.isFetchNextPageError && (
+          <p role="alert" className="text-body text-error" data-testid="audit-more-error">
+            Could not load more. Try again.
+          </p>
         )}
 
         {log.hasNextPage && (
