@@ -164,7 +164,7 @@ describe('the Join screen draws every state (#1302)', () => {
     expect(t).toContain('Switch account');
     expect(t).not.toContain('Join Pinewood Studio');
   });
-  for (const status of ['expired', 'used'] as const) {
+  for (const status of ['expired', 'used', 'revoked'] as const) {
     it(`${status}: says so, names the inviter, and has no Join button`, () => {
       const html = render(
         joinModel({ details: { ...valid, status }, session: { status: 'signed_out' } }),
@@ -172,7 +172,7 @@ describe('the Join screen draws every state (#1302)', () => {
       );
       const t = text(html);
       expect(t).toContain(
-        status === 'expired' ? 'This invite has expired' : 'This invite was already used',
+        { expired: 'This invite has expired', used: 'This invite was already used', revoked: 'This invite was revoked' }[status],
       );
       expect(t).toContain('Ask Maple Ridge for a new link.');
       expect(t).not.toContain('Join Pinewood Studio');
@@ -244,7 +244,7 @@ describe('the workspace name is not repeated beside the logo, and Google comes f
     expect(text(logoBlock(html))).not.toContain('Pinewood Studio');
   });
   it('expired, used and mismatch have no name in the headline, so the name appears beside the logo', () => {
-    for (const status of ['expired', 'used'] as const) {
+    for (const status of ['expired', 'used', 'revoked'] as const) {
       expect(
         text(
           logoBlock(
@@ -326,7 +326,7 @@ describe('the workspace name is not repeated beside the logo, and Google comes f
     }
   });
   it('expired and used: Sign in / Go to my workspaces is a FULL-WIDTH 44px action; not found stays 44px with no 28px action (#1302)', () => {
-    for (const status of ['expired', 'used'] as const) {
+    for (const status of ['expired', 'used', 'revoked'] as const) {
       for (const signedIn of [false, true]) {
         const html = render(
           joinModel({
