@@ -7711,7 +7711,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List pending invites',
       description:
-        'Invitations sent but not yet accepted. A colleague who "is not in the workspace" may simply not have clicked the link yet, which is a different problem with a different fix. Read-only: inviting and revoking are human decisions.',
+        'Invitations sent but not yet accepted. A colleague who "is not in the workspace" may simply not have clicked the link yet, which is a different problem with a different fix. A revoked invite is not pending and is not listed. Read-only: inviting and revoking are human decisions.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {

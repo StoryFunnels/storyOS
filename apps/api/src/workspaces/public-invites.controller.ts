@@ -27,8 +27,9 @@ export class PublicInvitesController {
   @ApiQuery({ name: 'token', required: false, description: 'The token from the invite link' })
   @ApiOperation({
     summary:
-      'What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired or used. ' +
-      'An unknown, malformed or revoked token returns status "not_found" with every other field null (same body, so tokens cannot be probed).',
+      'What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired, used or revoked. ' +
+      'A revoked invite keeps its details (like expired and used) so the screen can say who to ask. ' +
+      'An unknown, malformed or replaced token returns status "not_found" with every other field null (same body, so tokens cannot be probed).',
   })
   @ApiOkResponse({ type: InviteDetailsResponseDto })
   details(@Query('token') token: unknown) {

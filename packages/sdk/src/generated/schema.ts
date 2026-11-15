@@ -308,7 +308,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke a pending invite (admin) */
+        /** Revoke a pending invite (admin). The invite is kept as a tombstone so its link can say "revoked"; it stops being pending at once. */
         delete: operations["WorkspaceController_revokeInvite"];
         options?: never;
         head?: never;
@@ -339,7 +339,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired or used. An unknown, malformed or revoked token returns status "not_found" with every other field null (same body, so tokens cannot be probed). */
+        /** What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired, used or revoked. A revoked invite keeps its details (like expired and used) so the screen can say who to ask. An unknown, malformed or replaced token returns status "not_found" with every other field null (same body, so tokens cannot be probed). */
         get: operations["PublicInvitesController_details"];
         put?: never;
         post?: never;
@@ -5391,7 +5391,7 @@ export interface components {
         };
         InviteDetailsResponseDto: {
             /** @enum {string} */
-            status: "valid" | "expired" | "used" | "not_found";
+            status: "valid" | "expired" | "used" | "revoked" | "not_found";
             inviter_name: string | null;
             workspace_name: string | null;
             workspace_logo_url: string | null;
