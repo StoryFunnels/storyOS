@@ -366,8 +366,9 @@ describe('the token is never drawn or logged, and the join path never reaches cr
   });
   it('the only workspaces POST on the invite path carries joinWorkspaceBody (token, no name)', () => {
     const api = code(read('lib/invite-api.ts'));
-    expect(api.match(/api\.POST\('\/api\/v1\/workspaces', \{ body: [^}]*\}/g)).toEqual([
-      "api.POST('/api/v1/workspaces', { body: joinWorkspaceBody(token) }",
+    // the call goes through the injectable `client` (default: the shared api) so a thrown request can be tested (#1302)
+    expect(api.match(/\.POST\('\/api\/v1\/workspaces'[^,]*, \{ body: [^}]*\}/g)).toEqual([
+      ".POST('/api/v1/workspaces' as never, { body: joinWorkspaceBody(token) }",
     ]);
   });
   it('the create-workspace screen is gated: its default export checks the held invite before rendering the form', () => {
