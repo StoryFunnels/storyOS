@@ -11,6 +11,7 @@ day the change reached the product.
 
 - **11 Nov** — Dry-run a formula before saving it, over the API and MCP: it returns the result type and sample values, or errors with the position and the nearest valid name. [Formulas](/concepts/formulas/#check-a-formula-before-you-save-it)
 - **10 Nov** — A run held by an agent's monthly budget is named in the web app instead of showing as something else. [The StoryOS Runner](/guides/runner/#budgets)
+- **15 Nov** — An invitation link opens a Join screen that shows who invited you and to which workspace, and joining never creates a new workspace. [Settings: Workspace](/settings/workspace/)
 - **10 Nov** — The install review has a **Wake it automatically** switch for a pack agent's trigger, and each database row names its fields. [Agent triggers install switched off](/guides/pack-manifest/#agent-triggers-install-switched-off)
 - **10 Nov** — Signup opens on **What are you working on?** with Team Board, Dev Tracker and Team Wiki first. [Creating a workspace](/guides/creating-a-workspace/)
 - **10 Nov** — An install that reuses another pack's databases reports them as linked, not created here. [Packs that build on other packs](/guides/pack-manifest/#packs-that-build-on-other-packs)
