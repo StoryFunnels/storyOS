@@ -186,7 +186,10 @@ export function AuditActor({ entry: e, memberName }: { entry: AuditLogEntry; mem
   const marker = e.actor_removed === true && e.actor_kind !== 'system' && label !== 'A former member';
   return (
     <>
-      <span className="truncate">{label}</span>
+      {/* The name takes the column's full width when it must and wraps to at most two lines (the whole name stays in the text, for a screen
+          reader; Settings allows no hover-only title); "(removed)" and the badge wrap BELOW it instead of squeezing it to two characters
+          (ticket #1287). The parent is a wrapping flex row. */}
+      <span className="line-clamp-2 min-w-0 max-w-full [overflow-wrap:anywhere]" data-testid="audit-actor-name">{label}</span>
       {marker && <span className="shrink-0 text-muted" data-testid="audit-actor-removed">(removed)</span>}
     </>
   );
@@ -207,8 +210,15 @@ const diffKeyCount = (payload: unknown): number | null => {
  * of that keeps it: no diff in the payload, a Free workspace (field changes are not captured at all), a page boundary that split the
  * write (fewer field rows loaded than keys), two writes to one record in the same millisecond (the count is then not equal). Keeping a
  * row is the safe direction; a row is never hidden on a guess. Restores (`restored_from_version_id`) are kept: that sentence is information.
+ *
+ * ONE deferral, for the page boundary: when `moreAfter` (another page exists and its request has not failed) and the event sits at the
+ * LAST loaded instant with fewer field rows loaded than diff keys (possibly none), its field rows may be on the next page, so showing it
+ * now would put a stray "Record updated" on screen until Load more. It is held back for that one tail instant only, and appears (or is
+ * collapsed) as soon as the next page lands. It is never held back past the end of the data, after a failed page request, or anywhere but
+ * the tail instant, so a Free workspace's events (no field rows at all) show everywhere except that one trailing instant until Load more.
  */
-export function collapseDuplicateUpdates<T extends AuditLogEntry>(entries: readonly T[]): T[] {
+export function collapseDuplicateUpdates<T extends AuditLogEntry>(entries: readonly T[], opts: { moreAfter?: boolean } = {}): T[] {
+  const tailInstant = opts.moreAfter && entries.length > 0 ? entries[entries.length - 1]!.created_at : null;
   const fieldRows = new Map<string, number>();
   for (const e of entries) {
     if (e.kind === 'field_change' && e.record_id) {
@@ -221,7 +231,11 @@ export function collapseDuplicateUpdates<T extends AuditLogEntry>(entries: reado
     if ((e.payload as { restored_from_version_id?: unknown } | null | undefined)?.restored_from_version_id) return true;
     const keys = diffKeyCount(e.payload);
     if (keys === null || keys === 0) return true;
-    return fieldRows.get(`${e.record_id}|${e.created_at}`) !== keys;
+    const loaded = fieldRows.get(`${e.record_id}|${e.created_at}`) ?? 0;
+    if (loaded === keys) return false;
+    // Fewer loaded than keys at the tail of a page that has a successor: the rest may be on the next page. Defer, do not drop.
+    if (loaded < keys && tailInstant !== null && e.created_at === tailInstant) return false;
+    return true;
   });
 }
 

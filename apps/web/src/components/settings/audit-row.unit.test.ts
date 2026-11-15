@@ -212,4 +212,49 @@ describe('collapseDuplicateUpdates: a record.updated row that its field rows rep
   it('never touches other event types', () => {
     expect(ids(collapseDuplicateUpdates([upd({ id: 'c', type: 'comment.created' }), fc('a'), fc('b')]))).toEqual(['c', 'a', 'b']);
   });
+
+  // Page boundary (#1287 follow-up): the write's field rows are on the next page.
+  it('defers the event at the tail instant while more pages exist and fewer field rows are loaded than keys', () => {
+    expect(ids(collapseDuplicateUpdates([upd()], { moreAfter: true }))).toEqual([]);
+    expect(ids(collapseDuplicateUpdates([upd(), fc('a')], { moreAfter: true }))).toEqual(['a']);
+  });
+  it('shows the deferred event once the rest is loaded and the counts match (collapsed), or when no page follows', () => {
+    expect(ids(collapseDuplicateUpdates([upd(), fc('a'), fc('b')], { moreAfter: true }))).toEqual(['a', 'b']);
+    expect(ids(collapseDuplicateUpdates([upd()], { moreAfter: false }))).toEqual(['ev']);
+    expect(ids(collapseDuplicateUpdates([upd()]))).toEqual(['ev']);
+  });
+  it('keeps an event that is NOT at the tail instant even when more pages exist (a Free workspace stays visible)', () => {
+    const later = entry({ id: 'later', type: 'record.created', created_at: '2026-11-14T09:00:00.000Z' });
+    expect(ids(collapseDuplicateUpdates([upd(), later], { moreAfter: true }))).toEqual(['ev', 'later']);
+  });
+  it('never defers a restore or a diff-less event at the tail', () => {
+    expect(ids(collapseDuplicateUpdates([upd({ payload: { diff: { f1: {} }, restored_from_version_id: 'v1' } })], { moreAfter: true }))).toEqual(['ev']);
+    expect(ids(collapseDuplicateUpdates([upd({ payload: {} })], { moreAfter: true }))).toEqual(['ev']);
+  });
+  it('the page passes moreAfter, and not after a failed page request', () => {
+    const page = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/settings/audit-log/page.tsx', import.meta.url)), 'utf8');
+    expect(page).toContain('moreAfter: Boolean(log.hasNextPage) && !log.isFetchNextPageError');
+  });
+});
+
+describe('AuditActor: a long name keeps its column (#1287)', () => {
+  const LONG = 'Bartholomew Featherstonehaugh-Wetherington';
+  const html = renderToStaticMarkup(createElement(AuditActor, { entry: entry({ actor_name: LONG, actor_removed: true, actor_kind: 'member' }), memberName }));
+  it('renders the whole name in the DOM, wrapping to two lines by CSS (no hover-only title: Settings rule)', () => {
+    expect(html).toContain(LONG);
+    expect(html).not.toContain('title=');
+    expect(html).toContain('line-clamp-2');
+  });
+  it('the name may use the full column width, so a sibling cannot squeeze it (no shrink-0 on it)', () => {
+    const nameSpan = html.match(/<span[^>]*data-testid="audit-actor-name"[^>]*>/)![0];
+    expect(nameSpan).toContain('max-w-full');
+    expect(nameSpan).not.toContain('shrink-0');
+  });
+  it('"(removed)" is still shown', () => {
+    expect(text(html)).toBe(`${LONG} (removed)`);
+  });
+  it('the page row lets the name and the markers wrap', () => {
+    const page = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/settings/audit-log/page.tsx', import.meta.url)), 'utf8');
+    expect(page).toMatch(/flex min-w-0 flex-wrap items-center[^"]*text-body text-ink/);
+  });
 });
