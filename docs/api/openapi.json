@@ -178,7 +178,7 @@
             "bearer": []
           }
         ],
-        "summary": "Create a workspace (creator becomes admin)",
+        "summary": "Create a workspace (creator becomes admin). With invite_token the invite is accepted instead and NO workspace is created: the response is the workspace joined, with joined_via_invite true. A token that cannot be accepted refuses and creates nothing.",
         "tags": [
           "workspaces"
         ]
@@ -656,6 +656,36 @@
         "summary": "Accept an invite by token (must match your email)",
         "tags": [
           "workspaces"
+        ]
+      }
+    },
+    "/api/v1/public/invites/details": {
+      "get": {
+        "operationId": "PublicInvitesController_details",
+        "parameters": [
+          {
+            "name": "token",
+            "required": false,
+            "in": "query",
+            "description": "The token from the invite link",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteDetailsResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired or used. An unknown, malformed or revoked token returns status \"not_found\" with every other field null (same body, so tokens cannot be probed).",
+        "tags": [
+          "public"
         ]
       }
     },
@@ -12813,11 +12843,13 @@
           "slug": {
             "type": "string",
             "pattern": "^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$"
+          },
+          "invite_token": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 256
           }
-        },
-        "required": [
-          "name"
-        ]
+        }
       },
       "UpdateWorkspaceDto": {
         "type": "object",
@@ -13050,6 +13082,43 @@
         },
         "required": [
           "token"
+        ]
+      },
+      "InviteDetailsResponseDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "expired",
+              "used",
+              "not_found"
+            ]
+          },
+          "inviter_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "workspace_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "workspace_logo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "invited_email": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "status",
+          "inviter_name",
+          "workspace_name",
+          "workspace_logo_url",
+          "invited_email"
         ]
       },
       "CreateFolderDto": {

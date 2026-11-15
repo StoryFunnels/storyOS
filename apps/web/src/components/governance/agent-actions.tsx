@@ -21,6 +21,7 @@ import {
   type CredentialDto,
   type TriggerFields,
 } from '@/lib/governance';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * Ticket #934 — the Governance screen's list of recent agent actions, each with the credential that performed it and the member it
@@ -131,7 +132,7 @@ export function AgentActions({ ws }: { ws: string }) {
   if (log.isLoading) return <p className="px-3.5 py-3 text-body text-muted">Loading…</p>;
   if (log.isError) return <p className="px-3.5 py-3 text-body text-ink">The recent actions could not be loaded.</p>;
   if (rows.length === 0) {
-    return <p className="px-3.5 py-3 text-body text-muted">No agent or token has changed anything in the last 30 days.</p>;
+    return <EmptyState variant="list" className="px-0" title="No agent or token has changed anything in the last 30 days." />;
   }
 
   const note = missingCredentialNote(rows);

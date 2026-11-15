@@ -12,6 +12,7 @@ import { RecordsService } from '../records/records.service';
 import { renderCommentText, truncateForPreview } from '../comments/comment-render';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { presentRules, ruleFor } from '../automations/rule-visibility';
+import { readApprovalSnapshot, UNKNOWN_REQUEST_TEXT } from '../automations/approval-snapshot';
 
 /** Field types worth rendering as a dense-row chip in My Work (MN-072). */
 const DENSE_TYPES = new Set(['select', 'multi_select', 'workflow', 'user', 'relation', 'date', 'checkbox']);
@@ -343,9 +344,9 @@ export class MyWorkService {
     const approvalCount = await this.db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM approvals a WHERE ${approvalWhere}`);
     const approvalRows = await this.db.execute<{
       id: string; record_id: string | null; preview_text: string; created_at: Date; expires_at: Date; database_id: string | null;
-      rule_id: string | null;
+      rule_id: string | null; action_snapshot: unknown;
     }>(sql`
-      SELECT a.id, a.record_id, a.preview_text, a.created_at, a.expires_at, (a.action_snapshot #>> '{ctx,databaseId}') AS database_id, a.rule_id
+      SELECT a.id, a.record_id, a.preview_text, a.created_at, a.expires_at, (a.action_snapshot #>> '{ctx,databaseId}') AS database_id, a.rule_id, a.action_snapshot
       FROM approvals a WHERE ${approvalWhere}
       ORDER BY a.expires_at ASC, a.created_at DESC LIMIT ${MY_WORK_PAGE}
     `);
@@ -364,11 +365,14 @@ export class MyWorkService {
     const approvalItems = approvalRows.rows.map((r) => {
       const rec = r.record_id ? recById.get(r.record_id) : undefined;
       const reachable = rec ? canReachDb(rec.databaseId) || Boolean(recordGrantIds?.has(rec.id)) : false;
+      // #1298 — the same reading /approvals uses: a row whose snapshot cannot be read is an unknown request here too, not a different story.
+      const readable = readApprovalSnapshot({ id: r.id, actionSnapshot: r.action_snapshot }).readable;
       return {
         approval_id: r.id,
+        unknown: !readable,
         // #1280 — which automation is asking. Name + id for a viewer who may read that database's automations, else the neutral rule_label; all null for an approval no rule wrote (or whose rule was deleted).
         ...ruleFor(rules, r.rule_id),
-        preview_text: r.preview_text,
+        preview_text: readable ? r.preview_text : UNKNOWN_REQUEST_TEXT,
         created_at: new Date(r.created_at),
         expires_at: new Date(r.expires_at),
         record: rec && reachable ? { id: rec.id, number: rec.number, title: rec.title, database_id: rec.databaseId, database_name: rec.databaseName } : null,

@@ -103,7 +103,8 @@ describe('the run list renders every state as drawn', () => {
     }
   });
   it('empty, loading and failed-to-load each say so; a page of rows claims no total', () => {
-    expect(runList([])).toContain('No runs yet. They show up here when an agent wakes.');
+    expect(runList([])).toContain('No runs yet');
+    expect(runList([])).toContain('They show up here when an agent wakes.');
     expect(runList([], { loading: true })).toContain('Loading');
     expect(runList([], { error: true })).toContain('Could not load');
     expect(runList([wake('done'), wake('running')])).toContain('1 finished so far');
@@ -230,10 +231,14 @@ describe('a guest with a grant on the Agents database is not told which computer
   });
   it('Hire is wrapped in the predicate on the screens that offer it (a guest gets neither the button nor the card); the agent page offers none (ticket #1289 item 2)', () => {
     // The Agents page's empty-state button moved into AgentsEmpty (ticket #1253): its one gated site is there, the dialog's stays on the page.
-    for (const [rel, n] of [['./agent-page.tsx', 0], ['../../app/w/[ws]/agents/page.tsx', 1], ['./agents-empty.tsx', 1]] as const) {
+    for (const [rel, n] of [['./agent-page.tsx', 0], ['../../app/w/[ws]/agents/page.tsx', 1]] as const) {
       const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
       expect(src.match(/canHireAgents\(role\) && \(?\s*<(Button|HireDialog)/g) ?? [], rel).toHaveLength(n);
     }
+  });
+  it('the empty Agents list offers Hire only through the same predicate (ticket #1291: the action moved into the shared EmptyState, so the gate is a ternary now)', () => {
+    const src = readFileSync(fileURLToPath(new URL('./agents-empty.tsx', import.meta.url)), 'utf8');
+    expect(src.match(/canHireAgents\(role\) \? \{ label: 'Hire an agent'/g) ?? []).toHaveLength(1);
   });
   it('the Agents page gives the "Runs on" cell the viewer’s own can-see-machines answer (ticket #1196 moved the wording into runsOnCell, whose guest case is tested in lib/runners/agent-list.unit.test.ts)', () => {
     const src = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/agents/page.tsx', import.meta.url)), 'utf8');
