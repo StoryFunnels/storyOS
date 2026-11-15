@@ -12,6 +12,8 @@ import {
   actionMeta,
   actionSubject,
   chainOf,
+  FIELD_LINES_SHOWN,
+  fieldRowsOf,
   isTriggerRow,
   withoutStoredTriggerSyntax,
   missingCredentialNote,
@@ -52,6 +54,22 @@ export function ActionWhat({ row, ws, triggerWords }: { row: AuditEventRow; ws: 
   return <AuditWhat entry={entry} ws={ws} memberName={() => undefined} linked={false} />;
 }
 
+/** The field-level lines under a `record.updated` row, in the audit log's own sentence (`AuditWhat`, kind field_change). The record is named on the row above, so a line leaves its chip off. */
+export function FieldLines({ lines, ws }: { lines: AuditEventRow[]; ws: string }) {
+  if (lines.length === 0) return null;
+  const more = lines.length - FIELD_LINES_SHOWN;
+  return (
+    <span className="mt-0.5 flex flex-col gap-0.5 text-label text-ink-secondary" data-testid="agent-action-fields">
+      {lines.slice(0, FIELD_LINES_SHOWN).map((f) => (
+        <span key={f.id}>
+          <AuditWhat entry={{ ...(f as unknown as AuditLogEntry), record: null }} ws={ws} memberName={() => undefined} linked={false} />
+        </span>
+      ))}
+      {more > 0 && <span className="text-muted">{`and ${more} more ${more === 1 ? 'field' : 'fields'}`}</span>}
+    </span>
+  );
+}
+
 export function AgentActions({ ws }: { ws: string }) {
   const { dateTime } = useDateFormat();
   const [open, setOpen] = useState<AuditEventRow | null>(null);
@@ -70,7 +88,8 @@ export function AgentActions({ ws }: { ws: string }) {
     },
     getNextPageParam: (last) => (last.has_more ? (last.next_cursor ?? undefined) : undefined),
   });
-  const allRows = (log.data?.pages ?? []).flatMap((p) => p.data).filter(isAgentAction);
+  const loaded = (log.data?.pages ?? []).flatMap((p) => p.data);
+  const allRows = loaded.filter(isAgentAction);
 
   // One credential lookup per DISTINCT credential on screen — a handful, not one per row.
   const credentialIds = [...new Set(allRows.map((r) => r.credential_id).filter((id): id is string => Boolean(id)))];
@@ -183,6 +202,7 @@ export function AgentActions({ ws }: { ws: string }) {
                   <ActionWhat row={r} ws={ws} triggerWords={triggerWordsOf(r.record_id)} />
                   {meta && <span className="text-label text-ink-secondary">{` · ${meta}`}</span>}
                 </span>
+                <FieldLines lines={fieldRowsOf(r, loaded)} ws={ws} />
               </span>
             </button>
           );

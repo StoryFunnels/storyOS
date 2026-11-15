@@ -213,6 +213,19 @@ export const NOT_COVERED: ReadonlyArray<string> = [
   'Approval counts cover the latest 100 approvals only.',
 ];
 
+/**
+ * The one-line summary on the closed "How agent rules are enforced" disclosure (ticket #1284). The warning that agents can change records
+ * with no gate sits INSIDE the disclosure, so the summary must carry that fact itself in every state a person can see it:
+ * ungoverned says so; loading and failed say what is true (not yet known / could not be loaded, so the gate status is unknown) and never
+ * claim a gate or its absence; governed lists what is inside.
+ */
+export const ENFORCEMENT_CONTENTS = 'agents, gates, approvals and what always holds';
+export function enforcementSummary(state: { loading: boolean; failed: boolean; ungoverned: boolean }): string {
+  if (state.loading) return `${ENFORCEMENT_CONTENTS} (loading)`;
+  if (state.failed) return 'some of this could not be loaded, so whether an approval gate is in force is unknown';
+  return state.ungoverned ? 'no approval gate is in force' : ENFORCEMENT_CONTENTS;
+}
+
 export function ungovernedWorkspace(agents: AgentPosture[], inForce: GateRow[]): boolean {
   const active = agents.filter((a) => a.enabled && a.scopeCeiling !== 'read');
   return active.length > 0 && inForce.length === 0 && active.every((a) => a.holds.length === 0);
@@ -353,6 +366,22 @@ export function actionText(row: Pick<AuditEventRow, 'type' | 'payload' | 'record
   if (title) return e.name === title ? sentence : `${sentence} · “${title}”`;
   return safe.record?.withheld ? `${sentence} · a record` : sentence;
 }
+
+/**
+ * Ticket #1284: the field-level lines of one `record.updated` row. The audit-log read already returns a `field_change` row per changed field
+ * beside the event (one transaction, so the same record_id and the same created_at), filtered by the same `source`; this picks them out by
+ * that pair, so the list shows "Set Phase: Review → Done" with no extra fetch. A record this reader may not read has no honest field line
+ * (its rows arrive blanked), so it gets none. Only what was loaded is returned: never a guess at a field the page did not carry.
+ */
+export function fieldRowsOf(row: Pick<AuditEventRow, 'type' | 'record_id' | 'created_at'>, entries: ReadonlyArray<AuditEventRow>): AuditEventRow[] {
+  if (row.type !== 'record.updated') return [];
+  return entries.filter(
+    (e) => e.kind === 'field_change' && isAiSource(e.source) && e.record_id === row.record_id && e.created_at === row.created_at && e.record?.withheld !== true,
+  );
+}
+
+/** Most field lines one row draws; the rest are counted ("+N more"), never silently dropped. */
+export const FIELD_LINES_SHOWN = 5;
 
 /** How close (ms) a rule's relation-link event must be to its creation to count as the same burst. Creating a rule writes both in one request. */
 export const CREATION_BURST_MS = 5000;

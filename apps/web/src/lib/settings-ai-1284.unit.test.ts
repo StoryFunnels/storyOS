@@ -7,6 +7,8 @@ import { actionText, chainOf, triggerInWords, type AuditEventRow, type TriggerFi
 const read = (rel: string) => readFileSync(join(__dirname, rel), 'utf8');
 const page = read('../app/w/[ws]/settings/agent-rules/page.tsx');
 const actions = read('../components/governance/agent-actions.tsx');
+const defaultModel = read('../components/governance/default-agent-model.tsx');
+const governance = read('./governance.ts');
 const chrome = read('../components/settings/settings-chrome.tsx');
 
 describe('Agent rules sections use the shared Settings box header', () => {
@@ -25,6 +27,15 @@ describe('Agent rules sections use the shared Settings box header', () => {
   });
 });
 
+describe('the three boxes at the top of Agent rules sit one gap apart', () => {
+  it('every box margin on the page and the default-model box are the same token (mb-6), not a 32px box above 24px ones', () => {
+    const gap = (src: string) => src.match(/\bmb-(\d+)\b/)?.[0];
+    expect(gap(defaultModel)).toBe('mb-6');
+    expect(page).toContain('<SettingsBox className="mb-6">');
+    expect(page).toContain('className="mb-6"'); // Section's SettingsBox
+  });
+});
+
 describe('Recent agent actions rows', () => {
   const rowBlock = actions.slice(actions.indexOf('{rows.map((r) => {'), actions.indexOf('log.hasNextPage'));
   it('the missing-credential sentence is rendered once, outside the row loop', () => {
@@ -36,7 +47,8 @@ describe('Recent agent actions rows', () => {
     expect(rowBlock).toContain('actionSubject(r, credential)');
     expect(rowBlock).toContain('<ActionWhat row={r} ws={ws} triggerWords={triggerWordsOf(r.record_id)} />');
     // one wording: the audit log's sentence, not a second verb table
-    expect(actions).not.toMatch(/describeAction|ACTION_VERB/);
+    // governance.ts holds the other half of the row's words: a verb table re-added THERE would drift the same way
+    for (const src of [actions, governance]) expect(src).not.toMatch(/describeAction|ACTION_VERB/);
     expect(actions).toContain('<AuditWhat');
     expect(rowBlock).toContain('actionMeta(r, credential)');
     expect(rowBlock).toMatch(/<b className="[^"]*font-semibold[^"]*">\{actionSubject/);
@@ -98,9 +110,9 @@ describe('Agent rules is the prototype’s boxes, with everything else in ONE cl
       expect(other, `${needle} should be in exactly one place`).not.toContain(needle);
     }
   });
-  it('the safety facts do not hide: a workspace with no gate in force says so on the closed disclosure', () => {
-    expect(page).toContain("'no approval gate is in force'");
-    expect(page).toContain("'some of this could not be loaded'");
+  it('the closed disclosure takes its summary from enforcementSummary, never a string of its own (render tests: governance-summary)', () => {
+    expect(page).toContain('enforcementSummary({ loading, failed, ungoverned: ungovernedWorkspace(agents, inForce) })');
+    expect(page).toMatch(/<AdvancedSection title="How agent rules are enforced" summary=\{advancedSummary\}/);
   });
 });
 
