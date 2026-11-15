@@ -199,6 +199,13 @@ Revoke asks first, naming the email address.
 at the same URL; the invite's token and its 7-day expiry both reset, so a stale copy of the
 original link left in an old email thread no longer gets anyone in.
 
+**Revoking keeps a record of the revoke, not the invite.** A revoked invite is no longer pending: it
+leaves the Invitations box, can't be sent again, doesn't count anywhere, and its link refuses to let
+anyone in. Anyone who opens the link sees that it was **revoked** and who invited them, so they know
+who to ask for a new one, rather than a page that looks like the link never existed. You can invite
+the same address again at any time; that makes a new, working link. The record of the revoke is
+deleted 30 days later, after which the old link reads like one that never existed.
+
 **Throttled to one resend per minute**, per invite — a repeat click inside that window is refused
 with a plain "wait a minute" message rather than silently sending twice.
 

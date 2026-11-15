@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import type { TileComparison } from '@storyos/schemas';
 import { OPTION_COLORS, OptionChip } from '@/components/table-view/cells';
+import { formatDate, formatDateTime } from '@/lib/format';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 import { visibleBoardColumns } from '@/components/views/board-columns';
 import { targetProgress } from '@/components/views/dashboard-tiles';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export interface PublicViewField {
   api_name: string;
@@ -182,8 +184,8 @@ export function PublicViewClient({
                 ))}
                 {def.records.data.length === 0 && (
                   <tr>
-                    <td colSpan={def.fields.length + 1} className="px-3 py-6 text-center text-neutral-400">
-                      Nothing here yet.
+                    <td colSpan={def.fields.length + 1} className="px-3 py-6">
+                      <EmptyState variant="list" className="text-center text-neutral-400" title="Nothing here yet." />
                     </td>
                   </tr>
                 )}
@@ -435,6 +437,12 @@ function Cell({ field, value }: { field: PublicViewField; value: unknown }) {
         ))}
       </span>
     );
+  }
+  /* #1275 item 5 — a date reads in the viewer's locale through the one shared formatter (Today / Tomorrow / Yesterday, then
+     "Nov 14" or "14 Nov"), not as the raw stored string. An anonymous visitor has no preferences, so the system default. */
+  if (field.type === 'date' || field.type === 'created_at' || field.type === 'updated_at') {
+    const shown = field.type === 'date' ? formatDate(value) : formatDateTime(value);
+    if (shown) return <>{shown}</>;
   }
   return <>{formatValue(value)}</>;
 }

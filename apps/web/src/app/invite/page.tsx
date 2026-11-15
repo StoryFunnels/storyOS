@@ -22,6 +22,7 @@ import { acceptInvite, fetchInviteDetails, joinWithToken } from '@/lib/invite-ap
 import type { JoinFailure, JoinResult } from '@/lib/invite-api';
 import {
   NOT_FOUND_COPY,
+  detailsQueryEnabled,
   isUserAlreadyExists,
   joinFailureMessage,
   joinModel,
@@ -47,12 +48,15 @@ function InviteJoin() {
     now: Date.now(),
   });
   const { data: session, isPending } = useSession();
+  // Set once an accept succeeds and never cleared: from then on the page is leaving, and must not draw what the invite says now.
+  const [joined, setJoined] = useState(false);
 
   const details = useQuery({
     queryKey: ['invite-details', token],
     queryFn: () => fetchInviteDetails(token as string),
-    enabled: Boolean(token),
+    enabled: detailsQueryEnabled({ token, joined }),
     staleTime: 0,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const providers = useQuery({
@@ -65,6 +69,8 @@ function InviteJoin() {
   const [mode, setMode] = useState<'new' | 'existing'>('new');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // An error is drawn only after a submit attempt in the current mode (ticket #1302); a mode switch starts clean.
+  const [submitted, setSubmitted] = useState(false);
   const cameFromGoogle = useRef(false);
   const attempted = useRef(false);
 
@@ -91,10 +97,12 @@ function InviteJoin() {
     details: loaded,
     detailsFailed: details.isFetched && !loaded,
     session: joinSession,
+    joined,
   });
 
   function land(result: JoinResult) {
     if (result.ok) {
+      setJoined(true);
       clearHeldInviteToken(window.sessionStorage);
       posthog.capture('invite_accepted');
       router.replace(`/w/${result.workspaceId}`);
@@ -106,6 +114,7 @@ function InviteJoin() {
   function handleFailure(failure: JoinFailure) {
     if (failure === 'already_member') {
       // Already in: nothing to accept. The entry route finds their workspace; the token is spent as far as this tab goes.
+      setJoined(true);
       clearHeldInviteToken(window.sessionStorage);
       router.replace('/');
       return;
@@ -133,6 +142,7 @@ function InviteJoin() {
     if (!token || model.kind !== 'join_signed_out') return;
     setBusy(true);
     setError(null);
+    setSubmitted(true);
     const email = model.invitedEmail;
 
     let authed = false;
@@ -161,12 +171,15 @@ function InviteJoin() {
       // The address already has an account (or the person said so): sign in with the same password box.
       const signedIn = await authClient.signIn.email({ email, password });
       if (signedIn.error) {
-        setMode('existing');
-        setError(
-          mode === 'existing'
-            ? (signedIn.error.message ?? 'Sign-in failed')
-            : 'That password does not match the account for this email.',
-        );
+        if (mode === 'existing') {
+          setError(signedIn.error.message ?? 'Sign-in failed');
+        } else {
+          // new -> existing: the form changes to the password-only one and starts clean; the explanatory line there says why.
+          setMode('existing');
+          setPassword('');
+          setError(null);
+          setSubmitted(false);
+        }
         setBusy(false);
         return;
       }
@@ -223,6 +236,7 @@ function InviteJoin() {
             onSubmit={(e) => void onSubmit(e)}
             busy={busy}
             error={error}
+            submitted={submitted}
             forgotHref={resetHrefForInvite(token)}
             onGoogle={onGoogle}
           />

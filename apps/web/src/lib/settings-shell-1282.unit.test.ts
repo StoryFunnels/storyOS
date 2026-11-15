@@ -134,7 +134,9 @@ describe('one Advanced disclosure, always last (#1282, item 8)', () => {
       const src = read(join(SETTINGS, f, 'page.tsx'));
       expect(src).not.toContain('Advanced / Developer');
       expect(src).not.toContain('Advanced — for developers');
-      expect(src).toContain('<AdvancedSection title="Advanced"');
+      // Ticket #1285: these two pages retitle the one disclosure as the prototype does ("How to use a token", "How webhooks work");
+      // it is still the shared AdvancedSection, still last.
+      expect(src).toMatch(/<AdvancedSection title="(Advanced|How to use a token|How webhooks work)"/);
     }
   });
 

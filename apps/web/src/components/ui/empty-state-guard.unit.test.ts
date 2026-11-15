@@ -81,7 +81,7 @@ function adHoc(): { key: string; line: string }[] {
 
 /**
  * Every remaining sentence, by file, with WHY it is not an empty state. Counts are exact: a second line in the same file is a new
- * ad-hoc empty state and must fail. A genuine surface still to migrate goes in DEFERRED with the ticket line, never in here.
+ * ad-hoc empty state and must fail. A genuine empty state is never listed here: it renders through <EmptyState>.
  */
 const PICKER = 'an option list inside a popover/menu/dialog picker: "no option matched what you typed", not a pane with nothing yet';
 const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
@@ -103,7 +103,7 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/automations-panel.tsx': { n: 2, why: 'text inside a collapsible last-payload box ("No delivery received yet.", a status line of one automation) and a hint in the relation-action form ("has no relation fields yet — add one first"); neither is a list' },
   // Round 2 (the widened shape): found by the broader pattern, each read and judged. None is a list or pane with nothing in it.
   'app/(auth)/login/page.tsx': { n: 1, why: '"No account?" before the sign-up link: a prompt, not an empty state' },
-  'app/f/[token]/page.tsx': { n: 1, why: '"No one to pick from": the empty options of a member field on a public form, a field value, not a pane' },
+  'app/f/[token]/public-form-client.tsx': { n: 1, why: '"No one to pick from": the empty options of a member field on a public form, a field value, not a pane' },
   'app/new-workspace/page.tsx': { n: 1, why: '"No databases. Build your own from scratch.": the description of the Start empty choice card' },
   'app/packs/[slug]/page.tsx': { n: 1, why: '"No credit card required": marketing copy beside a button' },
   'app/w/[ws]/settings/agent-rules/page.tsx': { n: 1, why: 'a sentence explaining that no approval gate is declared: the rule\'s state, shown with its own form' },
@@ -126,23 +126,12 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/settings/provider-card.tsx': { n: 3, why: 'three JS status strings returned from the connection check ("has no live check yet", "cannot connect yet"): messages shown after an action, not an empty list' },
   'components/sidebar-ai-section.tsx': { n: 1, why: 'a count hint string on the AI section row ("Your workspace has no connected AI yet"): row meta copy, not a pane' },
   'components/skills/skills-library.tsx': { n: 1, why: 'the "no skills yet" count label in the library toolbar; the empty list itself is an EmptyState' },
+  'app/w/[ws]/settings/integrations/google-calendar/page.tsx': { n: 1, why: '"No changes found.": the closing clause of a one-line summary string describing what a mapping edit changed (confirmation copy), not a list or pane' },
   'components/views/dashboard-view.tsx': { n: 1, why: '"No access": the label of one tile whose database the viewer cannot read, not an empty list' },
 };
-const DEFERRED: Record<string, { n: number; why: string }> = {
-  'components/views/form-view.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list (Vera\'s call, PR 1519 round 3): "No fields yet — add one below" in the form builder is a real empty state, kept hand-rolled on purpose; the builder pane wants its own pass' },
-  'components/command-palette.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: the command palette has its own designed empty row (ticket #1280 reworks the palette)' },
-  'app/v/[token]/public-view-client.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: the public view page is a separate document with its own neutral tokens and a table cell, outside the app shell' },
-  'app/w/[ws]/settings/integrations/google-calendar/page.tsx': { n: 2, why: 'DEFERRED, ticket #1291 list: a mapping form hint and a status sentence, one settings page the settings pass (ticket #1282) owns' },
-  'components/automations/run-agent-editor.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: a sentence inside an automation action editor, not a list' },
-  'components/entity/record-chrome.tsx': { n: 1, why: 'DEFERRED, ticket #1291 list: an agent picker hint inside the record header' },
-  'components/workspace-home-blocks.tsx': { n: 2, why: 'DEFERRED, ticket #1291 list: Home blocks ("No automation runs yet", "Nothing is waiting on a person") are being rebuilt in open PR #1511 (declared overlap); migrating here would conflict' },
-};
-
-/** A file may sit in both lists (a picker line AND a deferred pane): its allowance is the sum, and both reasons are kept. */
+/** The allowance per file. There is no parking list: a surface that is a real empty state migrates to <EmptyState>, it is not parked (ticket #1291). */
 function merged(): Record<string, { n: number; why: string }> {
-  const out: Record<string, { n: number; why: string }> = {};
-  for (const src of [NOT_AN_EMPTY_STATE, DEFERRED]) for (const [k, v] of Object.entries(src)) out[k] = out[k] ? { n: out[k]!.n + v.n, why: out[k]!.why + ' | ' + v.why } : { ...v };
-  return out;
+  return NOT_AN_EMPTY_STATE;
 }
 
 describe('one EmptyState component (ticket #1291)', () => {

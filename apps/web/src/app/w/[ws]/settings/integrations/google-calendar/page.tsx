@@ -20,6 +20,7 @@ import { useDateFormat } from '@/lib/preferences';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 import { confirmRemoveCalendarMapping } from '@/lib/settings-confirmations';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface Connection {
   id: string;
@@ -532,10 +533,11 @@ export default function GoogleCalendarIntegrationPage() {
             <h2 className="mb-2 text-sm font-semibold text-ink">Active mappings</h2>
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
               {(bindings.data ?? []).length === 0 && (
-                <p className="px-4 py-6 text-body text-muted">
-                  No mappings yet. Complete the fields above; dated records will become Google
-                  events after the first sync.
-                </p>
+                <EmptyState
+                  variant="list"
+                  className="px-4 py-6"
+                  title="No mappings yet. Complete the fields above; dated records will become Google events after the first sync."
+                />
               )}
               {(bindings.data ?? []).map((binding) => (
                 <div
@@ -606,7 +608,7 @@ export default function GoogleCalendarIntegrationPage() {
           </p>
           <div className="space-y-1.5">
             <Label htmlFor="calendar-new-field-name">Field name</Label>
-            <Input
+            <Input size="sm"
               id="calendar-new-field-name"
               value={fieldDialog?.name ?? ''}
               maxLength={100}
@@ -649,7 +651,7 @@ export default function GoogleCalendarIntegrationPage() {
             />
             <div className="space-y-1.5">
               <Label htmlFor="calendar-database-name">Database name</Label>
-              <Input
+              <Input size="sm"
                 id="calendar-database-name"
                 value={templateName}
                 maxLength={100}

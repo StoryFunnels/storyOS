@@ -12,6 +12,8 @@ export type JoinSession = { status: 'loading' } | { status: 'signed_out' } | { s
 
 export type JoinModel =
   | { kind: 'loading' }
+  /** The accept succeeded and the browser is on its way into the workspace. The invite is now `used` BY THIS PERSON; never draw that. */
+  | { kind: 'joining'; title: string; body: string }
   /** The details could not be read (offline, rate limited). Not the same as the link being dead. */
   | { kind: 'unavailable'; title: string; body: string }
   | { kind: 'not_found'; title: string; body: string }
@@ -38,8 +40,23 @@ export const sameEmail = (a: string, b: string) => a.trim().toLowerCase() === b.
 
 const askFor = (inviter: string | null) => `Ask ${inviter ?? 'whoever invited you'} for a new link.`;
 
-export function joinModel(input: { details: InviteDetails | null | undefined; detailsFailed?: boolean; session: JoinSession }): JoinModel {
+export const JOINING_COPY = { title: 'Joining…', body: 'Taking you into the workspace.' } as const;
+
+/**
+ * The invite details are read to DRAW the screen. Once the accept has succeeded they are never read again: the invite is `used`
+ * (by this person), and a re-read would draw "already used" for the seconds before the redirect lands (ticket #1302).
+ */
+export const detailsQueryEnabled = (input: { token: string | null; joined: boolean }): boolean => Boolean(input.token) && !input.joined;
+
+export function joinModel(input: {
+  details: InviteDetails | null | undefined;
+  detailsFailed?: boolean;
+  session: JoinSession;
+  /** The accept succeeded. Wins over everything the details say, now or after a refetch. */
+  joined?: boolean;
+}): JoinModel {
   const { details, session } = input;
+  if (input.joined) return { kind: 'joining', ...JOINING_COPY };
   if (input.detailsFailed) {
     return { kind: 'unavailable', title: 'We could not check this invite', body: 'Check your connection and reload the page to try again.' };
   }

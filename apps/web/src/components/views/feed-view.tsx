@@ -245,7 +245,7 @@ export function FeedView({
                     >
                       <Maximize2 className="h-3 w-3" /> Open
                     </Link>
-                    {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} className="text-meta" />}
+                    {row.number !== null && !numberHidden && <RecordNumberBadge number={row.number} />}
                   </div>
                 </div>
                 {canComment && (

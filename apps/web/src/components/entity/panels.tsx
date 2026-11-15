@@ -323,6 +323,9 @@ export function CommentsPanel({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Ticket #1277 item 10: a thread that LOADED with nothing in it says so. Not while it loads and not when it failed to load: an empty
+          line there would claim "no comments" about a thread nobody has read (the Activity list below has the same line, variant list). */}
+      {comments.isSuccess && comments.data.length === 0 && <EmptyState variant="list" title="No comments yet." className="px-0" />}
       {(comments.data ?? []).map((comment) => (
         <div
           key={comment.id}

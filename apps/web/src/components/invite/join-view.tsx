@@ -69,6 +69,11 @@ export interface SignedOutFormProps {
   onSubmit: (e: FormEvent) => void;
   busy: boolean;
   error: string | null;
+  /**
+   * Ticket #1302 (Otto): an error is drawn only AFTER a submit attempt in the current mode. The page resets this when the mode
+   * switches, so "the password does not match" never greets someone who has not typed anything yet.
+   */
+  submitted: boolean;
   forgotHref: string;
   /** Starts Google sign-in; `null` when Google is not configured (no button, no divider). */
   onGoogle: (() => void) | null;
@@ -111,7 +116,7 @@ export function SignedOutForm(p: SignedOutFormProps) {
             onChange={(e) => p.onPassword(e.target.value)}
           />
         </div>
-        {p.error && (
+        {p.error && p.submitted && (
           <p className="m-0 text-body text-error" role="alert">
             {p.error}
           </p>
@@ -161,6 +166,17 @@ export function JoinView({
           </p>
         </AuthCard>
       );
+    case 'joining':
+      return (
+        <AuthCard title={model.title}>
+          <p className="m-0 text-body text-ink-secondary" role="status" aria-live="polite" data-testid="invite-joining">
+            {model.body}
+          </p>
+          <Button type="button" size="auth" disabled aria-disabled="true" className="mt-5">
+            Joining…
+          </Button>
+        </AuthCard>
+      );
     case 'unavailable':
       return (
         <AuthCard title={model.title}>
@@ -191,7 +207,7 @@ export function JoinView({
             <div className="mt-2 flex flex-wrap items-center justify-center gap-3.5">
               <Link
                 href={signedIn ? '/' : 'https://storyos.dev'}
-                className={cn(buttonVariants({ variant: 'primary' }))}
+                className={cn(buttonVariants({ variant: 'primary', size: 'auth' }))}
               >
                 {signedIn ? 'Go to my workspaces' : 'Go to storyos.dev'}
               </Link>
@@ -207,7 +223,7 @@ export function JoinView({
           <p className="m-0 mb-5 text-body text-ink-secondary">{model.body}</p>
           <Link
             href={signedIn ? '/' : '/login'}
-            className={cn(buttonVariants({ variant: 'secondary', size: 'auth' }))}
+            className={cn(buttonVariants({ variant: 'secondary', size: 'auth' }), 'w-full')}
           >
             {signedIn ? 'Go to my workspaces' : 'Sign in'}
           </Link>

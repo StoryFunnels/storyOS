@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDayLabel } from '@/lib/format';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 
 const MONTHS = [
@@ -107,7 +108,7 @@ export function DatePicker({
   }, [view]);
 
   const todayStr = fmtDate(new Date());
-  const monthLabel = `${MONTHS[view.month]![0]!.toUpperCase()}${MONTHS[view.month]!.slice(1, 3)} ${view.year}`;
+  const monthLabel = formatDayLabel(new Date(view.year, view.month, 1), 'monthYear');
 
   function shiftMonth(delta: number) {
     setView((v) => {

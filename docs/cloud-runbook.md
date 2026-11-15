@@ -8,12 +8,12 @@ instance only.
 
 | What | Where |
 |---|---|
-| Host | Hetzner Cloud `storyos-prod`, fsn1, defined in the `storyos-infra` repo (Terraform) |
+| Host | One production server, defined in the private infrastructure repo (Terraform) |
 | Stack | the official Compose stack, `~/storyOS` as user `deploy`, prebuilt GHCR images (`COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml`) |
 | Version | `IMAGE_TAG=<sha>` in `~/storyOS/.env`; the checkout is detached at the same sha |
 | Edge | Cloudflare (proxied DNS), Full (strict) with a Cloudflare Origin CA cert in `docker/certs` + `docker/tls.d/origin.caddy` (not in git) |
 
-Production moved here from a Kamatera VPS on 2026-10-11 (ticket #890). The
+Production moved to this host from the previous server on 2026-10-11 (ticket #890). The
 old box is powered off and kept only as a rollback. **Never power it on to
 deploy**: two live instances with separate databases split the data and
 run every background job twice.

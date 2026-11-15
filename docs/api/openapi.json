@@ -622,7 +622,7 @@
             "bearer": []
           }
         ],
-        "summary": "Revoke a pending invite (admin)",
+        "summary": "Revoke a pending invite (admin). The invite is kept as a tombstone so its link can say \"revoked\"; it stops being pending at once.",
         "tags": [
           "workspaces"
         ],
@@ -683,7 +683,7 @@
             }
           }
         },
-        "summary": "What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired or used. An unknown, malformed or revoked token returns status \"not_found\" with every other field null (same body, so tokens cannot be probed).",
+        "summary": "What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired, used or revoked. A revoked invite keeps its details (like expired and used) so the screen can say who to ask. An unknown, malformed or replaced token returns status \"not_found\" with every other field null (same body, so tokens cannot be probed).",
         "tags": [
           "public"
         ]
@@ -5895,6 +5895,7 @@
     },
     "/api/v1/workspaces/{ws}/audit-log": {
       "get": {
+        "description": "Each row about a record carries `record` {id, number, title, database_id, database_name, deleted, withheld} (ticket #1287), resolved for the reader: `withheld` rows (a record the reader may not read, or in another member's personal space) carry only the id; `deleted` rows are soft-deleted or gone. Resolved display data sits alongside the raw ids: field_type, old_display and new_display (option labels for select fields; names for a person field, single or multi: \"A former member\" for someone who has left, \"A person you cannot see\" when the reader may not read that person, and never the auth id), other_record (relation events), actor_name, actor_kind (member | system) and actor_removed.",
         "operationId": "AuditLogController_list",
         "parameters": [
           {
@@ -10526,7 +10527,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentScopeResponseDto"
+                }
+              }
+            }
           }
         },
         "summary": "Where this agent works, resolved NOW: its named databases plus every user database in its target spaces (a system database such as Members is covered only when named, never by its space; a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
@@ -10534,6 +10542,39 @@
           "agents"
         ],
         "x-min-role": "admin"
+      }
+    },
+    "/api/v1/workspaces/{ws}/agents/{agent}/wake-sources": {
+      "get": {
+        "operationId": "AgentsController_getWakeSources",
+        "parameters": [
+          {
+            "name": "agent",
+            "required": true,
+            "in": "path",
+            "description": "The agent record's uuid or public number",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentWakeSourcesResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Everything that can start this agent, in `sources[]`: its agent triggers (kind agent_trigger: a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it), every automation rule with a run_agent action for it (kind automation: rule name, its trigger - record created, field change, link or schedule - on/off and its database; a caller who may not read that database's automations gets only the label \"A rule in <database>\" with id, name, enabled and trigger null), every button field with a run_agent action for it (kind button: the button's label and its database), and the built-in ways that apply to every agent (kind built_in, one per reason: mention, manual, approval_decided, must_comment, retry, catch_up), which come last. Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A trigger, rule or button on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name. A re-run of a rule's run_agent action is the rule firing again, not a separate source.",
+        "tags": [
+          "agents"
+        ],
+        "x-min-role": "member"
       }
     },
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
@@ -13093,6 +13134,7 @@
               "valid",
               "expired",
               "used",
+              "revoked",
               "not_found"
             ]
           },
@@ -20905,6 +20947,494 @@
             "maxLength": 2000
           }
         }
+      },
+      "AgentScopeResponseDto": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "enforced": {
+            "type": "boolean"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          },
+          "databases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "space_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "via": {
+                  "type": "string",
+                  "enum": [
+                    "database",
+                    "space"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "space_id",
+                "via"
+              ]
+            }
+          },
+          "unresolved": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "withheld_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "agent_id",
+          "enforced",
+          "spaces",
+          "databases",
+          "unresolved",
+          "withheld_count"
+        ]
+      },
+      "AgentWakeSourcesResponseDto": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "agent_trigger"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "binding": {
+                      "type": "string",
+                      "enum": [
+                        "state",
+                        "relation"
+                      ]
+                    },
+                    "database": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "exists": {
+                          "type": "boolean"
+                        },
+                        "is_system": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "exists",
+                        "is_system"
+                      ]
+                    },
+                    "state_field": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "nullable": true
+                    },
+                    "state_option": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "nullable": true
+                    },
+                    "relation_field": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "nullable": true
+                    },
+                    "human_gate": {
+                      "type": "boolean"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "binding",
+                    "database",
+                    "state_field",
+                    "state_option",
+                    "relation_field",
+                    "human_gate",
+                    "enabled"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "automation"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "nullable": true
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "database": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "exists": {
+                          "type": "boolean"
+                        },
+                        "is_system": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "exists",
+                        "is_system"
+                      ]
+                    },
+                    "trigger": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "record_created",
+                            "record_updated",
+                            "record_linked",
+                            "schedule",
+                            "webhook_received"
+                          ]
+                        },
+                        "field": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "nullable": true
+                        },
+                        "relation_field": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "nullable": true
+                        },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "link",
+                            "unlink",
+                            null
+                          ],
+                          "nullable": true
+                        },
+                        "schedule": {
+                          "type": "object",
+                          "properties": {
+                            "every": {
+                              "type": "string",
+                              "enum": [
+                                "minutes",
+                                "hour",
+                                "day",
+                                "week"
+                              ]
+                            },
+                            "minutes": {
+                              "type": "number"
+                            },
+                            "at": {
+                              "type": "string"
+                            },
+                            "weekday": {
+                              "type": "number"
+                            },
+                            "weekdays": {
+                              "type": "array",
+                              "items": {
+                                "type": "number"
+                              }
+                            },
+                            "between": {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string"
+                                },
+                                "to": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "from",
+                                "to"
+                              ]
+                            },
+                            "timezone": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "every"
+                          ],
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "field",
+                        "relation_field",
+                        "direction",
+                        "schedule"
+                      ],
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "name",
+                    "label",
+                    "enabled",
+                    "database",
+                    "trigger"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "button"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "database": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "exists": {
+                          "type": "boolean"
+                        },
+                        "is_system": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "exists",
+                        "is_system"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "name",
+                    "database"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "built_in"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "reason",
+                    "title",
+                    "description"
+                  ]
+                }
+              ]
+            }
+          },
+          "withheld_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "agent_id",
+          "sources",
+          "withheld_count"
+        ]
       },
       "ProposeDto": {
         "type": "object",
