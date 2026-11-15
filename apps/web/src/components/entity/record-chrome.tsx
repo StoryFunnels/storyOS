@@ -33,6 +33,7 @@ import { useWatchers } from './panels';
 import { AUDIT_TYPES } from './entity-field-utils';
 import { useSetFieldConfig } from './field-controls';
 import { Tooltip } from '@/components/ui/tooltip';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * One uniform header icon-button (#197) — every control in the record header's
@@ -470,9 +471,7 @@ function DelegateToAgentDialog({
               , then create at least one enabled agent record.
             </p>
           ) : (agents.data ?? []).length === 0 ? (
-            <p className="text-body text-ink-secondary">
-              No enabled agents yet — create one in the Agents database, or enable an existing one.
-            </p>
+            <EmptyState variant="list" className="px-0" title="No enabled agents yet — create one in the Agents database, or enable an existing one." />
           ) : (
             // #717 — was bare `rounded` (4px), the same token bypass #688
             // called "almost certainly an oversight"; now the shared

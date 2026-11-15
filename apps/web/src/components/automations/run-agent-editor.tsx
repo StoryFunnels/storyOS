@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { agentModeOf, agentNote, scheduleScopeNote } from '@/lib/run-agent-words';
 import type { AgentNote } from '@/lib/run-agent-words';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * Ticket #1056 — the "Run an agent" action's editor: choose the agent, optionally give it an instruction for this run, and be told
@@ -95,9 +96,7 @@ export function RunAgentEditor({
 
   if (pack.isSuccess && !agentsDbId) {
     return (
-      <p className="text-label text-muted">
-        No agents are set up in this workspace yet, so there is nothing to run. Set one up first.
-      </p>
+      <EmptyState variant="list" className="px-0" title="No agents are set up in this workspace yet, so there is nothing to run. Set one up first." />
     );
   }
 
