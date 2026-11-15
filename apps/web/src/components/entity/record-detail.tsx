@@ -56,7 +56,7 @@ import { SECTION_LABEL } from '@/components/entity/section-label';
 import { Tabs, tabId, tabPanelId } from '@/components/ui/tabs';
 import { PEEK_TABS } from '@/components/entity/peek-tabs';
 import { RECORD_PANEL_TABS, RECORD_SPLIT_QUERY } from '@/components/entity/record-layout';
-import { createCommentDraftStore } from '@/components/entity/comment-draft';
+import { commentDrafts } from '@/components/entity/comment-draft';
 import type { RecordPanelTab } from '@/components/entity/record-layout';
 import { useMediaQuery } from '@/lib/use-media-query';
 import type { PeekTab } from '@/components/entity/peek-tabs';
@@ -447,8 +447,11 @@ export function RecordDetail({
   // #740 AC2 — three tabs (Activity/Comments/About), per Ievgen's answer to the
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
   const [tab, setTab] = useState<RecordPanelTab>('activity');
-  // Ticket #1277 follow-up — owned HERE (this component does not remount across 900px) so a half-typed comment survives the layout switch.
-  const [commentDrafts] = useState(createCommentDraftStore);
+  // Ticket #1277 — the draft store is a module singleton (comment-draft.ts), so a half-typed comment survives the layout switch AND
+  // leaving the record and coming back. Looking at a workspace drops any draft belonging to another one.
+  useEffect(() => {
+    commentDrafts.dropOutside(ws);
+  }, [ws]);
   // Ticket #1277 — 900px and wider the panel is the side column; below it the SAME panel stacks under the fields (record-layout.ts).
   const sideBeside = useMediaQuery(RECORD_SPLIT_QUERY);
   // Ticket #1277 item 6 — the peek's own tabs: Details (everything the peek already showed) and Comments (the full page's component).
