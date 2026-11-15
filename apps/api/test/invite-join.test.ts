@@ -103,10 +103,8 @@ describe('GET /public/invites/details (no sign-in)', () => {
     expect((await details(stale.token)).json()).toMatchObject({ status: 'expired', workspace_name: stale.ws.name, inviter_name: 'Ingrid Inviter' });
   });
 
-  it('unknown, malformed, revoked and replaced tokens all get the same status and the same body (a token cannot be probed)', async () => {
-    const revoked = await inviteSomeone(`${unique('rev')}@test.storyos.dev`);
-    expect((await call(revoked.owner.token, 'DELETE', `/workspaces/${revoked.ws.id}/invites/${revoked.inviteId}`)).statusCode).toBe(200);
-
+  it('unknown, malformed and replaced tokens all get the same status and the same body (a token cannot be probed)', async () => {
+    // A revoked token is NOT in this set any more (ticket #1304): it reads status "revoked", see invite-revoked.test.ts.
     // A resend mints a fresh token and overwrites the hash: the first link no longer names anything.
     const replaced = await inviteSomeone(`${unique('rep')}@test.storyos.dev`);
     await db.update(invites).set({ expiresAt: new Date(Date.now() - 120_000) }).where(eq(invites.id, replaced.inviteId));
@@ -114,7 +112,6 @@ describe('GET /public/invites/details (no sign-in)', () => {
 
     const probes: Array<[string, string | undefined]> = [
       ['never issued, right shape', 'A'.repeat(32)],
-      ['revoked', revoked.token],
       ['replaced by a resend', replaced.token],
       ['missing', undefined],
       ['empty', ''],
@@ -224,7 +221,7 @@ describe('an invite token on POST /workspaces joins the workspace and creates no
     const cases: Array<[string, string, number, string]> = [
       ['unknown', unknown, 404, 'invite_not_found'],
       ['expired', expired.token, 404, 'invite_expired'],
-      ['revoked', revoked.token, 404, 'invite_not_found'],
+      ['revoked', revoked.token, 404, 'invite_revoked'],
       ['issued to a different address', other.token, 403, 'invite_email_mismatch'],
     ];
     for (const [label, tok, status, code] of cases) {

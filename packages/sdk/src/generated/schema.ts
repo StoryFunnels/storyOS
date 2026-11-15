@@ -308,7 +308,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke a pending invite (admin) */
+        /** Revoke a pending invite (admin). The invite is kept as a tombstone so its link can say "revoked"; it stops being pending at once. */
         delete: operations["WorkspaceController_revokeInvite"];
         options?: never;
         head?: never;
@@ -339,7 +339,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired or used. An unknown, malformed or revoked token returns status "not_found" with every other field null (same body, so tokens cannot be probed). */
+        /** What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired, used or revoked. A revoked invite keeps its details (like expired and used) so the screen can say who to ask. An unknown, malformed or replaced token returns status "not_found" with every other field null (same body, so tokens cannot be probed). */
         get: operations["PublicInvitesController_details"];
         put?: never;
         post?: never;
@@ -4264,6 +4264,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/agents/{agent}/wake-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything that can start this agent, in `sources[]`: its agent triggers (kind agent_trigger: a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it), every automation rule with a run_agent action for it (kind automation: rule name, its trigger - record created, field change, link or schedule - on/off and its database; a caller who may not read that database's automations gets only the label "A rule in <database>" with id, name, enabled and trigger null), every button field with a run_agent action for it (kind button: the button's label and its database), and the built-in ways that apply to every agent (kind built_in, one per reason: mention, manual, approval_decided, must_comment, retry, catch_up), which come last. Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A trigger, rule or button on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name. A re-run of a rule's run_agent action is the rule firing again, not a separate source. */
+        get: operations["AgentsController_getWakeSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/agents/{agent}/activity": {
         parameters: {
             query?: never;
@@ -5374,7 +5391,7 @@ export interface components {
         };
         InviteDetailsResponseDto: {
             /** @enum {string} */
-            status: "valid" | "expired" | "used" | "not_found";
+            status: "valid" | "expired" | "used" | "revoked" | "not_found";
             inviter_name: string | null;
             workspace_name: string | null;
             workspace_logo_url: string | null;
@@ -7375,6 +7392,122 @@ export interface components {
         };
         RejectRunDto: {
             reason?: string;
+        };
+        AgentScopeResponseDto: {
+            /** Format: uuid */
+            agent_id: string;
+            enforced: boolean;
+            spaces: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            }[];
+            databases: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+                /** Format: uuid */
+                space_id: string;
+                /** @enum {string} */
+                via: "database" | "space";
+            }[];
+            unresolved: string[];
+            withheld_count: number;
+        };
+        AgentWakeSourcesResponseDto: {
+            /** Format: uuid */
+            agent_id: string;
+            sources: ({
+                /** @enum {string} */
+                kind: "agent_trigger";
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                binding: "state" | "relation";
+                database: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string | null;
+                    exists: boolean;
+                    is_system: boolean;
+                };
+                state_field: {
+                    id: string;
+                    name: string | null;
+                } | null;
+                state_option: {
+                    id: string;
+                    name: string | null;
+                } | null;
+                relation_field: {
+                    id: string;
+                    name: string | null;
+                } | null;
+                human_gate: boolean;
+                enabled: boolean;
+            } | {
+                /** @enum {string} */
+                kind: "automation";
+                /** Format: uuid */
+                id: string | null;
+                name: string | null;
+                label: string;
+                enabled: boolean | null;
+                database: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string | null;
+                    exists: boolean;
+                    is_system: boolean;
+                };
+                trigger: {
+                    /** @enum {string} */
+                    type: "record_created" | "record_updated" | "record_linked" | "schedule" | "webhook_received";
+                    field: {
+                        id: string;
+                        name: string | null;
+                    } | null;
+                    relation_field: {
+                        id: string;
+                        name: string | null;
+                    } | null;
+                    /** @enum {string|null} */
+                    direction: "link" | "unlink" | null;
+                    schedule: {
+                        /** @enum {string} */
+                        every: "minutes" | "hour" | "day" | "week";
+                        minutes?: number;
+                        at?: string;
+                        weekday?: number;
+                        weekdays?: number[];
+                        between?: {
+                            from: string;
+                            to: string;
+                        };
+                        timezone?: string;
+                    } | null;
+                } | null;
+            } | {
+                /** @enum {string} */
+                kind: "button";
+                /** Format: uuid */
+                id: string;
+                name: string | null;
+                database: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string | null;
+                    exists: boolean;
+                    is_system: boolean;
+                };
+            } | {
+                /** @enum {string} */
+                kind: "built_in";
+                reason: string;
+                title: string;
+                description: string;
+            })[];
+            withheld_count: number;
         };
         ProposeDto: {
             goal: string;
@@ -14223,7 +14356,31 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AgentScopeResponseDto"];
+                };
+            };
+        };
+    };
+    AgentsController_getWakeSources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The agent record's uuid or public number */
+                agent: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentWakeSourcesResponseDto"];
+                };
             };
         };
     };

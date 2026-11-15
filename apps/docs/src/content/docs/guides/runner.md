@@ -155,7 +155,7 @@ short-lived credential made for that one run. There is no MCP setup to do.
 An agent's record in the Agents database has two text fields that say where it works:
 
 - **Target databases**: database names, one per entry.
-- **Target spaces**: space names or ids. A space stands for every database *you created* in it. It never covers a system database such as Members (every colleague's email) or the Agents pack: those are reachable only when you name them in **Target databases**.
+- **Target spaces**: space names or ids. A space stands for every user database in it, meaning every database that is not a system one. It never covers a system database such as Members (every colleague's email) or the Agents pack: those are reachable only when you name them in **Target databases**.
 
 Entries are separated by commas or new lines; names are matched ignoring case. A space target is
 **resolved each time it is used**, not copied when the agent is hired, so a database created in that
@@ -165,7 +165,7 @@ An entry that matches nothing, or matches a personal space, is reported as `unre
 dropped silently.
 
 - **`enforced`.** An agent with at least one target space has its scope enforced on its credential: it
-  works in the databases of those spaces plus any it names. An agent with only target databases keeps
+  works in the user databases of those spaces plus any it names. An agent with only target databases keeps
   the behaviour it always had: its Target databases text is its brief, not a boundary.
 - **Who sets it.** A person edits these fields. An agent that tries to change an agent's Target spaces is
   refused with a 403, like its Tools, Model and budget. The hire card's **Works in** picker lists
@@ -176,6 +176,17 @@ dropped silently.
   `via`: `database` or `space`), `unresolved`, and `withheld_count`, the number of databases left out
   because the manager cannot open them. Over MCP this is `get_agent_scope`. **Workspace admins only**:
   anyone else gets a 403.
+- **Reading what wakes it.** `GET /workspaces/{ws}/agents/{agent}/wake-sources` returns `sources`: the agent's
+  triggers (`kind: agent_trigger`, a state or a relation `binding`, `enabled`, `human_gate`) and every automation
+  rule with a Run agent action for it (`kind: automation`, `name`, `enabled`, its `database` and `trigger`: record
+  created, field change, link, or schedule), then every **button** field with a Run agent action for it (`kind: button`, the
+  button's field `id`, `name` and its `database`; pressing it starts the agent), then the **built-in ways** to start any agent (`kind: built_in`: an
+  @mention, a manual run or delegation, an approval being decided, the comment backstop, a re-wake, and catch-up),
+  which need no setup. A rule's name, on/off state and trigger are shown only to someone who may read that
+  database's automations (creator on it); anyone else sees the entry as `label: "A rule in <database>"` with
+  `id`, `name`, `enabled` and `trigger` null. Something deleted comes back with a `null` name, and `withheld_count`
+  is how many configured sources sit on databases the caller cannot open. Over MCP this is `get_agent_wake_sources`. Readable
+  by the agent's manager and by workspace admins; anyone else gets the same 404 as for an unknown agent.
 - **On the Runner claim.** When a Runner claims a wake, the agent block carries `scope` with `enforced`,
   `spaces`, `databases` and `unresolved`, resolved at that claim and narrowed to what the manager can open.
 

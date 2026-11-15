@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { databaseColor } from '@/lib/entity-color';
 import { useBackLayer } from '@/lib/back-layers';
 import { placeHref } from '@/lib/hidden-section';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface RecordHit {
   id: string;
@@ -360,15 +361,15 @@ export function CommandPalette() {
           )}
 
           {showEmpty && (
-            <div className="px-2.5 py-8 text-center">
-              <Search className="mx-auto mb-2 h-5 w-5 text-faint" />
-              <p className="text-body font-medium text-ink-secondary">
-                {searching ? `No matches for “${debounced.trim()}”` : 'Type to search'}
-              </p>
-              <p className="mt-0.5 text-label text-muted">
-                {searching ? 'Try a record title, database, or space.' : 'Find records, databases, spaces and actions.'}
-              </p>
-            </div>
+            <EmptyState
+              variant="list"
+              className="py-8 text-center"
+              title={
+                searching
+                  ? `No matches for “${debounced.trim()}”. Try a record title, database, or space.`
+                  : 'Type to search. Find records, databases, spaces and actions.'
+              }
+            />
           )}
 
           {!showSkeleton && grouped.map(({ group, items }, gi) => (

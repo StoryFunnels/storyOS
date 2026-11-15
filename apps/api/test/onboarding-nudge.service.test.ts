@@ -38,8 +38,9 @@ async function addDatabase(workspaceId: string, spaceId: string, name: string) {
   return row!.id;
 }
 
-async function addGuestInvite(workspaceId: string, accepted: boolean) {
+async function addGuestInvite(workspaceId: string, accepted: boolean, revoked = false) {
   await db.insert(invites).values({
+    revokedAt: revoked ? new Date() : null,
     workspaceId,
     email: 'guest@test.storyos.dev',
     role: 'guest',
@@ -106,6 +107,23 @@ describe('#650 AC1 — OnboardingNudgeService', () => {
     expect(calls[0]![0]).toMatchObject({ kind: 'onboarding-nudge', to: adminEmail, milestone: 'guest_invited' });
     const [row] = await db.select().from(workspaces).where(eq(workspaces.id, wsId));
     expect(row!.onboardingNudgeGuestInvitedSentAt).not.toBeNull();
+  });
+
+  it('a REVOKED guest invite does not count as the milestone reached (ticket #1304: revoking used to delete the row, and still must read the same)', async () => {
+    await truncateAll(pool);
+    const { wsId, spaceId, adminEmail } = await makeWorkspace('Revoked Guest WS', OLD);
+    await addDatabase(wsId, spaceId, 'One');
+    await addDatabase(wsId, spaceId, 'Two');
+    await addPublishedForm(wsId, spaceId);
+    await addGuestInvite(wsId, false, true);
+    const email = emailStub();
+    const service = new OnboardingNudgeService(db, email);
+
+    await service.sweep();
+
+    const calls = (email.send as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toMatchObject({ kind: 'onboarding-nudge', to: adminEmail, milestone: 'guest_invited' });
   });
 
   it('a PENDING (not yet accepted) guest invite already counts as the milestone reached', async () => {

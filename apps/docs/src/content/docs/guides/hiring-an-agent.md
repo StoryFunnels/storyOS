@@ -60,7 +60,8 @@ a name, a job, a weekday-morning schedule and every "Asks before" box ticked.
    can only watch a database listed here, and removing a database moves or drops the rules that
    watched it. The picker lists databases only: it cannot add a whole space. An agent can work in a
    whole space, but you set that after hiring, in the **Target spaces** field on the agent's record; see
-   [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). A schedule does not need one: with none chosen it is
+   [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). A whole space
+   covers its user databases only, never a system database such as Members, which an agent reaches only when you name it. A schedule does not need one: with none chosen it is
    kept on the Agents database.
 5. **Asks before.** Four boxes, all ticked to begin with, so an agent starts careful and you untick
    what you trust it to do alone:

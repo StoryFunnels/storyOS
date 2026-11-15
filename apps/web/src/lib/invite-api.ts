@@ -72,18 +72,32 @@ export function joinFailureFrom(error: unknown): JoinFailure {
 /** The request body of the post-sign-in join: the token and NOTHING that could create a workspace. */
 export const joinWorkspaceBody = (token: string) => ({ invite_token: token });
 
+/** The slice of the API client the two accepts use; injectable so a thrown request can be tested. */
+export type JoinClient = { POST: (path: never, init: never) => Promise<{ data?: unknown; error?: unknown }> };
+const defaultClient = api as unknown as JoinClient;
+
+/**
+ * A request that THROWS (`TypeError: Failed to fetch`: offline, API down) is a failed accept like any other, never an uncaught error:
+ * the screen's `busy` is reset by the failure path, so the button comes back for a retry. Only the failure kind is kept; the error
+ * itself (which can carry the request URL) is neither logged nor echoed.
+ */
+async function attempt(send: () => Promise<{ data?: unknown; error?: unknown }>, idKey: string): Promise<JoinResult> {
+  try {
+    const { data, error } = await send();
+    if (error) return { ok: false, failure: joinFailureFrom(error) };
+    const id = (data as Record<string, unknown> | undefined)?.[idKey];
+    return typeof id === 'string' ? { ok: true, workspaceId: id } : { ok: false, failure: 'other' };
+  } catch {
+    return { ok: false, failure: 'other' };
+  }
+}
+
 /** After a sign-up or sign-in on the Join screen: the onboarding call, with the token, so it can only join. */
-export async function joinWithToken(token: string): Promise<JoinResult> {
-  const { data, error } = await api.POST('/api/v1/workspaces', { body: joinWorkspaceBody(token) } as never);
-  if (error) return { ok: false, failure: joinFailureFrom(error) };
-  const id = (data as { id?: unknown } | undefined)?.id;
-  return typeof id === 'string' ? { ok: true, workspaceId: id } : { ok: false, failure: 'other' };
+export function joinWithToken(token: string, client: JoinClient = defaultClient): Promise<JoinResult> {
+  return attempt(() => client.POST('/api/v1/workspaces' as never, { body: joinWorkspaceBody(token) } as never), 'id');
 }
 
 /** Signed in as the invited address: the one click. */
-export async function acceptInvite(token: string): Promise<JoinResult> {
-  const { data, error } = await api.POST('/api/v1/invites/accept', { body: { token } });
-  if (error) return { ok: false, failure: joinFailureFrom(error) };
-  const id = (data as { workspace_id?: unknown } | undefined)?.workspace_id;
-  return typeof id === 'string' ? { ok: true, workspaceId: id } : { ok: false, failure: 'other' };
+export function acceptInvite(token: string, client: JoinClient = defaultClient): Promise<JoinResult> {
+  return attempt(() => client.POST('/api/v1/invites/accept' as never, { body: { token } } as never), 'workspace_id');
 }
