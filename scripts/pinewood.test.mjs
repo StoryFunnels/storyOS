@@ -501,6 +501,15 @@ test('KEPT: a rig this script created is recreatable, re-runnable, and carries i
   assert.deepEqual(pgDbs(pg), ['storyos_agency_tpl', 'storyos_marek_1269']);
 });
 
+test('a rig is never cloned from a template this tooling did not build, dry run or live', () => {
+  const { dry, live, livePg } = bothWays({ storyos_agency_tpl: 'somebody else' }, (pg, isDry) => rigRun(pg, 'marek_1269', [], { dry: isDry }));
+  refused(dry, /did not create it/);
+  refused(live, /did not create it/);
+  assert.equal(dry.err, live.err);
+  assert.doesNotMatch(pgLog(livePg), MUTATIONS);
+  assert.deepEqual(pgDbs(livePg), ['storyos_agency_tpl']);
+});
+
 test("a decoy next to a rig the script made is never touched by that rig's --recreate", () => {
   const pg = fakePg({ ...TPL_MARKED, storyos_marek_1269: MARK('rig', 'storyos_marek_1269'), storyos_decoy_marek_1: 'x', storyos_test_local: 'peer' });
   const res = rigRun(pg, 'marek_1269', ['--recreate']);

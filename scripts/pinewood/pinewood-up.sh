@@ -23,7 +23,9 @@
 #
 # Everything unsafe is a REFUSAL with exit code 2 (see lib.sh): a non-pinewood
 # database, a non-local Postgres host, a clone that is a worktree or not pinewood-
-# named, a stray .env in the clone, a dev port, a port held by someone else.
+# named, a stray .env in the clone, a dev port, a port held by someone else, and an
+# existing storyos_pinewood* database this script did not create (it is marked with
+# the database comment pinewood-stack:<name> when created; no mark, no migration).
 #
 # Configuration (all optional; every value is validated):
 #   PINEWOOD_HOME      clone path            ~/storyos-envs/pinewood
@@ -46,7 +48,7 @@ pinewood_up() {
     case "$arg" in
       --dry-run) dry_run=1 ;;
       --init) init=1 ;;
-      -h | --help) sed -n '2,38p' "${BASH_SOURCE[0]}"; return 0 ;;
+      -h | --help) sed -n '2,37p' "${BASH_SOURCE[0]}"; return 0 ;;
       *) pw_refuse "unknown argument '$arg'" ;;
     esac
   done

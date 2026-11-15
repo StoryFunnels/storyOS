@@ -40,7 +40,7 @@ pinewood_rig() {
       --dry-run) dry_run=1 ;;
       --recreate) recreate=1 ;;
       --repo) shift; repo="${1:-}"; [ -n "$repo" ] || pw_refuse "--repo needs a directory" ;;
-      -h | --help) sed -n '2,28p' "${BASH_SOURCE[0]}"; return 0 ;;
+      -h | --help) sed -n '2,27p' "${BASH_SOURCE[0]}"; return 0 ;;
       -*) pw_refuse "unknown argument '$arg'" ;;
       *) [ -z "$rig" ] || pw_refuse "one rig name only (got '$rig' and '$arg')"; rig="$arg" ;;
     esac
@@ -62,6 +62,9 @@ pinewood_rig() {
   # Ownership: the SAME decision for a dry run and a live run. A database that exists
   # and was not made by this script is refused here, whether it would be dropped
   # (--recreate) or only migrated.
+  # The template is only ever READ here, but a storyos_agency_tpl this tooling did not
+  # build is somebody else's data, and cloning it would copy it into a rig.
+  pw_plan_db template "$tpl" "clone from"
   local action=migrate
   [ "$recreate" -eq 1 ] && action=recreate
   pw_plan_db rig "$db" "$action"

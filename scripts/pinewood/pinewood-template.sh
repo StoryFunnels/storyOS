@@ -34,7 +34,7 @@ pinewood_template() {
     case "$arg" in
       --dry-run) dry_run=1 ;;
       --repo) shift; repo="${1:-}"; [ -n "$repo" ] || pw_refuse "--repo needs a directory" ;;
-      -h | --help) sed -n '2,25p' "${BASH_SOURCE[0]}"; return 0 ;;
+      -h | --help) sed -n '2,22p' "${BASH_SOURCE[0]}"; return 0 ;;
       *) pw_refuse "unknown argument '$arg'" ;;
     esac
     shift
