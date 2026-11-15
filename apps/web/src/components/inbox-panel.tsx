@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useBackLayer } from '@/lib/back-layers';
 import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export type NotificationType =
   | 'assigned'
@@ -374,9 +375,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
 
         <div className="flex-1 overflow-y-auto">
           {rows.length === 0 && !list.isLoading && (
-            <p className="p-6 text-center text-body text-muted">
-              {unreadOnly ? 'No unread notifications.' : "You're all caught up 🎉"}
-            </p>
+            <EmptyState variant="list" title={unreadOnly ? 'No unread notifications.' : "You're all caught up"} />
           )}
           {rows.map((n) => {
             const b = dayBucket(n.created_at);

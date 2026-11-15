@@ -16,7 +16,7 @@ tile, but nothing in the product writes one anymore.
 Set an icon over the API or MCP by writing the `icon` field on a database or
 space, e.g. `{ "icon": "set:rocket", "color": "purple" }`. Colours are the fixed
 palette: gray, brown, gold, orange, red, pink, purple, blue, teal, green. The
-MCP's `get_started` has an ICONS section (call it with `section='ICONS'`) with the full catalog, grouped by
+MCP's `get_started` has an ICONS section (`get_started` with section "ICONS") with the full catalog, grouped by
 category, so an agent can pick a real name rather than guessing (the
 maintainer-only `list_icon_set` tool returns the same catalog as JSON).
 

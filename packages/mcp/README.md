@@ -14,10 +14,10 @@ Ticket: [MN-076](../../tickets/MN-076-mcp-server.md).
 **Read**
 | Tool | What it does |
 |---|---|
-| `get_started` | Orientation + a workspace map; `section='<name>'` returns one reference section (the filter cheat-sheet, icons, a tool's full notes). Call first. |
+| `get_started` | Orientation + a workspace map; with `section` it returns one reference section (the filter cheat-sheet, icons, working notes, a tool's full notes). |
 | `list_workspaces` | Workspaces the token can access. |
 | `list_databases` | Databases in a workspace. |
-| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets. **Read before writing.** |
+| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets: what a write is keyed by. |
 | `search` | Full-text record search — turn a name into a real id. |
 | `query_records` | Filter / sort / paginate records (structured filter AST). |
 | `get_record` | One record in full, by uuid or public number. |
@@ -92,11 +92,11 @@ is the remaining phase — it lands with the cloud tier (see MN-069).
 Every listed tool description is billed on every request of every session, so the listing is kept small:
 **under 60,000 characters in total and no description over 1,500** (`src/tool-description-budget.test.ts`
 enforces both against the live registry). A description in the source can be as long as the tool needs;
-`tools/list` carries a short lead plus `[Full notes: get_started section='TOOL NOTES <tool>']`, naming the exact
-section. `get_started` with no argument returns only the overview and an index of section names (under 10,000
-characters, so no client truncates it); `get_started` with `section='<name>'` returns that one section: the
+`tools/list` carries a short lead plus `[Full notes: get_started section "TOOL NOTES <tool>"]` (the one canonical pointer
+format, double quotes), naming the exact section. `get_started` with no argument returns only the overview and an index of section names (under 10,000
+characters, so no client truncates it); `get_started` with `section` set to a name from that index returns that one section: the
 full text of one tool (the long reference grammars are `TOOL NOTES create_automation`, `install_pack`,
-`add_field`, `create_source`), `FILTERS` or `ICONS`. Matching is exact first, then case-insensitive; an unknown
+`add_field`, `create_source`), `FILTERS`, `ICONS` or `WORKING NOTES`. Matching is exact first, then case-insensitive; an unknown
 name returns a text answer listing the valid names. One 85,000-character result was the alternative, and a client
 that truncates a single result would have silently dropped the grammars. A section is only loaded when called,
 so it costs a capped client nothing up front (`src/get-started-sections.test.ts` checks every lead points at a
@@ -107,6 +107,17 @@ Maintainer-only tools (`get_branch_name`, `get_pinned_tabs`, `set_pinned_tabs`, 
 `set_dismissed_hints`, `list_icon_set`; `INTERNAL_TOOLS` in `src/tool-profiles.ts`) are not offered on any customer
 connection. They appear with `?profile=internal` over HTTP, or `STORYOS_MCP_PROFILE=internal` for a stdio server.
 The icon names `list_icon_set` used to return are in `get_started` section `ICONS`.
+
+## Descriptions state facts and references, never instructions (ticket #1288)
+
+The Claude connector directory policy for tool metadata is that a description contains no instructions about model behaviour or other
+tools. A tool description says what the tool does, takes and returns; it may state a product fact and carry a neutral reference
+(`See also: describe_database`, `[Full notes: get_started section "TOOL NOTES <tool>"]`). Guidance for the model (look at the schema
+before writing, count with `count_records`, do not retry a held write, ...) lives in `get_started` section `WORKING NOTES`, which is a
+tool RESULT and not a description. `src/tool-description-policy.test.ts` enforces this against the live registry: every tool
+description and every parameter description, on every profile, is scanned for imperatives about another tool, sequencing words
+around a tool name, "read this before"-style calls to action and behavioural instructions (`FORBIDDEN_PATTERNS`), with self-tests
+and an explicit `ALLOWED_PHRASES` list that needs a reason per entry.
 
 ## Why it doesn't hallucinate
 

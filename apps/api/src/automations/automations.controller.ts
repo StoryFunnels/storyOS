@@ -11,6 +11,7 @@ import { DatabasesService } from '../databases/databases.service';
 import { AutomationsService } from './automations.service';
 import { AutomationActionsService } from './actions.service';
 import { assertCanWriteTargets } from './write-targets';
+import { AUTOMATIONS_READ_MIN } from './rule-visibility';
 import type { AutomationAction } from '@storyos/schemas';
 
 class CreateAutomationDto extends createZodDto(createAutomationSchema) {}
@@ -49,7 +50,8 @@ export class AutomationsController {
   @Get()
   @ApiOperation({ summary: 'List rules' })
   async list(@Req() req: WorkspaceRequest, @Param('db') databaseId: string) {
-    await this.creator(req, databaseId);
+    // #1280 — the read gate every surface that NAMES a rule (/approvals, My work, agent wake sources) shares: rule-visibility.ts
+    await this.databases.assertAccess(req.membership, databaseId, AUTOMATIONS_READ_MIN);
     return this.automationsService.list(databaseId);
   }
 
