@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { SERVER_API_URL } from '@/lib/api';
+import { fetchPublicJson } from '@/lib/public-fetch';
 
 /**
  * Ticket #866 — the public skill page: what the link a person shares actually opens.
@@ -34,12 +35,9 @@ interface PublicSkill {
 }
 
 async function getSkill(token: string): Promise<PublicSkill | null> {
-  const res = await fetch(`${SERVER_API_URL}/api/v1/public/skills/${encodeURIComponent(token)}`, { cache: 'no-store' });
-  // Unknown, malformed and revoked tokens are one answer (the API's uniform 404, plus its own
-  // rejection of a malformed one). Anything else is OUR failure and must not read as "not found".
-  if (res.status === 404 || res.status === 400 || res.status === 422) return null;
-  if (!res.ok) throw new Error(`public skill read failed: HTTP ${res.status}`);
-  return (await res.json()) as PublicSkill;
+  // Unknown, malformed, revoked and private tokens are one answer (null, then notFound()); a failed load throws to error.tsx
+  // (ticket #1291) and must not read as "not found".
+  return fetchPublicJson<PublicSkill>(`${SERVER_API_URL}/api/v1/public/skills/${encodeURIComponent(token)}`);
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
@@ -47,7 +45,7 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
   const skill = await getSkill(token);
   // Same robots rule whether or not the token resolves: nothing about this page is for a crawler.
   const robots = { index: false, follow: false, nocache: true } as const;
-  if (!skill) return { title: 'Not available', robots };
+  if (!skill) return { title: 'Page not found', robots };
   return {
     title: skill.name,
     description: skill.description,

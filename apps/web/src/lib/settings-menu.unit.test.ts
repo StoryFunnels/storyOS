@@ -126,7 +126,7 @@ describe('the wiring (ticket #1216)', () => {
 
   it('the shell offers the floating "+" through showQuickAddFab, and remembers pages for Back', () => {
     const layout = read('app/w/[ws]/layout.tsx');
-    expect(layout).toContain('showQuickAddFab(pathname) && <QuickAddFab />');
+    expect(layout).toContain('showQuickAddFab(pathname, toolbarLacksNew) && <QuickAddFab />');
     expect(layout).toContain('useRememberOutsideSettings(ws, pathname)');
   });
 

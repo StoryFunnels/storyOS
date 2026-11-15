@@ -225,6 +225,12 @@ had — StoryOS marks the row rather than erasing it outright.
 
 - **A database's own Trash** (its `⋯` menu) lists that database's deleted records *and* views
   together, one place to undo either.
+- **Deleting one record** (the trash icon on a row, or **Delete** in the record panel) moves it to
+  Trash straight away, with no confirmation, and a toast names the record with an **Undo** that stays
+  for 10 seconds. **Undo** restores it; if the restore fails, the toast says the record is still in
+  the trash. After the toast is gone, ⌘Z still undoes it, and the record can be restored from the
+  database's own Trash. Deleting through a personal view deletes the record for everyone, and the
+  toast says so. Deleting several records at once keeps its own confirmation.
 - **Settings → Trash**, admin-only, lists deleted **spaces** and **databases** workspace-wide.
   Restoring a space brings back every database it held automatically — you don't separately
   restore each one.
