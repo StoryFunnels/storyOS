@@ -72,7 +72,7 @@ export class ActivationService {
       this.db
         .select({ one: sql`1` })
         .from(invites)
-        .where(and(eq(invites.workspaceId, workspaceId), isNull(invites.acceptedAt)))
+        .where(and(eq(invites.workspaceId, workspaceId), isNull(invites.acceptedAt), isNull(invites.revokedAt))) // #1304: a revoked invite is not pending
         .limit(1),
     );
   }

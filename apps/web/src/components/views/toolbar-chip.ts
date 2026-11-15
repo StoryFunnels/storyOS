@@ -6,12 +6,19 @@ import { cn } from '@/lib/utils';
  * Values are the prototype's `.chip`, `.chip.active`, `.cnum`, `.pmark`, `.findbox` and `.btn`.
  */
 
-/** `.chip` — a 26px chip with a hairline (4px radius: `--r-pill` is 4px in the prototype's TIGHT theme, the one the app matches); `.chip.active` — a gold border and a 10% gold tint. */
+/**
+ * `.chip` — a 26px chip with a hairline (4px radius: `--r-pill` is 4px in the prototype's TIGHT theme, the one the app matches).
+ *
+ * An APPLIED chip (a filter, a sort, a group in force) — ticket #1275 item 6, Otto 2026-11-13, ticket #1163 wins: NOT gold (gold
+ * marks agents only; the prototype's gold tint is the part of the prototype that lost) and NOT the beige selection fill
+ * (`bg-active`, which says "selected"). It keeps the default button background and takes a darker ink border; the count badge
+ * beside the label ("Filter 1") is the other half of the signal. Both themes clear 4.5:1 (see toolbar-chip.unit.test.ts).
+ */
 export function chipClass(active = false): string {
   return cn(
     'inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius-chip)] border px-2.5 text-label',
     active
-      ? 'border-border-strong bg-active text-ink'
+      ? 'border-ink-secondary bg-card text-ink'
       : 'border-border-default bg-card text-ink-secondary hover:border-border-strong hover:text-ink',
   );
 }

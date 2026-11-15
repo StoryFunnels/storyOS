@@ -85,6 +85,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'get_activity_event',
   'get_agent_budget',
   'get_agent_scope',
+  'get_agent_wake_sources',
   'get_agent_wake_summary',
   'get_agents',
   'get_automation',

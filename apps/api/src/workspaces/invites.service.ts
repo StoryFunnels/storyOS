@@ -3,10 +3,13 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -30,6 +33,13 @@ export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * dedicated last-sent column, so we derive the last send from `expiresAt`
  * (always set to now + TTL on each send) — see `resend()`. */
 const RESEND_COOLDOWN_MS = 60 * 1000;
+/**
+ * Ticket #1304 — how long a revoked invite is kept as a tombstone ("revoked, ask <inviter>") before the row, and the invited
+ * address on it, is deleted. After that the link reads like one that never existed (the neutral not_found body). There was no
+ * invite cleanup before this, so the bound is stated here and enforced by `purgeRevoked()` (hourly, plus once at start-up).
+ */
+export const REVOKED_INVITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -48,7 +58,10 @@ function invitedRoleIsBillable(role: MembershipRole): boolean {
 }
 
 @Injectable()
-export class InvitesService {
+export class InvitesService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(InvitesService.name);
+  private purgeTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly access: AccessService,
@@ -59,6 +72,27 @@ export class InvitesService {
     private readonly membershipEvents: MembershipEventsService,
     private readonly notifications: NotificationsService,
   ) {}
+
+  onModuleInit() {
+    if (env().NODE_ENV === 'test') return;
+    const run = () => void this.purgeRevoked().catch((error) => this.logger.warn(`revoked-invite purge failed: ${String(error)}`));
+    run();
+    this.purgeTimer = setInterval(run, PURGE_INTERVAL_MS);
+    this.purgeTimer.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.purgeTimer) clearInterval(this.purgeTimer);
+  }
+
+  /** Ticket #1304 — delete revoked-invite tombstones older than {@link REVOKED_INVITE_RETENTION_MS}. Touches nothing but revoked rows. Returns the count. */
+  async purgeRevoked(now: Date = new Date()): Promise<number> {
+    const gone = await this.db
+      .delete(invites)
+      .where(and(isNotNull(invites.revokedAt), lt(invites.revokedAt, new Date(now.getTime() - REVOKED_INVITE_RETENTION_MS))))
+      .returning({ id: invites.id });
+    return gone.length;
+  }
 
   async create(
     workspaceId: string,
@@ -106,6 +140,7 @@ export class InvitesService {
         eq(invites.workspaceId, workspaceId),
         eq(invites.email, email),
         isNull(invites.acceptedAt),
+        isNull(invites.revokedAt), // #1304 — a tombstone is not "the pending invite": re-inviting must mint a fresh row
       ),
     });
     const [invite] = existing
@@ -168,6 +203,7 @@ export class InvitesService {
         eq(invites.id, inviteId),
         eq(invites.workspaceId, workspaceId),
         isNull(invites.acceptedAt),
+        isNull(invites.revokedAt), // #1304 — a revoked invite cannot be resent (that would un-revoke it)
       ),
     });
     if (!invite) throw new NotFoundException('Invite not found');
@@ -195,7 +231,7 @@ export class InvitesService {
   async listPending(workspaceId: string) {
     return (
       await this.db.query.invites.findMany({
-        where: and(eq(invites.workspaceId, workspaceId), isNull(invites.acceptedAt)),
+        where: and(eq(invites.workspaceId, workspaceId), isNull(invites.acceptedAt), isNull(invites.revokedAt)),
       })
     ).map(({ id, email, role, grants, expiresAt, createdAt }) => ({
       id,
@@ -207,12 +243,18 @@ export class InvitesService {
     }));
   }
 
+  /**
+   * Ticket #1304 — a revoke KEEPS the row and stamps `revoked_at`, so the link can say "revoked, ask <inviter>" rather than reading as
+   * one that never existed. Only a pending invite can be revoked: an accepted one stays `used` (it was never revoked) and an
+   * already-revoked one is a 404, like the deleted row it replaces. `deleted: true` is kept in the response for existing callers.
+   */
   async revoke(workspaceId: string, inviteId: string) {
-    const [gone] = await this.db
-      .delete(invites)
-      .where(and(eq(invites.id, inviteId), eq(invites.workspaceId, workspaceId)))
-      .returning();
-    if (!gone) throw new NotFoundException('Invite not found');
+    const [revoked] = await this.db
+      .update(invites)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(invites.id, inviteId), eq(invites.workspaceId, workspaceId), isNull(invites.acceptedAt), isNull(invites.revokedAt)))
+      .returning({ id: invites.id });
+    if (!revoked) throw new NotFoundException('Invite not found');
     return { deleted: true };
   }
 
@@ -221,14 +263,17 @@ export class InvitesService {
    * and whether the link still works. No credential, so the token is the only thing that names an invite, and this answers
    * nothing about any other:
    *
-   *  - Unknown, malformed (missing, wrong type, absurd length) and revoked/replaced tokens take the SAME path: the value is hashed
+   *  - Unknown, malformed (missing, wrong type, absurd length) and replaced tokens take the SAME path: the value is hashed
    *    and looked up once, whatever it is, and the one neutral body comes back. A malformed token is hashed as the empty string
    *    (which no real token can equal) instead of returning early, so "bad shape" is not a faster, distinguishable answer.
    *  - Only the five fields below leave this method: never the token or its hash, a member or invite id, the role or grants, the
    *    inviter's email, or anything about another invite. The invited address is the one the invite was SENT to (the holder of
    *    the link is, by construction, whoever that mailbox reached).
-   *  - `expired` and `used` keep the details (the screen says "ask <inviter> for a new link"); a revoke deletes the row, so a
-   *    revoked invite reads as `not_found` (a tombstone needs a column, i.e. a migration: ticket filed separately).
+   *  - `expired`, `used` and (ticket #1304) `revoked` keep the details (the screen says "ask <inviter> for a new link"): a revoke
+   *    keeps a tombstone row, so a revoked link reveals exactly what an expired or used one does (inviter name, workspace name and
+   *    logo, the invited address) and nothing more. That is the contract: the holder of the link already has the token, the
+   *    inviter chose to invite that address, and a revoked link is no more sensitive than a spent one. Once the tombstone is purged
+   *    (REVOKED_INVITE_RETENTION_MS) it reads as `not_found` again.
    */
   async details(token: unknown): Promise<InviteDetailsResponse> {
     const raw = typeof token === 'string' && token.length <= 256 ? token : '';
@@ -241,7 +286,13 @@ export class InvitesService {
     ]);
     if (!workspace) return INVITE_NOT_FOUND;
     const branding = (workspace.settings as Record<string, unknown> | null)?.['branding'] as { logo_url?: string | null } | undefined;
-    const status: InviteDetailsStatus = invite.acceptedAt ? 'used' : invite.expiresAt.getTime() < Date.now() ? 'expired' : 'valid';
+    const status: InviteDetailsStatus = invite.acceptedAt
+      ? 'used'
+      : invite.revokedAt
+        ? 'revoked' // before expiry: "the inviter withdrew it" is the more useful answer than "it ran out"
+        : invite.expiresAt.getTime() < Date.now()
+          ? 'expired'
+          : 'valid';
     return {
       status,
       inviter_name: inviter?.name?.trim() || null,
@@ -256,8 +307,11 @@ export class InvitesService {
     const invite = await this.db.query.invites.findFirst({
       where: eq(invites.tokenHash, sha256(token)),
     });
-    // Ticket #1302 — stable codes, same statuses and messages as before. Used, revoked, replaced and never-issued stay one answer.
+    // Ticket #1302 — stable codes, same statuses and messages as before. Used, replaced and never-issued stay one answer.
     if (!invite || invite.acceptedAt) throw codedException(404, 'invite_not_found', 'Invite not found');
+    // Ticket #1304 — a revoked invite keeps its row, so it is refused here by name (404 like not-found/expired), before the expiry
+    // and address checks: it never depends on who is asking.
+    if (invite.revokedAt) throw codedException(404, 'invite_revoked', 'This invite was revoked');
     if (invite.expiresAt.getTime() < Date.now()) throw codedException(404, 'invite_expired', 'Invite expired');
     if (invite.email !== user.email.toLowerCase()) {
       throw codedException(403, 'invite_email_mismatch', 'This invite was issued for a different email address');
@@ -282,7 +336,18 @@ export class InvitesService {
           invitedBy: invite.invitedBy,
         })
         .returning();
-      await tx.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.id, invite.id));
+      // #1304 — consumed only while still pending: a revoke (or a second accept) that landed since the read above wins, and
+      // throwing rolls the membership insert back, so a revoked link can never admit anyone.
+      const [consumed] = await tx
+        .update(invites)
+        .set({ acceptedAt: new Date() })
+        .where(and(eq(invites.id, invite.id), isNull(invites.acceptedAt), isNull(invites.revokedAt)))
+        .returning({ id: invites.id });
+      if (!consumed) {
+        const now = await tx.query.invites.findFirst({ where: eq(invites.id, invite.id), columns: { acceptedAt: true } });
+        if (now?.acceptedAt) throw codedException(404, 'invite_not_found', 'Invite not found'); // lost a race to another accept
+        throw codedException(404, 'invite_revoked', 'This invite was revoked');
+      }
       return created!;
     });
 

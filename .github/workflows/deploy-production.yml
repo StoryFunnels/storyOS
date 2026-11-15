@@ -1,6 +1,6 @@
-# Deploy an exact, CI-built commit of main to production (Hetzner, #893).
+# Deploy an exact, CI-built commit of main to production (#893).
 #
-# Before 2026-10-11 prod lived on a Kamatera box and was deployed BY HAND:
+# Before 2026-10-11 prod was deployed BY HAND:
 # `git pull && docker compose build` on the server itself. That box is powered
 # off (#890), so this workflow is now the only supported way to ship to prod.
 #

@@ -1457,6 +1457,12 @@ export const invites = pgTable('invites', {
   tokenHash: text('token_hash').notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  /**
+   * Ticket #1304 — a revoke keeps the row (a tombstone) instead of deleting it, so the link can say "revoked, ask <inviter>"
+   * rather than reading as a link that never existed. NULL = not revoked. A revoked row is never pending: it is not listed, not
+   * counted, not resent, not accepted and does not block inviting the same address again. Purged after REVOKED_INVITE_RETENTION_MS.
+   */
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
   invitedBy: text('invited_by'),
   ...timestamps,
 });

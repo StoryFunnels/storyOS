@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { JoinView, SignedOutForm } from './join-view';
-import { joinModel } from '@/lib/invite-screen';
+import { NOT_FOUND_COPY, joinModel } from '@/lib/invite-screen';
 import type { JoinModel } from '@/lib/invite-screen';
 import type { InviteDetails } from '@/lib/invite-api';
 
@@ -44,6 +44,7 @@ const formProps = {
   onSubmit: () => undefined,
   busy: false,
   error: null,
+  submitted: false,
   forgotHref: '/reset?next=x',
   onGoogle: null,
 };
@@ -86,10 +87,51 @@ describe('the Join screen draws every state (#1302)', () => {
     const html = renderToStaticMarkup(
       createElement(SignedOutForm, {
         ...formProps,
+        submitted: true,
         error: 'That password does not match the account for this email.',
       }),
     );
     expect(html).toMatch(/role="alert"[^>]*>That password does not match/);
+  });
+  it('no error is visible before a submit attempt, in either mode, even when one is held (#1302)', () => {
+    for (const mode of ['new', 'existing'] as const) {
+      const quiet = renderToStaticMarkup(createElement(SignedOutForm, { ...formProps, mode }));
+      expect(quiet, mode).not.toContain('role="alert"');
+      const held = renderToStaticMarkup(
+        createElement(SignedOutForm, {
+          ...formProps,
+          mode,
+          error: 'That password does not match the account for this email.',
+        }),
+      );
+      expect(held, mode).not.toContain('role="alert"');
+      expect(text(held), mode).not.toContain('does not match');
+      const after = renderToStaticMarkup(
+        createElement(SignedOutForm, {
+          ...formProps,
+          mode,
+          submitted: true,
+          error: 'Sign-in failed',
+        }),
+      );
+      expect(after, mode).toMatch(/role="alert"[^>]*>Sign-in failed/);
+      // submitted with nothing wrong is still silent
+      expect(
+        renderToStaticMarkup(createElement(SignedOutForm, { ...formProps, mode, submitted: true })),
+        mode,
+      ).not.toContain('role="alert"');
+    }
+  });
+  it('the page starts a mode switch clean: submitted and error reset, password cleared, and submitted is set on submit', () => {
+    const page = readFileSync(
+      join(fileURLToPath(new URL('../..', import.meta.url)), 'app/invite/page.tsx'),
+      'utf8',
+    );
+    expect(page).toMatch(
+      /setMode\('existing'\);\s*setPassword\(''\);\s*setError\(null\);\s*setSubmitted\(false\);/,
+    );
+    expect(page).toMatch(/setError\(null\);\s*setSubmitted\(true\);/);
+    expect(page).toContain('submitted={submitted}');
   });
   it('signed in as the invited email: one button, no password, the email still locked', () => {
     const html = render(
@@ -273,11 +315,38 @@ describe('the workspace name is not repeated beside the logo, and Google comes f
         true,
       ),
     ];
+    states.push(
+      render({ kind: 'not_found', ...NOT_FOUND_COPY }, false),
+      render({ kind: 'not_found', ...NOT_FOUND_COPY }, true),
+    );
     for (const html of states) {
       const ctl = html.match(/<(?:button|a)\b[^>]*class="[^"]*"/g) ?? [];
       expect(ctl.length).toBeGreaterThan(0);
       for (const c of ctl) expect(c, c).toMatch(/\bh-11\b/);
     }
+  });
+  it('expired and used: Sign in / Go to my workspaces is a FULL-WIDTH 44px action; not found stays 44px with no 28px action (#1302)', () => {
+    for (const status of ['expired', 'used'] as const) {
+      for (const signedIn of [false, true]) {
+        const html = render(
+          joinModel({
+            details: { ...valid, status },
+            session: signedIn
+              ? { status: 'signed_in', email: 'a@b.example' }
+              : { status: 'signed_out' },
+          }),
+          signedIn,
+        );
+        const a = html.match(/<a\b[^>]*class="[^"]*"/g) ?? [];
+        expect(a, status).toHaveLength(1);
+        expect(a[0], status).toMatch(/\bh-11\b/);
+        expect(a[0], status).toMatch(/\bw-full\b/);
+        expect(a[0], status).not.toMatch(/\bh-7\b/);
+      }
+    }
+    const nf = render({ kind: 'not_found', ...NOT_FOUND_COPY }, false);
+    expect(nf).not.toMatch(/\bh-7\b/);
+    expect(nf.match(/<a\b[^>]*class="[^"]*\bh-11\b/g)).toHaveLength(1);
   });
 });
 
@@ -336,5 +405,23 @@ describe('the token is never drawn or logged, and the join path never reaches cr
       /callbackURL: inviteVerificationCallback\(window\.location\.origin, token\)/,
     );
     expect(page).toMatch(/land\(await joinWithToken\(token\)\)/);
+  });
+});
+
+describe('the joining state (#1302)', () => {
+  it('renders Joining…, a disabled button and none of the dead-invite copy, even when the details now say used', () => {
+    const model = joinModel({ details: { ...valid, status: 'used' }, session: { status: 'signed_in', email: 'new.hire@pinewood.example' }, joined: true });
+    const html = render(model, true);
+    const t = text(html);
+    expect(t).toContain('Joining…');
+    expect(html).toContain('data-testid="invite-joining"');
+    expect(html).toMatch(/<button[^>]*disabled/);
+    expect(t).not.toMatch(/already used|has expired|no longer works|Go to my workspaces/);
+  });
+  it('the page wires the model and the query to the joined flag (source guard)', () => {
+    const src = readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../../app/invite/page.tsx'), 'utf8');
+    expect(src).toMatch(/enabled: detailsQueryEnabled\(\{ token, joined \}\)/);
+    expect(src).toMatch(/joined,\n\s*\}\);/);
+    expect(src).toMatch(/setJoined\(true\);\n\s*clearHeldInviteToken/);
   });
 });
