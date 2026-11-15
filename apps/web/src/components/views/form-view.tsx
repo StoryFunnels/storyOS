@@ -38,6 +38,7 @@ import type { FormFieldCfg } from './form-fields';
 import { embedSnippet } from '@/lib/embed-mode';
 import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /** Form view (MN-101, #224): a drag-to-reorder sidebar owns which fields appear
  * (config.form.fields) and their order — the generic Cards popover no longer
@@ -705,9 +706,7 @@ function FormFieldsSidebar({
           {/* #669 — instructs the exact next action, same as the two other
               empty-state promotions in this file. */}
           {selected.length === 0 && (
-            <p className="rounded-[var(--radius-card)] border border-dashed border-border-default px-2.5 py-2 text-label text-muted">
-              No fields yet — add one below.
-            </p>
+            <EmptyState variant="list" className="rounded-[var(--radius-card)] border border-dashed border-border-default px-2.5 py-2" title="No fields yet — add one below." />
           )}
           <DndContext sensors={sensors} collisionDetection={closestCenter} {...formDrag.contextProps}>
             <SortableContext items={selectedIds} strategy={verticalListSortingStrategy}>
