@@ -6,6 +6,7 @@ import { OPTION_COLORS, OptionChip } from '@/components/table-view/cells';
 import type { SelectOption } from '@/components/table-view/use-table-data';
 import { visibleBoardColumns } from '@/components/views/board-columns';
 import { targetProgress } from '@/components/views/dashboard-tiles';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export interface PublicViewField {
   api_name: string;
@@ -182,8 +183,8 @@ export function PublicViewClient({
                 ))}
                 {def.records.data.length === 0 && (
                   <tr>
-                    <td colSpan={def.fields.length + 1} className="px-3 py-6 text-center text-neutral-400">
-                      Nothing here yet.
+                    <td colSpan={def.fields.length + 1} className="px-3 py-6">
+                      <EmptyState variant="list" className="text-center text-neutral-400" title="Nothing here yet." />
                     </td>
                   </tr>
                 )}
