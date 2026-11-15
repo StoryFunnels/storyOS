@@ -56,7 +56,7 @@ export class ApprovalsController {
   @ApiOperation({ summary: "Approve a pending approval — enqueues the gated action from its frozen snapshot (human-only)" })
   async approve(@Req() req: WorkspaceRequest, @Param('id') id: string, @Res({ passthrough: true }) res: FastifyReply) {
     await this.assertHuman(req, id);
-    const result = await this.approvals.approve(req.membership.workspaceId, id, req.user.id);
+    const result = await this.approvals.approve(req.membership, id, req.user.id);
     // #1179 — a repeat decision changed nothing: 200 and `already_decided`, never the 201 of "created"
     if (result.already_decided) void res.status(200);
     return result;
@@ -67,7 +67,7 @@ export class ApprovalsController {
   @ApiOperation({ summary: 'Reject a pending approval — the gated action never runs (human-only)' })
   async reject(@Req() req: WorkspaceRequest, @Param('id') id: string, @Body() body: RejectApprovalDto, @Res({ passthrough: true }) res: FastifyReply) {
     await this.assertHuman(req, id);
-    const result = await this.approvals.reject(req.membership.workspaceId, id, req.user.id, body.reason);
+    const result = await this.approvals.reject(req.membership, id, req.user.id, body.reason);
     if (result.already_decided) void res.status(200);
     return result;
   }

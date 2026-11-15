@@ -8,7 +8,7 @@ Locked in [ADR-0003](../decisions/ADR-0003-api-conventions.md). Base path **`/ap
 POST   /auth/*                                   (better-auth mounted)
 GET    /me
 GET|POST         /workspaces
-GET|PATCH|DELETE /workspaces/:ws
+GET|PATCH        /workspaces/:ws                 (no DELETE: workspace deletion is not built, ticket #1299)
 GET|POST         /workspaces/:ws/spaces          PATCH|DELETE /spaces/:space
 GET|POST         /workspaces/:ws/members         POST /workspaces/:ws/invites
 GET|POST         /workspaces/:ws/databases       (create takes space_id)

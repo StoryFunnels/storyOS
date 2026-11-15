@@ -30,6 +30,7 @@ import {
   type RecurrenceKind,
   type SourceRecurrence,
 } from '@/lib/source-recurrence';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * #339 — Google Calendar is discoverable from the Sources picker, but its sync
@@ -556,7 +557,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
     return (
       <DialogContent title={`Runs — "${runsFor.name}"`} className="max-w-xl">
         <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto pr-1">
-          {(runs.data ?? []).length === 0 && <p className="text-body text-muted">No syncs yet.</p>}
+          {(runs.data ?? []).length === 0 && <EmptyState variant="list" title="No syncs yet." />}
           {(runs.data ?? []).map((r) => (
             <div key={r.id} className="rounded-[var(--radius-card)] border border-border-default px-3 py-2 text-body">
               <div className="flex items-center justify-between">
@@ -1104,7 +1105,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
         </p>
         <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
           {(sources.data ?? []).length === 0 && (
-            <p className="px-4 py-6 text-body text-muted">No sources yet — add one below.</p>
+            <EmptyState variant="list" title="No sources yet — add one below." />
           )}
           {(sources.data ?? []).map((s) => (
             <div key={s.id} className="flex items-center justify-between gap-3 border-b border-border-default px-3 py-2 last:border-b-0">

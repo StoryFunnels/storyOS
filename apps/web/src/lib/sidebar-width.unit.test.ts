@@ -29,10 +29,14 @@ describe('clampSidebarNavWidth', () => {
  * The panel is what is left after the rail.
  */
 describe('sidebar widths are TOTALS, rail included (#805)', () => {
-  it('the default total is the artifact\'s 284, which leaves a 232px panel', () => {
-    expect(SIDEBAR_NAV_DEFAULT_W).toBe(284);
+  it('the default total is 304 (rail 52 + the prototype\'s 252px panel), ticket #1273', () => {
+    expect(SIDEBAR_NAV_DEFAULT_W).toBe(304);
     expect(SIDEBAR_RAIL_W).toBe(52);
-    expect(SIDEBAR_NAV_DEFAULT_W - SIDEBAR_RAIL_W).toBe(232);
+    expect(SIDEBAR_NAV_DEFAULT_W - SIDEBAR_RAIL_W).toBe(252);
+  });
+
+  it('the default stays inside the clamp range, so it is never silently re-clamped', () => {
+    expect(clampSidebarNavWidth(SIDEBAR_NAV_DEFAULT_W)).toBe(SIDEBAR_NAV_DEFAULT_W);
   });
 
   it('even the narrowest allowed total leaves the panel room to be a sidebar', () => {

@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
+import { MENU_ITEM_GEOMETRY } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { RelationChips } from './relation-cell';
 import { chipVariants } from '@/components/ui/chip';
@@ -1259,7 +1260,8 @@ function OptionList({
               <button
                 key={option.id}
                 className={cn(
-                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-body hover:bg-hover',
+                  'flex w-full items-center justify-between gap-2 rounded text-left hover:bg-hover',
+                  MENU_ITEM_GEOMETRY,
                   (isSelected || idx === active) && 'bg-hover',
                 )}
                 onMouseEnter={() => setActive(idx)}
@@ -1268,7 +1270,7 @@ function OptionList({
                 <span className="flex min-w-0 items-center gap-2">
                   {multi && <input type="checkbox" readOnly checked={isSelected} />}
                   {option.image !== undefined ? (
-                    <span className="flex items-center gap-1.5 text-body text-ink">
+                    <span className="flex items-center gap-1.5 text-ink">
                       <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
                       {option.label}
                     </span>
@@ -1296,7 +1298,8 @@ function OptionList({
           {showCreate && (
             <button
               className={cn(
-                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-body text-info hover:bg-hover',
+                'flex w-full items-center gap-1.5 rounded text-left text-info hover:bg-hover',
+                MENU_ITEM_GEOMETRY,
                 active === filtered.length && 'bg-hover',
               )}
               onMouseEnter={() => setActive(filtered.length)}

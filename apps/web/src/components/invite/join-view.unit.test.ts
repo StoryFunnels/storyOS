@@ -1,0 +1,409 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+import { JoinView, SignedOutForm } from './join-view';
+import { NOT_FOUND_COPY, joinModel } from '@/lib/invite-screen';
+import type { JoinModel } from '@/lib/invite-screen';
+import type { InviteDetails } from '@/lib/invite-api';
+
+// Pinewood, made up.
+const valid: InviteDetails = {
+  status: 'valid',
+  inviter_name: 'Maple Ridge',
+  workspace_name: 'Pinewood Studio',
+  workspace_logo_url: null,
+  invited_email: 'new.hire@pinewood.example',
+};
+const notFound: InviteDetails = {
+  status: 'not_found',
+  inviter_name: null,
+  workspace_name: null,
+  workspace_logo_url: null,
+  invited_email: null,
+};
+
+const render = (model: JoinModel, signedIn = false, extra: Record<string, unknown> = {}) =>
+  renderToStaticMarkup(createElement(JoinView, { model, signedIn, ...extra }));
+const text = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/\s+/g, ' ');
+
+const formProps = {
+  action: 'Join Pinewood Studio',
+  invitedEmail: 'new.hire@pinewood.example',
+  mode: 'new' as const,
+  name: '',
+  password: '',
+  onName: () => undefined,
+  onPassword: () => undefined,
+  onSubmit: () => undefined,
+  busy: false,
+  error: null,
+  submitted: false,
+  forgotHref: '/reset?next=x',
+  onGoogle: null,
+};
+
+describe('the Join screen draws every state (#1302)', () => {
+  it('valid + new: inviter, workspace name and initial avatar, the email LOCKED, one Join action, and no create-workspace words', () => {
+    const model = joinModel({ details: valid, session: { status: 'signed_out' } });
+    const html = render(model, false, { signedOutForm: createElement(SignedOutForm, formProps) });
+    const t = text(html);
+    expect(t).toContain('Maple Ridge invited you to Pinewood Studio');
+    expect(html).toContain('data-testid="invite-workspace"');
+    expect(t).toContain('PS'); // the shared Avatar's initials: no logo, so the initial fallback
+    expect(html).toMatch(
+      /<input[^>]*id="invited-email"[^>]*readOnly=""|<input[^>]*readonly=""[^>]*id="invited-email"|<input[^>]*id="invited-email"[^>]*readonly/i,
+    );
+    expect(html).toContain('value="new.hire@pinewood.example"');
+    expect(t.match(/Join Pinewood Studio/g)).toHaveLength(1); // ONE action
+    expect(html).toContain('type="submit"');
+    expect(t).not.toMatch(/create (a |your )?workspace|new workspace|name your workspace/i);
+  });
+  it('a logo is drawn when the workspace has one', () => {
+    const html = render(
+      joinModel({
+        details: { ...valid, workspace_logo_url: 'https://cdn.pinewood.example/logo.png' },
+        session: { status: 'signed_out' },
+      }),
+      false,
+    );
+    expect(html).toContain('https://cdn.pinewood.example/logo.png');
+  });
+  it('existing account: the form asks only for the password', () => {
+    const t = text(
+      renderToStaticMarkup(createElement(SignedOutForm, { ...formProps, mode: 'existing' })),
+    );
+    expect(t).toContain('You already have a StoryOS account with this email');
+    expect(t).not.toContain('Your name');
+    expect(t).toContain('Forgot password');
+  });
+  it('a refusal is announced (role=alert)', () => {
+    const html = renderToStaticMarkup(
+      createElement(SignedOutForm, {
+        ...formProps,
+        submitted: true,
+        error: 'That password does not match the account for this email.',
+      }),
+    );
+    expect(html).toMatch(/role="alert"[^>]*>That password does not match/);
+  });
+  it('no error is visible before a submit attempt, in either mode, even when one is held (#1302)', () => {
+    for (const mode of ['new', 'existing'] as const) {
+      const quiet = renderToStaticMarkup(createElement(SignedOutForm, { ...formProps, mode }));
+      expect(quiet, mode).not.toContain('role="alert"');
+      const held = renderToStaticMarkup(
+        createElement(SignedOutForm, {
+          ...formProps,
+          mode,
+          error: 'That password does not match the account for this email.',
+        }),
+      );
+      expect(held, mode).not.toContain('role="alert"');
+      expect(text(held), mode).not.toContain('does not match');
+      const after = renderToStaticMarkup(
+        createElement(SignedOutForm, {
+          ...formProps,
+          mode,
+          submitted: true,
+          error: 'Sign-in failed',
+        }),
+      );
+      expect(after, mode).toMatch(/role="alert"[^>]*>Sign-in failed/);
+      // submitted with nothing wrong is still silent
+      expect(
+        renderToStaticMarkup(createElement(SignedOutForm, { ...formProps, mode, submitted: true })),
+        mode,
+      ).not.toContain('role="alert"');
+    }
+  });
+  it('the page starts a mode switch clean: submitted and error reset, password cleared, and submitted is set on submit', () => {
+    const page = readFileSync(
+      join(fileURLToPath(new URL('../..', import.meta.url)), 'app/invite/page.tsx'),
+      'utf8',
+    );
+    expect(page).toMatch(
+      /setMode\('existing'\);\s*setPassword\(''\);\s*setError\(null\);\s*setSubmitted\(false\);/,
+    );
+    expect(page).toMatch(/setError\(null\);\s*setSubmitted\(true\);/);
+    expect(page).toContain('submitted={submitted}');
+  });
+  it('signed in as the invited email: one button, no password, the email still locked', () => {
+    const html = render(
+      joinModel({
+        details: valid,
+        session: { status: 'signed_in', email: 'New.Hire@pinewood.example' },
+      }),
+      true,
+    );
+    expect(text(html).match(/Join Pinewood Studio/g)).toHaveLength(1);
+    expect(html).not.toContain('type="password"');
+    expect(html).toContain('id="invited-email"');
+  });
+  it('signed in as someone else: the mismatch message, Switch account, and no Join', () => {
+    const t = text(
+      render(
+        joinModel({
+          details: valid,
+          session: { status: 'signed_in', email: 'other@pinewood.example' },
+        }),
+        true,
+      ),
+    );
+    expect(t).toContain(
+      'This invite was sent to new.hire@pinewood.example. You’re signed in as other@pinewood.example.'.replace(
+        '’',
+        '’',
+      ),
+    );
+    expect(t).toContain('Switch account');
+    expect(t).not.toContain('Join Pinewood Studio');
+  });
+  for (const status of ['expired', 'used'] as const) {
+    it(`${status}: says so, names the inviter, and has no Join button`, () => {
+      const html = render(
+        joinModel({ details: { ...valid, status }, session: { status: 'signed_out' } }),
+        false,
+      );
+      const t = text(html);
+      expect(t).toContain(
+        status === 'expired' ? 'This invite has expired' : 'This invite was already used',
+      );
+      expect(t).toContain('Ask Maple Ridge for a new link.');
+      expect(t).not.toContain('Join Pinewood Studio');
+      expect(html).not.toContain('type="submit"');
+      expect(html).not.toContain('type="password"');
+    });
+  }
+  it('not found: the shared Quill page, generic wording, no inviter, no Join, no shell', () => {
+    const html = render(joinModel({ details: notFound, session: { status: 'signed_out' } }), false);
+    const t = text(html);
+    expect(html).toContain('data-testid="not-found"');
+    expect(t).toContain('This was an invite once.');
+    expect(t).not.toContain('a page once');
+    expect(t).toContain('This invite link no longer works');
+    expect(t).toContain('Ask whoever invited you for a new link.');
+    expect(t).not.toMatch(/Join |invited you to/);
+    expect(html).not.toContain('<form');
+    expect(html).not.toContain('data-brand-mark'); // AuthCard's mark: this page has no shell
+    expect(html).toContain('href="https://storyos.dev"'); // signed out: no better action
+  });
+  it('not found, signed in: the better action is the person’s own workspaces', () => {
+    const html = render(
+      joinModel({ details: notFound, session: { status: 'signed_in', email: 'a@b.example' } }),
+      true,
+    );
+    expect(text(html)).toContain('Go to my workspaces');
+    expect(html).not.toContain('storyos.dev');
+  });
+  it('loading and unavailable draw something honest and no Join', () => {
+    expect(text(render({ kind: 'loading' }))).toContain('Checking your invite');
+    const t = text(
+      render(joinModel({ details: null, detailsFailed: true, session: { status: 'signed_out' } })),
+    );
+    expect(t).toContain('We could not check this invite');
+    expect(t).not.toContain('Join ');
+  });
+});
+
+describe('the workspace name is not repeated beside the logo, and Google comes first (#1302, Otto)', () => {
+  const logoBlock = (html: string) =>
+    /data-testid="invite-workspace"[\s\S]*?<\/div>/.exec(html)?.[0] ?? '';
+  it('signed out and one-click: the logo stands alone (labelled), the name is in the headline and on the action only', () => {
+    const signedOut = render(
+      joinModel({ details: valid, session: { status: 'signed_out' } }),
+      false,
+      { signedOutForm: createElement(SignedOutForm, formProps) },
+    );
+    const oneClick = render(
+      joinModel({
+        details: valid,
+        session: { status: 'signed_in', email: 'new.hire@pinewood.example' },
+      }),
+      true,
+    );
+    for (const html of [signedOut, oneClick]) {
+      expect(text(html)).toContain('Maple Ridge invited you to Pinewood Studio');
+      expect(text(logoBlock(html))).not.toContain('Pinewood Studio');
+      expect(logoBlock(html)).toContain('aria-label="Pinewood Studio logo"');
+      expect(text(logoBlock(html))).toContain('PS');
+      expect((text(html).match(/Pinewood Studio/g) ?? []).length).toBe(2); // the headline and "Join Pinewood Studio"
+    }
+  });
+  it('with no inviter the headline still carries the name', () => {
+    const html = render(
+      joinModel({ details: { ...valid, inviter_name: null }, session: { status: 'signed_out' } }),
+      false,
+    );
+    expect(text(html)).toContain('You have been invited to Pinewood Studio');
+    expect(text(logoBlock(html))).not.toContain('Pinewood Studio');
+  });
+  it('expired, used and mismatch have no name in the headline, so the name appears beside the logo', () => {
+    for (const status of ['expired', 'used'] as const) {
+      expect(
+        text(
+          logoBlock(
+            render(joinModel({ details: { ...valid, status }, session: { status: 'signed_out' } })),
+          ),
+        ),
+      ).toContain('Pinewood Studio');
+    }
+    expect(
+      text(
+        logoBlock(
+          render(
+            joinModel({
+              details: valid,
+              session: { status: 'signed_in', email: 'other@pinewood.example' },
+            }),
+            true,
+          ),
+        ),
+      ),
+    ).toContain('Pinewood Studio');
+  });
+  it('Google configured: the button, then the "or" divider, then the form, in that order, all 44px', () => {
+    const html = renderToStaticMarkup(
+      createElement(SignedOutForm, { ...formProps, onGoogle: () => undefined }),
+    );
+    const g = html.indexOf('data-testid="auth-google"');
+    const or = html.indexOf('data-testid="auth-or"');
+    const form = html.indexOf('<form');
+    expect(g).toBeGreaterThan(-1);
+    expect(g).toBeLessThan(or);
+    expect(or).toBeLessThan(form);
+    expect(text(html)).toContain('Continue with Google');
+    expect(html.match(/h-11/g)!.length).toBeGreaterThan(0);
+    expect(html.match(/<button[^>]*class="[^"]*\bh-11\b/g)).toHaveLength(2); // Google and the submit
+  });
+  it('Google not configured: no button, no divider, no dangling "or"', () => {
+    const html = renderToStaticMarkup(createElement(SignedOutForm, formProps));
+    expect(html).not.toContain('auth-google');
+    expect(html).not.toContain('auth-or');
+    expect(text(html)).not.toMatch(/Continue with Google|\bor\b/);
+    expect(html.match(/<button[^>]*class="[^"]*\bh-11\b/g)).toHaveLength(1);
+  });
+  it('every button and button-link on the Join screen is the 44px size', () => {
+    const states = [
+      render(
+        joinModel({
+          details: valid,
+          session: { status: 'signed_in', email: 'new.hire@pinewood.example' },
+        }),
+        true,
+      ),
+      render(
+        joinModel({
+          details: valid,
+          session: { status: 'signed_in', email: 'other@pinewood.example' },
+        }),
+        true,
+      ),
+      render(
+        joinModel({ details: { ...valid, status: 'expired' }, session: { status: 'signed_out' } }),
+      ),
+      render(
+        joinModel({
+          details: { ...valid, status: 'used' },
+          session: { status: 'signed_in', email: 'a@b.example' },
+        }),
+        true,
+      ),
+    ];
+    states.push(
+      render({ kind: 'not_found', ...NOT_FOUND_COPY }, false),
+      render({ kind: 'not_found', ...NOT_FOUND_COPY }, true),
+    );
+    for (const html of states) {
+      const ctl = html.match(/<(?:button|a)\b[^>]*class="[^"]*"/g) ?? [];
+      expect(ctl.length).toBeGreaterThan(0);
+      for (const c of ctl) expect(c, c).toMatch(/\bh-11\b/);
+    }
+  });
+  it('expired and used: Sign in / Go to my workspaces is a FULL-WIDTH 44px action; not found stays 44px with no 28px action (#1302)', () => {
+    for (const status of ['expired', 'used'] as const) {
+      for (const signedIn of [false, true]) {
+        const html = render(
+          joinModel({
+            details: { ...valid, status },
+            session: signedIn
+              ? { status: 'signed_in', email: 'a@b.example' }
+              : { status: 'signed_out' },
+          }),
+          signedIn,
+        );
+        const a = html.match(/<a\b[^>]*class="[^"]*"/g) ?? [];
+        expect(a, status).toHaveLength(1);
+        expect(a[0], status).toMatch(/\bh-11\b/);
+        expect(a[0], status).toMatch(/\bw-full\b/);
+        expect(a[0], status).not.toMatch(/\bh-7\b/);
+      }
+    }
+    const nf = render({ kind: 'not_found', ...NOT_FOUND_COPY }, false);
+    expect(nf).not.toMatch(/\bh-7\b/);
+    expect(nf.match(/<a\b[^>]*class="[^"]*\bh-11\b/g)).toHaveLength(1);
+  });
+});
+
+describe('the token is never drawn or logged, and the join path never reaches create-workspace (#1302)', () => {
+  const src = fileURLToPath(new URL('../..', import.meta.url));
+  const read = (p: string) => readFileSync(join(src, p), 'utf8');
+  const code = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+  it('the view takes no token prop and renders none of its inputs as text', () => {
+    expect(code(read('components/invite/join-view.tsx'))).not.toMatch(/token/i);
+  });
+  it('the Join page never calls create-workspace itself and never routes to it', () => {
+    const page = code(read('app/invite/page.tsx'));
+    expect(page).not.toMatch(/new-workspace/);
+    expect(page).not.toMatch(/api\.POST\('\/api\/v1\/workspaces'/);
+    expect(page).not.toMatch(/console\./);
+  });
+  it('the only workspaces POST on the invite path carries joinWorkspaceBody (token, no name)', () => {
+    const api = code(read('lib/invite-api.ts'));
+    expect(api.match(/api\.POST\('\/api\/v1\/workspaces', \{ body: [^}]*\}/g)).toEqual([
+      "api.POST('/api/v1/workspaces', { body: joinWorkspaceBody(token) }",
+    ]);
+  });
+  it('the create-workspace screen is gated: its default export checks the held invite before rendering the form', () => {
+    const page = code(read('app/new-workspace/page.tsx'));
+    const gate = page.slice(page.indexOf('export default function NewWorkspacePage'));
+    expect(gate).toMatch(/newWorkspaceGate\(heldInviteToken\(window\.sessionStorage/);
+    expect(gate).toMatch(/router\.replace\(gate\.redirectTo\)/);
+    expect(gate.indexOf('newWorkspaceGate')).toBeLessThan(gate.indexOf('<NewWorkspaceForm'));
+    expect(page).not.toMatch(/export default function NewWorkspaceForm/);
+  });
+  it('the entry route decides through postSignInDestination, so "no workspace yet" cannot bypass a held invite', () => {
+    const home = code(read('app/page.tsx'));
+    expect(home).toMatch(/postSignInDestination\(\{[^}]*held: heldInviteToken/);
+    expect(home).not.toMatch(/'\/new-workspace'/);
+  });
+  it('sign-up and sign-in pages hand an invite to the Join screen instead of drawing their generic form', () => {
+    for (const p of ['app/(auth)/signup/page.tsx', 'app/(auth)/login/page.tsx']) {
+      const page = code(read(p));
+      expect(page).toMatch(/inviteTokenFromNext\(rawNext\)/);
+      expect(page).toMatch(/router\.replace\(inviteJoinPath\(inviteToken\)\)/);
+    }
+  });
+  it('the reset request carries the invite into the email, and the new-password form returns to it', () => {
+    expect(code(read('app/(auth)/reset/page.tsx'))).toMatch(
+      /inviteResetRedirect\(window\.location\.origin, inviteToken\)/,
+    );
+    expect(code(read('app/(auth)/reset/confirm/page.tsx'))).toMatch(
+      /resetDoneDestination\(params\.get\('next'\)\)/,
+    );
+  });
+  it('the Join page sends sign-up, Google and verification back to itself', () => {
+    const page = code(read('app/invite/page.tsx'));
+    expect(page).toMatch(/inviteGoogleCallbacks\(window\.location\.origin, token\)/);
+    expect(page).toMatch(
+      /callbackURL: inviteVerificationCallback\(window\.location\.origin, token\)/,
+    );
+    expect(page).toMatch(/land\(await joinWithToken\(token\)\)/);
+  });
+});

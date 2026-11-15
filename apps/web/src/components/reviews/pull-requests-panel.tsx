@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { prLabel } from './pr-label';
+import { EmptyState } from '@/components/ui/empty-state';
 
 type Bucket = 'needs_review' | 'authored' | 'participating';
 const BUCKETS: { id: Bucket; label: string }[] = [
@@ -77,7 +78,7 @@ export function PullRequestsPanel({ ws }: { ws: string }) {
         </p>
       )}
       {reviews.data && reviews.data.length === 0 && (
-        <p className="p-6 text-center text-body text-muted">Nothing here right now.</p>
+        <EmptyState variant="list" title="Nothing here right now." />
       )}
 
       {reviews.data?.map((pr) => {

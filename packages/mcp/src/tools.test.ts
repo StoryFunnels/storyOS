@@ -312,7 +312,7 @@ describe('buildIconCatalog brand set (list_icon_set, #298)', () => {
 describe('icon param description (create_database/update_database/create_space, #251)', () => {
   it('advertises set: refs and points at the ICONS section of get_started (list_icon_set is a maintainer tool, ticket #1262)', () => {
     expect(ICON_PARAM_DESCRIPTION).toContain('set:');
-    expect(ICON_PARAM_DESCRIPTION).toContain('get_started section="ICONS"');
+    expect(ICON_PARAM_DESCRIPTION).toContain('get_started section "ICONS"');
     expect(ICON_PARAM_DESCRIPTION).not.toContain('list_icon_set');
   });
 
@@ -5545,12 +5545,12 @@ describe('attach_file never fetches the URL itself (#1033)', () => {
     const fetched: unknown[] = [];
     globalThis.fetch = (async (...a: unknown[]) => { fetched.push(a); throw new Error('the MCP process must not fetch'); }) as never;
     try {
-      const res = await attach({ workspace: 'Eng', database: 'Issues', record: '7', url: 'http://169.254.169.254/hetzner/v1/userdata', field: 'Cover', filename: 'x.png' });
+      const res = await attach({ workspace: 'Eng', database: 'Issues', record: '7', url: 'http://169.254.169.254/metadata/v1/userdata', field: 'Cover', filename: 'x.png' });
       expect(res.isError, res.content[0]!.text).toBeFalsy();
       expect(fetched, 'no fetch from the MCP process').toEqual([]);
       const post = calls.find((c) => c.method === 'POST')!;
       expect(post.path).toBe('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url');
-      expect((post.init as { body: unknown }).body).toEqual({ url: 'http://169.254.169.254/hetzner/v1/userdata', filename: 'x.png' });
+      expect((post.init as { body: unknown }).body).toEqual({ url: 'http://169.254.169.254/metadata/v1/userdata', filename: 'x.png' });
       expect(((post.init as { params: { query: unknown } }).params).query).toEqual({ field: 'f-cover' });
     } finally {
       globalThis.fetch = realFetch;
@@ -5749,7 +5749,7 @@ describe('preview_formula (#1263)', () => {
     // ticket #1262: the LISTED text is a short lead; the full text is what get_started serves under 'TOOL NOTES <tool>'.
     const lead = defs.get('preview_formula')!.description;
     expect(lead).toMatch(/Saves NOTHING/);
-    expect(lead).toContain("call get_started section='TOOL NOTES preview_formula'");
+    expect(lead).toContain('[Full notes: get_started section "TOOL NOTES preview_formula"]');
     const full = notes.get('preview_formula')!;
     expect(full).toMatch(/Saves NOTHING/);
     expect(full).toMatch(/return_type/);

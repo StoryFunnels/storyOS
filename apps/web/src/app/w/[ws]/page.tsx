@@ -12,7 +12,6 @@ import { useEditPreferenceList, usePreferences } from '@/lib/preferences';
 import {
   buildActivationSteps,
   completedCount,
-  isEstablishedWorkspace,
   isWorkspaceDismissed,
   shouldShowChecklist,
   type OnboardingState,
@@ -20,8 +19,10 @@ import {
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { takePendingShare } from '@/lib/pending-share';
+import { useSession } from '@/lib/auth-client';
+import { greeting, homeSubLine } from '@/lib/greeting';
 import { ShareWorkspaceCard } from '@/components/onboarding/share-workspace-card';
-import { WorkspaceHomeBlocks } from '@/components/workspace-home-blocks';
+import { BLOCK_CARD, BLOCK_TITLE, WorkspaceHomeBlocks } from '@/components/workspace-home-blocks';
 
 export default function WorkspaceHome() {
   const { ws } = useParams<{ ws: string }>();
@@ -75,6 +76,14 @@ export default function WorkspaceHome() {
     if (takePendingShare(ws)) setShowShare(true);
   }, [ws]);
 
+  /* Ticket #1274 — the greeting depends on the BROWSER's clock, which the server cannot know. So it is computed only
+     after mount (and once the session has said whether there is a name), and until then the h1 holds its height with
+     a non-breaking space: no hydration mismatch, no flash of the wrong part of day, no layout shift. */
+  const session = useSession();
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => setNow(new Date()), []);
+  const greetingText = now && !session.isPending ? greeting(now, session.data?.user?.name) : null;
+
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [gallerySlug, setGallerySlug] = useState<string | undefined>(undefined);
   const canInstall = workspace.data?.role !== 'guest';
@@ -95,12 +104,6 @@ export default function WorkspaceHome() {
   const steps = gs ? buildActivationSteps(gs, { ws, firstDbId: firstDb?.id }) : [];
   const showChecklist = shouldShowChecklist(steps, dismissed);
 
-  // #723 — show live work instead of a template wall, but only once this
-  // workspace has clearly been used. The predicate and its floor live in
-  // activation.ts next to the checklist logic they depend on, and are unit
-  // tested there; see the comments on `isEstablishedWorkspace`.
-  const established = isEstablishedWorkspace(steps, sampleCount, databases.data?.length ?? 0);
-
   return (
     /* #663 — LEFT-ALIGNED, and no longer capped at 672px. `mx-auto max-w-2xl`
        was the single class that made this page two narrow columns floating in
@@ -119,22 +122,25 @@ export default function WorkspaceHome() {
         </div>
       )}
 
-      <h1 className="mb-1 text-xl font-semibold text-ink">
-        Welcome to {workspace.data?.name ?? 'StoryOS'}
+      <h1 className="text-[22px] font-bold leading-[normal] tracking-[-0.44px] text-ink">
+        {greetingText ?? '\u00a0'}
       </h1>
-      <p className="mb-8 text-sm text-muted">
-        Model anything as related databases — client work, content, planning. It all lives in the
-        sidebar.
+      {/* The date is the browser's today, so — like the greeting — it exists only after mount (`now`); until then the
+          line shows the workspace name alone, then gains the date. */}
+      <p className="mb-8 mt-1 text-body text-muted">
+        {now
+          ? homeSubLine(now, workspace.data?.name ?? 'StoryOS', preferences.data?.regional)
+          : (workspace.data?.name ?? 'StoryOS')}
       </p>
 
       {showShare && <ShareWorkspaceCard ws={ws} onDone={() => setShowShare(false)} />}
 
       {showChecklist && (
-        <div className="rounded-[var(--radius-card)] border border-border-default bg-card p-4">
+        <div className={BLOCK_CARD}>
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-label font-medium uppercase tracking-wider text-faint">
+            <h2 className={BLOCK_TITLE}>
               Getting started · {completedCount(steps)}/{steps.length}
-            </p>
+            </h2>
             <button
               type="button"
               className="rounded p-0.5 text-faint hover:bg-hover hover:text-ink disabled:opacity-50"
@@ -166,38 +172,32 @@ export default function WorkspaceHome() {
         </div>
       )}
 
-      {/* #723 — the eighteen-card template gallery is now ONE link, for new and
-          established workspaces alike. It was the page's largest element and
-          its least repeatable: a template is installed once, then the grid
-          keeps the same footprint forever, which is most of the empty-feeling
-          space in the screenshot that opened this ticket. The gallery dialog is
-          unchanged and one click away. */}
-      {canInstall && (
-        <div className="mt-6">
-          <button
-            type="button"
-            className="text-body text-ink underline-offset-2 hover:underline"
-            onClick={() => {
-              setGallerySlug(undefined);
-              setGalleryOpen(true);
-            }}
-          >
-            Start something new →
-          </button>
-          {galleryOpen && (
-            <TemplateGalleryDialog
-              key={gallerySlug ?? 'all'}
-              ws={ws}
-              spaces={spaces.data ?? []}
-              open={galleryOpen}
-              onOpenChange={setGalleryOpen}
-              initialSlug={gallerySlug}
-            />
-          )}
-        </div>
+      {/* Ticket #1274 — the work blocks are no longer behind an "established workspace" gate (that rule hid pending approvals
+          from every workspace still on its checklist). Review always shows; Automation runs once an agent exists. The
+          checklist above sits over them and never replaces them. "Start something new" is the last row of Where to go. */}
+      <WorkspaceHomeBlocks
+        ws={ws}
+        databases={databases.data ?? []}
+        spaces={spaces.data ?? []}
+        onStartNew={
+          canInstall
+            ? () => {
+                setGallerySlug(undefined);
+                setGalleryOpen(true);
+              }
+            : undefined
+        }
+      />
+      {canInstall && galleryOpen && (
+        <TemplateGalleryDialog
+          key={gallerySlug ?? 'all'}
+          ws={ws}
+          spaces={spaces.data ?? []}
+          open={galleryOpen}
+          onOpenChange={setGalleryOpen}
+          initialSlug={gallerySlug}
+        />
       )}
-
-      {established && <WorkspaceHomeBlocks ws={ws} databases={databases.data ?? []} spaces={spaces.data ?? []} />}
 
       {(spaces.data?.length ?? 0) > 0 && (databases.data?.length ?? 0) === 0 && (
         <p className="mt-6 text-body text-muted">

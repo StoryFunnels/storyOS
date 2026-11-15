@@ -33,6 +33,7 @@ import { ListSurface } from '@/components/entity/split-screen-host';
 import { useDateFormat } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
 import { databaseColor } from '@/lib/entity-color';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface RecentRecord {
   id: string;
@@ -290,7 +291,7 @@ function MyWorkInner() {
       {tab === 'activity' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading && <p className="p-6 text-body text-muted">Loading…</p>}
-          {!loading && recent.length === 0 && <p className="p-6 text-body text-muted">No recent activity yet.</p>}
+          {!loading && recent.length === 0 && <EmptyState variant="list" title="No recent activity yet." />}
           <div className="mx-auto max-w-3xl">
             {recent.map((r) => (
               <Link
@@ -336,14 +337,17 @@ function MyWorkInner() {
             >
               {loading && <p className="p-6 text-body text-muted">Loading…</p>}
               {noItems && (
-                <p className="p-6 text-center text-body text-muted">
-                  {tab === 'assigned'
-                    ? 'Nothing assigned to you yet. When someone sets you in a Person field, it shows up here.'
-                    : "You haven't created any items yet."}
-                </p>
+                <EmptyState
+                  variant="list"
+                  title={
+                    tab === 'assigned'
+                      ? 'Nothing assigned to you yet. When someone sets you in a Person field, it shows up here.'
+                      : "You haven't created any items yet."
+                  }
+                />
               )}
               {!loading && !noItems && view.queue.length === 0 && choice.grouping === 'none' && (
-                <p className="p-6 text-center text-body text-muted">Your saved filters hide everything. Clear one above to bring items back.</p>
+                <EmptyState variant="list" title="Your saved filters hide everything. Clear one above to bring items back." />
               )}
 
               {choice.grouping === 'none' &&
