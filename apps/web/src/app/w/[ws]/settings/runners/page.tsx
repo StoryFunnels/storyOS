@@ -1,5 +1,6 @@
 'use client';
 
+import { EmptyState } from '@/components/ui/empty-state';
 import { Plus } from 'lucide-react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -91,22 +92,19 @@ export default function RunnersPage() {
           Could not load your Runners. Try again in a moment.
         </p>
       ) : mine.length === 0 ? (
-        <section className="flex flex-col gap-2.5 rounded-[var(--radius-card)] border border-border-strong bg-card p-4" data-testid="no-runner">
-          <h2 className="m-0 text-prose font-semibold text-ink">No Runner yet</h2>
-          <p className="m-0 text-body leading-[1.5] text-ink-secondary">
-            {waitingAgents.length === 1
+        <EmptyState
+          variant="big"
+          data-testid="no-runner"
+          title="No Runner yet"
+          body={`${
+            waitingAgents.length === 1
               ? `${waitingAgents[0]!.name} is hired and waiting. `
               : waitingAgents.length > 1
                 ? `${waitingAgents.length} agents are hired and waiting. `
-                : ''}
-            Add a Runner on the computer where {SUPPORTED_TOOLS} is signed in. No password, nothing to paste: you type a short code once.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={() => setPairing(true)}>
-              Add a Runner
-            </Button>
-          </div>
-        </section>
+                : ''
+          }Add a Runner on the computer where ${SUPPORTED_TOOLS} is signed in. No password, nothing to paste: you type a short code once.`}
+          action={{ label: 'Add a Runner', onClick: () => setPairing(true) }}
+        />
       ) : (
         mine.map((r) => (
           <RunnerRow

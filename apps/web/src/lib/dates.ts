@@ -19,11 +19,6 @@ export function monthMatrix(year: number, month: number): Date[] {
   );
 }
 
-export const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
 /** #470 — day/week calendar mode nav. */
 export function addDays(d: Date, n: number): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);

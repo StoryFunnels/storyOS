@@ -35,7 +35,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return { command: positional[0], positional: positional.slice(1), flags };
 }
 
-export const HELP = `StoryOS Runner: runs your hired agents on this computer, inside your own Claude Code or Cursor.
+export const HELP = `StoryOS Runner: runs your hired agents on this computer, inside your own Claude Code.
 
 Usage
   npx @storyos/runner            Pairs this computer if it is not paired yet, then starts.
