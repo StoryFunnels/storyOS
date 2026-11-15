@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { SECTION_LABEL } from './section-label';
 import { PEEK_TABS } from './peek-tabs';
 import { nextTabIndex, tabId, tabPanelId } from '../ui/tabs';
-import { sourceBadgeLabel, sourceBadgeTitle } from './panels';
+import { sourceBadgeLabel, sourceBadgeTitle } from './source-badge';
 import { ROW_LABEL_CLS, ROW_VALUE_CLS } from './scalar-fields';
 import { describeScalarChange, formatActivityValue, isEmptyActivityValue } from './activity-format';
 import { DEFAULT_REGIONAL, formatDate, formatDateTime } from '@/lib/format';
@@ -263,6 +263,8 @@ describe('item 9: an agent\'s name sits inline in the badge', () => {
     const panels = read('panels.tsx');
     expect(panels).toContain('<SourceBadge source={event.source} agentName={event.agent_name} inlineName />');
     expect(panels).toContain('<SourceBadge source={comment.source} agentName={comment.agent_name} />');
-    expect(panels).toMatch(/isAiSource\(source\) \? 'bg-accent-soft text-accent-text' : 'bg-hover text-primary-text'/);
+    // The one badge lives in source-badge.tsx; panels.tsx carries no copy of it.
+    expect(read('source-badge.tsx')).toMatch(/isAiSource\(source\) \? 'bg-accent-soft text-accent-text' : 'bg-hover text-primary-text'/);
+    expect(panels).not.toContain('function SourceBadge');
   });
 });

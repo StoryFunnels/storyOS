@@ -153,7 +153,7 @@ short-lived credential made for that one run. There is no MCP setup to do.
 An agent's record in the Agents database has two text fields that say where it works:
 
 - **Target databases**: database names, one per entry.
-- **Target spaces**: space names or ids. A space stands for every database *you created* in it. It never covers a system database such as Members (every colleague's email) or the Agents pack: those are reachable only when you name them in **Target databases**.
+- **Target spaces**: space names or ids. A space stands for every user database in it, meaning every database that is not a system one. It never covers a system database such as Members (every colleague's email) or the Agents pack: those are reachable only when you name them in **Target databases**.
 
 Entries are separated by commas or new lines; names are matched ignoring case. A space target is
 **resolved each time it is used**, not copied when the agent is hired, so a database created in that
@@ -163,7 +163,7 @@ An entry that matches nothing, or matches a personal space, is reported as `unre
 dropped silently.
 
 - **`enforced`.** An agent with at least one target space has its scope enforced on its credential: it
-  works in the databases of those spaces plus any it names. An agent with only target databases keeps
+  works in the user databases of those spaces plus any it names. An agent with only target databases keeps
   the behaviour it always had: its Target databases text is its brief, not a boundary.
 - **Who sets it.** A person edits these fields. An agent that tries to change an agent's Target spaces is
   refused with a 403, like its Tools, Model and budget. The hire card's **Works in** picker lists
