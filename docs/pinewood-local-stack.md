@@ -68,13 +68,28 @@ scripts/pinewood/pinewood-rig.sh marek_1269           # createdb -T storyos_agen
 
 `pinewood-rig.sh` prints how many migrations the template carried and how many your checkout added, then the `DATABASE_URL` to use. Re-running it leaves an existing rig's data alone and only migrates; `--recreate` drops that one rig database and clones again. Use a session-unique rig name: two sessions sharing `storyos_test_local` look exactly like a regression.
 
-The template is the only database any of these scripts will ever `DROP`, and only because it is rebuilt from scratch. Nothing here can drop `storyos_pinewood`.
+### What these scripts will drop, and what they will migrate
+
+Only a database they created themselves. A name is not ownership: `storyos_<anything>` matches every peer session's database, and an earlier version of `--recreate` dropped one it had never created.
+
+- Every database a script creates is marked in its own Postgres comment, written right after `createdb`: `pinewood-rig:<db>`, `pinewood-stack:<db>` or `pinewood-template:<db>`. The comment lives and dies with the database, so it survives losing every script, state file and shell.
+- A database that exists without its mark is somebody else's. `--recreate` refuses it, plain migration refuses it, and the standing stack refuses to migrate it. That is exit 2 with `did not create it`, in a dry run as well as a live run: both go through the same function, so the plan never says "would drop" about something the live run would refuse.
+- Rig drops go through one function, `pw_drop_marked_db`, which re-reads the mark immediately before the `DROP`. Every child process that touches a database (`db:migrate`, `seed:agency`) is also checked at the choke point, so a database cannot be migrated just because an earlier check passed.
+- `storyos`, `umh_analytics`, `postgres` and every `storyos_test*` (including `storyos_test_local`) are protected by name and are refused even if somebody puts a mark on them.
+- If Postgres does not answer, that is a refusal, not "the database is absent".
+- If the mark cannot be written after a create, the database is left unmarked on purpose. Every later run refuses it, and the message says so.
+- A database you made by hand (an old `storyos_pinewood`, say) is adopted deliberately, by you: `psql -d postgres -c "COMMENT ON DATABASE storyos_pinewood IS 'pinewood-stack:storyos_pinewood'"`. The scripts never do that for you.
+
+The template is dropped and rebuilt only when it carries its `pinewood-template:` mark. Nothing here can drop `storyos_pinewood`.
+
+A dry run now needs Postgres to be reachable, because deciding whether a database is yours means asking it.
 
 ## What it refuses
 
 Each of these exits with code 2 and a `pinewood: REFUSED:` line, before anything is created or changed. Each has a test in `scripts/pinewood.test.mjs`, and each test was checked by breaking the guard and watching it fail.
 
-- A database that is not `storyos_pinewood*` (or, for the template and rig scripts, not a template or rig name). `umh_analytics`, `storyos` (the shared founder database), `postgres` and the template databases are named as protected.
+- A database that is not `storyos_pinewood*` (or, for the template and rig scripts, not a template or rig name). `umh_analytics`, `storyos` (the shared founder database), `postgres`, the template databases and every `storyos_test*` are named as protected.
+- An existing database that this tooling did not create (no `pinewood-<kind>:<db>` comment), for `--recreate`, for migration and for cloning the template, in a dry run too.
 - A Postgres host that is not `localhost`, `127.0.0.1` or `::1`.
 - A clone that is a git worktree (its `.git` is a file), sits under a `.claude/worktrees` path, is not named `pinewood*`, is not on `main`, has local changes, or contains `apps/api/.env` or `apps/web/.env.local` (a stray `.env` could override the stack's configuration, for example with a real mail key).
 - The ordinary dev ports 3000 and 3001, ports outside 1024-65535, or the API and web on the same port.

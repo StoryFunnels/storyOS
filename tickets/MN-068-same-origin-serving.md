@@ -6,7 +6,7 @@ depends_on: []
 size: S
 ---
 
-Cloud deploys need ONE hostname (os.jamescookmedia.com now, app.storyos.dev later). Today web (:3000) and API (:3001) are separate origins: two DNS records, CORS in play, and `NEXT_PUBLIC_API_URL` baked into the web bundle at build time means any API URL change forces a rebuild. Same-origin serving kills all three problems and is a prerequisite for hostname-based tenant routing later.
+Cloud deploys need ONE hostname (the interim demo hostname now, app.storyos.dev later). Today web (:3000) and API (:3001) are separate origins: two DNS records, CORS in play, and `NEXT_PUBLIC_API_URL` baked into the web bundle at build time means any API URL change forces a rebuild. Same-origin serving kills all three problems and is a prerequisite for hostname-based tenant routing later.
 
 ## Design
 - `caddy` service in docker-compose.yml, sole published ports (80/443). Caddyfile: `/api/*` → api:3001, everything else → web:3000.
