@@ -13,7 +13,7 @@ Base path **`/api/v1`**. JSON only. Auth: `Authorization: Bearer <token>` (sessi
 ```
 GET    /me
 GET|POST         /workspaces
-GET|PATCH|DELETE /workspaces/:ws
+GET|PATCH        /workspaces/:ws                 (no DELETE: to delete a workspace, contact support)
 GET|POST         /workspaces/:ws/spaces          PATCH|DELETE /spaces/:space
 GET|POST         /workspaces/:ws/members         POST /workspaces/:ws/invites
 GET|POST         /workspaces/:ws/databases       (create takes space_id)
