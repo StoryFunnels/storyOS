@@ -17,6 +17,7 @@ import { useWorkspace } from '@/lib/queries';
 import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal, SettingsRow } from '@/components/settings/settings-chrome';
 import { currentWorkspaceId, splitTokens, workspaceLabel } from './token-scope';
 import type { WorkspaceRef } from './token-scope';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface Token {
   id: string;
@@ -125,7 +126,7 @@ function ApiTokensContent() {
       <SettingsPageBody>
         <SettingsBox title={showOthers ? 'Your tokens across all workspaces' : `Your tokens for ${currentName}`} aside={ready ? visible.length : undefined}>
           {!ready && <p className="px-3.5 py-3 text-body text-muted">Loading…</p>}
-          {ready && visible.length === 0 && <p className="px-3.5 py-3 text-body text-muted">No tokens in this workspace yet.</p>}
+          {ready && visible.length === 0 && <EmptyState variant="list" title="No tokens in this workspace yet." />}
           {ready &&
             visible.map((token) => (
               <SettingsRow

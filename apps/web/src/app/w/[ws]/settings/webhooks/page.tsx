@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleHelp, Zap } from 'lucide-react';
+import { CircleHelp } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useDateFormat } from '@/lib/preferences';
@@ -14,6 +14,7 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsPill, SettingsRow } from '@/components/settings/settings-chrome';
 
 /** MN-032. The event names are the activity-event taxonomy (ADR-0004). */
@@ -125,13 +126,11 @@ export default function WebhooksSettingsPage() {
       <SettingsPageBody>
         {hooks.length === 0 ? (
           <SettingsBox>
-            <p className="flex items-start gap-2.5 px-3.5 py-3 text-body text-muted" data-testid="webhooks-empty">
-              <Zap className="mt-0.5 h-[15px] w-[15px] shrink-0" aria-hidden />
-              <span>
-                <b className="font-medium text-ink">No webhooks yet.</b> To call another system from one database, a button or automation with a{' '}
-                {'\u201C'}Send webhook{'\u201D'} step is usually simpler.
-              </span>
-            </p>
+            <EmptyState
+              variant="list"
+              data-testid="webhooks-empty"
+              title={`No webhooks yet. To call another system from one database, a button or automation with a \u201CSend webhook\u201D step is usually simpler.`}
+            />
           </SettingsBox>
         ) : (
           <SettingsBox title="Your webhooks" aside={hooks.length}>
@@ -249,7 +248,7 @@ function Deliveries({ ws, id }: { ws: string; id: string }) {
 
   if (deliveries.isLoading) return <p className="px-4 pb-3 text-label text-muted">Loading…</p>;
   if ((deliveries.data ?? []).length === 0) {
-    return <p className="px-4 pb-3 text-label text-muted">No deliveries yet.</p>;
+    return <EmptyState variant="list" title="No deliveries yet." />;
   }
 
   return (
