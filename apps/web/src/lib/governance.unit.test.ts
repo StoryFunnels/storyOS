@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NO_CREDENTIAL_NOTE,
   NO_CREDENTIAL_WORDS,
+  actionMeta,
+  actionSubject,
+  missingCredentialNote,
   chainOf,
-  describeAction,
+  actionText,
   isAgentAction,
+  isRuleCreationEcho,
   reachWords,
   type AuditEventRow,
   type CredentialDto,
@@ -156,10 +161,50 @@ describe('recent agent actions and their chain (ticket #934)', () => {
     created_at: '2026-10-01T00:00:00Z', revoked_at: null, ...over,
   });
 
-  it('says what the action did, with the record title; an unknown event type is shown, not hidden', () => {
-    expect(describeAction(row())).toBe('Updated “Fix the header”');
-    expect(describeAction(row({ type: 'record.created', payload: {} }))).toBe('Created a record');
-    expect(describeAction(row({ type: 'comment.added', payload: null }))).toBe('comment.added a record');
+  it('says what the action did, with the record title; an unknown event type is shown in plain words, never as its dotted code', () => {
+    // ticket #1306: the wording is the audit log page's (describeAuditEvent); the record's name follows a middle dot.
+    const rec = (title: string | null, over: Record<string, unknown> = {}) => ({
+      id: 'r1', number: 7, title, database_id: 'd1', database_name: 'Tickets', deleted: false, withheld: false, ...over,
+    });
+    expect(actionText(row({ record: rec('Fix the header') }))).toBe('Record updated · “Fix the header”');
+    expect(actionText(row({ type: 'record.created', payload: { title: 'Plan' }, record: rec('Plan') }))).toBe('Created “Plan”');
+    expect(actionText(row({ type: 'record.created', payload: {} }))).toBe('Record created');
+    expect(actionText(row({ type: 'relation.linked', payload: null }))).toBe('Records linked');
+    expect(actionText(row({ type: 'relation.unlinked', payload: { other: { id: 'x', title: 'Acme' } } }))).toBe('Unlinked from “Acme”');
+    expect(actionText(row({ type: 'comment.created', payload: null, record: rec('Fix the header') }))).toBe('Comment added · “Fix the header”');
+    // an older API sends no `record`: the sentence stays the kind of event, it does not guess a name from anywhere else
+    expect(actionText(row({ payload: { title: 'Fix the header' } }))).toBe('Record updated');
+    // a record the reader may not read is "a record": never a name, never an id
+    expect(actionText(row({ record: rec(null, { withheld: true }) }))).toBe('Record updated · a record');
+    // not hidden: an event type with no case still says so, and keeps the dotted code out of the sentence
+    expect(actionText(row({ type: 'thing.was_frobbed', payload: null }))).toBe('Something changed');
+    for (const type of ['relation.linked', 'comment.created', 'attachment.added', 'x.y_z', 'record.updated']) {
+      expect(actionText(row({ type, payload: null }))).not.toMatch(/[a-z]\.[a-z]/);
+    }
+  });
+
+  it('a row leads with the agent; the member it ran as stays the actor (named after "for"), the credential is named when recorded', () => {
+    expect(actionSubject(row({ agent_name: 'Triage agent' }), cred())).toBe('Triage agent');
+    expect(actionSubject(row({ agent_name: null }), cred())).toBe('ci robot');
+    expect(actionSubject(row({ agent_name: null }), undefined)).toBe('A connected AI');
+    expect(actionSubject(row({ agent_name: null, source: 'agent' }), undefined)).toBe('An agent');
+    expect(actionMeta(row({ agent_name: 'Triage agent' }), cred())).toBe('for Alice · credential ci robot');
+    expect(actionMeta(row({ agent_name: 'Triage agent' }), cred({ revoked_at: '2026-10-02T00:00:00Z' }))).toBe('for Alice · credential ci robot (revoked)');
+    // the credential already leads the row when it is the subject: not said twice, but a revocation still is
+    expect(actionMeta(row({ agent_name: null }), cred())).toBe('for Alice');
+    expect(actionMeta(row({ agent_name: null }), cred({ revoked_at: '2026-10-02T00:00:00Z' }))).toBe('for Alice · credential revoked');
+    // no credential recorded: the row does NOT repeat the disclaimer
+    const bare = actionMeta(row({ credential_id: null, agent_name: 'Triage agent' }), undefined);
+    expect(bare).toBe('for Alice');
+    expect(bare).not.toMatch(/credential/i);
+  });
+
+  it('the missing-credential note is one sentence, present only when a row lacks a credential, and never part of a row', () => {
+    expect(missingCredentialNote([{ credential_id: 'c1' }])).toBeNull();
+    expect(missingCredentialNote([])).toBeNull();
+    expect(missingCredentialNote([{ credential_id: null }, { credential_id: null }, { credential_id: 'c1' }])).toBe(NO_CREDENTIAL_NOTE);
+    const meta = actionMeta(row({ credential_id: null }), undefined);
+    expect(meta).not.toContain('before credentials were tracked');
   });
 
   it('lists only what an agent or a token did — never a person’s own edit, never a field-change row', () => {
@@ -172,13 +217,14 @@ describe('recent agent actions and their chain (ticket #934)', () => {
   });
 
   it('the FULL chain, link by link: member, credential, what it could reach, what it may do, agent, action', () => {
-    const steps = chainOf(row({ agent_name: 'Triage' }), cred({ resource_scope: { space_ids: ['s1'], database_ids: ['d1'] } }), names, fmt);
+    const record = { id: 'r1', number: 7, title: 'Fix the header', database_id: 'd1', database_name: 'Tickets', deleted: false, withheld: false };
+    const steps = chainOf(row({ agent_name: 'Triage', record }), cred({ resource_scope: { space_ids: ['s1'], database_ids: ['d1'] } }), names, fmt);
     expect(steps.map((s) => s.label)).toEqual(['Authorised for', 'Credential', 'Could reach', 'Allowed to', 'Agent', 'Action']);
     expect(steps[0]!.value).toBe('Alice');
     expect(steps[1]!.value).toBe('ci robot · Live');
     expect(steps[2]!.value).toBe('Only the space “Support” and the database “Tickets”');
     expect(steps[3]!.value).toBe('Read and change records');
-    expect(steps[5]!.value).toBe('Updated “Fix the header” · on 2026-10-23');
+    expect(steps[5]!.value).toBe('Record updated · “Fix the header” · on 2026-10-23');
     expect(steps.some((s) => s.absent)).toBe(false);
   });
 
@@ -209,5 +255,39 @@ describe('recent agent actions and their chain (ticket #934)', () => {
 
   it('the member is named from the log, and a row with nobody recorded says that', () => {
     expect(chainOf(row({ actor_name: null }), cred(), names, fmt)[0]).toMatchObject({ value: 'Nobody was recorded', absent: true });
+  });
+});
+
+describe('the relation-link echoes of a just-created wake rule (ticket #1284)', () => {
+  const ev = (over: Partial<AuditEventRow>): AuditEventRow => ({
+    kind: 'event', id: 'e', record_id: 'rule1', type: 'record.created', actor_id: 'u1', actor_name: 'Alice', source: 'agent',
+    credential_id: 'c1', agent_id: null, agent_name: null, payload: { title: 'x' }, created_at: '2026-11-14T10:00:00Z', ...over,
+  });
+  const agentOfRule = (id: string) => (id === 'rule1' ? 'ag1' : null);
+  const created = ev({ id: 'e1' });
+  // the two events one link writes: on the rule (other = agent) and its mirror on the agent (other = rule)
+  const onRule = ev({ id: 'e2', type: 'relation.linked', payload: { relation_id: 'rel', other: { id: 'ag1', title: 'Drafter' } }, created_at: '2026-11-14T10:00:01Z' });
+  const onAgent = ev({ id: 'e3', type: 'relation.linked', record_id: 'ag1', payload: { relation_id: 'rel', other: { id: 'rule1', title: 'x' } }, created_at: '2026-11-14T10:00:01Z' });
+
+  it('create + link burst: both link events are echoes and dropped, the creation stays (ONE row)', () => {
+    const all = [onAgent, onRule, created];
+    expect(all.filter((r) => !isRuleCreationEcho(r, all, agentOfRule)).map((r) => r.id)).toEqual(['e1']);
+  });
+
+  it('a genuine later re-link of an existing rule still shows, from either side', () => {
+    const later = { created_at: '2026-11-14T12:00:00Z' };
+    for (const r of [ev({ ...onRule, ...later }), ev({ ...onAgent, ...later })]) expect(isRuleCreationEcho(r, [r, created], agentOfRule)).toBe(false);
+  });
+
+  it('keeps links between any other pair, other actors/sources, other rules, and non-links', () => {
+    const all = [onRule, created];
+    expect(isRuleCreationEcho(ev({ ...onRule, payload: { other: { id: 'other', title: 'Z' } } }), all, agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(ev({ ...onRule, actor_id: 'u2' }), all, agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(ev({ ...onRule, source: 'mcp' }), all, agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(ev({ ...onRule, record_id: 'rule2' }), all, agentOfRule)).toBe(false);
+    // The creation in the window belongs to ANOTHER record: the rule was not just created, so its link is not an echo.
+    expect(isRuleCreationEcho(onRule, [onRule, ev({ id: 'e9', record_id: 'other-record' })], agentOfRule)).toBe(false);
+    expect(isRuleCreationEcho(onRule, all, () => null)).toBe(false);
+    expect(isRuleCreationEcho(created, all, agentOfRule)).toBe(false);
   });
 });

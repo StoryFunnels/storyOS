@@ -55,6 +55,10 @@ import {
 import { SECTION_LABEL } from '@/components/entity/section-label';
 import { Tabs, tabId, tabPanelId } from '@/components/ui/tabs';
 import { PEEK_TABS } from '@/components/entity/peek-tabs';
+import { RECORD_PANEL_TABS, RECORD_SPLIT_QUERY } from '@/components/entity/record-layout';
+import { createCommentDraftStore } from '@/components/entity/comment-draft';
+import type { RecordPanelTab } from '@/components/entity/record-layout';
+import { useMediaQuery } from '@/lib/use-media-query';
 import type { PeekTab } from '@/components/entity/peek-tabs';
 import { AboutPanel, ActivityPanel, AttachmentsStrip, CommentsPanel, useWatchers } from '@/components/entity/panels';
 import { Segmented } from '@/components/ui/segmented';
@@ -442,7 +446,11 @@ export function RecordDetail({
 
   // #740 AC2 — three tabs (Activity/Comments/About), per Ievgen's answer to the
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
-  const [tab, setTab] = useState<'activity' | 'comments' | 'about'>('activity');
+  const [tab, setTab] = useState<RecordPanelTab>('activity');
+  // Ticket #1277 follow-up — owned HERE (this component does not remount across 900px) so a half-typed comment survives the layout switch.
+  const [commentDrafts] = useState(createCommentDraftStore);
+  // Ticket #1277 — 900px and wider the panel is the side column; below it the SAME panel stacks under the fields (record-layout.ts).
+  const sideBeside = useMediaQuery(RECORD_SPLIT_QUERY);
   // Ticket #1277 item 6 — the peek's own tabs: Details (everything the peek already showed) and Comments (the full page's component).
   // Activity stays on the full page only; the peek has no third tab.
   const [peekTab, setPeekTab] = useState<PeekTab>('details');
@@ -586,6 +594,42 @@ export function RecordDetail({
     onToggleZone: toggleZone,
     onCommit: (field: Field, value: unknown) => updateRecord.mutate({ rec: recordId, values: { [field.apiName]: value } }),
   };
+
+  // Ticket #1277 — the Activity / Comments / About panel body, mounted by exactly one of the two layouts (side column or stacked).
+  const panelBody = (
+    <>
+    {tab === 'activity' ? (
+      <ActivityPanel ws={ws} db={db} rec={recordId} />
+    ) : tab === 'comments' ? (
+      !canComment ? (
+        <p className="text-body text-muted">You can view this item but not comment on it.</p>
+      ) : (
+        <CommentsPanel
+          ws={ws}
+          db={db}
+          rec={recordId}
+          members={memberList}
+          currentUserId={session?.user.id ?? ''}
+          isAdmin={workspace.data?.role === 'admin'}
+          drafts={commentDrafts}
+        />
+      )
+    ) : (
+      <AboutPanel
+        ws={ws}
+        db={db}
+        rec={recordId}
+        members={memberList}
+        databaseName={databaseDisplayName(database.data)}
+        spaceName={spaceName}
+        recordNumber={record.data.number}
+        createdAt={record.data.created_at}
+        updatedAt={record.data.updated_at}
+        myAccess={database.data?.my_access}
+      />
+    )}
+    </>
+  );
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
@@ -1160,6 +1204,29 @@ export function RecordDetail({
             readOnly={readOnly}
             hasAttachmentField={allFields.some((f) => f.type === 'attachment')}
           />
+
+          {/* Ticket #1277 (Otto, 2026-11-15) — below 900px the side column cannot fit, so the SAME panel stacks under the fields after a
+              hairline and scrolls with the page (no inner scroll). Fields first, then the tabs; one mounted layout at a time. */}
+          {!peek && !sidePanelCollapsed && !sideBeside && (
+            <section aria-label="Comments and activity" className="mt-6 border-t border-border-default pt-1">
+              <Tabs
+                label="Item panel"
+                idBase={`rec-${recordId}`}
+                options={RECORD_PANEL_TABS}
+                value={tab}
+                onChange={setTab}
+                className="px-0"
+              />
+              <div
+                role="tabpanel"
+                id={tabPanelId(`rec-${recordId}`, tab)}
+                aria-labelledby={tabId(`rec-${recordId}`, tab)}
+                className="py-3.5"
+              >
+                {panelBody}
+              </div>
+            </section>
+          )}
           </div>
         </div>
 
@@ -1196,50 +1263,18 @@ export function RecordDetail({
             never requires scrolling back up. Activity/Comments/About moved
             here from the bottom of MAIN — same three panels, same content,
             just relocated per the design. */}
-        {!sidePanelCollapsed && (
+        {!sidePanelCollapsed && sideBeside && (
         <aside className="hidden w-[344px] shrink-0 flex-col border-l border-border-default min-[900px]:flex">
           <div className="shrink-0 px-2 pt-[7px]">
             <Segmented
               label="Item panel"
-              options={[
-                { value: 'activity', label: 'Activity' },
-                { value: 'comments', label: 'Comments' },
-                { value: 'about', label: 'About' },
-              ]}
+              options={RECORD_PANEL_TABS}
               value={tab}
               onChange={setTab}
             />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
-            {tab === 'activity' ? (
-              <ActivityPanel ws={ws} db={db} rec={recordId} />
-            ) : tab === 'comments' ? (
-              !canComment ? (
-                <p className="text-body text-muted">You can view this item but not comment on it.</p>
-              ) : (
-                <CommentsPanel
-                  ws={ws}
-                  db={db}
-                  rec={recordId}
-                  members={memberList}
-                  currentUserId={session?.user.id ?? ''}
-                  isAdmin={workspace.data?.role === 'admin'}
-                />
-              )
-            ) : (
-              <AboutPanel
-                ws={ws}
-                db={db}
-                rec={recordId}
-                members={memberList}
-                databaseName={databaseDisplayName(database.data)}
-                spaceName={spaceName}
-                recordNumber={record.data.number}
-                createdAt={record.data.created_at}
-                updatedAt={record.data.updated_at}
-                myAccess={database.data?.my_access}
-              />
-            )}
+            {panelBody}
           </div>
         </aside>
         )}

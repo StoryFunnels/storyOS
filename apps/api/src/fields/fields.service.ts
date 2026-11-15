@@ -7,7 +7,8 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { hasFieldValueSql, isEmptyFieldValue } from './field-value-emptiness';
+import { isEmptyFieldValue } from './field-value-emptiness';
+import { countRecordsWithValue, type FieldUsageCount } from './field-usage-count';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type {
   CreatableFieldType,
@@ -260,18 +261,23 @@ export class FieldsService {
    * record holding null, "" or whitespace counted as data and the delete warning over-reported. "Non-empty" is the one definition in
    * `field-value-emptiness.ts`, the same one the text → choice dry run uses for `empty_records`.
    */
-  async usageCount(databaseId: string, fieldId: string): Promise<number> {
-    const [row] = await this.db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(records)
-      .where(
-        and(
-          eq(records.databaseId, databaseId),
-          isNull(records.deletedAt),
-          hasFieldValueSql(records.values, fieldId),
-        ),
-      );
-    return row?.count ?? 0;
+  async usageCount(databaseId: string, fieldId: string, membership?: Membership): Promise<number> {
+    return (await this.usageCounted(databaseId, fieldId, membership)).count;
+  }
+
+  /**
+   * Ticket #1308 — the count together with where it was counted from and whether it is complete for this caller.
+   * `usageCount` used to read only `records.values`, so a relation (rows in `record_links`), the title, the system fields, the computed
+   * types and lookups all reported 0 records while holding data. `field-usage-count.ts` counts each type from its own storage
+   * (`FIELD_VALUE_STORAGE`), in one aggregate query, and narrows what a guest may count the way a record query narrows what they may read.
+   */
+  async usageCounted(databaseId: string, fieldId: string, membership?: Membership): Promise<FieldUsageCount> {
+    const field = await this.getField(databaseId, fieldId);
+    return countRecordsWithValue(
+      { db: this.db, access: this.access, fieldDefs: (id) => this.recordsService.fieldDefs(id) },
+      field,
+      membership,
+    );
   }
 
   /**
@@ -313,7 +319,7 @@ export class FieldsService {
    * points at). Resolved via the same `relations` row shape
    * compileFormulaConfig already reads elsewhere in this file.
    */
-  async usageDetail(databaseId: string, fieldId: string) {
+  async usageDetail(databaseId: string, fieldId: string, membership?: Membership) {
     const field = await this.getField(databaseId, fieldId);
     const apiName = field.apiName;
 
@@ -377,8 +383,13 @@ export class FieldsService {
       }
     }
 
+    // #1308 — `records_with_value` is counted from the field's own storage; `storage` names it, and `complete: false` says the caller's
+    // view of a relation is partial (so the number is a floor for THEM, never a verdict that nothing is stored).
+    const usage = await this.usageCounted(databaseId, fieldId, membership);
     return {
-      records_with_value: await this.usageCount(databaseId, fieldId),
+      records_with_value: usage.count,
+      storage: usage.storage,
+      complete: usage.complete,
       views: referencingViews,
       automations: referencingAutomations,
       formulas: referencingFormulas,

@@ -10,6 +10,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { MembershipEventsService } from '../events/membership-events.service';
 import { MembersDbService } from '../members/members-db.service';
+import { anonymisedEmailFor } from './erased-identity';
 import {
   account,
   accessGrants,
@@ -552,7 +553,7 @@ export class GdprService {
       const footprint = await this.removeWorkspaceFootprint(tx, workspaceId, membershipId, userId, userFieldRefs);
       return {
         anonymized: true,
-        already_anonymized: existing?.email === `deleted-${userId}@anonymized.invalid`,
+        already_anonymized: existing?.email === anonymisedEmailFor(userId),
         user_id: userId,
         scope: 'workspace' as const,
         identity_erased: false as const,
@@ -570,7 +571,7 @@ export class GdprService {
       type: 'membership_erased',
       workspaceId,
       userId,
-      anonymisedEmail: `deleted-${userId}@anonymized.invalid`,
+      anonymisedEmail: anonymisedEmailFor(userId),
       tombstone: true,
     });
     return result;
@@ -600,7 +601,7 @@ export class GdprService {
     for (const m of mine) refsByWorkspace.set(m.workspaceId, await this.userFieldReferences(m.workspaceId, userId));
     // #1080 — read BEFORE the tombstone overwrites it: this is the identifier the erasure has to find and remove everywhere.
     const before = await this.db.query.user.findFirst({ where: eq(user.id, userId), columns: { email: true } });
-    const anonymisedEmail = `deleted-${userId}@anonymized.invalid`;
+    const anonymisedEmail = anonymisedEmailFor(userId);
 
     const result = await this.db.transaction(async (tx) => {
       const totals: Record<string, number> = {};
@@ -611,7 +612,7 @@ export class GdprService {
       }
       await tx
         .update(user)
-        .set({ name: 'Deleted user', email: `deleted-${userId}@anonymized.invalid`, emailVerified: false, image: null, updatedAt: new Date() })
+        .set({ name: 'Deleted user', email: anonymisedEmailFor(userId), emailVerified: false, image: null, updatedAt: new Date() })
         .where(eq(user.id, userId));
       add('sessions', (await tx.delete(session).where(eq(session.userId, userId)).returning()).length);
       add('accounts', (await tx.delete(account).where(eq(account.userId, userId)).returning()).length);
