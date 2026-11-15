@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Test stub for scripts/pinewood.test.mjs (ticket #1269): a fake `psql` over a directory.
+#   $FAKE_PG_DIR/db.<name>  exists = that database exists; its content is its comment
+#   $FAKE_PG_DIR/log        every command received
+#   $FAKE_PG_DIR/DOWN       present = behave like a refused connection
+# Understands only the statements the pinewood scripts send, and fails loudly on any other.
+d="${FAKE_PG_DIR:?}"
+cmd=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h | -p | -U | -d | -v) shift 2 ;;
+    -c | -tAc | -tc) cmd="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+echo "psql: $cmd" >>"$d/log"
+if [ -e "$d/DOWN" ]; then
+  echo "psql: connection refused" >&2
+  exit 2
+fi
+case "$cmd" in
+  *"FROM pg_database WHERE datname = '"*)
+    db="${cmd#*datname = \'}"
+    db="${db%%\'*}"
+    if [ -e "$d/db.$db" ]; then printf 'present|%s\n' "$(cat "$d/db.$db")"; fi
+    ;;
+  "DROP DATABASE "*)
+    db="${cmd#DROP DATABASE \"}"
+    db="${db%\"}"
+    rm -f "$d/db.$db"
+    ;;
+  "COMMENT ON DATABASE "*)
+    db="${cmd#COMMENT ON DATABASE \"}"
+    db="${db%%\"*}"
+    c="${cmd#*IS \'}"
+    c="${c%\'}"
+    printf '%s' "$c" >"$d/db.$db"
+    ;;
+  "SELECT count(*) FROM drizzle"*) echo 3 ;;
+  *)
+    echo "psql stub: unhandled statement: $cmd" >&2
+    exit 3
+    ;;
+esac

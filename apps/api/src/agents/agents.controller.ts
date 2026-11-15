@@ -1,12 +1,14 @@
 import { Body, Controller, Get, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { agentScopeResponseSchema, agentWakeSourcesResponseSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { assertHumanSource } from '../auth/assert-human-source';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { AgentScopeService } from './agent-scope';
+import { AgentWakeSourcesService } from './agent-wake-sources';
 import { AgentsService } from './agents.service';
 
 /**
@@ -34,6 +36,8 @@ const createTriggerSchema = z
   );
 
 class CreateAgentTriggerDto extends createZodDto(createTriggerSchema) {}
+class AgentScopeResponseDto extends createZodDto(agentScopeResponseSchema) {}
+class AgentWakeSourcesResponseDto extends createZodDto(agentWakeSourcesResponseSchema) {}
 
 /** #44: the record to delegate — becomes the run's context (`inputRecordId`). */
 const delegateSchema = z.object({ record_id: z.uuid() });
@@ -60,6 +64,7 @@ export class AgentsController {
   constructor(
     private readonly agents: AgentsService,
     private readonly scope: AgentScopeService,
+    private readonly wakeSources: AgentWakeSourcesService,
   ) {}
 
   @Get()
@@ -170,11 +175,28 @@ export class AgentsController {
     summary:
       "Where this agent works, resolved NOW: its named databases plus every user database in its target spaces (a system database such as Members is covered only when named, never by its space; a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
   })
+  @ApiOkResponse({ type: AgentScopeResponseDto })
   async getAgentScope(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
     const id = await this.agents.resolveAgentId(req.membership, agent);
     const described = await this.scope.describe(req.membership.workspaceId, id);
     if (!described) throw new NotFoundException('Agent not found');
     return { agent_id: id, ...described };
+  }
+
+  /**
+   * Ticket #1289 — everything that can start this agent: its triggers, every automation rule and button that runs it, and the built-in ways. Readable by the agent's
+   * MANAGER and by admins, so the route is `member` and the service refuses anyone else with the unknown-agent 404.
+   */
+  @Get(':agent/wake-sources')
+  @MinRole('member')
+  @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
+  @ApiOperation({
+    summary:
+      "Everything that can start this agent, in `sources[]`: its agent triggers (kind agent_trigger: a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it), every automation rule with a run_agent action for it (kind automation: rule name, its trigger - record created, field change, link or schedule - on/off and its database; a caller who may not read that database's automations gets only the label \"A rule in <database>\" with id, name, enabled and trigger null), every button field with a run_agent action for it (kind button: the button's label and its database), and the built-in ways that apply to every agent (kind built_in, one per reason: mention, manual, approval_decided, must_comment, retry, catch_up), which come last. Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A trigger, rule or button on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name. A re-run of a rule's run_agent action is the rule firing again, not a separate source.",
+  })
+  @ApiOkResponse({ type: AgentWakeSourcesResponseDto })
+  getWakeSources(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {
+    return this.wakeSources.list(req.membership, agent);
   }
 
   @Get(':agent/activity')

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Bot, CheckCheck, Star } from 'lucide-react';
+import { AlertTriangle, Bot, Star } from 'lucide-react';
 import { DatabaseGlyph } from '@/components/database-glyph';
 import { buildDatabaseCards } from '@/lib/home-database-cards';
 import type { DatabaseSummary, Space } from '@/lib/queries';
@@ -12,6 +12,7 @@ import { useDateFormat } from '@/lib/preferences';
 import { actionKindLabel, runStatusLabel } from '@/lib/run-labels';
 import { useAgents } from '@/lib/runners/queries';
 import { reviewState, reviewTitle, showAutomationRuns } from '@/lib/home-blocks';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * #723 — the work blocks on the workspace home page. Ticket #1274: they are no longer gated on an "established"
@@ -151,10 +152,7 @@ export function WorkspaceHomeBlocks({
               <span className="sr-only">Approvals could not be counted yet.</span>
             </p>
           ) : review.kind === 'none' ? (
-            <p className={`${ROW} m-0 text-body text-muted`}>
-              <CheckCheck className="mt-0.5 h-4 w-4 shrink-0" />
-              Nothing is waiting on a person.
-            </p>
+            <EmptyState variant="list" className="px-0" title="Nothing is waiting on a person." />
           ) : (
             pending.slice(0, 5).map((a) => (
               <div key={a.id} className={ROW}>
@@ -188,10 +186,7 @@ export function WorkspaceHomeBlocks({
                 <span className="sr-only">Runs could not be loaded.</span>
               </p>
             ) : recent.length === 0 ? (
-              <p className={`${ROW} m-0 text-body text-muted`}>
-                <Bot className="mt-0.5 h-4 w-4 shrink-0" />
-                No automation runs yet.
-              </p>
+              <EmptyState variant="list" className="px-0" title="No automation runs yet." />
             ) : (
               recent.map((r) => {
                 const bad = isBad(r);
