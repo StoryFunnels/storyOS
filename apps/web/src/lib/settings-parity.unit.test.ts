@@ -315,6 +315,7 @@ const PINS: Record<string, Counts> = {
   "components/settings/setup-disclosure.tsx": { disclosure: 1 },
   "components/settings/settings-sidebar-menu.tsx": { link: 2 },
   "components/social-ingest-setup.tsx": { button: 1 },
+  "components/table-view/relation-chip.tsx": { link: 1 }, // ticket #1287: the record chip on each audit row links to its record; the same chip every table cell draws
   // PINS-END
 };
 

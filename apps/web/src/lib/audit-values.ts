@@ -4,8 +4,9 @@
  * A change names its field ("Name"), and the API already resolved a deleted field to "(deleted field)". A VALUE can still be an id:
  * a better-auth user id (an assignee; 32 letters and digits, NOT a uuid) or a uuid (a select option, a linked record). An id that is a
  * workspace member is shown as that member's name (an exact match, never a guess). An id that is nobody we know is NEVER printed and
- * NEVER explained with a made-up word ("removed", "not shown"): the whole change then reads as "Changed Phase", the clause omitted,
- * until the API sends option labels, relation titles and actor names (Marek, ticket #1287). Everything else is formatted by the one
+ * NEVER explained with a made-up word ("removed", "not shown"): the whole change then reads as "Changed Phase", the clause omitted.
+ * The API now sends option labels and people in words (`old_display`/`new_display`, PR 1535); the row uses those, and this guard is what
+ * remains for an older API or a value type the API leaves raw. Everything else is formatted by the one
  * Activity formatter, so an object value never reaches the page as "[object Object]".
  *
  * An empty "from" reads as "Set Name to …", not "Name: — → …" (ticket #1277's finding, the same row here).
@@ -71,7 +72,7 @@ export function describeFieldChange(
 /**
  * Who an audit row says acted. The API names the member (`actor_name`); "(unknown)" is its word for one it could not resolve, and a
  * name that is itself an id is never printed. Resolve by the id through the members list when there is one, else a neutral "Someone":
- * it asserts nothing (not "removed", not "system") until the API sends the real label (ticket #1287).
+ * it asserts nothing. The API now sends `actor_name` as words ("A former member", "Members sync"), which is used as is.
  */
 export function auditActorLabel(
   actorName: string | null | undefined,

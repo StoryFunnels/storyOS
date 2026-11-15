@@ -22,30 +22,12 @@ import {
   SettingsRefusal,
 } from '@/components/settings/settings-chrome';
 import { SourceBadge } from '@/components/entity/source-badge';
-import { AUDIT_TYPE_FILTERS, describeAuditEvent } from '@/lib/audit-events';
-import { auditActorLabel, describeFieldChange } from '@/lib/audit-values';
+import { AuditWhat, type AuditLogEntry } from '@/components/settings/audit-row';
+import { AUDIT_TYPE_FILTERS } from '@/lib/audit-events';
+import { auditActorLabel } from '@/lib/audit-values';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
 import { EmptyState } from '@/components/ui/empty-state';
-
-interface AuditLogEntry {
-  kind: 'event' | 'field_change';
-  id: string;
-  record_id: string | null;
-  /** Present on kind: 'event' only. */
-  type?: string;
-  /** Present on kind: 'field_change' only. */
-  field?: string;
-  actor_id: string | null;
-  actor_name: string | null;
-  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
-  /** The agent's name when an agent made the write (a snapshot taken then). Null for everything else. */
-  agent_name?: string | null;
-  payload?: unknown;
-  old_value?: unknown;
-  new_value?: unknown;
-  created_at: string;
-}
 
 interface AuditLogPage {
   data: AuditLogEntry[];
@@ -167,11 +149,6 @@ export default function AuditLogPage() {
         ) : (
           <SettingsBox>
             {entries.map((e) => {
-              const event = e.kind === 'event' ? describeAuditEvent(e.type, e.payload) : null;
-              const change =
-                e.kind === 'field_change'
-                  ? describeFieldChange(e.field, e.old_value, e.new_value, memberName)
-                  : null;
               // The API names the member; "(unknown)" is its word for one it could not resolve, and an id is never printed (ticket #1287).
               const actor = auditActorLabel(e.actor_name, e.actor_id, memberName);
               return (
@@ -196,47 +173,7 @@ export default function AuditLogPage() {
                     className="min-w-0 basis-full break-words text-body text-ink-secondary sm:basis-0 sm:flex-1"
                     data-testid="audit-what"
                   >
-                    {event ? (
-                      <>
-                        {event.lead}
-                        {event.name && (
-                          <>
-                            {' '}
-                            <span className="font-medium text-ink">“{event.name}”</span>
-                          </>
-                        )}
-                        {event.tail}
-                        {event.detail && (
-                          <span className="text-muted">
-                            {' '}
-                            · {event.known ? event.detail : `Event code: ${event.detail}`}
-                          </span>
-                        )}
-                      </>
-                    ) : change ? (
-                      <>
-                        {change.kind === 'set' ? (
-                          <>
-                            Set <span className="font-medium text-ink">{change.field}</span> to{' '}
-                            {change.to}
-                          </>
-                        ) : change.kind === 'cleared' ? (
-                          <>
-                            Cleared <span className="font-medium text-ink">{change.field}</span>
-                            <span className="text-muted"> · was {change.from}</span>
-                          </>
-                        ) : change.from === null ? (
-                          <>
-                            Changed <span className="font-medium text-ink">{change.field}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="font-medium text-ink">{change.field}</span>:{' '}
-                            {change.from} → {change.to}
-                          </>
-                        )}
-                      </>
-                    ) : null}
+                    <AuditWhat entry={e} ws={ws} memberName={memberName} />
                   </span>
                   {/* The id is the value the "Record or object ID" filter takes. It is not printed (an id is not a sentence); it is one click away. */}
                   {e.record_id && <CopyRecordIdButton id={e.record_id} />}

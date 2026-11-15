@@ -75,7 +75,10 @@ describe('the audit-log page (#1059)', () => {
   });
   it('sends the type filter and renders structural events through the one describer', () => {
     expect(page).toContain('AUDIT_TYPE_FILTERS');
-    expect(page).toContain('describeAuditEvent'); // which renders structural events through describeStructuralEvent (ticket #1287)
+    // the sentence is built in components/settings/audit-row.tsx (ticket #1287), which renders structural events through describeStructuralEvent
+    expect(page).toContain('<AuditWhat entry={e}');
+    const row = readFileSync(join(__dirname, '../components/settings/audit-row.tsx'), 'utf8');
+    expect(row).toContain('describeAuditEvent(');
   });
   it('(#1287) wears the record Activity source badge, not its own chip, and prints no raw code or id', () => {
     expect(page).toContain("import { SourceBadge } from '@/components/entity/source-badge'");

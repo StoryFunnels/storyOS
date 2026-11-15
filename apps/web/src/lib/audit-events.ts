@@ -73,9 +73,9 @@ export function describeStructuralEvent(type: string | undefined, payload: unkno
  * Ticket #1287 — what an audit row SAYS. One mapping from the API's event code to a person's sentence, so no row shows `record.updated`.
  *
  * A sentence is `lead`, then the bold `name` when the event honestly carries one, then `tail`, then a muted `detail`. The name is only
- * ever a name the event ITSELF carries (a title in its payload, an object's snapshot name): never a guess, never an id. The API does
- * not send a record's current title or database with an audit row (ticket #1287's gap, Marek's API), so a record event names its KIND of
- * event ("Record updated"), never a placeholder noun standing where a name will go.
+ * ever a name the event ITSELF carries (a title in its payload, an object's snapshot name): never a guess, never an id. The record
+ * itself (number, title, database) arrives as `record` on the row and is placed by `components/settings/audit-row.tsx`; this sentence stays
+ * the KIND of event ("Record updated"), never a placeholder noun standing where a name will go.
  *
  * An event code this table has no case for is not hidden and not guessed at: "Something changed", with the code as muted detail.
  * `audit-events.unit.test.ts` derives every code the API can emit from its source and fails on one with no case here.
