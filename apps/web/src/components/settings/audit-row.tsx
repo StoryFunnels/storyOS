@@ -56,14 +56,25 @@ export interface AuditLogEntry {
 export const NO_NAME = '—';
 
 /** The record a row is about, as a chip that links to it, plus the database it lives in. Null when the row has no record. */
-export function AuditRecordRefView({ ws, record, withDatabase = true }: { ws: string; record: AuditRecordRef | null | undefined; withDatabase?: boolean }): ReactNode {
+export function AuditRecordRefView({
+  ws,
+  record,
+  withDatabase = true,
+  linked = true,
+}: {
+  ws: string;
+  record: AuditRecordRef | null | undefined;
+  withDatabase?: boolean;
+  /** False where the row is itself a button (a link inside it would nest interactive elements): the chip draws without its href. */
+  linked?: boolean;
+}): ReactNode {
   if (!record) return null;
   // A record this viewer may not read: the API sends only its id. "a record" is the whole truth; no name, no link.
   if (record.withheld) return <span className="text-muted">a record</span>;
   const title = record.title?.trim() || null;
   // Purged (no row, no names): nothing honest to name.
   if (record.deleted && !title && record.database_id === null) return <span className="text-muted" data-testid="audit-record-gone">{NO_NAME}</span>;
-  const linkable = Boolean(record.database_id) && !record.deleted;
+  const linkable = linked && Boolean(record.database_id) && !record.deleted;
   return (
     <>
       <RelationChip
@@ -77,7 +88,18 @@ export function AuditRecordRefView({ ws, record, withDatabase = true }: { ws: st
   );
 }
 
-export function AuditWhat({ entry: e, ws, memberName }: { entry: AuditLogEntry; ws: string; memberName: (id: string) => string | undefined }) {
+export function AuditWhat({
+  entry: e,
+  ws,
+  memberName,
+  linked = true,
+}: {
+  entry: AuditLogEntry;
+  ws: string;
+  memberName: (id: string) => string | undefined;
+  /** See AuditRecordRefView. Default true: the audit log page links its chips. */
+  linked?: boolean;
+}) {
   const withheld = e.record?.withheld === true;
   if (e.kind === 'event') {
     const event = describeAuditEvent(e.type, e.payload);
@@ -108,7 +130,7 @@ export function AuditWhat({ entry: e, ws, memberName }: { entry: AuditLogEntry; 
         {otherRef ? (
           <>
             {' '}
-            <AuditRecordRefView ws={ws} record={otherRef} withDatabase={false} />
+            <AuditRecordRefView ws={ws} record={otherRef} withDatabase={false} linked={linked} />
           </>
         ) : (
           event.name &&
@@ -123,7 +145,7 @@ export function AuditWhat({ entry: e, ws, memberName }: { entry: AuditLogEntry; 
         {e.record && (
           <>
             {' '}
-            <span className="text-muted">·</span> <AuditRecordRefView ws={ws} record={e.record} />
+            <span className="text-muted">·</span> <AuditRecordRefView ws={ws} record={e.record} linked={linked} />
           </>
         )}
         {event.detail && (
@@ -139,7 +161,7 @@ export function AuditWhat({ entry: e, ws, memberName }: { entry: AuditLogEntry; 
   if (withheld) {
     return (
       <>
-        Changed a field · <AuditRecordRefView ws={ws} record={e.record} />
+        Changed a field · <AuditRecordRefView ws={ws} record={e.record} linked={linked} />
       </>
     );
   }
@@ -172,7 +194,7 @@ export function AuditWhat({ entry: e, ws, memberName }: { entry: AuditLogEntry; 
       {e.record && (
         <>
           {' '}
-          <span className="text-muted">·</span> <AuditRecordRefView ws={ws} record={e.record} />
+          <span className="text-muted">·</span> <AuditRecordRefView ws={ws} record={e.record} linked={linked} />
         </>
       )}
     </>

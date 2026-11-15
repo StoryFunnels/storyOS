@@ -164,6 +164,25 @@ describe('the Join screen draws every state (#1302)', () => {
     expect(t).toContain('Switch account');
     expect(t).not.toContain('Join Pinewood Studio');
   });
+  it('mismatch with a sign-out error: the sentence shows and Switch account is enabled again', () => {
+    const html = render(
+      joinModel({ details: valid, session: { status: 'signed_in', email: 'other@pinewood.example' } }),
+      true,
+      { error: 'Could not sign out. Try again.', busy: false },
+    );
+    expect(text(html)).toContain('Could not sign out. Try again.');
+    expect(html).toContain('data-testid="invite-switch-error"');
+    const switchBtn = html.match(/<button[^>]*>Switch account<\/button>/)?.[0] ?? '';
+    expect(switchBtn).not.toBe('');
+    expect(switchBtn).not.toContain('disabled=""');
+  });
+  it('mismatch without an error draws no error line', () => {
+    const html = render(
+      joinModel({ details: valid, session: { status: 'signed_in', email: 'other@pinewood.example' } }),
+      true,
+    );
+    expect(html).not.toContain('invite-switch-error');
+  });
   for (const status of ['expired', 'used', 'revoked'] as const) {
     it(`${status}: says so, names the inviter, and has no Join button`, () => {
       const html = render(
