@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { RunStatusPill } from './run-status-pill';
 import { useRunDetail } from './run-data';
 import type { RunAction } from './run-data';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const STEP_WORD_TONE: Record<string, string> = {
   failed: 'font-bold text-error',
@@ -190,7 +191,7 @@ export function RunDetailPane({
           ))}
         </ol>
       ) : (
-        <p className="my-3.5 text-body text-muted">No external actions were queued for this run.</p>
+        <EmptyState variant="list" className="px-0" title="No external actions were queued for this run." />
       )}
 
       {run.error && (

@@ -497,6 +497,15 @@ function PercentBar({ field, value }: { field: Field; value: unknown }) {
  */
 const FIELD_LABEL_CLS = 'text-label font-medium text-muted';
 
+/**
+ * Ticket #1277 item 2: the record page's field row is the design's `.frow`: 30px, the label 13px / regular weight in the muted
+ * colour (a 500 weight made the labels compete with the values), the value 13px / regular in the secondary ink. Only the unified
+ * row takes it; the header strip and the body scalar keep FIELD_LABEL_CLS. A value that names its own colour keeps it: this is the
+ * row's INHERITED value colour, so a number or text value (which name none) picks it up.
+ */
+export const ROW_LABEL_CLS = 'text-body font-normal text-muted';
+export const ROW_VALUE_CLS = 'text-ink-secondary';
+
 function FieldTypeGlyph({ type, className }: { type: string; className?: string }) {
   const Icon = fieldTypeIcon(type);
   return <Icon className={cn('h-3.5 w-3.5 shrink-0 text-faint', className)} aria-hidden />;
@@ -613,12 +622,12 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
  */
 export function UnifiedFieldRow({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   return (
-    <div className="group grid grid-cols-[150px_1fr] items-start gap-2.5 rounded-[var(--radius-control)] py-0.5 pr-1.5 hover:bg-hover/50">
-      <span className={cn('flex min-h-[24px] items-center gap-1.5 pt-0.5', FIELD_LABEL_CLS)}>
-        <FieldTypeGlyph type={field.type} />
+    <div className={cn('group grid grid-cols-[150px_1fr] items-start gap-2.5 rounded-[var(--radius-control)] pr-1.5 hover:bg-hover/50', ROW_VALUE_CLS)}>
+      <span className={cn('flex min-h-[30px] items-center gap-1.5', ROW_LABEL_CLS)}>
+        <FieldTypeGlyph type={field.type} className="h-[13px] w-[13px]" />
         <span className="truncate">{field.displayName}</span>
       </span>
-      <div className="flex min-w-0 items-center gap-1">
+      <div className="flex min-h-[30px] min-w-0 items-center gap-1">
         <div className="min-w-0 flex-1">
           <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
         </div>

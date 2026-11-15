@@ -10,12 +10,13 @@ import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { atLeast } from '@/lib/access';
 import { EXPAND_SPACE_EVENT, spaceCollapseKey } from '@/lib/pack-landing';
-import { Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, LayoutTemplate, MoreHorizontal, Plus, Search, Settings, Star, UserRound, X} from 'lucide-react';
+import { Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, MoreHorizontal, Plus, Search, Settings, Star, UserRound, X} from 'lucide-react';
 import { VIEW_ICON } from '@/components/views/view-tab';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { DragPreview, DropIndicator, useDragPresentation, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { RenameInput, RENAME_INPUT_KEY_GUARDS, RENAME_INPUT_POINTER_GUARDS, renameKeyDown } from '@/components/ui/rename-input';
 import { api } from '@/lib/api';
 import { AutomationsPanel } from '@/components/automations-panel';
 import { ImportWizard } from '@/components/import-wizard';
@@ -29,7 +30,7 @@ import { useViewsOnlyMode } from '@/lib/views-only-mode';
 import { useSidebarCollapsed } from '@/lib/sidebar-state';
 import { AccountMenu as AvatarMenu } from '@/components/account-menu';
 import type { DatabaseSummary, Space, SpaceGroup } from '@/lib/queries';
-import { agentSystemKey, isSystemOnlySpace } from '@/lib/system-databases';
+import { agentSystemKey, isMembersDatabase, isSystemOnlySpace } from '@/lib/system-databases';
 import { ManageAccessDialog } from '@/components/access/manage-access-dialog';
 import { canManageAccess, showsLock } from '@/lib/access-model';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
@@ -37,7 +38,7 @@ import { DatabaseGlyph } from '@/components/database-glyph';
 import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
-import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import {
   DropdownMenu,
@@ -50,6 +51,8 @@ import { Input } from '@/components/ui/input';
 import { usePrefetchDatabase } from '@/components/table-view/use-table-data';
 import { cn } from '@/lib/utils';
 import { HIT_AREA_24 } from '@/components/ui/header-action';
+import { SidebarTierLabel } from '@/components/sidebar-tier-label';
+import { SidebarSpacesAddMenu } from '@/components/sidebar-spaces-add-menu';
 import { GlyphSlot, SIDEBAR_INDENT_PX, SidebarRow, type SidebarDepth } from '@/components/sidebar-row';
 import { CARET_HIT_AREA, PHONE_TAP, SIDEBAR_GUIDE_CLASS, markInitials } from '@/components/sidebar-row-style';
 import { databaseRowActive, useDatabaseViewsExpanded, visibleChildViews } from '@/lib/sidebar-views';
@@ -107,7 +110,7 @@ function FavoritesSection({ ws }: { ws: string }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-2">
-      <div className="px-3 pb-1 text-micro font-normal uppercase tracking-[0.16em] text-faint">Favorites</div>
+      <SidebarTierLabel className="mt-0 pb-1">Favorites</SidebarTierLabel>
       <div className="flex flex-col gap-0.5">
         {items.map((f) => (
           // #805 — through SidebarRow + GlyphSlot like every other row. This was
@@ -116,7 +119,7 @@ function FavoritesSection({ ws }: { ws: string }) {
           <SidebarRow key={`${f.target_type}:${f.target_id}`} depth={0} className="hover:bg-hover">
             <Link
               href={f.target_type === 'record' ? `/w/${ws}/d/${f.database_id}/r/${f.target_id}` : `/w/${ws}/d/${f.target_id}`}
-              className="flex min-w-0 flex-1 items-center gap-2 text-body text-ink-secondary"
+              className="flex min-w-0 flex-1 items-center gap-2 text-ink-secondary"
             >
               <GlyphSlot>
                 <Star className="h-3.5 w-3.5 shrink-0 fill-primary-text text-primary-text" />
@@ -305,6 +308,22 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
     [...visibleSpaces.map((sp) => sp.id), ...sortedGroups.map((g) => g.id)],
   );
 
+  // #1094 — ONE click: the space is made as "Untitled space" and opens on its page with the name in edit mode
+  // (marked before navigating, consumed once by the page). New opens what it made. Ticket #1273 item 6: now the + menu's item.
+  const createUntitledSpace = () =>
+    mutations.createSpace.mutate(
+      // Born with a colour: the next hue of the default palette (lib/space-color.ts), never grey.
+      { name: UNTITLED_SPACE, color: nextSpaceColor(spaces.data ?? []) },
+      {
+        onSuccess: (created) => {
+          markNewSpace(created.id);
+          router.push(`/w/${ws}/s/${created.id}`);
+          onCloseMobile?.();
+        },
+        onError: () => toast.error('Could not create space'),
+      },
+    );
+
   // #742 — draggable width (220–460px), replacing the old fixed `w-60`.
   const { width: sidebarWidth, setWidth: setSidebarWidth, persist: persistSidebarWidth } =
     useSidebarNavWidth();
@@ -376,10 +395,11 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
       {/* #742 phase 6 — the merged search box: one affordance for both Search
           and Ask Tyron (previously two separate top-nav rows). Ask Tyron still
           has its own global ⌘J binding (lib/shortcuts.ts) even without its own
-          row here — this box's click always opens the command palette. */}
+          row here — this box's click always opens the command palette.
+          Ticket #1273 item 5 — 28px tall, 12px text, 9px side padding: the prototype's measured field. */}
       <div className="shrink-0 border-b border-border-default px-2 py-1.5">
         <button
-          className="flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-faint hover:border-border-strong max-md:min-h-11"
+          className="flex h-7 w-full items-center gap-2 rounded-[var(--radius-control)] border border-border-default bg-card px-[9px] text-label text-faint hover:border-border-strong max-md:min-h-11"
           onClick={openPalette}
         >
           <Search className="h-3.5 w-3.5 shrink-0" />
@@ -401,11 +421,18 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
             own mb-2 stacked with this mt-1; trimmed to mt-0 since Personal's
             bottom margin already separates the two sections. */}
         <div className="mb-0.5 mt-0 flex items-center justify-between px-3">
-          <span className="text-meta font-semibold uppercase tracking-wider text-muted">Spaces</span>
+          {/* Ticket #1273 — the SAME tier label as AI above it: the shared component, not a second hand-rolled style. */}
+          <SidebarTierLabel className="m-0 p-0">Spaces</SidebarTierLabel>
           <div className="flex items-center gap-0.5">
             <ViewsOnlyModeButton active={viewsOnly} onToggle={toggleViewsOnly} />
+            {/* Ticket #1273 item 6 — New space, From template and New group live in this one + menu (same canEdit gate as the three old controls). */}
             {canEdit && (
-              <NewGroupButton onCreate={(name) => mutations.createGroup.mutate({ name })} />
+              <SidebarSpacesAddMenu
+                creatingSpace={mutations.createSpace.isPending}
+                onNewSpace={createUntitledSpace}
+                onFromTemplate={() => setGalleryOpen(true)}
+                onNewGroup={(name) => mutations.createGroup.mutate({ name })}
+              />
             )}
             {(spaces.data ?? []).length > 0 && (
               <Tooltip label="Collapse all">
@@ -514,44 +541,13 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </DragPreview>
         </DndContext>
 
-        {canEdit && (
-          <NewSpaceButton
-            disabled={mutations.createSpace.isPending}
-            // #1094 — ONE click: the space is made as "Untitled space" and opens on its page with the name in edit mode
-            // (marked before navigating, consumed once by the page). New opens what it made.
-            onCreate={() =>
-              mutations.createSpace.mutate(
-                // Born with a colour: the next hue of the default palette (lib/space-color.ts), never grey.
-                { name: UNTITLED_SPACE, color: nextSpaceColor(spaces.data ?? []) },
-                {
-                  onSuccess: (created) => {
-                    markNewSpace(created.id);
-                    router.push(`/w/${ws}/s/${created.id}`);
-                    onCloseMobile?.();
-                  },
-                  onError: () => toast.error('Could not create space'),
-                },
-              )
-            }
+        {canEdit && galleryOpen && (
+          <TemplateGalleryDialog
+            ws={ws}
+            spaces={spaces.data ?? []}
+            open={galleryOpen}
+            onOpenChange={setGalleryOpen}
           />
-        )}
-        {canEdit && (
-          <>
-            <button
-              className="flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted hover:bg-hover max-md:min-h-11"
-              onClick={() => setGalleryOpen(true)}
-            >
-              <LayoutTemplate className="h-3.5 w-3.5" /> From template
-            </button>
-            {galleryOpen && (
-              <TemplateGalleryDialog
-                ws={ws}
-                spaces={spaces.data ?? []}
-                open={galleryOpen}
-                onOpenChange={setGalleryOpen}
-              />
-            )}
-          </>
         )}
 
         <HiddenSection ws={ws} model={hiddenModel} onUnhide={unhide} onNavigate={onCloseMobile} />
@@ -880,8 +876,10 @@ function WorkspaceSwitcher({ ws, currentName }: { ws: string; currentName?: stri
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex h-11 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover">
-          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-semibold text-ink">
+        <button className="flex h-10 w-full items-center gap-2 border-b border-border-default px-4 text-left hover:bg-hover max-md:h-11">
+          {/* Ticket #1273 item 4 — the prototype's header: 40px, name 14px/700 with -0.01em tracking (the page-title weight).
+              The phone drawer keeps 44px (finger-sized). */}
+          <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-prose font-bold tracking-[-0.01em] text-ink">
             {currentName ?? '…'}
           </span>
           <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -998,7 +996,7 @@ function HiddenRow({
         href={href}
         onClick={onNavigate}
         aria-current={active ? 'page' : undefined}
-        className="flex min-w-0 flex-1 items-center gap-2 text-body text-muted"
+        className="flex min-w-0 flex-1 items-center gap-2 text-muted"
       >
         <GlyphSlot>{mark}</GlyphSlot>
         <span className="overflow-hidden whitespace-nowrap">{name}</span>
@@ -1157,7 +1155,9 @@ function SpaceSection({
 }) {
   // #1058 — the Agentic OS system databases (Agents, Agent runs, Triggers) are reached from the AI section, not listed here.
   // Nothing is deleted or moved: their URLs, views and MCP refs all still resolve.
-  const databases = allSpaceDatabases.filter((d) => agentSystemKey(d) === null);
+  // Ticket #1273 item 6 — and the Members system database is not listed either: Members lives in Settings. Matched on the
+  // `is_system` flag (ADR-0017), never the name alone, so a person's own database called "Members" stays.
+  const databases = allSpaceDatabases.filter((d) => agentSystemKey(d) === null && !isMembersDatabase(d));
   // #417 — the typed-name guard for deleting a space (see the menu item below).
   const confirmDialog = useConfirm();
   const pathname = usePathname();
@@ -1271,6 +1271,7 @@ function SpaceSection({
   };
 
   const [renaming, setRenaming] = useState(false);
+  const renameChosen = useRef(false);
   /**
    * #922 — whether either hover-revealed menu (+ or …) is open. The actions are `display: none`
    * unless the row is hovered or has focus, and an open menu has neither: its content is a
@@ -1805,7 +1806,7 @@ function SpaceSection({
         }
       >
         {renaming ? (
-          <RenameInline
+          <RenameInput
             initial={space.name}
             onDone={(name) => {
               setRenaming(false);
@@ -1904,8 +1905,21 @@ function SpaceSection({
                   </button>
                 </DropdownMenuTrigger>
               </Tooltip>
-              <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+              <DropdownMenuContent
+                onCloseAutoFocus={(e) => {
+                  // #1301 — Rename swaps the header for an input; the menu must not hand focus back to the ⋯ trigger.
+                  if (renameChosen.current) e.preventDefault();
+                  renameChosen.current = false;
+                }}
+              >
+                <DropdownMenuItem
+                  onSelect={() => {
+                    renameChosen.current = true;
+                    setRenaming(true);
+                  }}
+                >
+                  Rename
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setDescribing(true)}>
                   {space.description ? 'Edit description' : 'Add description'}
                 </DropdownMenuItem>
@@ -2152,7 +2166,7 @@ function SpaceSection({
           ))}
           <DragPreview>
             {itemDrag.activeId && (
-              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-body text-ink shadow-[var(--shadow-lifted)]">
+              <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-label text-ink shadow-[var(--shadow-lifted)]">
                 {itemLabel(itemDrag.activeId) ?? ''}
               </div>
             )}
@@ -2319,9 +2333,11 @@ function PromptDialog({
               autoFocus
               value={val}
               onChange={(e) => setVal(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') confirm();
-              }}
+              aria-label="Name"
+              // #1301 — the same guard as every inline rename input (Enter confirms, Escape closes, nothing else leaves).
+              onKeyDown={(e) => renameKeyDown(e, { commit: confirm, cancel: onClose })}
+              {...RENAME_INPUT_KEY_GUARDS}
+              {...RENAME_INPUT_POINTER_GUARDS}
               className="w-full rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-1 text-body text-ink outline-none focus:border-border-strong"
             />
           )}
@@ -2869,7 +2885,7 @@ function DatabaseRow({
       }
     >
       {renaming ? (
-        <RenameInline
+        <RenameInput
           initial={db.name}
           onDone={(name) => {
             setRenaming(false);
@@ -2944,7 +2960,7 @@ function DatabaseRow({
           label={db.name}
           contentClassName="w-56"
           actions={[
-            { label: 'Rename', onSelect: () => setRenaming(true), hidden: !schemaEditable },
+            { label: 'Rename', onSelect: () => setRenaming(true), opensInlineInput: true, hidden: !schemaEditable },
             {
               // #524 — fires immediately, no dialog and no name prompt, matching
               // the view/record duplicate precedent (view-tab.tsx) rather than
@@ -3089,26 +3105,6 @@ function DatabaseRow({
   );
 }
 
-function RenameInline({ initial, onDone }: { initial: string; onDone: (name: string) => void }) {
-  const [value, setValue] = useState(initial);
-  return (
-    <input
-      autoFocus
-      // #717 — plain `rounded` bypassed the radius token; --radius-control is
-      // the fix, not the `<Input>` primitive (its `sm` size would also swap
-      // this compact px-1/py-0.5/border-strong treatment for a restyle).
-      className="w-full rounded-[var(--radius-control)] border border-border-strong bg-card px-1 py-0.5 text-body text-ink"
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => onDone(value.trim())}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onDone(value.trim());
-        if (e.key === 'Escape') onDone(initial);
-      }}
-    />
-  );
-}
-
 /**
  * #742 finding 08 — "three marks, three jobs, no overlap": a coloured letter
  * mark is how a GROUP (and, per the same finding, a SPACE) is told apart from
@@ -3179,7 +3175,7 @@ function GroupHeaderRow({
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <LetterMark name={group.name} color={group.color} />
         {renaming ? (
-          <RenameInline initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
+          <RenameInput initial={group.name} onDone={(v) => { if (v) onRename(v); setRenaming(false); }} />
         ) : (
           <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-meta font-semibold uppercase tracking-wider text-muted">
             {group.name}
@@ -3190,7 +3186,7 @@ function GroupHeaderRow({
         <SidebarRowMenu
           label={group.name}
           actions={[
-            { label: 'Rename', onSelect: () => setRenaming(true) },
+            { label: 'Rename', onSelect: () => setRenaming(true), opensInlineInput: true },
             {
               label: 'Delete group',
               danger: true,
@@ -3246,57 +3242,6 @@ function ViewsOnlyModeButton({ active, onToggle }: { active: boolean; onToggle: 
       )}
     </button>
     </Tooltip>
-  );
-}
-
-function NewGroupButton({ onCreate }: { onCreate: (name: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Tooltip label="New group">
-        <DialogTrigger asChild>
-          <button
-            aria-label="New group"
-            className={cn('rounded p-0.5 text-faint hover:bg-hover hover:text-muted', PHONE_TAP)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </DialogTrigger>
-      </Tooltip>
-      <DialogContent title="New group" unsaved>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (name.trim()) onCreate(name.trim());
-            setName('');
-            setOpen(false);
-          }}
-        >
-          <Input autoFocus placeholder="e.g. Client Work" value={name} onChange={(e) => setName(e.target.value)} />
-          <div className="flex justify-end gap-2">
-            <DialogClose asChild>
-              <Button type="button" variant="secondary" size="sm">Cancel</Button>
-            </DialogClose>
-            <Button type="submit" size="sm" disabled={!name.trim()}>Create</Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function NewSpaceButton({ onCreate, disabled }: { onCreate: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onCreate}
-      disabled={disabled}
-      className="mt-1 flex w-full items-center gap-2 rounded px-2 py-[3px] text-body text-muted disabled:opacity-60 hover:bg-hover max-md:min-h-11"
-    >
-      <Plus className="h-3.5 w-3.5" /> New space
-    </button>
   );
 }
 

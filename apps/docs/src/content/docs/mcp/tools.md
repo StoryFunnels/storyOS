@@ -6,7 +6,7 @@ sidebar:
 ---
 
 The MCP server exposes three families of tools: **read**, **write**, and **build/schema**. Agents
-design the workspace, not just fill it. Always call `get_started` first.
+design the workspace, not just fill it. `get_started` is the orientation tool: it returns the overview, a workspace map, and an index of reference sections.
 
 `get_started` also carries the long reference text that the tool list leaves out, so a client that
 caps tools or context stays light: each tool's listed description is a short lead, and the full
@@ -19,10 +19,10 @@ tabs and dismissed hints) are only offered on the internal profile.
 
 | Tool | What it does |
 |---|---|
-| `get_started` | Orientation, a workspace map, and the filter cheat-sheet. Call first. |
+| `get_started` | Orientation, a workspace map, and the filter cheat-sheet. |
 | `list_workspaces` | Workspaces the token can access. |
 | `list_databases` | Databases in a workspace. |
-| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets. **Read before writing.** |
+| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets: what a write is keyed by. |
 | `search` | Full-text record search — turn a name into a real id. |
 | `query_records` | Filter / sort / paginate records with the structured filter AST. |
 | `get_record` | One record in full, by uuid or public number. |
