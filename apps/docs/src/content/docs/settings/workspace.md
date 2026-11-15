@@ -59,16 +59,21 @@ If the link cannot be used, the screen says so instead of the form:
 |---|---|
 | Expired | "This invite has expired." and to ask the person who invited you (by name, when known) for a new link. |
 | Already used | "This invite was already used." with the same request. |
-| Unknown, or revoked | "This invite link no longer works. Ask whoever invited you for a new link." It names no one. |
+| Revoked | "This invite was revoked." and to ask the person who invited you (by name, when known) for a new link. |
+| Unknown | "This invite link no longer works. Ask whoever invited you for a new link." It names no one. |
 
-A revoked link and a link that never existed look the same on purpose, so nobody can use the screen
-to find out which links exist. Send the person a new invitation, or use **Send again** on one that
-expired. If the screen cannot reach StoryOS at all, it says it could not check the invite and to
-reload, which is different from a dead link.
+The expired, used and revoked screens show the workspace name and a single button: **Sign in**, or
+**Go to my workspaces** when the person is already signed in. A link that never existed looks the same
+as one that was replaced by a newer invitation, on purpose, so nobody can use the screen to find out
+which links exist. Send the person a new invitation, or use **Send again** on one that expired.
+
+If the screen cannot reach StoryOS at all, it says it could not check the invite and to
+reload, which is different from a dead link. If the request fails while someone is joining from the
+form, the button comes back and the screen says "Could not join the workspace. Try again."
 
 For developers: `GET /api/v1/public/invites/details?token=…` needs no sign-in and returns only the
 inviter's name, the workspace name and logo, the invited email and a `status` of `valid`, `expired`,
-`used` or `not_found`. For `not_found` every other field is null. It is limited to 20 requests a
+`used`, `revoked` or `not_found`. For `not_found` every other field is null. It is limited to 20 requests a
 minute per client address. `POST /api/v1/workspaces` with an `invite_token` accepts the invitation
 and creates no workspace; a token that cannot be accepted is refused and creates nothing.
 
