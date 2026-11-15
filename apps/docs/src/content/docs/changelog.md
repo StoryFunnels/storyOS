@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **15 Nov** — An invitation link opens a Join screen that shows who invited you and to which workspace, and joining never creates a new workspace. [Settings: Workspace](/settings/workspace/)
 - **10 Nov** — The install review has a **Wake it automatically** switch for a pack agent's trigger, and each database row names its fields. [Agent triggers install switched off](/guides/pack-manifest/#agent-triggers-install-switched-off)
 - **10 Nov** — Signup opens on **What are you working on?** with Team Board, Dev Tracker and Team Wiki first. [Creating a workspace](/guides/creating-a-workspace/)
 - **10 Nov** — An install that reuses another pack's databases reports them as linked, not created here. [Packs that build on other packs](/guides/pack-manifest/#packs-that-build-on-other-packs)
