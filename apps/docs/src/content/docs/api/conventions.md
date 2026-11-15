@@ -178,6 +178,39 @@ Every refusal carries a stable `error.code`:
 Keyset cursors only — an opaque base64url of `{sort_values, id}`. Responses are
 `{ "data": [...], "next_cursor": "..." | null, "has_more": true }`. No offset pagination anywhere.
 
+## Joining by invite link
+
+Three calls cover an invite link. The person-facing flow is on [Settings: Workspace](/settings/workspace/).
+
+**`GET /api/v1/public/invites/details?token=<token>`** needs no sign-in; the token in the link is the
+only credential. It reads and never accepts. The response is never cached and is limited to 20 reads
+per minute per client address.
+
+```json
+{ "status": "valid", "inviter_name": "...", "workspace_name": "...",
+  "workspace_logo_url": null, "invited_email": "..." }
+```
+
+`status` is `valid`, `expired`, `used`, `revoked` or `not_found`. The other four fields are filled for
+the first four and are all `null` for `not_found`. A token that never existed, is malformed or was
+replaced by a resend returns the same `not_found` body. A revoked invite reads as `revoked` for a
+retention period, then as `not_found`.
+
+**`POST /api/v1/workspaces`** takes `invite_token`. With a token, a signed-in person joins the invited
+workspace and nothing is created: the response is that workspace plus `joined_via_invite: true`.
+`name` is required only when there is no token. A refused token creates nothing.
+
+**`POST /api/v1/invites/accept`** accepts the same token and refuses in the same way. Refusals carry
+these `error.code` values:
+
+| Situation | Status | `error.code` |
+|---|---|---|
+| Unknown, replaced or already accepted token | 404 | `invite_not_found` |
+| Invite past its expiry | 404 | `invite_expired` |
+| Invite revoked by an admin | 404 | `invite_revoked` |
+| Signed in with a different email than the invite | 403 | `invite_email_mismatch` |
+| Already a member of that workspace | 409 | `already_a_member` |
+
 ## Errors — one envelope everywhere
 
 ```json
