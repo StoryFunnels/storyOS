@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { inviteDetailsUrl, fetchInviteDetails, joinFailureFrom, joinWorkspaceBody, parseInviteDetails } from './invite-api';
+import { describe, expect, it, vi } from 'vitest';
+import type { JoinClient } from './invite-api';
+import { acceptInvite, joinWithToken, inviteDetailsUrl, fetchInviteDetails, joinFailureFrom, joinWorkspaceBody, parseInviteDetails } from './invite-api';
 
 const TOKEN = 'pinewoodInviteTokenAbCdEf-_0123456';
 const good = { status: 'valid', inviter_name: 'Maple Ridge', workspace_name: 'Pinewood Studio', workspace_logo_url: null, invited_email: 'a@pinewood.example' };
@@ -58,5 +59,43 @@ describe('joinFailureFrom: the stable codes', () => {
 describe('joinWorkspaceBody', () => {
   it('is the token and nothing that could name a workspace to create', () => {
     expect(joinWorkspaceBody(TOKEN)).toEqual({ invite_token: TOKEN });
+  });
+});
+
+import { joinFailureMessage, joinModel } from './invite-screen';
+
+describe('a thrown request is a failed accept, not an uncaught error (#1302)', () => {
+  const offline = (): JoinClient => ({ POST: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) });
+  const ok = (key: string): JoinClient => ({ POST: vi.fn().mockResolvedValue({ data: { [key]: 'ws-1' } }) });
+  const http = (code: string): JoinClient => ({ POST: vi.fn().mockResolvedValue({ error: { error: { code } } }) });
+
+  it('acceptInvite and joinWithToken resolve to a failure with the retry sentence when fetch throws', async () => {
+    for (const run of [() => acceptInvite(TOKEN, offline()), () => joinWithToken(TOKEN, offline())]) {
+      const r = await run(); // must RESOLVE: a rejection here is the stuck "Joining…" button
+      expect(r).toEqual({ ok: false, failure: 'other' });
+      expect(joinFailureMessage((r as { failure: 'other' }).failure, null)).toBe('Could not join the workspace. Try again.');
+    }
+  });
+  it('the failed attempt leaves the screen un-joined, so the Join button is drawn enabled; a retry then succeeds', async () => {
+    const client = { POST: vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ data: { workspace_id: 'ws-1' } }) } as JoinClient;
+    const first = await acceptInvite(TOKEN, client);
+    expect(first.ok).toBe(false);
+    const details = { status: 'valid' as const, inviter_name: 'Maple Ridge', workspace_name: 'Pinewood Studio', workspace_logo_url: null, invited_email: 'a@pinewood.example' };
+    // not joined after a failure: the one-click screen, not the PR-1558 'joining' one
+    expect(joinModel({ details, session: { status: 'signed_in', email: 'a@pinewood.example' }, joined: false }).kind).toBe('join_one_click');
+    expect(await acceptInvite(TOKEN, client)).toEqual({ ok: true, workspaceId: 'ws-1' });
+    expect(joinModel({ details: { ...details, status: 'used' }, session: { status: 'signed_in', email: 'a@pinewood.example' }, joined: true }).kind).toBe('joining');
+  });
+  it('HTTP errors keep their specific failures and success keeps its id', async () => {
+    expect(await acceptInvite(TOKEN, http('invite_email_mismatch'))).toEqual({ ok: false, failure: 'mismatch' });
+    expect(await acceptInvite(TOKEN, http('invite_expired'))).toEqual({ ok: false, failure: 'expired' });
+    expect(await acceptInvite(TOKEN, http('invite_not_found'))).toEqual({ ok: false, failure: 'not_found' });
+    expect(await joinWithToken(TOKEN, http('already_a_member'))).toEqual({ ok: false, failure: 'already_member' });
+    expect(await acceptInvite(TOKEN, ok('workspace_id'))).toEqual({ ok: true, workspaceId: 'ws-1' });
+    expect(await joinWithToken(TOKEN, ok('id'))).toEqual({ ok: true, workspaceId: 'ws-1' });
+  });
+  it('the token is sent in the body and never appears in the result of a failure', async () => {
+    const r = await acceptInvite(TOKEN, offline());
+    expect(JSON.stringify(r)).not.toContain(TOKEN);
   });
 });
