@@ -103,6 +103,21 @@ export const automationWakeSourceSchema = z.object({
 });
 
 /**
+ * A button field with a run_agent action for this agent: pressing it starts the agent (ticket #1289 send-back). The button belongs to a
+ * database, and its config is readable by anyone who can open that database (it is part of the database's field list), so it is named
+ * for exactly those callers: a button on a database the caller cannot open is counted in `withheld_count`, never listed. Its other
+ * actions, its confirm text and its prompt are never part of this.
+ */
+export const buttonWakeSourceSchema = z.object({
+  kind: z.literal('button'),
+  /** The button FIELD's id. */
+  id: z.uuid(),
+  /** The button's label (the field's display name); null inside a system database (named, never described) and for a deleted database. */
+  name: z.string().nullable(),
+  database: wakeSourceDatabaseSchema,
+});
+
+/**
  * A way to start the agent that nobody configured: it applies to every agent. Listed so "everything that can start an agent" is
  * literally true. `reason` is the runtime's own wake reason (`apps/api/src/runners/wake.constants.ts`), a string here because that list is
  * owned by the wake code and a second copy in this package would be the drift this entry exists to prevent.
@@ -118,8 +133,8 @@ export const builtInWakeSourceSchema = z.object({
 /** GET /workspaces/{ws}/agents/{agent}/wake-sources — everything that can start this agent (ticket #1289). */
 export const agentWakeSourcesResponseSchema = z.object({
   agent_id: z.uuid(),
-  /** Configured sources (agent triggers, then automation rules), then the built-in ones: the built-in set is the same for any reader. */
-  sources: z.array(z.discriminatedUnion('kind', [agentTriggerWakeSourceSchema, automationWakeSourceSchema, builtInWakeSourceSchema])),
+  /** Configured sources (agent triggers, then automation rules, then buttons), then the built-in ones: the built-in set is the same for any reader. */
+  sources: z.array(z.discriminatedUnion('kind', [agentTriggerWakeSourceSchema, automationWakeSourceSchema, buttonWakeSourceSchema, builtInWakeSourceSchema])),
   /** Configured sources on databases the caller cannot open: counted, never named. */
   withheld_count: z.number().int().min(0),
 });

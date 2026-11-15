@@ -4268,7 +4268,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Everything that can start this agent: its agent triggers (a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it) and every automation rule with a run_agent action for it (rule name, its trigger: record created, field change, link, schedule or webhook, on/off, its database). Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A source on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name. */
+        /** Everything that can start this agent, in `sources[]`: its agent triggers (kind agent_trigger: a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it), every automation rule with a run_agent action for it (kind automation: rule name, its trigger - record created, field change, link or schedule - on/off and its database; a caller who may not read that database's automations gets only the label "A rule in <database>" with id, name, enabled and trigger null), every button field with a run_agent action for it (kind button: the button's label and its database), and the built-in ways that apply to every agent (kind built_in, one per reason: mention, manual, approval_decided, must_comment, retry, catch_up), which come last. Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A trigger, rule or button on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name. A re-run of a rule's run_agent action is the rule firing again, not a separate source. */
         get: operations["AgentsController_getWakeSources"];
         put?: never;
         post?: never;
@@ -7484,6 +7484,19 @@ export interface components {
                         timezone?: string;
                     } | null;
                 } | null;
+            } | {
+                /** @enum {string} */
+                kind: "button";
+                /** Format: uuid */
+                id: string;
+                name: string | null;
+                database: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string | null;
+                    exists: boolean;
+                    is_system: boolean;
+                };
             } | {
                 /** @enum {string} */
                 kind: "built_in";

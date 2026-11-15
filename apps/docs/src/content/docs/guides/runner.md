@@ -177,7 +177,8 @@ dropped silently.
 - **Reading what wakes it.** `GET /workspaces/{ws}/agents/{agent}/wake-sources` returns `sources`: the agent's
   triggers (`kind: agent_trigger`, a state or a relation `binding`, `enabled`, `human_gate`) and every automation
   rule with a Run agent action for it (`kind: automation`, `name`, `enabled`, its `database` and `trigger`: record
-  created, field change, link, or schedule), then the **built-in ways** to start any agent (`kind: built_in`: an
+  created, field change, link, or schedule), then every **button** field with a Run agent action for it (`kind: button`, the
+  button's field `id`, `name` and its `database`; pressing it starts the agent), then the **built-in ways** to start any agent (`kind: built_in`: an
   @mention, a manual run or delegation, an approval being decided, the comment backstop, a re-wake, and catch-up),
   which need no setup. A rule's name, on/off state and trigger are shown only to someone who may read that
   database's automations (creator on it); anyone else sees the entry as `label: "A rule in <database>"` with

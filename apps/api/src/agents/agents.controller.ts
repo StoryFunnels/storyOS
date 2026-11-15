@@ -184,7 +184,7 @@ export class AgentsController {
   }
 
   /**
-   * Ticket #1289 — everything that can start this agent: its triggers and every automation rule that runs it. Readable by the agent's
+   * Ticket #1289 — everything that can start this agent: its triggers, every automation rule and button that runs it, and the built-in ways. Readable by the agent's
    * MANAGER and by admins, so the route is `member` and the service refuses anyone else with the unknown-agent 404.
    */
   @Get(':agent/wake-sources')
@@ -192,7 +192,7 @@ export class AgentsController {
   @ApiParam({ name: 'agent', description: "The agent record's uuid or public number" })
   @ApiOperation({
     summary:
-      "Everything that can start this agent: its agent triggers (a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it) and every automation rule with a run_agent action for it (rule name, its trigger: record created, field change, link, schedule or webhook, on/off, its database). Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A source on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name.",
+      "Everything that can start this agent, in `sources[]`: its agent triggers (kind agent_trigger: a record entering a state, or a relation field linking to it, each with on/off and whether a person must start it), every automation rule with a run_agent action for it (kind automation: rule name, its trigger - record created, field change, link or schedule - on/off and its database; a caller who may not read that database's automations gets only the label \"A rule in <database>\" with id, name, enabled and trigger null), every button field with a run_agent action for it (kind button: the button's label and its database), and the built-in ways that apply to every agent (kind built_in, one per reason: mention, manual, approval_decided, must_comment, retry, catch_up), which come last. Readable by the agent's manager and by admins; anyone else gets the same 404 as an unknown agent. A trigger, rule or button on a database the caller cannot open is counted in `withheld_count`, never named; a system database is named but never described; a deleted field, option or database comes back with a null name. A re-run of a rule's run_agent action is the rule firing again, not a separate source.",
   })
   @ApiOkResponse({ type: AgentWakeSourcesResponseDto })
   getWakeSources(@Req() req: WorkspaceRequest, @Param('agent') agent: string) {

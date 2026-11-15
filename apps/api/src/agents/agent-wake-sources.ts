@@ -14,7 +14,7 @@ import { AgentsService } from './agents.service';
 /**
  * Ticket #1289 (Otto's rulings of 2026-11-12 and 2026-11-13) — EVERYTHING that can start an agent, from one call: its agent triggers (records
  * of the Agent Triggers database, state or relation), every automation rule with a `run_agent` action for it (record created / updated /
- * linked, a schedule, an inbound webhook), and the BUILT-IN ways (@mention, a manual run or delegation, an approval being decided, the
+ * linked, a schedule), every BUTTON field with a `run_agent` action for it (pressing the button runs the agent), and the BUILT-IN ways (@mention, a manual run or delegation, an approval being decided, the
  * comment backstop, a re-wake, catch-up) as fixed entries. The built-in list is not written here: it is `BUILT_IN_WAKE_SOURCES` next to
  * `WAKE_REASONS` in wake.constants.ts, typed so a new wake reason cannot be added without an entry. The agent page used to show only the
  * first kind, and said "set in Automations" about the rest.
@@ -128,6 +128,26 @@ export class AgentWakeSourcesService {
             trigger: readable ? automationTrigger(trig, labels) : null,
           };
         },
+      });
+    }
+
+    // 3. Button fields with a run_agent action for this agent. A button's actions are the same action schema a rule uses, and pressing
+    //    it runs the agent through the same runFromAutomation, so it is a way to start the agent that the rule scan cannot see. A deleted
+    //    field is not a button any more (nothing to press), so it is left out; deleting a DATABASE soft-deletes its fields with it, so a
+    //    button on a deleted database is left out the same way (unlike a rule, which outlives its database as a dangling entry). The SQL prefilter keeps only buttons with ANY run_agent action; the agent match is done here, uuid or number alike.
+    const buttons = await this.db
+      .select({ id: fields.id, databaseId: fields.databaseId, config: fields.config })
+      .from(fields)
+      .innerJoin(databases, eq(databases.id, fields.databaseId))
+      .where(and(eq(databases.workspaceId, membership.workspaceId), eq(fields.type, 'button'), isNull(fields.deletedAt), sql`${fields.config} -> 'actions' @> '[{"type":"run_agent"}]'::jsonb`));
+    for (const b of buttons) {
+      const wakes = (((b.config as { actions?: unknown } | null)?.actions as Array<{ type?: string; agent?: unknown }> | undefined) ?? []).some(
+        (a) => a?.type === 'run_agent' && typeof a.agent === 'string' && mine.has(a.agent.trim().toLowerCase()),
+      );
+      if (!wakes) continue;
+      raw.push({
+        databaseId: b.databaseId,
+        build: (db, labels) => ({ kind: 'button', id: b.id, name: labels.field(b.id), database: dbOut(db) }),
       });
     }
 
@@ -261,6 +281,6 @@ function automationTrigger(trig: Record<string, unknown>, labels: Labels) {
 }
 
 /** Agent triggers first (they are the agent's own), then rules; stable inside each. */
-const rank = (s: AgentWakeSource) => (s.kind === 'agent_trigger' ? 0 : s.kind === 'automation' ? 1 : 2);
-const label = (s: AgentWakeSource) => (s.kind === 'automation' ? s.label : s.kind === 'agent_trigger' ? (s.database.name ?? '') : s.title);
+const rank = (s: AgentWakeSource) => (s.kind === 'agent_trigger' ? 0 : s.kind === 'automation' ? 1 : s.kind === 'button' ? 2 : 3);
+const label = (s: AgentWakeSource) => (s.kind === 'automation' ? s.label : s.kind === 'agent_trigger' ? (s.database.name ?? '') : s.kind === 'button' ? (s.name ?? '') : s.title);
 const idOf = (s: AgentWakeSource) => (s.kind === 'built_in' ? s.reason : s.id);

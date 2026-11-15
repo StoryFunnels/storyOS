@@ -328,6 +328,110 @@ describe('#1289 a rule is named only for someone who may read its database autom
 });
 
 /**
+ * #1289 send-back (Vera, head df6aa168): a BUTTON field whose actions include run_agent starts the agent when pressed (the same action
+ * schema a rule uses; the press runs it through runFromAutomation), but only automations were scanned, so the list overclaimed. A button
+ * is its own `kind: button`, gated by the same database visibility as every other source: a database the caller cannot open counts in
+ * `withheld_count`, a system database is named but not described, a deleted field is not a button any more.
+ */
+describe('#1289 a button that runs the agent is a way to start it', () => {
+  let agent: { id: string; number: number };
+  let rival: { id: string; number: number };
+  let byUuid = '', byNumber = '', secretButton = '', otherAgentButton = '', plainButton = '';
+  const SECRET_BUTTON = 'Escalate payroll';
+  const mkButton = async (db: string, name: string, actions: unknown[]): Promise<string> => {
+    const res = await as(admin.token, 'POST', `/workspaces/${ws}/databases/${db}/fields`, { display_name: name, type: 'button', config: { actions } });
+    expect(res.statusCode, res.body).toBe(201);
+    return res.json().id as string;
+  };
+  const wake = (a: string) => ({ type: 'run_agent', agent: a, target: 'trigger_record' });
+  const buttonsOf = async (token: string, a: string) => (await sourcesOf(token, a)).sources.filter((x) => x.kind === 'button');
+
+  beforeAll(async () => {
+    agent = await mkAgent(manager.token, 'Button agent');
+    rival = await mkAgent(other.token, 'Button rival agent');
+    byUuid = await mkButton(ticketsDb, 'Ask the agent', [wake(agent.id)]);
+    byNumber = await mkButton(ticketsDb, 'Ask by number', [{ type: 'add_comment', body_template: 'hi' }, wake(String(agent.number))]);
+    secretButton = await mkButton(secretDb, SECRET_BUTTON, [wake(agent.id)]);
+    // KEPT OUT: a button that runs ANOTHER agent, and a button with no run_agent action at all
+    otherAgentButton = await mkButton(ticketsDb, 'Ask the rival', [wake(rival.id)]);
+    plainButton = await mkButton(ticketsDb, 'Just comment', [{ type: 'add_comment', body_template: 'x' }]);
+    // so the list holds every KIND for this agent: the existing kinds must come out unchanged around the new one
+    await mkTrigger(agent.id, { database_id: ticketsDb, state_field_id: stateField, state_option_id: todoOpt, enabled: true });
+    await mkRule(ticketsDb, 'Button agent rule', { type: 'record_created' }, agent.id);
+  }, 120_000);
+
+  it('an admin sees a button that runs the agent, by uuid or by public number, named by its label and its database', async () => {
+    const out = await sourcesOf(admin.token, agent.id);
+    expect(() => agentWakeSourcesResponseSchema.parse(out)).not.toThrow();
+    const buttons = out.sources.filter((x) => x.kind === 'button');
+    expect(buttons.map((b) => b.id).sort()).toEqual([byUuid, byNumber, secretButton].sort());
+    expect(buttons.find((b) => b.id === byUuid)).toEqual({ kind: 'button', id: byUuid, name: 'Ask the agent', database: { id: ticketsDb, name: 'Tickets', exists: true, is_system: false } });
+    expect(buttons.find((b) => b.id === byNumber)).toMatchObject({ name: 'Ask by number' });
+    expect(buttons.find((b) => b.id === secretButton)).toMatchObject({ name: SECRET_BUTTON, database: { id: secretDb, name: SECRET_DB_NAME } }); // an admin opens it
+    expect(out.withheld_count).toBe(0);
+  });
+
+  it('KEPT: triggers, rules and the built-in ways are unchanged around it, in the order trigger, rule, button, built-in', async () => {
+    const out = await sourcesOf(admin.token, agent.id);
+    expect(out.sources.map((x) => x.kind)).toEqual(['agent_trigger', 'automation', 'button', 'button', 'button', ...Object.keys(BUILT_IN_WAKE_SOURCES).map(() => 'built_in')]);
+    expect(out.sources.filter((x) => x.kind === 'built_in').map((x) => x.reason)).toEqual(Object.keys(BUILT_IN_WAKE_SOURCES));
+    expect(out.sources.find((x) => x.kind === 'automation')).toMatchObject({ name: 'Button agent rule', trigger: { type: 'record_created' } });
+  });
+
+  it('what must be KEPT OUT: a button that runs another agent, and a button with no run_agent action', async () => {
+    const ids = (await buttonsOf(admin.token, agent.id)).map((b) => b.id);
+    expect(ids).not.toContain(otherAgentButton);
+    expect(ids).not.toContain(plainButton);
+    expect((await buttonsOf(admin.token, rival.id)).map((b) => b.id)).toEqual([otherAgentButton]);
+  });
+
+  it('the manager sees the buttons on databases the manager can open; one on a database they cannot is COUNTED, never named', async () => {
+    const res = await read(manager.token, agent.id);
+    expect(res.statusCode, res.body).toBe(200);
+    const out = res.json() as { sources: Array<Record<string, any>>; withheld_count: number };
+    expect(out.sources.filter((x) => x.kind === 'button').map((b) => b.id).sort()).toEqual([byUuid, byNumber].sort());
+    expect(out.withheld_count).toBe(1); // exactly the secret database's button
+    expect(res.body).not.toContain(SECRET_BUTTON);
+    expect(res.body).not.toContain(secretButton);
+    expect(res.body).not.toContain(SECRET_DB_NAME);
+  });
+
+  it('a guest is refused outright and the body never carries a button or a database name', async () => {
+    const res = await read(guest.token, agent.id);
+    expect(res.statusCode).toBe(403);
+    for (const text of ['Ask the agent', SECRET_BUTTON, 'Tickets', secretButton]) expect(res.body).not.toContain(text);
+    const unrelated = await read(other.token, agent.id); // a member who does not manage THIS agent
+    expect(unrelated.statusCode).toBe(404);
+    expect(unrelated.body).not.toContain('Ask the agent');
+  });
+
+  it('a button inside a SYSTEM database is named by database only: its label is not resolved', async () => {
+    const sysDb = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: (await as(admin.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id, name: 'Button internals' })).json().id as string;
+    const b = await mkButton(sysDb, 'Private lever', [wake(agent.id)]);
+    await pool.query('update databases set is_system = true where id = $1', [sysDb]);
+    const res = await read(admin.token, agent.id);
+    expect(res.body).not.toContain('Private lever');
+    expect((res.json().sources as Array<Record<string, any>>).find((x) => x.id === b)).toEqual({ kind: 'button', id: b, name: null, database: { id: sysDb, name: 'Button internals', exists: true, is_system: true } });
+  });
+
+  it('a deleted button field is not listed (nothing left to press), and neither is one on a deleted database (its fields go with it)', async () => {
+    const gone = await mkButton(ticketsDb, 'Soon removed', [wake(agent.id)]);
+    expect((await buttonsOf(admin.token, agent.id)).map((b) => b.id)).toContain(gone);
+    const del = await as(admin.token, 'DELETE', `/workspaces/${ws}/databases/${ticketsDb}/fields/${gone}`, { confirm: true });
+    expect(del.statusCode, del.body).toBeLessThan(300);
+    expect((await buttonsOf(admin.token, agent.id)).map((b) => b.id)).not.toContain(gone);
+
+    const db = (await as(admin.token, 'POST', `/workspaces/${ws}/databases`, { space_id: (await as(admin.token, 'GET', `/workspaces/${ws}/spaces`)).json()[0].id, name: 'Button short lived' })).json().id as string;
+    const dangling = await mkButton(db, 'Dangling lever', [wake(agent.id)]);
+    expect((await as(admin.token, 'DELETE', `/workspaces/${ws}/databases/${db}`, { confirm: 'Button short lived' })).statusCode).toBeLessThan(300);
+    const res = await read(admin.token, agent.id);
+    expect(res.body).not.toContain('Dangling lever');
+    expect(res.body).not.toContain('Button short lived');
+    expect((res.json().sources as Array<Record<string, any>>).some((x) => x.id === dangling)).toBe(false);
+  });
+});
+
+/**
  * #1289 (Otto, 2026-11-13) - "everything that can start an agent" has to be true: the built-in ways are listed as fixed entries, and they
  * come from the wake code's own reason list rather than a second copy that can drift from it.
  */
