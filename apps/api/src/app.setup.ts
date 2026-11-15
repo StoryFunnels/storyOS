@@ -134,6 +134,10 @@ function registerRawBodyJsonParser(app: NestFastifyApplication) {
       // request.url carries the query string; the allowlist is path-only.
       const path = request.url.split('?')[0] ?? '';
       if (needsRawBody(path)) (request as RawBodyRequest).rawBody = body;
+      // #1299 - a DELETE that says `application/json` but sends nothing (curl -H, most HTTP clients, agents) is "no body", not a broken
+      // document. Fastify's default answers it 400 before routing, which hid the route's own answer (a 404 for a route that does not
+      // exist, the typed-name refusal on delete-space). Only DELETE: a POST/PATCH that needs a body still gets the 400.
+      if (request.method === 'DELETE' && body.length === 0) return done(null, undefined);
       defaultJsonParser(request, body.toString('utf8'), done);
     },
   );
