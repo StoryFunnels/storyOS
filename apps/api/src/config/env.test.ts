@@ -142,6 +142,19 @@ describe('resolveConnectionsMasterKey', () => {
       );
     });
 
+    it('names the variable, and never echoes a rejected value (#1286)', () => {
+      const secretish = 'hunter2-not-hex-but-someones-real-password';
+      let message = '';
+      try {
+        resolveConnectionsMasterKey('production', secretish, AUTH_SECRET);
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toContain('CONNECTIONS_MASTER_KEY');
+      expect(message).not.toContain(secretish);
+      expect(message).not.toContain(AUTH_SECRET);
+    });
+
     it('accepts a strong 64-char hex key', () => {
       expect(resolveConnectionsMasterKey('production', STRONG_HEX, AUTH_SECRET)).toBe(STRONG_HEX);
     });

@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { Select } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Input } from '@/components/ui/input';
 import { Check, Filter as FilterIcon, Pencil, Plus, Trash2 } from 'lucide-react';
@@ -31,6 +32,7 @@ import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { DashboardBlockShell } from './dashboard-block-shell';
 import { mergeBlocks, reorderBlocks, splitBlocks } from './dashboard-layout';
 import type { BlockLayout } from '@storyos/schemas';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /** One metric tile in a dashboard view's config (mirrors dashboardTileSchema). */
 export interface DashboardTile {
@@ -498,26 +500,25 @@ export function DashboardView({
           it, so entering edit mode never covers the thing being edited. */}
       {!readOnly && !isEmpty && (
         <div className="mb-3 flex items-center justify-end">
-          <button
+          <Button
             type="button"
             onClick={() => setEditing((e) => !e)}
             aria-pressed={editing}
-            className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-2.5 py-1 text-body text-ink-secondary hover:bg-hover"
+            variant="secondary"
           >
             {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
             {editing ? 'Done' : 'Edit'}
-          </button>
+          </Button>
         </div>
       )}
 
       {isEmpty && (
-        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <p className="text-sm text-muted">Nothing on this dashboard yet.</p>
-          {!readOnly && (
-            <p className="text-body text-muted">
-              Add a metric tile (count, sum, average) or a chart grouped by a field.
-            </p>
-          )}
+        <div className="py-10">
+          <EmptyState
+            variant="big"
+            title="Nothing on this dashboard yet."
+            body={readOnly ? undefined : 'Add a metric tile (count, sum, average) or a chart grouped by a field.'}
+          />
         </div>
       )}
 

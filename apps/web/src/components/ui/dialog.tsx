@@ -12,12 +12,15 @@ export const DialogClose = DialogPrimitive.Close;
 
 export function DialogContent({
   title,
+  titleClassName,
   children,
   className,
   unsaved,
   onCloseAutoFocus,
 }: {
   title: string;
+  /** Replaces the title's default type (16px/600): a dialog whose design draws a different heading says so here. */
+  titleClassName?: string;
   children: ReactNode;
   className?: string;
   /** #962 — this dialog is a form with a Save button: Back asks "Discard changes?" once anything in it has been
@@ -43,7 +46,7 @@ export function DialogContent({
         )}
       >
         <BackLayer guard={unsaved ? content : undefined} />
-        <DialogPrimitive.Title className="mb-4 text-base font-semibold text-ink">
+        <DialogPrimitive.Title className={cn('mb-4 text-base font-semibold text-ink', titleClassName)}>
           {title}
         </DialogPrimitive.Title>
         {children}

@@ -17,6 +17,14 @@ function colorFor(userId: string): string {
   return OPTION_COLORS[COLOR_KEYS[Math.abs(hash) % COLOR_KEYS.length]!]!;
 }
 
+/** How far toward black the palette colour is mixed so white initials reach 4.5:1 on every one of them (ticket #1277 item 4). */
+export const AVATAR_DARKEN = 0.15;
+
+/** The avatar's solid fill: the palette colour, a notch darker. A pure function so the test can recompute the contrast. */
+export function avatarFill(color: string): string {
+  return `color-mix(in srgb, ${color} ${Math.round((1 - AVATAR_DARKEN) * 100)}%, black)`;
+}
+
 function initials(name: string, single: boolean): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return '?';
@@ -25,7 +33,7 @@ function initials(name: string, single: boolean): string {
   return first + words[words.length - 1]![0]!.toUpperCase();
 }
 
-const SIZES = { 16: 'h-4 w-4 text-[8px]', 18: 'h-[18px] w-[18px] text-[9px]', 20: 'h-5 w-5 text-[9px]', 24: 'h-6 w-6 text-micro', 32: 'h-8 w-8 text-label', 64: 'h-16 w-16 text-[22px]' } as const;
+const SIZES = { 16: 'h-4 w-4 text-[8px]', 18: 'h-[18px] w-[18px] text-[10px]', 20: 'h-5 w-5 text-[9px]', 24: 'h-6 w-6 text-micro', 32: 'h-8 w-8 text-label', 64: 'h-16 w-16 text-[22px]' } as const;
 
 export function Avatar({
   userId,
@@ -58,19 +66,15 @@ export function Avatar({
     <span
       title={name}
       className={cn(
-        'option-tint inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold',
+        'inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold tracking-[-0.05em] text-white',
         SIZES[size],
         className,
       )}
-      /* #638 — the third instance of the same theme-blind pairing (OptionChip and
-         icon-picker's IconPreview are the others): an 18%-alpha wash of the
-         palette colour with that colour at full strength as the initials. The
-         wash follows the theme, the ink did not, so 88 of 90 colour/surface/
-         theme combinations failed AA — worst indigo 2.37 on a dark card. Shares
-         OptionChip's derivation rather than growing a fourth mechanism. */
-      style={
-        { backgroundColor: `${color}2E`, ['--option-color' as string]: color } as CSSProperties
-      }
+      /* Ticket #1277 item 4: ONE avatar everywhere, the design's: a SOLID per-person colour with white initials (it was an
+         18% wash with the colour as the ink, #638). White on the raw palette fails 4.5:1 for gold, orange and teal (3.6 to
+         4.2), so the fill is the palette colour mixed 15% toward black: the worst of all fifteen is 4.8:1. The mix is one
+         constant (AVATAR_DARKEN) and avatar.unit.test.ts recomputes the ratio for every palette colour. */
+      style={{ backgroundColor: avatarFill(color) } as CSSProperties}
     >
       {initials(name, size <= 16)}
     </span>

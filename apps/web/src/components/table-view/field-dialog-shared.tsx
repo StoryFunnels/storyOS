@@ -47,6 +47,7 @@ import { OPTION_COLORS } from './cells';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { FormulaEditor } from './formula-editor';
 import type { Field } from './use-table-data';
+import { Button } from '@/components/ui/button';
 
 export const FIELD_TYPES: Array<{
   value: string;
@@ -584,9 +585,9 @@ function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; o
         <p className="text-body text-muted">
           Not configured — a board can&rsquo;t group by this field until it has bins.
         </p>
-        <button
+        <Button
           type="button"
-          className="w-fit rounded-[var(--radius-control)] border border-border-default px-3 py-1.5 text-sm text-ink hover:bg-hover"
+          variant="secondary" className="w-fit"
           onClick={() =>
             onChange([
               { label: 'Low', min: null, max: 50 },
@@ -595,7 +596,7 @@ function NumberBinsEditor({ bins, onChange }: { bins: NumberBin[] | undefined; o
           }
         >
           Configure bins
-        </button>
+        </Button>
       </div>
     );
   }

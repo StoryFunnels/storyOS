@@ -2,7 +2,7 @@
 
 import { AgentActions } from '@/components/governance/agent-actions';
 import { DefaultAgentModel } from '@/components/governance/default-agent-model';
-import { SettingsBox, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
+import { SettingsBox, SettingsPageHeader, SettingsRefusal, SettingsRow } from '@/components/settings/settings-chrome';
 import { Switch } from '@/components/ui/switch';
 import { useSkillSharing } from '@/lib/skill-sharing';
 import { useParams } from 'next/navigation';
@@ -24,6 +24,7 @@ import {
   type ApprovalDto,
   type GatePolicyDto,
 } from '@/lib/governance';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const SCOPE_WORDS = { read: 'Read only', write: 'Read and change', admin: 'Admin' } as const;
 const WHERE_WORDS = { workspace: 'Whole workspace', space: 'One space', database: 'One database' } as const;
@@ -113,10 +114,7 @@ export default function AgentRulesPage() {
   if (workspace.isLoading) return <p className="p-8 text-body text-muted">Loading…</p>;
   if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Agent rules</h1>
-        <p className="text-body text-muted">Only workspace admins can see this page.</p>
-      </div>
+      <SettingsRefusal title="Agent rules">Only workspace admins can see this page.</SettingsRefusal>
     );
   }
 
@@ -173,10 +171,11 @@ export default function AgentRulesPage() {
 
           <Section title="Agents" lead="What each agent declares it may do. When StoryOS runs an agent, the run is held to this.">
             {!agentsDbId || agents.length === 0 ? (
-              <p className="text-body text-muted">
-                No agents are set up in this workspace. This page lists agents defined here; it does not list API
-                tokens or connected AI clients, which can still act as the person who created them.
-              </p>
+              <EmptyState
+                variant="list"
+                className="px-0"
+                title="No agents are set up in this workspace. This page lists agents defined here; it does not list API tokens or connected AI clients, which can still act as the person who created them."
+              />
             ) : (
               <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
                 {agents.map((a) => (
@@ -227,7 +226,7 @@ export default function AgentRulesPage() {
             lead={`${pending.length} waiting. Of the latest ${summary.shown}: ${summary.approved} approved, ${summary.rejected} rejected, ${summary.expired} expired.`}
           >
             {recent.length === 0 ? (
-              <p className="text-body text-muted">Nobody has decided an approval yet.</p>
+              <EmptyState variant="list" title="Nobody has decided an approval yet." className="px-0" />
             ) : (
               <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default">
                 {recent.map((a) => (

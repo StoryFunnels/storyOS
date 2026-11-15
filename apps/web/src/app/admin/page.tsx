@@ -9,6 +9,8 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatDate, formatDateTime } from '@/lib/format';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -376,13 +378,13 @@ export default function AdminPage() {
 
         <div className="mb-1 mt-6 flex items-baseline justify-between">
           <h3 className="text-body font-medium text-ink-secondary">Per-workspace</h3>
-          <button
+          <Button
             type="button"
             onClick={() => downloadCsv(c.workspaces)}
-            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover"
+            variant="secondary"
           >
             Download CSV
-          </button>
+          </Button>
         </div>
         <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border-default">
           <table className="w-full text-left text-body">
@@ -461,7 +463,9 @@ export default function AdminPage() {
               <tbody>
                 {runs.data.length === 0 && (
                   <tr>
-                    <Td className="text-muted">No runs on this instance yet.</Td>
+                    <Td colSpan={99} className="p-0">
+                      <EmptyState variant="list" title="No runs on this instance yet." />
+                    </Td>
                   </tr>
                 )}
                 {runs.data.map((r) => {
@@ -480,7 +484,7 @@ export default function AdminPage() {
                       <Td>{r.finishedAt ? formatDateTime(r.finishedAt) : '—'}</Td>
                       <Td>
                         {cancelable && (
-                          <button
+                          <Button
                             type="button"
                             disabled={cancelRun.isPending && cancelingId === r.id}
                             onClick={async () => {
@@ -496,10 +500,10 @@ export default function AdminPage() {
                                 return;
                               cancelRun.mutate(r);
                             }}
-                            className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
+                            variant="secondary"
                           >
                             {cancelRun.isPending && cancelingId === r.id ? 'Canceling…' : 'Cancel'}
-                          </button>
+                          </Button>
                         )}
                       </Td>
                     </tr>
@@ -529,7 +533,7 @@ export default function AdminPage() {
         {packSubmissions.data && (
           <div className="flex flex-col gap-2">
             {packSubmissions.data.length === 0 && (
-              <p className="text-body text-muted">No submissions yet.</p>
+              <EmptyState variant="list" title="No submissions yet." />
             )}
             {packSubmissions.data.map((s) => (
               <div
@@ -563,7 +567,7 @@ export default function AdminPage() {
                     >
                       Approve &amp; publish
                     </button>
-                    <button
+                    <Button
                       type="button"
                       disabled={reviewSubmission.isPending}
                       onClick={() => {
@@ -571,10 +575,10 @@ export default function AdminPage() {
                           window.prompt('Reason for rejecting (shown to the author):') ?? undefined;
                         reviewSubmission.mutate({ id: s.id, action: 'reject', notes });
                       }}
-                      className="rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
+                      variant="secondary"
                     >
                       Reject
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -786,7 +790,7 @@ function BillingSection() {
                 <p className="mt-0.5 text-label text-ink-secondary">
                   &ldquo;{b.override.reason}&rdquo; — {b.override.createdBy}
                 </p>
-                <button
+                <Button
                   type="button"
                   disabled={clearOverrideMutation.isPending}
                   onClick={async () => {
@@ -803,10 +807,10 @@ function BillingSection() {
                       return;
                     clearOverrideMutation.mutate(reason.trim());
                   }}
-                  className="mt-2 rounded-[var(--radius-control)] border border-border-default px-2 py-1 text-label text-ink-secondary hover:bg-hover disabled:opacity-50"
+                  variant="secondary" className="mt-2"
                 >
                   {clearOverrideMutation.isPending ? 'Clearing…' : 'Clear override'}
-                </button>
+                </Button>
               </div>
             ) : (
               <p className="mt-2 border-t border-border-default pt-2 text-label text-muted">
@@ -862,13 +866,13 @@ function BillingSection() {
                 size="sm"
                 className="mb-2 w-full"
               />
-              <button
+              <Button
                 type="submit"
                 disabled={setPlanMutation.isPending || !planReason.trim()}
-                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-label font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                variant="primary"
               >
                 {setPlanMutation.isPending ? 'Setting…' : 'Set plan'}
-              </button>
+              </Button>
             </form>
 
             <form
@@ -933,13 +937,13 @@ function BillingSection() {
                 size="sm"
                 className="mb-2 w-full"
               />
-              <button
+              <Button
                 type="submit"
                 disabled={setOverrideMutation.isPending || !overrideReason.trim()}
-                className="rounded-[var(--radius-control)] bg-primary px-2 py-1 text-label font-medium text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-50"
+                variant="primary"
               >
                 {setOverrideMutation.isPending ? 'Saving…' : 'Save override'}
-              </button>
+              </Button>
             </form>
           </div>
 
@@ -957,7 +961,9 @@ function BillingSection() {
               <tbody>
                 {b.auditTrail.length === 0 && (
                   <tr>
-                    <Td className="text-muted">No changes recorded for this workspace yet.</Td>
+                    <Td colSpan={99} className="p-0">
+                      <EmptyState variant="list" title="No changes recorded for this workspace yet." />
+                    </Td>
                   </tr>
                 )}
                 {b.auditTrail.map((e) => (
@@ -1022,6 +1028,10 @@ function Th({ children }: { children: ReactNode }) {
   return <th className="px-3 py-2 font-medium">{children}</th>;
 }
 
-function Td({ children, className }: { children: ReactNode; className?: string }) {
-  return <td className={`px-3 py-2 text-ink ${className ?? ''}`}>{children}</td>;
+function Td({ children, className, colSpan }: { children: ReactNode; className?: string; colSpan?: number }) {
+  return (
+    <td colSpan={colSpan} className={`px-3 py-2 text-ink ${className ?? ''}`}>
+      {children}
+    </td>
+  );
 }

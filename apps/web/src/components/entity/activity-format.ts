@@ -5,9 +5,13 @@
  * `String()` as an object.**
  *
  * What a stored value can be, by field type, and what it renders:
- *   text / url / email / color / date ... the string as stored (formatting dates here
- *                                          would make history the one surface that does;
- *                                          #335 refused that)
+ *   text / url / email / color ......... the string as stored
+ *   date / created_at / updated_at ...... through the viewer's ONE date formatter (`lib/format.ts`, #1005), exactly as the
+ *                                          field's own cell shows it. #335 once kept history raw so that it would not be
+ *                                          "the one surface that formats"; the cell has since been the shared formatter
+ *                                          everywhere (#1005), so raw history became the odd one out: "2026-11-12 →
+ *                                          2026-11-13" under a field that reads "Nov 14" (ticket #1277 item 7). A value the
+ *                                          formatter cannot read is shown as stored, never blank.
  *   number / checkbox ................... String(value), a primitive
  *   select / multi_select / workflow .... labels (the API already resolved option ids)
  *   user / created_by / updated_by ...... the member's NAME; a removed member renders
@@ -71,23 +75,64 @@ function describeObject(value: Record<string, unknown>): string {
   return OBJECT_PLACEHOLDER;
 }
 
+/** The viewer's date formatter, as `useDateFormat()` returns it. Optional so a caller with none gets the stored string. */
+export interface ActivityDates {
+  date: (value: unknown) => string;
+  dateTime: (value: unknown) => string;
+}
+
 export function formatActivityValue(
   value: unknown,
   fieldType: string | undefined,
   memberName: (id: string) => string | undefined,
+  dates?: ActivityDates,
 ): string {
   if (value === null || value === undefined) return 'empty';
   if (Array.isArray(value)) {
     if (value.length === 0) return 'empty';
     if (fieldType === 'rich_text' || value.some(isBlockLike)) return describeBlocks(value);
-    return value.map((v) => formatActivityValue(v, fieldType, memberName)).join(', ');
+    return value.map((v) => formatActivityValue(v, fieldType, memberName, dates)).join(', ');
   }
   if (isObject(value)) return describeObject(value);
+  if (dates && (fieldType === 'date' || fieldType === 'created_at' || fieldType === 'updated_at') && (typeof value === 'string' || typeof value === 'number')) {
+    // The same split the cell makes (cells.tsx): a plain date field shows the day, a system timestamp the day and time.
+    const shown = fieldType === 'date' ? dates.date(value) : dates.dateTime(value);
+    return shown || String(value);
+  }
   if (fieldType && USER_ID_FIELD_TYPES.has(fieldType) && typeof value === 'string') {
     return memberName(value) ?? REMOVED_MEMBER_LABEL;
   }
   // Only primitives (string / number / boolean / bigint / symbol-free) can be here.
   return String(value);
+}
+
+/** A value that reads as "nothing": null, undefined, an empty string, an empty list. */
+export function isEmptyActivityValue(v: unknown): boolean {
+  return v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+}
+
+/**
+ * How one scalar change is worded (ticket #1277 item 8). "Name: → Refresh emails" and "Kurz: kurz 1 →" read as a broken
+ * sentence: the empty side is not a value to print. An empty old value is a SET, an empty new value is a CLEAR, and only a
+ * change from one value to another is "A → B". `from` / `to` are already formatted by `formatActivityValue`.
+ */
+export type ScalarChangeLine =
+  | { kind: 'set'; to: string }
+  | { kind: 'cleared'; from: string }
+  | { kind: 'changed'; from: string; to: string };
+
+export function describeScalarChange(
+  change: { from: unknown; to: unknown },
+  fieldType: string | undefined,
+  memberName: (id: string) => string | undefined,
+  dates?: ActivityDates,
+): ScalarChangeLine {
+  const fmt = (v: unknown) => formatActivityValue(v, fieldType, memberName, dates);
+  const fromEmpty = isEmptyActivityValue(change.from);
+  const toEmpty = isEmptyActivityValue(change.to);
+  if (fromEmpty && !toEmpty) return { kind: 'set', to: fmt(change.to) };
+  if (toEmpty && !fromEmpty) return { kind: 'cleared', from: fmt(change.from) };
+  return { kind: 'changed', from: fmt(change.from), to: fmt(change.to) };
 }
 
 /**

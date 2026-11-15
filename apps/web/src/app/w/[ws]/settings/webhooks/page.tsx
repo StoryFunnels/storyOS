@@ -14,6 +14,8 @@ import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/components/
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { AdvancedSection, SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /** MN-032. The event names are the activity-event taxonomy (ADR-0004). */
 const EVENTS = [
@@ -113,51 +115,23 @@ export default function WebhooksSettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-ink">Webhooks</h1>
-        <CreateWebhookDialog ws={ws} databases={databases.data ?? []} />
-      </div>
-      <p className="mb-2 text-body text-muted">
-        A webhook is a message StoryOS sends to a URL of your choice whenever something
-        happens here — a record gets created, updated, or changed. It&apos;s how you push
-        those changes into an automation tool like <span className="text-ink">n8n</span>,{' '}
-        <span className="text-ink">Make</span>, or <span className="text-ink">Zapier</span>,
-        or into your own app.
-      </p>
-      <p className="mb-4 text-body text-muted">
-        Add one below with the URL your tool gives you, and choose which changes should
-        trigger it. Failed deliveries are retried automatically for about 15 minutes.
-      </p>
-
-      <details className="mb-6 rounded-[var(--radius-card)] border border-border-default bg-card px-3 py-2">
-        <summary className="cursor-pointer select-none text-body font-medium text-ink">
-          Advanced — for developers
-        </summary>
-        <p className="mt-2 text-body text-muted">
-          Each payload is signed so you can verify it really came from StoryOS: check the{' '}
-          <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> header against{' '}
-          <code className="rounded bg-hover px-1">
-            sha256=HMAC(secret, &quot;{'{timestamp}'}.{'{body}'}&quot;)
-          </code>{' '}
-          using the timestamp in{' '}
-          <code className="rounded bg-hover px-1">X-StoryOS-Timestamp</code>. Most no-code
-          tools handle this for you and don&apos;t need it at all.{' '}
-          <a
-            href="https://docs.storyos.dev/concepts/webhooks"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-ink underline underline-offset-2 hover:no-underline"
-          >
-            <CircleHelp className="h-3.5 w-3.5" /> Full signing docs
-          </a>
-        </p>
-      </details>
+      <SettingsPageHeader
+        title="Webhooks"
+        lead={
+          <>
+            A webhook is a message StoryOS sends to a URL of your choice whenever something happens here — a record gets created, updated,
+            or changed. It&apos;s how you push those changes into an automation tool like <span className="text-ink">n8n</span>,{' '}
+            <span className="text-ink">Make</span>, or <span className="text-ink">Zapier</span>, or into your own app. Add one below with
+            the URL your tool gives you, and choose which changes should trigger it. Failed deliveries are retried automatically for
+            about 15 minutes.
+          </>
+        }
+        action={<CreateWebhookDialog ws={ws} databases={databases.data ?? []} />}
+      />
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(webhooks.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-body text-muted">
-            No webhooks yet. Add one to push changes into another tool.
-          </p>
+          <EmptyState variant="list" title="No webhooks yet. Add one to push changes into another tool." />
         )}
         {(webhooks.data ?? []).map((hook) => (
           <div key={hook.id} className="border-b border-border-default last:border-b-0">
@@ -224,6 +198,29 @@ export default function WebhooksSettingsPage() {
           </div>
         ))}
       </div>
+
+      <div className="mt-[18px]">
+      <AdvancedSection title="Advanced" summary="how a delivery is signed, for developers">
+        <p className="px-3.5 py-3 text-body text-muted">
+          Each payload is signed so you can verify it really came from StoryOS: check the{' '}
+          <code className="rounded bg-hover px-1">X-StoryOS-Signature</code> header against{' '}
+          <code className="rounded bg-hover px-1">
+            sha256=HMAC(secret, &quot;{'{timestamp}'}.{'{body}'}&quot;)
+          </code>{' '}
+          using the timestamp in{' '}
+          <code className="rounded bg-hover px-1">X-StoryOS-Timestamp</code>. Most no-code
+          tools handle this for you and don&apos;t need it at all.{' '}
+          <a
+            href="https://docs.storyos.dev/concepts/webhooks"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-ink underline underline-offset-2 hover:no-underline"
+          >
+            <CircleHelp className="h-3.5 w-3.5" /> Full signing docs
+          </a>
+        </p>
+      </AdvancedSection>
+      </div>
     </div>
   );
 }
@@ -261,7 +258,7 @@ function Deliveries({ ws, id }: { ws: string; id: string }) {
 
   if (deliveries.isLoading) return <p className="px-4 pb-3 text-label text-muted">Loading…</p>;
   if ((deliveries.data ?? []).length === 0) {
-    return <p className="px-4 pb-3 text-label text-muted">No deliveries yet.</p>;
+    return <EmptyState variant="list" title="No deliveries yet." />;
   }
 
   return (

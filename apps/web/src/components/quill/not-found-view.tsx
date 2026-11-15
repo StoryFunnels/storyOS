@@ -25,7 +25,7 @@ export function QuillNotFound() {
       <h1 className="m-0 mt-1.5 text-title font-bold leading-[1.25] text-ink">This page doesn’t exist</h1>
       <p className="m-0 text-body text-muted">It may have moved, or the link is wrong.</p>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-3.5">
-        <Link href={homeHrefFor(ws)} className={cn(buttonVariants({ variant: 'primary', size: 'sm' }))}>
+        <Link href={homeHrefFor(ws)} className={cn(buttonVariants({ variant: 'primary' }))}>
           Go home
         </Link>
       </div>

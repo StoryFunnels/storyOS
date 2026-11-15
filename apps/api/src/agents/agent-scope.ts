@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { AccessService } from '../access/access.service';
 import type { Db } from '../db/client';
+import { coveredByWholeSpaceGrant } from '../common/system-databases';
 import { DB } from '../db/db.module';
 import { databases, fields, memberships, records, spaces } from '../db/schema';
 import { resolveAgentIdentity } from './agent-identity';
@@ -13,6 +14,9 @@ import { resolveAgentIdentity } from './agent-identity';
  * (agent-wakes.service.ts) all call `resolveAgentScope`; none of them re-implements "what is in a space". Nothing here is
  * expanded at hire: the stored value is the manager's own text ("Works in"), and a database created in a targeted space tomorrow
  * is in scope on the very next call, because the space is read again on every call.
+ *
+ * A whole-space target covers the space's USER databases only (ticket #1296): `coveredByWholeSpaceGrant`, the same predicate the access
+ * layer applies to the credential, so the list below and the reach of the credential agree. A system database is in scope only when named.
  *
  * Dependency-free (raw schema queries) for the same reason `resolveAgentIdentity` is: the auth guard cannot inject the services.
  *
@@ -115,15 +119,16 @@ export async function resolveAgentScope(db: Db, workspaceId: string, agentId: st
     : [];
   const spaceMatch = matchEntries(targets.spaces, spaceRows);
 
-  // Databases: every live database in a targeted space (read NOW, which is what makes the space target live), plus the ones named.
+  // Databases: every live USER database in a targeted space (read NOW, which is what makes the space target live), plus the ones named.
+  // Ticket #1296: a whole-space grant never covers a system database (Members and the Agents pack): only naming one does, below.
   const inSpaces = spaceMatch.hits.length
     ? await db
-        .select({ id: databases.id, name: databases.name, spaceId: databases.spaceId })
+        .select({ id: databases.id, name: databases.name, spaceId: databases.spaceId, isSystem: databases.isSystem })
         .from(databases)
         .where(and(eq(databases.workspaceId, workspaceId), inArray(databases.spaceId, spaceMatch.hits.map((s) => s.id)), isNull(databases.deletedAt)))
     : [];
   const out = new Map<string, ScopeDatabase>();
-  for (const d of inSpaces) out.set(d.id, { id: d.id, name: d.name, space_id: d.spaceId, via: 'space' });
+  for (const d of inSpaces.filter(coveredByWholeSpaceGrant)) out.set(d.id, { id: d.id, name: d.name, space_id: d.spaceId, via: 'space' });
 
   let missedDbs: string[] = [];
   if (targets.databases.length) {
@@ -147,13 +152,13 @@ export async function resolveAgentScope(db: Db, workspaceId: string, agentId: st
 
 /** The #543 binding a live scope turns into: the same shape `api_tokens.resource_scope` carries, but never stored. */
 export function toResourceScope(scope: ResolvedAgentScope): { space_ids: string[]; database_ids: string[] } {
-  // Space ids bind the whole space LIVE (boundTokenGrants reads the space's databases per request); named databases that sit
-  // outside every targeted space are bound one by one. A named database inside a targeted space is already covered.
-  const spaceIds = scope.spaces.map((s) => s.id);
-  const covered = new Set(spaceIds);
+  // Space ids bind the whole space LIVE (boundTokenGrants reads the space's databases per request), and a whole-space binding covers
+  // USER databases only (ticket #1296, `coveredByWholeSpaceGrant`). Every NAMED database is therefore bound one by one, including one
+  // inside a targeted space: that is the only way a system database (Members) is reached, and for a user database it is a harmless
+  // second grant at the same rank.
   return {
-    space_ids: spaceIds,
-    database_ids: scope.databases.filter((d) => d.via === 'database' && !covered.has(d.space_id)).map((d) => d.id),
+    space_ids: scope.spaces.map((s) => s.id),
+    database_ids: scope.databases.filter((d) => d.via === 'database').map((d) => d.id),
   };
 }
 

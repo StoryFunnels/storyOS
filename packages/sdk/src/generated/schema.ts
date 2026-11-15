@@ -115,7 +115,7 @@ export interface paths {
         /** List workspaces I belong to */
         get: operations["WorkspacesController_list"];
         put?: never;
-        /** Create a workspace (creator becomes admin) */
+        /** Create a workspace (creator becomes admin). With invite_token the invite is accepted instead and NO workspace is created: the response is the workspace joined, with joined_via_invite true. A token that cannot be accepted refuses and creates nothing. */
         post: operations["WorkspacesController_create"];
         delete?: never;
         options?: never;
@@ -326,6 +326,23 @@ export interface paths {
         put?: never;
         /** Accept an invite by token (must match your email) */
         post: operations["InviteAcceptController_accept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/invites/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What an invite link says, no sign-in: inviter name, workspace name and logo, the invited email, and whether it is valid, expired or used. An unknown, malformed or revoked token returns status "not_found" with every other field null (same body, so tokens cannot be probed). */
+        get: operations["PublicInvitesController_details"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4234,7 +4251,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Where this agent works, resolved NOW: its named databases plus every database in its target spaces (a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list. */
+        /** Where this agent works, resolved NOW: its named databases plus every user database in its target spaces (a system database such as Members is covered only when named, never by its space; a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list. */
         get: operations["AgentsController_getAgentScope"];
         put?: never;
         post?: never;
@@ -5291,9 +5308,10 @@ export interface components {
             workspace_id?: string;
         };
         CreateWorkspaceDto: {
-            name: string;
+            name?: string;
             description?: string;
             slug?: string;
+            invite_token?: string;
         };
         UpdateWorkspaceDto: {
             name?: string;
@@ -5350,6 +5368,14 @@ export interface components {
         };
         AcceptInviteDto: {
             token: string;
+        };
+        InviteDetailsResponseDto: {
+            /** @enum {string} */
+            status: "valid" | "expired" | "used" | "not_found";
+            inviter_name: string | null;
+            workspace_name: string | null;
+            workspace_logo_url: string | null;
+            invited_email: string | null;
         };
         CreateFolderDto: {
             name: string;
@@ -8081,6 +8107,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    PublicInvitesController_details: {
+        parameters: {
+            query?: {
+                /** @description The token from the invite link */
+                token?: unknown;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteDetailsResponseDto"];
+                };
             };
         };
     };
