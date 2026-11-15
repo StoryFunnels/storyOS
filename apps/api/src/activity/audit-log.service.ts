@@ -9,6 +9,7 @@ import { AccessService } from '../access/access.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { presentAuditRecords, redactIfWithheld } from './audit-record-presenter';
 import { presentAuditActor } from './audit-actor';
+import { displayUserValue, userIdsIn } from './audit-user-values';
 import { renderTypedValue } from './render-values';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition, newestFirst } from './keyset-cursor';
 
@@ -128,7 +129,10 @@ export class AuditLogService {
         ),
       ),
     ];
-    const resolvedActors = await this.members.resolveMembersForUsers(workspaceId, actorIds);
+    // ticket #1287 - the people a `user` field named, resolved in the SAME Members read as the actors (still one scan, not one more).
+    const userFieldIds = new Set(fieldRows.filter((f) => f.type === 'user').map((f) => f.id));
+    const userFieldPeople = changes.flatMap((c) => (c.fieldId && userFieldIds.has(c.fieldId) ? [...userIdsIn(c.oldValue), ...userIdsIn(c.newValue)] : []));
+    const resolvedActors = await this.members.resolveMembersForUsers(workspaceId, [...new Set([...actorIds, ...userFieldPeople])]);
     // ticket #1287 - `actor_name` is always words, never the auth id: a member's name, "Members sync" for the projection, a former member
     // as removed. `actor_id` stays beside it as the filter key (?actor=) and is not for display.
     const actorOf = (id: string | null) => presentAuditActor(id, resolvedActors.get(id ?? ''));
@@ -166,8 +170,7 @@ export class AuditLogService {
         field: c.fieldId ? (fieldName.get(c.fieldId) ?? '(deleted field)') : 'Name',
         // ticket #1287 - the type and the values as a person reads them, ALONGSIDE the raw old_value/new_value below.
         field_type: c.fieldId ? (fieldType.get(c.fieldId) ?? null) : 'title',
-        old_display: display(c.oldValue, c.fieldId ? fieldType.get(c.fieldId) : 'title'),
-        new_display: display(c.newValue, c.fieldId ? fieldType.get(c.fieldId) : 'title'),
+        // old_display / new_display are filled in below for the rows on this page: a `user` field needs the viewer's access to the Members rows.
         actor_id: c.actorUserId,
         ...actorOf(c.actorUserId),
         source: c.source,
@@ -199,7 +202,21 @@ export class AuditLogService {
     // A relation.linked / relation.unlinked event names the OTHER record in its payload; it is resolved in the same batch, by the same rule.
     const otherIdOf = (r: { kind: string; payload?: unknown }): string | undefined =>
       r.kind === 'event' ? ((r.payload as { other?: { id?: string } } | null)?.other?.id ?? undefined) : undefined;
-    const recordsById = await presentAuditRecords(this.db, this.access, membership, [...page.map((r) => r.record_id), ...page.map(otherIdOf)]);
+    // A person in a user field is a Members record: it goes through the same batch and the same gate, so "may this viewer be told the name"
+    // is answered by the record rule, not by a copy of it.
+    const peopleOnPage = page.flatMap((r) => ('field_type' in r && r.field_type === 'user' ? [...userIdsIn(r.old_value), ...userIdsIn(r.new_value)] : []));
+    const memberRecordIds = peopleOnPage.map((u) => resolvedActors.get(u)?.recordId);
+    const recordsById = await presentAuditRecords(this.db, this.access, membership, [...page.map((r) => r.record_id), ...page.map(otherIdOf), ...memberRecordIds]);
+    const userLabels = { members: resolvedActors, visible: recordsById };
+    const displays = (row: object) => {
+      const r = row as { field_type?: string | null; old_value?: unknown; new_value?: unknown };
+      if (!('field_type' in r)) return {};
+      const isUser = r.field_type === 'user';
+      return {
+        old_display: isUser ? displayUserValue(r.old_value, userLabels) : display(r.old_value, r.field_type),
+        new_display: isUser ? displayUserValue(r.new_value, userLabels) : display(r.new_value, r.field_type),
+      };
+    };
     return {
       // cursorTs is a transport detail of the merge; it never reaches the client.
       data: page.map(({ cursorTs: _ts, ...row }) => {
@@ -210,7 +227,7 @@ export class AuditLogService {
         // The payload's `other.title` is the title AT WRITE TIME; for a record this viewer may not read it must not travel either.
         const payload = other?.withheld && 'payload' in row ? { payload: { ...(row.payload as object), other: { id: otherId } } } : {};
         return redactIfWithheld(
-          { ...row, ...payload, run_number: row.run_id ? (runNumbers.get(row.run_id) ?? null) : null, record, other_record: other },
+          { ...row, ...displays(row), ...payload, run_number: row.run_id ? (runNumbers.get(row.run_id) ?? null) : null, record, other_record: other },
           record,
         );
       }),
