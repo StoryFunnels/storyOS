@@ -34,6 +34,8 @@ describe('the record page source agrees with the helper', () => {
 
   it('offers the same three tabs in the same order in both layouts', () => {
     expect(RECORD_PANEL_TABS.map((t) => t.value)).toEqual(['activity', 'comments', 'about']);
+    // The visible words, in order — renaming one is a user-facing change and must fail here, not pass silently.
+    expect(RECORD_PANEL_TABS.map((t) => t.label)).toEqual(['Activity', 'Comments', 'About']);
     expect(src.match(/options=\{RECORD_PANEL_TABS\}/g)?.length).toBe(2);
   });
 });
