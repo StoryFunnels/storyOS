@@ -16,6 +16,7 @@ import {
   views as viewsTable,
 } from '../db/schema';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { anonymisedEmailFor, isErasedIdentity } from '../gdpr/erased-identity';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
 import { RecordsService } from '../records/records.service';
@@ -376,6 +377,8 @@ export class MembersDbService {
 
     const database = await this.ensureMembersDb(workspaceId);
     const account = await this.db.query.user.findFirst({ where: eq(userTable.id, userId) });
+    // #1312 — an erased account is never projected: its `user` row is the tombstone, so there is no identity left to write.
+    if (isErasedIdentity(userId, account)) return;
     const roleIds = await this.roleOptionIds(database.id);
 
     const values: Record<string, unknown> = {
@@ -395,6 +398,15 @@ export class MembersDbService {
     } else {
       await this.records.create(workspaceId, database.id, values, SYSTEM_ACTOR, 0, 'automation');
     }
+    /*
+     * #1312 — re-check AFTER the write, because the check above is a read and the write is not atomic with it: a self-erase that
+     * commits between them has already run `eraseEverywhere`, which only overwrites rows that exist, so it found nothing and this
+     * write would leave the old name and email behind (active, for a person with no membership). Either the erase commits before
+     * this re-read (we see the tombstone and erase what we just wrote) or after the write (its `eraseEverywhere` finds the row);
+     * there is no third order, and no lock, sleep or retry.
+     */
+    const after = await this.db.query.user.findFirst({ where: eq(userTable.id, userId), columns: { email: true } });
+    if (isErasedIdentity(userId, after)) await this.eraseEverywhere(userId, anonymisedEmailFor(userId));
   }
 
   /**

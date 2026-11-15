@@ -217,6 +217,7 @@ export function JoinView({
       );
     case 'expired':
     case 'used':
+    case 'revoked':
       return (
         <AuthCard title={model.title}>
           <WorkspaceMark name={model.workspaceName} logoUrl={model.logoUrl} />

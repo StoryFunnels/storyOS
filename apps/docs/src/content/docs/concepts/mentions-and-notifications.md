@@ -142,8 +142,6 @@ automation's *send email* action sends is chosen by the automation's author and 
 
 ## My Work: what is waiting on you
 
-> This section describes code in open pull requests 1466 and 1470 and is accurate once they merge.
-
 **My Work** is the one place that answers "what is mine right now". The page, the MCP
 [`get_my_work`](/mcp/tools/) tool and the email below all read from the same server code, so they
 cannot disagree about what is open. There are four lists:
@@ -177,13 +175,19 @@ Over the API, `GET /api/v1/workspaces/{ws}/my-work?tab=` takes `assigned` (the d
 `assigned_by_me` or `waiting`; `include_finished=true` keeps finished rows. In MCP, `get_my_work`
 takes the same four as `kind`, plus `recent` and `favorites`.
 
+## What goes by email, and where it arrives
+
+**Settings → Notifications** says where each event goes. Every event on that page lands in your Inbox, in the
+app. Two of them are also emailed: **Mentions** and **Record changes**. Those two rows carry an **Also by email**
+tag, and the page names the address they go to (the one on your Profile) and the sender they come from. Turning
+a switch off stops both the Inbox item and the email. If the server has no email sender configured, the page says
+**Email isn't set up on this StoryOS server. Ask your admin.**, with a setup link for admins, and no row is
+tagged. The sender is set by `MAIL_FROM`; see [configuration](/self-hosting/configuration/).
+
 ## Email me my work
 
 A daily or weekly email of what waits on you. It is **off by default**, it goes by email only (it
 never appears in your Inbox), and the setting belongs to you, not to a workspace.
-
-<!-- TODO(ticket #1252): screenshot of Settings > You > Notifications > "Email me my work", light mode at 1270px wide.
-     Add it once the web setting ships; until then this section is described from the preference API only. -->
 
 The setting has five parts:
 
@@ -195,13 +199,28 @@ The setting has five parts:
 | **Time zone** | A named zone such as `Europe/Madrid`. With none set the time is read in UTC, never the server's zone. A name that is not a real zone is rejected. |
 | **Include what I assigned to others** | Adds the *You assigned to others* section. Off by default. |
 
+In the app the five parts sit in one box titled **Email me my work**. **Day** appears only for Weekly, and **Time**
+and **Include what I assigned to others** only once How often is not Off. The box shows the time zone it will use, and
+saving a change there writes this browser's time zone.
+
 Over the API, `PATCH /api/v1/users/me/preferences` with a `myWorkEmail` object (`frequency`,
 `weekday` as 0 for Sunday to 6, `time`, `timezone`, `include_assigned_by_me`) changes only the keys
 you send.
 
-Turn it on in **Settings → You → Notifications**.
+Turn it on in **Settings → Notifications**.
+
+### The Inbox offer
+
+Once you have five or more open records assigned to you and the setting is Off, the Inbox shows a
+one-time card asking **Get your open work by email?** **Email me daily** turns on the Monday to Friday
+digest. The close button and **Not now** both dismiss it. Whichever you pick is final: the answer is saved
+for you in that workspace and the card does not come back.
 
 ### What the email contains
+
+Like every email StoryOS sends, it opens with a header card: Quill's avatar and the line **Quill from StoryOS**
+(the avatar switches to a dark version in mail apps in dark mode, and a mail app that blocks images shows the
+word Quill). Emails are built to fit a 375 pixel wide phone screen without sideways scrolling; long text wraps.
 
 You get one email per workspace you are an active member of, with up to three sections in this order:
 

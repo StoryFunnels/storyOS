@@ -15,6 +15,7 @@ import { api, API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { commentAuthorView } from './comment-author';
+import type { CommentDraftStore } from './comment-draft';
 import { SourceBadge } from './source-badge';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
@@ -140,12 +141,15 @@ export function CommentComposer({
   rec,
   compact = false,
   onPosted,
+  drafts,
 }: {
   ws: string;
   db: string;
   rec: string;
   compact?: boolean;
   onPosted?: () => void;
+  /** The record page's draft store (#1277): keeps a half-typed comment across the layout switch that remounts this component. */
+  drafts?: CommentDraftStore;
 }) {
   const qc = useQueryClient();
   const key = ['comments', ws, db, rec];
@@ -156,7 +160,15 @@ export function CommentComposer({
   // no clean "reset to empty" — recreating via this dep is the reliable clear).
   const [resetKey, setResetKey] = useState(0);
 
-  const editor = useCreateBlockNote({ schema: mentionSchema }, [resetKey]);
+  const draftKey = `${ws}/${db}/${rec}`;
+  const editor = useCreateBlockNote(
+    { schema: mentionSchema, initialContent: drafts?.get(draftKey) as never },
+    [resetKey],
+  );
+  // A restored draft counts as content, so the compact composer's Send stays visible and the blur handler keeps it open.
+  useEffect(() => {
+    if (drafts?.get(draftKey)) setHasContent(true);
+  }, [drafts, draftKey]);
 
   const post = useMutation({
     mutationFn: async (body: BlocknoteBody) => {
@@ -167,6 +179,7 @@ export function CommentComposer({
       if (error) throw error;
     },
     onSuccess: () => {
+      drafts?.set(draftKey, null);
       setHasContent(false);
       setFocused(false);
       setResetKey((k) => k + 1);
@@ -218,7 +231,11 @@ export function CommentComposer({
             editor={editor}
             editable={!post.isPending}
             theme={theme}
-            onChange={() => setHasContent(!isDocEmpty(editor.document as unknown[]))}
+            onChange={() => {
+              const doc = editor.document as unknown[];
+              setHasContent(!isDocEmpty(doc));
+              drafts?.set(draftKey, isDocEmpty(doc) ? null : doc);
+            }}
           >
             <MentionSuggestionMenus editor={editor as never} ws={ws} agents />
           </BlockNoteView>
@@ -265,6 +282,7 @@ export function CommentsPanel({
   members,
   currentUserId,
   isAdmin,
+  drafts,
 }: {
   ws: string;
   db: string;
@@ -272,6 +290,7 @@ export function CommentsPanel({
   members: Array<{ id: string; name: string }>;
   currentUserId: string;
   isAdmin: boolean;
+  drafts?: CommentDraftStore;
 }) {
   const qc = useQueryClient();
   const fmt = useDateFormat();
@@ -392,7 +411,7 @@ export function CommentsPanel({
         </div>
       ))}
 
-      <CommentComposer ws={ws} db={db} rec={rec} />
+      <CommentComposer ws={ws} db={db} rec={rec} drafts={drafts} />
     </div>
   );
 }

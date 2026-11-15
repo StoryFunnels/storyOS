@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { AuditWhat, type AuditLogEntry, type AuditRecordRef } from './audit-row';
+import { AuditActor, AuditLoadError, AuditWhat, auditFeedState, collapseDuplicateUpdates, type AuditLogEntry, type AuditRecordRef } from './audit-row';
 
 // Ticket #1287: the row's visible text, from the API's resolved fields. Fake workspace data only.
 const WS = 'ws-1';
@@ -119,5 +119,97 @@ describe('guards stay wired (mutation anchors)', () => {
     expect(src).toContain("from '@/components/table-view/relation-chip'");
     expect(src).toContain('recordHref(');
     expect(src).not.toMatch(/<a\s/);
+  });
+});
+
+describe('a withheld record never prints a name from the event (#1287 item 1)', () => {
+  const withheldRec = rec({ withheld: true, number: null, title: null, database_id: null, database_name: null });
+  it('record.created with a title in the payload: "a record", the title is not drawn', () => {
+    const html = render(entry({ type: 'record.created', payload: { title: 'Secret plan' }, record: withheldRec }));
+    expect(text(html)).toBe('Created · a record');
+    expect(html).not.toContain('Secret plan');
+  });
+  it('an outward event keeps its summary out of a withheld row', () => {
+    const html = render(entry({ type: 'outward.watcher_email', payload: { summary: 'Mailed bob@example.com about Secret plan' }, record: withheldRec }));
+    expect(html).not.toContain('Secret plan');
+    expect(text(html)).toBe('Emailed a watcher about a change · a record');
+  });
+  it('a readable record still shows the name (the guard is not a blanket)', () => {
+    expect(text(render(entry({ type: 'attachment.added', payload: { filename: 'plan.pdf' }, record: rec() })))).toContain('“plan.pdf”');
+  });
+});
+
+describe('AuditActor: "(removed)" only when the API says so (#1287 item 3)', () => {
+  const actor = (e: Partial<AuditLogEntry>) => text(renderToStaticMarkup(createElement(AuditActor, { entry: entry(e), memberName })));
+  it('a tombstoned member keeps their name and gains the marker', () => {
+    expect(actor({ actor_name: 'Ada Audit', actor_kind: 'member', actor_removed: true })).toBe('Ada Audit (removed)');
+  });
+  it('an active member has no marker', () => {
+    expect(actor({ actor_name: 'Ada Audit', actor_kind: 'member', actor_removed: false })).toBe('Ada Audit');
+  });
+  it('an older API without the flag has no marker (never guessed)', () => {
+    expect(actor({ actor_name: 'Ada Audit' })).toBe('Ada Audit');
+  });
+  it('"A former member" is not told twice', () => {
+    expect(actor({ actor_name: 'A former member', actor_kind: 'member', actor_removed: true })).toBe('A former member');
+  });
+  it('a system actor never reads as removed', () => {
+    expect(actor({ actor_name: 'Members sync', actor_kind: 'system', actor_removed: true })).toBe('Members sync');
+  });
+});
+
+describe('a failed query is its own state, not "nothing matches" (#1287 item 2)', () => {
+  it('error with nothing loaded: error state, even with filters applied', () => {
+    expect(auditFeedState({ isLoading: false, isError: true, rows: 0, filtersApplied: 2 })).toBe('error');
+    expect(auditFeedState({ isLoading: false, isError: true, rows: 0, filtersApplied: 0 })).toBe('error');
+  });
+  it('no error, nothing loaded: still the two empty states', () => {
+    expect(auditFeedState({ isLoading: false, isError: false, rows: 0, filtersApplied: 2 })).toBe('empty-filtered');
+    expect(auditFeedState({ isLoading: false, isError: false, rows: 0, filtersApplied: 0 })).toBe('empty');
+  });
+  it('an error after rows loaded keeps the rows on screen', () => {
+    expect(auditFeedState({ isLoading: false, isError: true, rows: 3, filtersApplied: 0 })).toBe('rows');
+  });
+  it('the error card says it failed, has Try again, and claims no count or emptiness', () => {
+    const t = text(renderToStaticMarkup(createElement(AuditLoadError, { onRetry: () => {} })));
+    expect(t).toContain('Could not load the audit log');
+    expect(t).toContain('Try again');
+    expect(t).not.toContain('Nothing matches');
+    expect(t).not.toMatch(/\d/);
+  });
+  it('the page renders the state from auditFeedState (wired, not just exported)', () => {
+    const page = readFileSync(fileURLToPath(new URL('../../app/w/[ws]/settings/audit-log/page.tsx', import.meta.url)), 'utf8');
+    expect(page).toContain('isError: log.isError');
+    expect(page).toContain("feed === 'error'");
+    expect(page).toContain('log.refetch()');
+  });
+});
+
+describe('collapseDuplicateUpdates: a record.updated row that its field rows repeat is hidden (#1287 item 4)', () => {
+  const T = '2026-11-14T10:00:00.000Z';
+  const upd = (over: Partial<AuditLogEntry> = {}) => entry({ id: 'ev', type: 'record.updated', created_at: T, payload: { diff: { f1: {}, f2: {} } }, ...over });
+  const fc = (id: string, over: Partial<AuditLogEntry> = {}) => entry({ kind: 'field_change', id, type: undefined, field: 'Status', created_at: T, ...over });
+  const ids = (xs: AuditLogEntry[]) => xs.map((x) => x.id);
+
+  it('hides the event when the field rows for the same record and instant equal its diff keys', () => {
+    expect(ids(collapseDuplicateUpdates([upd(), fc('a'), fc('b')]))).toEqual(['a', 'b']);
+  });
+  it('keeps the event when it is the only evidence (no field rows: a Free workspace)', () => {
+    expect(ids(collapseDuplicateUpdates([upd()]))).toEqual(['ev']);
+  });
+  it('keeps the event when fewer field rows are loaded than diff keys (a page split the write)', () => {
+    expect(ids(collapseDuplicateUpdates([upd(), fc('a')]))).toEqual(['ev', 'a']);
+  });
+  it('keeps the event when the field rows belong to another record or another instant', () => {
+    expect(ids(collapseDuplicateUpdates([upd(), fc('a', { record_id: 'other' }), fc('b', { created_at: '2026-11-14T10:00:01.000Z' })]))).toEqual(['ev', 'a', 'b']);
+  });
+  it('keeps the event when its payload has no diff', () => {
+    expect(ids(collapseDuplicateUpdates([upd({ payload: {} }), fc('a'), fc('b')]))).toEqual(['ev', 'a', 'b']);
+  });
+  it('keeps a restore event: its sentence is information', () => {
+    expect(ids(collapseDuplicateUpdates([upd({ payload: { diff: { f1: {} }, restored_from_version_id: 'v1' } }), fc('a')]))).toEqual(['ev', 'a']);
+  });
+  it('never touches other event types', () => {
+    expect(ids(collapseDuplicateUpdates([upd({ id: 'c', type: 'comment.created' }), fc('a'), fc('b')]))).toEqual(['c', 'a', 'b']);
   });
 });
