@@ -28,12 +28,13 @@ describe('the header strip: one pill for values, a button for the action (ticket
     expect(html).not.toContain('h-[19px]');
   });
 
-  it('an action in the strip is the app\'s secondary Button, 27px, a strong border and no fill — never a tinted chip', () => {
+  it('an action in the strip is the app\'s secondary Button at the ONE button size, a strong border and no fill — never a tinted chip', () => {
     const cells = src('components/table-view/cells.tsx');
     const strip = cells.slice(cells.indexOf('if (strip) {', cells.indexOf('export function PressButton')));
     const branch = strip.slice(0, strip.indexOf('return (\n    <button'));
     expect(branch).toMatch(/<Button[\s\S]*variant="secondary"/);
-    expect(branch).toContain('h-[27px]');
+    // ticket #1282 (Otto 2026-11-13): the size is the shared Button's; the 27px this once pinned was the prototype's, an accepted gap.
+    expect(branch).not.toMatch(/\bh-\[|\bpx-\[|text-label/);
     expect(branch).toContain('border-border-strong');
     expect(branch).toContain('bg-transparent');
     expect(branch).toContain('data-strip-action');

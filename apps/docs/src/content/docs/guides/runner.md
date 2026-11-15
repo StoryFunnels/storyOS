@@ -153,7 +153,7 @@ short-lived credential made for that one run. There is no MCP setup to do.
 An agent's record in the Agents database has two text fields that say where it works:
 
 - **Target databases**: database names, one per entry.
-- **Target spaces**: space names or ids. A space stands for every database in it.
+- **Target spaces**: space names or ids. A space stands for every database *you created* in it. It never covers a system database such as Members (every colleague's email) or the Agents pack: those are reachable only when you name them in **Target databases**.
 
 Entries are separated by commas or new lines; names are matched ignoring case. A space target is
 **resolved each time it is used**, not copied when the agent is hired, so a database created in that

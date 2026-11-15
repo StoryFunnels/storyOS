@@ -17,12 +17,21 @@ The whole product, on your machine, free forever. One Postgres, two containers, 
 
 ```bash
 git clone https://github.com/StoryFunnels/storyOS.git storyos && cd storyos
-echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" > .env
+cp .env.example .env
+# one-time: generate the two secrets the stack requires (keep this file; back it up)
+printf 'BETTER_AUTH_SECRET=%s\nCONNECTIONS_MASTER_KEY=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 docker compose up -d
 ```
 
 Open **http://localhost** and sign up — the first account creates its own workspace. Migrations
 run automatically when the API boots.
+
+`.env.example` already points `API_URL` and `WEB_URL` at `http://localhost`, the origin the bundled
+proxy serves on port 80, so no URL edits are needed for a local try-out. The generate step sets two
+secrets, appended after the blank placeholders (the last value wins). If `docker compose up` stops
+with `CONNECTIONS_MASTER_KEY` (or `BETTER_AUTH_SECRET`) "is missing a value", you skipped it. Keep
+`CONNECTIONS_MASTER_KEY`: it encrypts every saved Connections credential, so losing or changing it
+makes them unreadable.
 
 ## What's in the box
 
@@ -40,7 +49,8 @@ run automatically when the API boots.
 
 For a real deployment, set `API_URL` and `WEB_URL` in `.env` to your public URL (e.g.
 `https://os.example.com` for both). Auth validates request origins against `WEB_URL`, so a mismatch
-shows "Invalid origin" at login.
+shows "Invalid origin" at login. The same happens locally if you change `HTTP_PORT`: set both
+to `http://localhost:<port>`.
 
 **TLS** — two common options:
 

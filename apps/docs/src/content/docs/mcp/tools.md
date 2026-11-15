@@ -6,7 +6,7 @@ sidebar:
 ---
 
 The MCP server exposes three families of tools: **read**, **write**, and **build/schema**. Agents
-design the workspace, not just fill it. Always call `get_started` first.
+design the workspace, not just fill it. `get_started` is the orientation tool: it returns the overview, a workspace map, and an index of reference sections.
 
 `get_started` also carries the long reference text that the tool list leaves out, so a client that
 caps tools or context stays light: each tool's listed description is a short lead, and the full
@@ -19,10 +19,10 @@ tabs and dismissed hints) are only offered on the internal profile.
 
 | Tool | What it does |
 |---|---|
-| `get_started` | Orientation, a workspace map, and the filter cheat-sheet. Call first. |
+| `get_started` | Orientation, a workspace map, and the filter cheat-sheet. |
 | `list_workspaces` | Workspaces the token can access. |
 | `list_databases` | Databases in a workspace. |
-| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets. **Read before writing.** |
+| `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets: what a write is keyed by. |
 | `search` | Full-text record search — turn a name into a real id. |
 | `query_records` | Filter / sort / paginate records with the structured filter AST. |
 | `get_record` | One record in full, by uuid or public number. |
@@ -389,7 +389,7 @@ team board, but just my rows"; invisible to teammates, and `clear: true` removes
 | `get_agents` / `setup_agents` | Whether the Agentic OS space exists (with a summary), and provisioning it (idempotent). |
 | `run_agent` / `delegate_to_agent` | Run an agent by hand and get its Run back; hand one record to an agent, which posts its outcome back on the record as a comment linking to the Run. |
 | `create_agent_trigger` | Fire an agent when a record reaches a given state; it starts by itself by default. `human_gate: true` ("ask me before each run") means it never starts a run by itself: a person starts each run. |
-| `get_agent_scope` | Where an agent works, resolved now: its Target databases plus every database in its Target spaces, narrowed to what its manager can open, with `enforced`, `unresolved` and `withheld_count`. Workspace admins only. See [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). |
+| `get_agent_scope` | Where an agent works, resolved now: its Target databases plus every user database in its Target spaces (never a system database such as Members unless it is named), narrowed to what its manager can open, with `enforced`, `unresolved` and `withheld_count`. Workspace admins only. See [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). |
 | `get_agent_budget` | One agent's monthly token and run budget against what it has used this UTC month, with each metric's state (unlimited, ok, warning, paused or not_measured). See [the Runner guide](/guides/runner/). |
 | `get_run` / `get_staged_action` / `rerun_action` / `get_run_quota` | One run in full (each action's attempts and artifacts); what a parked run is waiting to do (read-only — approving is human-only); retry one failed action with its original inputs; this month's run usage against your plan. |
 | `create_automation` / `update_automation` | Author or edit a rule (admin-scoped). In an automation's set, create and update-linked actions, a select, workflow or multi-select value can be an option label (any case) or id; an unknown label fails the run and names the valid ones. See [Setting a select field by its label](/concepts/automations/#setting-a-select-workflow-or-multi-select-field-by-its-label). |

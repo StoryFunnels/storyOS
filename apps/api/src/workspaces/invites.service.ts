@@ -1,6 +1,4 @@
 import {
-  ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -18,7 +16,8 @@ import type { GrantInput } from '../access/access.service';
 import { env } from '../config/env';
 import { EmailService } from '../mail/email.service';
 import type { AuthedUser } from '../auth/auth.guard';
-import type { MembershipRole } from '@storyos/schemas';
+import type { InviteDetailsResponse, InviteDetailsStatus, MembershipRole } from '@storyos/schemas';
+import { codedException } from '../common/coded-exception';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { SalesSignalService } from '../billing/sales-signal.service';
@@ -33,6 +32,15 @@ export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+
+/** Ticket #1302 — the ONE body for every token that names no live-or-spent invite. Frozen so no code path can decorate it. */
+const INVITE_NOT_FOUND: InviteDetailsResponse = Object.freeze({
+  status: 'not_found',
+  inviter_name: null,
+  workspace_name: null,
+  workspace_logo_url: null,
+  invited_email: null,
+});
 
 /** admin/member count; a guest never does, at any grant role (ticket #1258). Mirrors AccessService.billableUserIds. */
 function invitedRoleIsBillable(role: MembershipRole): boolean {
@@ -208,15 +216,51 @@ export class InvitesService {
     return { deleted: true };
   }
 
+  /**
+   * Ticket #1302 — what a person holding an invite link may see BEFORE they sign in: who invited them, to what, for which address,
+   * and whether the link still works. No credential, so the token is the only thing that names an invite, and this answers
+   * nothing about any other:
+   *
+   *  - Unknown, malformed (missing, wrong type, absurd length) and revoked/replaced tokens take the SAME path: the value is hashed
+   *    and looked up once, whatever it is, and the one neutral body comes back. A malformed token is hashed as the empty string
+   *    (which no real token can equal) instead of returning early, so "bad shape" is not a faster, distinguishable answer.
+   *  - Only the five fields below leave this method: never the token or its hash, a member or invite id, the role or grants, the
+   *    inviter's email, or anything about another invite. The invited address is the one the invite was SENT to (the holder of
+   *    the link is, by construction, whoever that mailbox reached).
+   *  - `expired` and `used` keep the details (the screen says "ask <inviter> for a new link"); a revoke deletes the row, so a
+   *    revoked invite reads as `not_found` (a tombstone needs a column, i.e. a migration: ticket filed separately).
+   */
+  async details(token: unknown): Promise<InviteDetailsResponse> {
+    const raw = typeof token === 'string' && token.length <= 256 ? token : '';
+    const invite = await this.db.query.invites.findFirst({ where: eq(invites.tokenHash, sha256(raw)) });
+    if (!invite) return INVITE_NOT_FOUND;
+
+    const [inviter, workspace] = await Promise.all([
+      invite.invitedBy ? this.db.query.user.findFirst({ where: eq(user.id, invite.invitedBy), columns: { name: true } }) : undefined,
+      this.db.query.workspaces.findFirst({ where: eq(workspaces.id, invite.workspaceId), columns: { name: true, settings: true } }),
+    ]);
+    if (!workspace) return INVITE_NOT_FOUND;
+    const branding = (workspace.settings as Record<string, unknown> | null)?.['branding'] as { logo_url?: string | null } | undefined;
+    const status: InviteDetailsStatus = invite.acceptedAt ? 'used' : invite.expiresAt.getTime() < Date.now() ? 'expired' : 'valid';
+    return {
+      status,
+      inviter_name: inviter?.name?.trim() || null,
+      workspace_name: workspace.name,
+      workspace_logo_url: branding?.logo_url ?? null,
+      invited_email: invite.email,
+    };
+  }
+
   /** Token-based accept — not workspace-scoped; the token implies the workspace. */
   async accept(user: AuthedUser, token: string) {
     const invite = await this.db.query.invites.findFirst({
       where: eq(invites.tokenHash, sha256(token)),
     });
-    if (!invite || invite.acceptedAt) throw new NotFoundException('Invite not found');
-    if (invite.expiresAt.getTime() < Date.now()) throw new NotFoundException('Invite expired');
+    // Ticket #1302 — stable codes, same statuses and messages as before. Used, revoked, replaced and never-issued stay one answer.
+    if (!invite || invite.acceptedAt) throw codedException(404, 'invite_not_found', 'Invite not found');
+    if (invite.expiresAt.getTime() < Date.now()) throw codedException(404, 'invite_expired', 'Invite expired');
     if (invite.email !== user.email.toLowerCase()) {
-      throw new ForbiddenException('This invite was issued for a different email address');
+      throw codedException(403, 'invite_email_mismatch', 'This invite was issued for a different email address');
     }
 
     const existing = await this.db.query.memberships.findFirst({
@@ -225,7 +269,7 @@ export class InvitesService {
         eq(memberships.userId, user.id),
       ),
     });
-    if (existing) throw new ConflictException('Already a member of this workspace');
+    if (existing) throw codedException(409, 'already_a_member', 'Already a member of this workspace');
 
     const membership = await this.db.transaction(async (tx) => {
       const [created] = await tx

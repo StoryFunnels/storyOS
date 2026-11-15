@@ -11,10 +11,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MenuSelect } from '@/components/ui/menu-select';
-import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { AdvancedSection, SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
 import { AUDIT_TYPE_FILTERS, describeStructuralEvent } from '@/lib/audit-events';
 import { EMPTY_AUDIT_FILTERS, auditFilterSummary, resolveAuditFilters } from '@/lib/audit-filters';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface AuditLogEntry {
   kind: 'event' | 'field_change';
@@ -94,10 +95,7 @@ export default function AuditLogPage() {
 
   if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Audit log</h1>
-        <p className="text-body text-muted">Only workspace admins can view the audit log.</p>
-      </div>
+      <SettingsRefusal title="Audit log">Only workspace admins can view the audit log.</SettingsRefusal>
     );
   }
 
@@ -116,9 +114,11 @@ export default function AuditLogPage() {
           <p className="text-body text-muted">Loading…</p>
         ) : entries.length === 0 ? (
           <SettingsBox>
-            <p className="px-3.5 py-3 text-body text-muted" data-testid="audit-empty">
-              {resolved.applied > 0 ? 'Nothing matches these filters. Open Filter below to change them.' : 'Nothing in this range.'}
-            </p>
+            {resolved.applied > 0 ? (
+              <EmptyState variant="filtered" data-testid="audit-empty" title="Nothing matches these filters" body="Open Filter below to change them." />
+            ) : (
+              <EmptyState variant="list" data-testid="audit-empty" title="Nothing in this range." />
+            )}
           </SettingsBox>
         ) : (
           <SettingsBox>

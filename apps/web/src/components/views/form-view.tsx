@@ -37,6 +37,7 @@ import {
 import type { FormFieldCfg } from './form-fields';
 import { embedSnippet } from '@/lib/embed-mode';
 import { useDragPresentation, useSortableSensors } from '@/components/ui/drag-presentation';
+import { Button } from '@/components/ui/button';
 
 /** Form view (MN-101, #224): a drag-to-reorder sidebar owns which fields appear
  * (config.form.fields) and their order — the generic Cards popover no longer
@@ -138,14 +139,14 @@ export function FormView({
         {!readOnly && onPatch && (
           <div className="mb-6 flex flex-col gap-2">
             <div className="flex items-center gap-2">
-              <button
+              <Button
                 type="button"
-                className="flex items-center gap-1.5 rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-1.5 text-body font-medium text-ink hover:bg-hover"
+                variant="secondary"
                 onClick={() => setFieldsSidebarOpen(true)}
               >
                 <ListChecks className="h-3.5 w-3.5 text-muted" />
                 Fields {fields.length > 0 && <span className="text-muted">({fields.length})</span>}
-              </button>
+              </Button>
             </div>
             <FormBuilder ws={ws} db={db} config={config} fields={fields} onPatch={onPatch} />
           </div>
@@ -209,13 +210,13 @@ export function FormView({
           )}
 
           <div className="flex items-center gap-3">
-            <button
+            <Button
               type="submit"
               disabled={readOnly || createRecord.isPending}
-              className="rounded-[var(--radius-control)] bg-primary px-4 py-2 text-body font-medium text-[var(--text-on-dark)] hover:brightness-110 disabled:opacity-50"
+              variant="primary"
             >
               {config.form?.submit_text || 'Submit'}
-            </button>
+            </Button>
             {justSubmitted && <span className="text-body text-success">✓ Added</span>}
           </div>
         </form>
@@ -563,13 +564,13 @@ function FormBuilder({
               viewer and commenter access is free, always, not a trial.
             </FreeGuestTip>
             {access === 'members' && !token ? (
-              <button
+              <Button
                 type="button"
-                className="self-start rounded-[var(--radius-control)] bg-primary px-3 py-1.5 text-body font-medium text-[var(--text-on-dark)] hover:brightness-110"
+                variant="primary" className="self-start"
                 onClick={() => patchForm({ access: 'link' })}
               >
                 Create a shareable link
-              </button>
+              </Button>
             ) : !token ? (
               // #1041 — the server mints the token; until the save comes back there is no link to show.
               <p role="status" className="text-label text-muted">Creating the link…</p>

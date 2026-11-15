@@ -65,7 +65,7 @@ export function goldUses(text: string, matcher: RegExp): string[] {
 export const AGENT_GOLD: Record<string, number> = {
   // Tyron: the agent avatar badge, the working pulse dot, send-to-Tyron, the build starters, the full-screen exit chip,
   // the panel's resize handle (a Tyron surface)
-  'components/tyron/agent-avatar.tsx': 3, // border, tint, glyph of the agent badge
+  'components/tyron/agent-avatar.tsx': 4, // border, tint, glyph of the agent badge, and the circle mark's darker glyph step (#1289 item 5)
   'components/tyron/tyron-conversation.tsx': 3, // the pulse dot, the send button fill and its --text-on-accent label (#1353)
   'components/tyron/starter-cards.tsx': 2, // the gold action button: fill + --text-on-accent label (#1353)
   'components/tyron/workspace-build.tsx': 2, // the gold action button: fill + --text-on-accent label (#1353)

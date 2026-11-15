@@ -4,9 +4,11 @@
  *
  *  - `scheduleCadence`: every N minutes (10-minute floor), weekdays Mon-Fri, an "only between" window and the time zone a
  *    schedule is read in. Ticket #1194, merged (PR #1391). `packages/schemas/src/schedule.ts` is the contract.
- *  - `wholeSpaceTargets`: an agent working in a WHOLE SPACE, including databases added to it later. Ticket #1195, NOT merged: an
- *    agent's scope is still a list of databases (`target_databases`, one text field of database ids). Until it lands the picker
- *    lists databases only and the card never says "the whole space", because the screen must not promise what the API does not do.
+ *  - `wholeSpaceTargets`: an agent working in a WHOLE SPACE, including databases added to it later. Ticket #1195, merged (PR #1442):
+ *    the agent's record has a `target_spaces` text field (space ids or names, comma-separated) next to `target_databases`, and
+ *    `GET /agents/{agent}/scope` resolves a space to its databases at call time. The field is back-filled by `POST /agents/ensure`
+ *    (admin-only), so a workspace whose Agents database predates it offers the space row only to someone who can ensure it (see
+ *    `holdsSpaceTargets`): the card never offers a row the API would refuse.
  */
 export type HireCapability = 'scheduleCadence' | 'wholeSpaceTargets';
 
@@ -14,7 +16,7 @@ export type Caps = Readonly<Record<HireCapability, boolean>>;
 
 export const HIRE_API_CAPABILITIES: Caps = {
   scheduleCadence: true, // ticket #1194 (PR #1391) is on main
-  wholeSpaceTargets: false, // ticket #1195 is ToDo: flip when it merges, then add its payload to `hireRecordValues`
+  wholeSpaceTargets: true, // ticket #1195 (PR #1442) is on main; its payload is `target_spaces` in `hireRecordValues`
 };
 
 export function apiAccepts(capability: HireCapability, caps: Caps = HIRE_API_CAPABILITIES): boolean {

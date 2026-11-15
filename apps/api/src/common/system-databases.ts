@@ -23,3 +23,18 @@
  */
 export const SYSTEM_DATABASE_KEYS = ['agents', 'agent_triggers', 'agent_runs', 'members'] as const;
 export type SystemDatabaseKey = (typeof SYSTEM_DATABASE_KEYS)[number];
+
+/**
+ * Ticket #1296 (Otto's ruling, least privilege) — what a WHOLE-SPACE grant to an agent covers: the space's USER databases, never a
+ * system database. The Members projection lives in the workspace's first space beside ordinary databases and holds every colleague's
+ * email (ADR-0017); the Agents / Runs / Agent Triggers pack is system too. A system database reaches an agent only when someone NAMES
+ * it in the agent's "Target databases", never by the space around it.
+ *
+ * THE one predicate. The scope resolver (`resolveAgentScope`, behind the scope endpoint, the Runner claim, the MCP `get_agent_scope`
+ * and the web agent page) and the access layer's bound-credential rule (`AccessService.closedResources`) both call it, so what the
+ * agent is told it can reach and what it can actually reach cannot drift. Identity is the `is_system` FLAG, never the name: a person's
+ * own database called "Members" is a user database and stays covered.
+ */
+export function coveredByWholeSpaceGrant(database: { isSystem: boolean | null }): boolean {
+  return !database.isSystem;
+}

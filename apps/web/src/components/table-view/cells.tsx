@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Avatar } from '@/components/ui/avatar';
+import { MENU_ITEM_GEOMETRY } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverParentAnchor } from '@/components/ui/popover';
 import { RelationChips } from './relation-cell';
 import { chipVariants } from '@/components/ui/chip';
@@ -1259,7 +1260,8 @@ function OptionList({
               <button
                 key={option.id}
                 className={cn(
-                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-body hover:bg-hover',
+                  'flex w-full items-center justify-between gap-2 rounded text-left hover:bg-hover',
+                  MENU_ITEM_GEOMETRY,
                   (isSelected || idx === active) && 'bg-hover',
                 )}
                 onMouseEnter={() => setActive(idx)}
@@ -1268,7 +1270,7 @@ function OptionList({
                 <span className="flex min-w-0 items-center gap-2">
                   {multi && <input type="checkbox" readOnly checked={isSelected} />}
                   {option.image !== undefined ? (
-                    <span className="flex items-center gap-1.5 text-body text-ink">
+                    <span className="flex items-center gap-1.5 text-ink">
                       <Avatar userId={option.id} name={option.label} image={option.image} size={16} />
                       {option.label}
                     </span>
@@ -1296,7 +1298,8 @@ function OptionList({
           {showCreate && (
             <button
               className={cn(
-                'flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-body text-info hover:bg-hover',
+                'flex w-full items-center gap-1.5 rounded text-left text-info hover:bg-hover',
+                MENU_ITEM_GEOMETRY,
                 active === filtered.length && 'bg-hover',
               )}
               onMouseEnter={() => setActive(filtered.length)}
@@ -1386,8 +1389,9 @@ export function PressButton({
       <Button
         type="button"
         variant="secondary"
-        // 27px, a strong border and no fill (the prototype's `.btn`): a control, so it cannot be mistaken for a value pill.
-        className="h-[27px] shrink-0 whitespace-normal border-border-strong bg-transparent px-[11px] text-label leading-[normal]"
+        // A strong border and no fill (the prototype's `.btn`): a control, so it cannot be mistaken for a value pill. Its size is the
+        // shared Button's (ticket #1282): colour and wrapping only here.
+        className="shrink-0 whitespace-normal border-border-strong bg-transparent leading-[normal]"
         title={disabled ? 'Requires editor access' : undefined}
         onClick={press}
         disabled={disabled || busy}

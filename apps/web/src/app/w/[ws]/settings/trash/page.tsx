@@ -7,7 +7,8 @@ import { api } from '@/lib/api';
 import { useWorkspace } from '@/lib/queries';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
 import { TrashSection } from '@/components/entity/trash-list';
-import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
+import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRefusal } from '@/components/settings/settings-chrome';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface TrashedSpace {
   id: string;
@@ -103,13 +104,10 @@ export default function WorkspaceTrashPage() {
 
   if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-3xl p-4 sm:p-8">
-        <h1 className="mb-1 text-lg font-semibold text-ink">Trash</h1>
-        <p className="text-body text-muted">
-          Only workspace admins can restore a deleted space or database. Deleted records and
-          views inside a database you can still open are in that database's own trash.
-        </p>
-      </div>
+      <SettingsRefusal title="Trash">
+        Only workspace admins can restore a deleted space or database. Deleted records and
+        views inside a database you can still open are in that database's own trash.
+      </SettingsRefusal>
     );
   }
 
@@ -124,7 +122,7 @@ export default function WorkspaceTrashPage() {
       <SettingsPageBody>
         {nothingAtAll ? (
           <SettingsBox>
-            <SettingsRow title="Nothing in the trash" description="Deleted spaces and databases stay restorable for 30 days." />
+            <EmptyState variant="list" title="Nothing in the trash. Deleted spaces and databases stay restorable for 30 days." />
           </SettingsBox>
         ) : (
           <>

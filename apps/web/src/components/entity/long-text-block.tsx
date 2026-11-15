@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 import { HIT_AREA_24 } from '@/components/ui/header-action';
 import { CollapseToggle } from './collapsible-section';
+import { SECTION_LABEL } from './section-label';
 import { MarkdownMenuItems, type MarkdownProvider } from './markdown-actions';
 
 /**
@@ -38,7 +39,7 @@ export function LongTextHeader({
   return (
     <div className="mb-1.5 flex h-5 items-center gap-1">
       {onToggle && <CollapseToggle collapsed={Boolean(collapsed)} onToggle={onToggle} label={label} />}
-      <h2 className="text-label font-medium uppercase tracking-wider text-muted">{label}</h2>
+      <h2 className={SECTION_LABEL}>{label}</h2>
       {menu}
     </div>
   );

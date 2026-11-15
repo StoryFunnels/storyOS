@@ -15,6 +15,7 @@ import { useMembers } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 import { blockPlainText } from './entity-field-utils';
 import { USER_ID_FIELD_TYPES, formatActivityValue } from './activity-format';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface FieldChange {
   id: string;
@@ -328,7 +329,7 @@ export function RecordHistoryDialog({
             <div className="flex flex-col gap-2 overflow-y-auto">
               {/* #669 — names the exact next state: nothing has happened here yet. */}
               {changeItems.length === 0 && !changes.isLoading && (
-                <p className="py-4 text-center text-body text-muted">No changes recorded yet.</p>
+                <EmptyState variant="list" title="No changes recorded yet." />
               )}
               {changeItems.map((c) => {
                 // #305/#39 — a field the change refers to may since have been
@@ -378,7 +379,7 @@ export function RecordHistoryDialog({
           {tab === 'versions' && (
             <div className="flex flex-col gap-2 overflow-y-auto">
               {versionItems.length === 0 && !versions.isLoading && (
-                <p className="py-4 text-center text-body text-muted">No earlier versions yet.</p>
+                <EmptyState variant="list" title="No earlier versions yet." />
               )}
               {versionItems.map((v) => (
                 <div
@@ -416,7 +417,7 @@ export function RecordHistoryDialog({
           {tab === 'document' && (
             <div className="flex flex-col gap-2 overflow-y-auto">
               {docVersionItems.length === 0 && !docVersions.isLoading && (
-                <p className="py-4 text-center text-body text-muted">No earlier document versions yet.</p>
+                <EmptyState variant="list" title="No earlier document versions yet." />
               )}
               {docVersionItems.map((v) => (
                 <div

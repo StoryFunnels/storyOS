@@ -131,7 +131,7 @@ describe('#1034 the Slack webhook URL is a public https URL, and nothing the rem
     ['http://api:3001/internal', 'an internal service name over http'],
     ['https://api:3001/internal', 'an internal service name over https (no dot)'],
     ['https://127.0.0.1/x', 'a loopback IP literal'],
-    ['https://169.254.169.254/hetzner/v1/userdata', 'the cloud metadata IP'],
+    ['https://169.254.169.254/metadata/v1/userdata', 'the cloud metadata IP'],
     ['https://[::1]/x', 'an IPv6 loopback literal'],
     ['https://localhost/x', 'localhost'],
     ['https://svc.internal/x', 'an .internal name'],

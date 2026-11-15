@@ -5,9 +5,10 @@ import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { IntegrationSetupGuide } from '@/components/integration-setup-guide';
 import { ProviderPageHeader } from '@/components/settings/provider-card';
+import { cn } from '@/lib/utils';
 
 interface AgentsPack {
   exists: boolean;
@@ -120,7 +121,7 @@ export default function DelegateToAgentIntegrationPage() {
           {pack.data?.id && (
             <Link
               href={`/w/${ws}/d/${pack.data.id}`}
-              className="w-fit rounded-[var(--radius-control)] border border-border-default bg-card px-3 py-1.5 text-body font-medium text-ink hover:border-border-strong"
+              className={cn(buttonVariants({ variant: 'secondary' }), 'w-fit')}
             >
               Open Agents →
             </Link>

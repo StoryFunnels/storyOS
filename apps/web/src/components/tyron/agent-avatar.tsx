@@ -1,6 +1,6 @@
 'use client';
 
-import { Sparkles } from 'lucide-react';
+import { Bot, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -32,15 +32,23 @@ import { cn } from '@/lib/utils';
 export function AgentAvatar({
   name,
   size = 'md',
+  shape = 'squircle',
   className,
 }: {
   /** The agent's name — used for the accessible label, never rendered as initials. */
   name: string;
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * Ticket #1289 item 5 (Otto, 2026-11-13): the agents list, the agent page and the hire card draw ONE mark, a gold-tint CIRCLE with
+   * the bot glyph (the design's `.agentmark`), where they had three (a bare icon, a squircle, a squircle). The squircle stays the
+   * mark on the surfaces that sit beside people (mentions, approvals, chat), so this is opt-in rather than a global restyle.
+   */
+  shape?: 'squircle' | 'circle';
   className?: string;
 }) {
   const px = size === 'sm' ? 'h-5 w-5' : size === 'lg' ? 'h-10 w-10' : 'h-7 w-7';
   const glyph = size === 'sm' ? 'h-3 w-3' : size === 'lg' ? 'h-5 w-5' : 'h-4 w-4';
+  const Glyph = shape === 'circle' ? Bot : Sparkles;
   return (
     <span
       // "agent" is in the label because a screen reader gets none of the visual
@@ -50,13 +58,16 @@ export function AgentAvatar({
       title={`${name} — an agent, not a person`}
       className={cn(
         'inline-flex shrink-0 items-center justify-center',
-        // rounded-md, not rounded-full: the shape IS the signal.
-        'rounded-md border border-[var(--accent)]/30 bg-accent-soft text-[var(--accent)]',
+        // rounded-md, not rounded-full: the shape IS the signal (except where a page opts into the circle mark, see `shape`).
+        shape === 'circle' ? 'rounded-full' : 'rounded-md',
+        // The circle's glyph takes the darker `--accent-text` step: `--accent` is 2.07:1 on the tint, under the 3:1 a glyph needs (#706).
+        'border border-[var(--accent)]/30 bg-accent-soft',
+        shape === 'circle' ? 'text-accent-text' : 'text-[var(--accent)]',
         px,
         className,
       )}
     >
-      <Sparkles className={glyph} aria-hidden />
+      <Glyph className={glyph} aria-hidden />
     </span>
   );
 }

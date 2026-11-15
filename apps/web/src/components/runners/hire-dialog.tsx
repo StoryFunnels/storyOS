@@ -12,9 +12,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { useDatabase } from '@/components/table-view/use-table-data';
 import { api, apiErrorMessage } from '@/lib/api';
 import { useDatabases, useSpaces, useWorkspace } from '@/lib/queries';
-import { ASKS, executeHire, hireOutcomeMessage, hireProblem, initialHireDraft } from '@/lib/runners/hire';
+import { ASKS, executeHire, hireOutcomeMessage, hireProblem, holdsSpaceTargets, initialHireDraft, targetSpaceIds } from '@/lib/runners/hire';
 import type { AskKey, HireContext, HireDraft, HireField, HireIO, WorkTarget } from '@/lib/runners/hire';
-import { canDeclareWriteGates } from '@/lib/runners/access';
+import { canDeclareWriteGates, canSetupAgents } from '@/lib/runners/access';
+import { HIRE_API_CAPABILITIES } from '@/lib/runners/hire-capabilities';
+import type { Caps } from '@/lib/runners/hire-capabilities';
+import { watchableDatabases } from '@/lib/runners/works-in';
 import { runnerKeys, useDatabaseFields, useMyUserId, useRunnerMutations, useRunners } from '@/lib/runners/queries';
 import { hireState, ownerRunners } from '@/lib/runners/runs-on';
 import { browserTimeZone, rebaseRules } from '@/lib/runners/wake-rules';
@@ -38,7 +41,7 @@ function unwrap(result: { data?: unknown; error?: unknown }): unknown {
 export function HireDialog({ ws, agentsDbId, open, onOpenChange }: { ws: string; agentsDbId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Hire an agent" className="max-h-[calc(100dvh-32px)] max-w-[520px] overflow-y-auto p-[18px] pb-3.5">
+      <DialogContent title="Hire an agent" titleClassName="mb-3 text-prose font-bold" className="max-h-[calc(100dvh-32px)] max-w-[520px] overflow-y-auto p-[18px] pb-3.5">
         {/* Mounted only while open, so every opening starts from the defaults. */}
         {open && <HireCard ws={ws} agentsDbId={agentsDbId} onClose={() => onOpenChange(false)} />}
       </DialogContent>
@@ -73,14 +76,21 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
   const chosen = mine.find((r) => r.id === chosenId) ?? null;
   const state = hireState(chosen);
 
-  const workDbs = works.filter((w): w is Extract<WorkTarget, { kind: 'db' }> => w.kind === 'db');
+  // What a wake rule may watch: the databases named AND those inside a whole-space chip (ticket #1289 item 7).
+  const workDbs = watchableDatabases(works, databases.data ?? []);
+  const agentFields = (db.data?.fields ?? []) as unknown as HireField[];
+  // A whole space is offered when the Agents database can hold it: it has `target_spaces`, or the person is an admin and the
+  // hire call adds it first (`POST /agents/ensure` is admin-only). Never a row the API would refuse.
+  const caps: Caps = { ...HIRE_API_CAPABILITIES, wholeSpaceTargets: holdsSpaceTargets(agentFields) || canSetupAgents(role) };
   const fieldsByDb = useDatabaseFields(ws, workDbs.map((w) => w.id));
 
   const draft: HireDraft = { name, job, wakes, works, asks, runnerId: chosen?.id ?? null };
   const ctx: HireContext = {
-    fields: (db.data?.fields ?? []) as unknown as HireField[],
+    fields: agentFields,
     agentsDatabaseId: agentsDbId,
     role,
+    caps,
+    spaceDatabaseIds: workDbs.map((w) => w.id),
     timeZone,
     databaseName: (id) => databases.data?.find((d) => d.id === id)?.name ?? 'record',
     fieldName: (dbId, fieldId) => fieldsByDb[dbId]?.find((f) => f.id === fieldId)?.displayName ?? 'field',
@@ -90,7 +100,7 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
 
   function setWorksAndRules(next: WorkTarget[]) {
     setWorks(next);
-    setWakes((rules) => rebaseRules(rules, next.filter((w) => w.kind === 'db').map((w) => w.id)));
+    setWakes((rules) => rebaseRules(rules, watchableDatabases(next, databases.data ?? []).map((w) => w.id)));
   }
 
   const io: HireIO = {
@@ -107,6 +117,12 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
   async function hire() {
     setBusy(true);
     try {
+      // An Agents database that predates whole-space targets gets its `target_spaces` field first (idempotent, admin-only: the
+      // picker only offered a space to someone who may do this).
+      if (targetSpaceIds(works, caps).length > 0 && !holdsSpaceTargets(agentFields)) {
+        unwrap(await api.POST('/api/v1/workspaces/{ws}/agents/ensure', { params: { path: { ws } } } as never));
+        await qc.invalidateQueries({ queryKey: ['database', ws, agentsDbId] });
+      }
       const outcome = await executeHire(draft, ctx, io);
       await qc.invalidateQueries({ queryKey: runnerKeys.agents(ws) });
       await qc.invalidateQueries({ queryKey: runnerKeys.summary(ws) });
@@ -126,22 +142,22 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
   return (
     <div className="flex flex-col gap-2.5" data-testid="hire-card">
       <div className="flex items-center gap-3">
-        <AgentAvatar name={name.trim() || 'New agent'} size="lg" />
+        <AgentAvatar name={name.trim() || 'New agent'} size="lg" shape="circle" />
         <div className="min-w-0 flex-1">
-          <label htmlFor="hire-name" className="text-label text-muted">
+          <label htmlFor="hire-name" className="text-body text-ink">
             Name
           </label>
           <Input id="hire-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Sales assistant" autoFocus />
         </div>
       </div>
       <div>
-        <label htmlFor="hire-job" className="text-label text-muted">
+        <label htmlFor="hire-job" className="text-body text-ink">
           Its job
         </label>
         <Textarea id="hire-job" rows={2} className="min-h-[52px]" value={job} onChange={(e) => setJob(e.target.value)} placeholder="Follow up on deals that went quiet and draft the next email for me" />
       </div>
       <div>
-        <div className="mb-1 text-label text-muted">Wakes when</div>
+        <div className="mb-1 text-body text-ink">Wakes when</div>
         <WakeRulesEditor
           rules={wakes}
           onChange={setWakes}
@@ -153,11 +169,11 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
         />
       </div>
       <div>
-        <div className="mb-1 text-label text-muted">Works in</div>
-        <WorksInPicker works={works} onChange={setWorksAndRules} spaces={spaces.data ?? []} databases={databases.data ?? []} />
+        <div className="mb-1 text-body text-ink">Works in</div>
+        <WorksInPicker works={works} onChange={setWorksAndRules} spaces={spaces.data ?? []} databases={databases.data ?? []} caps={caps} />
       </div>
       <div>
-        <div className="mb-1 text-label text-muted">Asks before</div>
+        <div className="mb-1 text-body text-ink">Asks before</div>
         <div className="flex flex-col gap-1" data-testid="asks-before">
           {ASKS.filter((a) => !a.gate || mayGate).map((a) => (
             <label key={a.key} className="flex items-center gap-2 text-body text-ink">
@@ -168,7 +184,7 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
         </div>
         {!mayGate && role !== undefined && <p className="mb-0 mt-1 text-label text-muted">Holding changes to records for approval is set by a workspace admin.</p>}
       </div>
-      <p className="m-0 text-label text-muted">Reports to you. You can change all of this later on its page.</p>
+      <p className="m-0 text-label text-muted">Reports to you. Its page shows all of this; wake rules are changed per database, in Automations.</p>
       <div>
         <RunsOnLine
           assigned={chosen ? { id: chosen.id, name: chosen.name } : null}
@@ -189,10 +205,10 @@ function HireCard({ ws, agentsDbId, onClose }: { ws: string; agentsDbId: string;
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="secondary" onClick={onClose}>
+        <Button type="button" variant="secondary" size="sm" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="button" disabled={busy || problem !== null} onClick={() => void hire()}>
+        <Button type="button" size="sm" disabled={busy || problem !== null} onClick={() => void hire()}>
           Hire
         </Button>
       </div>

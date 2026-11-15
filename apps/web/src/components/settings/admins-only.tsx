@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
+import { SettingsRefusal } from '@/components/settings/settings-chrome';
 
 /**
  * Ticket #1092 — the ONE "admins only" state for a workspace settings page.
@@ -43,12 +44,9 @@ export function AdminsOnly({ title, children }: { title: string; children: React
 /** The refusal itself, exported so it can be rendered and tested without a query client. */
 export function AdminsOnlyNotice({ title, role }: { title: string; role: string }) {
   return (
-    <div className="p-6" data-testid="admins-only">
-      <h1 className="text-title font-semibold text-ink">{title}</h1>
-      <p className="mt-2 max-w-prose text-body text-muted">
-        {title} is for workspace admins. You are {role === 'guest' ? 'a guest' : 'a member'} here, so you cannot open or change it. Ask a
-        workspace admin if you need something changed.
-      </p>
-    </div>
+    <SettingsRefusal title={title} testId="admins-only">
+      {title} is for workspace admins. You are {role === 'guest' ? 'a guest' : 'a member'} here, so you cannot open or change it. Ask a
+      workspace admin if you need something changed.
+    </SettingsRefusal>
   );
 }

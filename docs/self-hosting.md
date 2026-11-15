@@ -12,7 +12,9 @@ The whole product, on your machine, free forever. One Postgres, two containers, 
 
 ```bash
 git clone https://github.com/StoryFunnels/storyOS.git storyos && cd storyos
-echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" > .env
+cp .env.example .env
+# one-time: generate the two secrets the stack requires (keep this file; back it up)
+printf 'BETTER_AUTH_SECRET=%s\nCONNECTIONS_MASTER_KEY=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 docker compose up -d
 ```
 
@@ -22,20 +24,20 @@ The bundled Caddy proxy serves everything on **one origin** (port 80): the web a
 
 ## Environment matrix
 
-Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` is required.
+Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` and `CONNECTIONS_MASTER_KEY` are required.
 
 | Variable | Default | Notes |
 |---|---|---|
 | `BETTER_AUTH_SECRET` | — (required) | `openssl rand -hex 32`. The API **refuses to boot in production** if this is unset or left at a default — sessions are signed with it, so a public value means anyone can forge a login. |
 | `POSTGRES_PASSWORD` | `storyos` | change for anything internet-facing |
-| `API_URL` / `WEB_URL` | `http://localhost:3001` / `:3000` | set BOTH to your public URL (same origin), e.g. `https://os.example.com` |
+| `API_URL` / `WEB_URL` | `http://localhost` (port 80) | set BOTH to your public URL (same origin), e.g. `https://os.example.com`. If you change `HTTP_PORT`, set both to `http://localhost:<port>`; auth only accepts requests whose Origin is exactly `WEB_URL` (otherwise: "Invalid origin") |
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | host ports of the caddy proxy |
 | `RESEND_API_KEY`, `MAIL_FROM` | unset | invites/mentions/notifications/auth verify+reset email via Resend's HTTP API (MN-103) — the preferred path. Without it (and without `SMTP_HOST` below), invite links are copyable in the UI and other emails are logged instead of sent. |
 | `SMTP_HOST/PORT/USER/PASS` | unset | fallback transport, used only when `RESEND_API_KEY` is unset. Any SMTP provider works (e.g. Resend's own relay: `smtp.resend.com`, user `resend`, pass `re_…`) |
 | `GOOGLE_CLIENT_ID/SECRET` | unset | enables "Continue with Google" **and** the Google connection under **Connections** (MN-252) — the same OAuth app covers both. Redirect URIs: `{API_URL}/api/v1/auth/callback/google` (login) and `{API_URL}/api/v1/connections/oauth/callback` (Connections) |
 | `OPENAI_API_KEY` | unset | server-side credential for managed StoryOS AI agent runs and Architect proposals. Unset keeps managed AI disabled. Your-own-AI over MCP never uses this key and is never metered by StoryOS. |
 | `OPENAI_MODEL` | `gpt-4o-mini` | model used by the managed runtime and Architect proposer |
-| `CONNECTIONS_MASTER_KEY` | derived from `BETTER_AUTH_SECRET` | `openssl rand -hex 32`. Encrypts every credential in **Connections** (Apify/Resend keys, OAuth tokens) at rest. The API **refuses to boot in production** if this is unset or not a 64-char hex string. Self-host can leave it unset — the derived dev/test key still works, but pin it explicitly once you rely on Connections in production so a `BETTER_AUTH_SECRET` rotation can't also invalidate every saved connection. |
+| `CONNECTIONS_MASTER_KEY` | — (required) | `openssl rand -hex 32` (exactly 64 hex characters). Encrypts every credential in **Connections** (Apify/Resend keys, OAuth tokens) at rest. Both `docker compose` and the API refuse to start if it is unset or malformed, and name the variable. Keep it and back it up with your database: changing it makes every saved connection unreadable. |
 | `STORAGE_DRIVER` | `local` | `s3` for MinIO/S3/R2 |
 | `S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY` | endpoint/bucket default to the bundled MinIO; **keys have no default** | `S3_ACCESS_KEY` and `S3_SECRET_KEY` are required with `STORAGE_DRIVER=s3` or `--profile minio` (api and minio refuse to start without them, or with the old `storyos` / `storyos-minio`) |
 | `ATTACHMENT_MAX_BYTES` | 20971520 (20 MB) | per-file upload cap |

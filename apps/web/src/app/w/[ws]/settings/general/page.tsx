@@ -144,7 +144,7 @@ export default function GeneralSettingsPage() {
           </div>
           <div className="flex items-center justify-end gap-3 border-t border-border-default px-3.5 py-2.5">
             {!isAdmin && <span className="mr-auto text-label text-muted">Only an admin can change these.</span>}
-            <Button onClick={save} disabled={!canSave}>
+            <Button size="sm" onClick={save} disabled={!canSave}>
               {updateWorkspace.isPending ? 'Saving…' : 'Save'}
             </Button>
           </div>
@@ -203,6 +203,7 @@ export default function GeneralSettingsPage() {
             {!isAdmin && <span className="mr-auto text-label text-muted">Only an admin can change portal branding.</span>}
             <Button
               variant="secondary"
+              size="sm"
               onClick={saveBranding}
               disabled={!isAdmin || !logoValid || !colorValid || !brandingDirty || updateWorkspace.isPending}
             >

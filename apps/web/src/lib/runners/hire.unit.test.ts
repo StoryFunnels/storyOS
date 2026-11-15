@@ -12,7 +12,9 @@ import {
   hireProblem,
   hireRecordValues,
   initialHireDraft,
+  holdsSpaceTargets,
   targetDatabaseIds,
+  targetSpaceIds,
   WRITE_GATE_OPERATIONS,
 } from './hire';
 import type { HireContext, HireDraft, HireField, HireIO } from './hire';
@@ -210,13 +212,36 @@ describe('the calls after the record (AC2)', () => {
   });
 });
 
-describe('whole-space targets are not offered until the API has them (ticket #1195)', () => {
-  it('a space chip cannot reach the payload while the capability is off', () => {
-    expect(HIRE_API_CAPABILITIES.wholeSpaceTargets).toBe(false);
-    expect(() => targetDatabaseIds([{ kind: 'space', id: 's1', name: 'Client Work' }])).toThrow(/whole-space target is not accepted/);
+describe('whole-space targets (ticket #1195 on main, offered by ticket #1289 item 7)', () => {
+  const space = { kind: 'space' as const, id: 's9', name: 'Client Work' };
+  it('the capability is on: the API has `target_spaces` and the card says "Add a space or database"', () => {
+    expect(HIRE_API_CAPABILITIES.wholeSpaceTargets).toBe(true);
   });
-  it('with the capability on, a space is accepted by the model (the payload shape is added with the API)', () => {
-    expect(targetDatabaseIds([{ kind: 'space', id: 's1', name: 'Client Work' }, ...works], { scheduleCadence: true, wholeSpaceTargets: true })).toEqual(['d1', 'd2']);
+  it('a space chip never reaches `target_databases`, and is written as its own `target_spaces` value', () => {
+    expect(targetDatabaseIds([space, ...works])).toEqual(['d1', 'd2']);
+    expect(targetSpaceIds([space, ...works])).toEqual(['s9']);
+    const values = hireRecordValues(draft({ works: [space, ...works] }), ctx());
+    expect(values?.target_spaces).toBe('s9');
+    expect(values?.target_databases).toBe('d1, d2');
+  });
+  it('KEEPS the old payload: no space chip means no `target_spaces` key at all, and a database-only hire is unchanged', () => {
+    const values = hireRecordValues(draft(), ctx());
+    expect(values).not.toHaveProperty('target_spaces');
+    expect(values?.target_databases).toBe('d1, d2');
+    expect(hireRecordValues(draft({ works: [space] }), ctx())).not.toHaveProperty('target_databases');
+  });
+  it('with the capability off a space chip is refused loudly rather than dropped', () => {
+    expect(() => targetSpaceIds([space], OFF)).toThrow(/whole-space target is not accepted/);
+  });
+  it('a wake rule may watch a database inside a whole-space chip, and still not one outside Works in', () => {
+    const only = draft({ works: [space], wakes: [{ kind: 'new', databaseId: 'd7' }] });
+    expect(hireProblem(only, ctx())).toMatch(/Choose which database each wake rule watches/);
+    expect(hireProblem(only, ctx({ spaceDatabaseIds: ['d7'] }))).toBeNull();
+    expect(hireProblem(only, ctx({ spaceDatabaseIds: ['d8'] }))).toMatch(/Choose which database/);
+  });
+  it('holdsSpaceTargets reads the Agents database fields: an older one without the field is not offered a space', () => {
+    expect(holdsSpaceTargets(FIELDS)).toBe(false);
+    expect(holdsSpaceTargets([...FIELDS, { apiName: 'target_spaces', type: 'text' }])).toBe(true);
   });
 });
 

@@ -3,6 +3,8 @@
 import { useParams } from 'next/navigation';
 import { Download } from 'lucide-react';
 import { API_URL } from '@/lib/api';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/queries';
 import { canOpenAdminSettings } from '@/lib/settings-nav';
 import { SettingsBox, SettingsPageBody, SettingsPageHeader, SettingsRow } from '@/components/settings/settings-chrome';
@@ -40,7 +42,7 @@ export default function ExportPage() {
             >
               <a
                 href={href}
-                className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-primary px-4 text-body font-medium text-[var(--text-on-dark)] transition-colors hover:bg-primary-hover max-sm:w-full"
+                className={cn(buttonVariants(), 'shrink-0 gap-1.5 max-sm:w-full')}
               >
                 <Download className="h-4 w-4" aria-hidden /> Export
               </a>

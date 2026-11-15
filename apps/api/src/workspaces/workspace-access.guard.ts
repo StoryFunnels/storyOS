@@ -13,6 +13,7 @@ import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { memberships } from '../db/schema';
 import type { AuthedRequest } from '../auth/auth.guard';
+import { resolveRecordRef } from '../common/record-ref';
 
 export type Membership = typeof memberships.$inferSelect & {
   /**
@@ -20,8 +21,12 @@ export type Membership = typeof memberships.$inferSelect & {
    * or databases. `role` is then DOWNGRADED to 'guest' (so every guest narrowing already in the
    * codebase applies) and the caller's real role is kept here, because AccessService derives
    * the synthetic grants from it. Never set from anything but the token row.
+   *
+   * `agentCredential` (ticket #1296) is true when the credential belongs to an AGENT. A whole-space binding then covers the space's
+   * USER databases only: a system database (Members, the Agents pack) is closed to it unless named in `databaseIds`. Derived from
+   * the credential's agent identity, which the guard re-resolves live on every request, so it can never be set by the caller.
    */
-  bound?: { spaceIds: string[]; databaseIds: string[]; realRole: 'admin' | 'member' | 'guest' };
+  bound?: { spaceIds: string[]; databaseIds: string[]; realRole: 'admin' | 'member' | 'guest'; agentCredential?: boolean };
 };
 export type WorkspaceRequest = AuthedRequest & { membership: Membership };
 
@@ -71,6 +76,7 @@ export class WorkspaceAccessGuard implements CanActivate {
             spaceIds: ceiling.space_ids,
             databaseIds: ceiling.database_ids,
             realRole: membership.role,
+            ...((request as AuthedRequest).auth?.agentId ? { agentCredential: true } : {}),
           },
         }
       : membership;
@@ -86,6 +92,18 @@ export class WorkspaceAccessGuard implements CanActivate {
         ceiling
           ? 'This token is bound to specific spaces or databases; this route is outside that boundary'
           : `Requires ${minRole} role`,
+      );
+    }
+
+    // ticket #1295 — `{rec}` is a uuid or the record's public number on every `records/{rec}/...` route. Resolved here, once, AFTER
+    // membership and the role floor (a non-member costs no lookup), so no handler repeats it and a new route in the family is covered
+    // without opting in. The uuid it yields goes through every downstream access check unchanged — see common/record-ref.ts.
+    const rec = (request.params as { rec?: string; db?: string }).rec;
+    if (typeof rec === 'string') {
+      (request.params as { rec?: string }).rec = await resolveRecordRef(
+        this.db,
+        (request.params as { db?: string }).db,
+        rec,
       );
     }
 

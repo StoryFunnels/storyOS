@@ -43,7 +43,7 @@ gaps.
 | Attachment upload cap | 20 MB/file | `apps/api/src/config/env.ts` (`ATTACHMENT_MAX_BYTES`) |
 | Rate limit | 300 req/min per token/session | same (`RATE_LIMIT_PER_MINUTE`) |
 | Storage **plan** cap | **none exists today** | `entitlements.service.test.ts` explicitly asserts `storageLimit` is *not* one of the entitlement keys — storage is metered for cost visibility (above) but not capped or gated per plan |
-| Production host | Kamatera VPS, `root@185.237.15.102` | `DEPLOY-CHEATSHEET.md` — tier (RAM/CPU/disk) is **not documented anywhere in the repo**; self-hosting.md's "1 GB RAM / 1 vCPU is plenty for a small team" is a *minimum self-host* recommendation, not the production tier |
+| Production host | A single VPS (address kept in the private infrastructure repo) | `DEPLOY-CHEATSHEET.md` — tier (RAM/CPU/disk) is **not documented anywhere in the repo**; self-hosting.md's "1 GB RAM / 1 vCPU is plenty for a small team" is a *minimum self-host* recommendation, not the production tier |
 
 ### Assumptions made where the repo has no real number (stated explicitly, not presented as fact)
 
@@ -51,10 +51,10 @@ These four are the ticket's own remaining cost drivers that nothing in-repo pric
 
 | Driver | Assumption | Basis |
 |---|---|---|
-| **Backups** | $20/month, instance-wide, fixed | Typical VPS snapshot/pg_dump-to-object-storage cost at small scale; Kamatera's exact snapshot pricing isn't documented for our tier |
+| **Backups** | $20/month, instance-wide, fixed | Typical VPS snapshot/pg_dump-to-object-storage cost at small scale; the provider's exact snapshot pricing isn't documented for our tier |
 | **Logs/monitoring** | $25/month, instance-wide, fixed | A lightweight hosted log/APM tier (or marginal cost of self-hosting on the existing box); nothing is wired up in code today |
 | **PostHog** | $0 actual today, $25/month planning buffer | **Not integrated anywhere in the codebase** (`grep -r posthog` returns nothing) — PostHog Cloud's free tier (1M events/mo) likely covers current scale entirely; the buffer is for when/if it ships |
-| **Bandwidth/egress** | ~$0 incremental today, $15/month heavy-scale buffer | StoryOS's payload is JSON API + UI assets, not media-heavy; Kamatera VPS tiers bundle several TB/month. This becomes a real line once attachment *downloads* (not uploads) scale — not before |
+| **Bandwidth/egress** | ~$0 incremental today, $15/month heavy-scale buffer | StoryOS's payload is JSON API + UI assets, not media-heavy; typical VPS tiers bundle several TB/month. This becomes a real line once attachment *downloads* (not uploads) scale — not before |
 
 Also worth flagging: the code's $500 fixed bucket lumps in "Stripe's own fees," but
 card processing (2.9% + $0.30/charge) is **revenue-proportional**, not fixed. This
@@ -232,5 +232,5 @@ problem.
   operator-set rates in `cost-attribution.ts` itself. The four new drivers modeled
   here (backups, logs/monitoring, PostHog, bandwidth) are estimates with no
   in-repo grounding at all, stated as such throughout. Revisit both categories
-  once real Kamatera/Resend/PostHog invoices exist to reconcile against — the same
+  once real hosting/Resend/PostHog invoices exist to reconcile against — the same
   spirit as the AI markup's own "provisional, revisit once real data exists" note.

@@ -81,7 +81,11 @@ export class AccessService {
    * Only read for a non-admin: an admin sees everything, so it never asks.
    */
   private closedResources(membership: Membership) {
-    return memoizeForRequest(`closed:${membership.workspaceId}`, async () => {
+    // Ticket #1296 — an AGENT's bound credential also has every system database closed to it (unless NAMED in its binding), because a
+    // whole-space grant covers user databases only. That makes the closed set differ per binding, so the memo key says which.
+    const agentBound = membership.bound?.agentCredential ? membership.bound : null;
+    const key = agentBound ? `closed:${membership.workspaceId}:agent:${[...agentBound.databaseIds].sort().join(',')}` : `closed:${membership.workspaceId}`;
+    return memoizeForRequest(key, async () => {
       // Internal callers act with a role-less `{ workspaceId }` membership (members-db provisioning): they are neither a member
       // nor a guest and have always seen everything, so nothing is closed to them.
       if (membership.role !== 'member' && membership.role !== 'guest') return null;
@@ -92,6 +96,16 @@ export class AccessService {
         rows?: Array<{ kind: 's' | 'd'; id: string }>;
       };
       const rows = res.rows ?? [];
+      if (agentBound) {
+        // SQL mirror of `!coveredByWholeSpaceGrant` (common/system-databases.ts): the flag, never the name. A database the binding NAMES
+        // is not closed: naming it is the one way in, and `boundTokenGrants` gives it its own database-level grant.
+        const named = new Set(agentBound.databaseIds);
+        const system = await this.db.query.databases.findMany({
+          where: and(eq(databases.workspaceId, membership.workspaceId), eq(databases.isSystem, true), notDeleted(databases.deletedAt)),
+          columns: { id: true },
+        });
+        for (const d of system) if (!named.has(d.id)) rows.push({ kind: 'd', id: d.id });
+      }
       if (rows.length === 0) return null;
       return {
         spaces: new Set(rows.filter((r) => r.kind === 's').map((r) => r.id)),
