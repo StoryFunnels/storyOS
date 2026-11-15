@@ -24,7 +24,7 @@ describe('Business Packs page header (#1290)', () => {
   });
 
   it('Submit a pack wears the shared secondary button classes, and is still only offered to people who can install', () => {
-    expect(src).toMatch(/href=\{`\/w\/\$\{ws\}\/packs\/submit`\}\s+className=\{cn\(buttonVariants\(\{ variant: 'secondary', size: 'sm' \}\)\)\}/);
+    expect(src).toMatch(/href=\{`\/w\/\$\{ws\}\/packs\/submit`\}\s+className=\{cn\(buttonVariants\(\{ variant: 'secondary' \}\)\)\}/);
     expect(src).toMatch(/\{canInstall && \(\s*<Link\s+href=\{`\/w\/\$\{ws\}\/packs\/submit`\}/);
   });
 });

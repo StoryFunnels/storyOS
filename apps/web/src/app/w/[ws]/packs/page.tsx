@@ -151,7 +151,7 @@ export default function PacksPage() {
         {canInstall && (
           <Link
             href={`/w/${ws}/packs/submit`}
-            className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }))}
+            className={cn(buttonVariants({ variant: 'secondary' }))}
           >
             <Upload className="h-3.5 w-3.5" /> Submit a pack
           </Link>
