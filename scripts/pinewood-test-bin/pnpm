@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub for scripts/pinewood.test.mjs (ticket #1269): records that a command ran
+# against a database, with the DATABASE_URL it was handed, and does nothing else.
+# The pinewood scripts run children under `env -i`, so FAKE_PG_DIR does not survive;
+# the test writes the directory into $HOME/.fake-pg-dir before each run (HOME does).
+d="${FAKE_PG_DIR:-$(cat "$HOME/.fake-pg-dir")}"
+echo "pnpm: DATABASE_URL=${DATABASE_URL:-} $*" >>"$d/log"

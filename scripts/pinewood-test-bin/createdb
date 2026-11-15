@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Test stub for scripts/pinewood.test.mjs (ticket #1269): a fake `createdb`. A real
+# CREATE DATABASE ... TEMPLATE does not copy the template's comment, and neither does this.
+d="${FAKE_PG_DIR:?}"
+echo "createdb: $*" >>"$d/log"
+tpl=""
+db=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h | -p | -U) shift 2 ;;
+    -T) tpl="$2"; shift 2 ;;
+    *) db="$1"; shift ;;
+  esac
+done
+if [ -n "$tpl" ] && [ ! -e "$d/db.$tpl" ]; then
+  echo "createdb: template $tpl missing" >&2
+  exit 1
+fi
+if [ -e "$d/db.$db" ]; then
+  echo "createdb: $db exists" >&2
+  exit 1
+fi
+: >"$d/db.$db"

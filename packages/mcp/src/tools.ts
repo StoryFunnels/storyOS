@@ -917,6 +917,8 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   get_agents: 'read',
   // #1195 — GET /agents/{agent}/scope: where an agent works, resolved now. Read-only; the targets are fields a person edits.
   get_agent_scope: 'read',
+  // #1289 — GET /agents/{agent}/wake-sources: everything that can start an agent. Read-only.
+  get_agent_wake_sources: 'read',
   list_agent_activity: 'read',
   get_run: 'read',
   get_run_quota: 'read',
@@ -1246,7 +1248,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
          * outward capabilities in words costs one line and is the whole fix.
          */
         // #1260 — the agents paragraph: states and queue behaviour here mirror runners/run-state.ts and wake.constants.ts; update them together.
-        'AGENTS: an agent is a record in the Agents database (agentic_os/agents) — setup_agents provisions it (idempotent), get_agents shows the pack, and you hire an agent with create_record there (ai_mode: Non-AI, Your own AI or StoryOS AI; target_databases / target_spaces say where it works, read the resolved list with get_agent_scope; approval_policy lists what needs a person; monthly_token_budget / monthly_run_cap cap it, empty = no limit). create_agent_trigger wakes it when a record reaches a state or a relation field links it, run_agent / a run_agent automation action starts it, and each wake leaves a run in the Runs database. "Your own AI" agents run on a Runner, a program on the person\'s own computer that is paired in StoryOS Settings by a person (there is no tool for it; list_runners reads yours). A wake with no active, online Runner is queued, not lost: it runs when a Runner is back (cancelled after 7 days unserved). list_agent_wakes gives each wake ONE derived run_state — e.g. running, needs_approval, waiting_for_runner, runner_offline, waiting_for_budget (the agent used its monthly budget; it resumes at the month\'s reset or when the budget is raised), done, failed — and get_agent_wake_summary the counts; the Run records themselves are in get_runs / get_run. Records already in a trigger state before the trigger existed get no wake by themselves: list_agent_catch_up names them and a person starts the catch-up. Held actions appear in list_approvals; only a person decides them. get_my_work lists what is waiting on you.',
+        'AGENTS: an agent is a record in the Agents database (agentic_os/agents) — setup_agents provisions it (idempotent), get_agents shows the pack, and you hire an agent with create_record there (ai_mode: Non-AI, Your own AI or StoryOS AI; target_databases / target_spaces say where it works, read the resolved list with get_agent_scope, and everything that can wake it (triggers, automation rules with on/off, buttons, and the built-in ways such as @mention) with get_agent_wake_sources; approval_policy lists what needs a person; monthly_token_budget / monthly_run_cap cap it, empty = no limit). create_agent_trigger wakes it when a record reaches a state or a relation field links it, run_agent / a run_agent automation action starts it, and each wake leaves a run in the Runs database. "Your own AI" agents run on a Runner, a program on the person\'s own computer that is paired in StoryOS Settings by a person (there is no tool for it; list_runners reads yours). A wake with no active, online Runner is queued, not lost: it runs when a Runner is back (cancelled after 7 days unserved). list_agent_wakes gives each wake ONE derived run_state — e.g. running, needs_approval, waiting_for_runner, runner_offline, waiting_for_budget (the agent used its monthly budget; it resumes at the month\'s reset or when the budget is raised), done, failed — and get_agent_wake_summary the counts; the Run records themselves are in get_runs / get_run. Records already in a trigger state before the trigger existed get no wake by themselves: list_agent_catch_up names them and a person starts the catch-up. Held actions appear in list_approvals; only a person decides them. get_my_work lists what is waiting on you.',
         'AUTOMATE (admin): describe_database first, then create_automation = trigger (record_created/_updated/_linked, schedule, or webhook_received) + optional condition (a query_records-style filter) + 1–10 actions. ' +
         'Rules REACH OUTSIDE StoryOS — they can send real email, call any public HTTP API, and post to Slack, from scheduled and triggered rules alike, not just from buttons. ' +
         'Actions: set/create/create_records/comment/notify/send_email/send_webhook/http_request/send_slack_message/run_agent. ' +
@@ -6673,6 +6675,26 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'get_agent_wake_sources',
+    {
+      title: 'What can start an agent',
+      description:
+        "Everything that can start an agent, from one call (ticket #1289). `sources[]` holds four kinds: its agent triggers (`kind: agent_trigger`), every automation rule that has a run_agent action for it (`kind: automation`), every BUTTON field with a run_agent action for it (`kind: button`: `id` is the field's id, `name` its label, plus its `database`; pressing it starts the agent), and the BUILT-IN ways (`kind: built_in`, one entry per `reason`: mention, manual, approval_decided, must_comment, retry, catch_up) that apply to every agent with nothing to set up, so the list really is everything that can start it. The built-in entries are the same for every reader and come last. A trigger is a record entering a state, or a relation field linking to the agent: `binding` says which, `enabled` is its on/off (an installed trigger that is off is listed, not hidden), and `human_gate: true` means a person must start each run. A rule carries its `name`, `enabled`, its `database` and its `trigger`: record_created, record_updated (with the watched `field`, null = any), record_linked (with `relation_field` and `direction`) or schedule (with the cadence in `schedule`). Field, option and database labels come back by name; a deleted one has `name: null` (a deleted database `exists: false`) instead of an id standing in for a name. A source on a database the CALLER cannot open is counted in `withheld_count` and never named. A system database (such as Members) is named, but nothing inside it is described. A rule is named only for someone who may read that database's automations (the same check as list_automations, creator on it): anyone else gets the entry with `label: \"A rule in <database>\"` and `id`, `name`, `enabled` and `trigger` all null, so read `label` to display a rule. A button on a database the caller cannot open is counted in `withheld_count` like any other source; inside a system database its `name` is null. A rule's or button's condition, prompt and other actions are never part of this. A re-run of a rule's run_agent action is that rule firing again, not a separate source. Only the agent's manager (the person who owns its record) and workspace admins may read it: anyone else gets the same 'Agent not found' as for an agent that does not exist. It does not say whether a source would fire right now, or whether the agent itself is enabled.",
+      inputSchema: {
+        workspace: z.string(),
+        agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
+      },
+    },
+    handle<{ workspace: string; agent: string }>(async ({ workspace, agent }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/agents/{agent}/wake-sources', { params: { path: { ws: ws.id, agent } } } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'list_agent_activity',
     {
       title: 'What an agent has done',
@@ -7652,7 +7674,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Workspace-wide audit log',
       description:
-        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). #1059 — also records structural events on a space, database or view: deleted, restored, restricted, unrestricted (type e.g. "database.deleted"; rows carry `object` {kind,id,name}). Deleting a space names the databases that went with it. Personal-space content is private and never appears. There is no purge — deletion is soft and restorable. Read-only.',
+        '#454 — "who changed or deleted what, and when" across every user in the workspace, filterable by actor/entity/date range (default: last 30 days). Reads the SAME activity_events/record_field_changes tables list_comments/get_history read per-record, just workspace-wide. A removed member still appears by name (the no-FK design). #1059 — also records structural events on a space, database or view: deleted, restored, restricted, unrestricted (type e.g. "database.deleted"; rows carry `object` {kind,id,name}). Deleting a space names the databases that went with it. Personal-space content is private and never appears. There is no purge — deletion is soft and restorable. Ticket #1287 — every row about a record also carries `record` {id, number, title, database_id, database_name, deleted, withheld}, so a row can be read as "Updated record #12 Budget review in Projects" without a lookup per record: `deleted` is true when the record, its database or its space was deleted (still named, and restorable); `withheld` is true when the reader may not read that record (a restricted database, a record with no grant, another member\'s personal space), and then only `id` is set and the row\'s payload, field name and values are blanked. Rows with no record (a space, database or view event) carry `record: null`; their `object` names what they are about. Resolved display data sits ALONGSIDE the raw ids: a field-change row has `field_type`, and `old_display`/`new_display` (a select or multi-select shows option labels, "(deleted option)" when the option is gone; a person field, single or multi, shows names: "A former member" for someone who has left, "A person you cannot see" when the reader may not read that person, "Members sync"/"StoryOS" for a system id, "An agent" for an agent id, and never the auth id; `old_value`/`new_value` stay the stored ids); a `relation.linked`/`relation.unlinked` row has `other_record` (same shape as `record`) for the record on the other end; every row has `actor_name` (always words), `actor_kind` (member | system) and `actor_removed` (true for a member who has left; a system process such as "Members sync" is kind system, never removed). `actor_id` is the ?actor= filter key, not for display. Read-only.',
       inputSchema: {
         workspace: z.string(),
         actor: z.string().optional().describe('Narrow to one user id (from list_members).'),
@@ -7689,7 +7711,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List pending invites',
       description:
-        'Invitations sent but not yet accepted. A colleague who "is not in the workspace" may simply not have clicked the link yet, which is a different problem with a different fix. Read-only: inviting and revoking are human decisions.',
+        'Invitations sent but not yet accepted. A colleague who "is not in the workspace" may simply not have clicked the link yet, which is a different problem with a different fix. A revoked invite is not pending and is not listed. Read-only: inviting and revoking are human decisions.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
