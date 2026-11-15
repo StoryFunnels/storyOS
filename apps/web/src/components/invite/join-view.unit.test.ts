@@ -338,3 +338,21 @@ describe('the token is never drawn or logged, and the join path never reaches cr
     expect(page).toMatch(/land\(await joinWithToken\(token\)\)/);
   });
 });
+
+describe('the joining state (#1302)', () => {
+  it('renders Joining…, a disabled button and none of the dead-invite copy, even when the details now say used', () => {
+    const model = joinModel({ details: { ...valid, status: 'used' }, session: { status: 'signed_in', email: 'new.hire@pinewood.example' }, joined: true });
+    const html = render(model, true);
+    const t = text(html);
+    expect(t).toContain('Joining…');
+    expect(html).toContain('data-testid="invite-joining"');
+    expect(html).toMatch(/<button[^>]*disabled/);
+    expect(t).not.toMatch(/already used|has expired|no longer works|Go to my workspaces/);
+  });
+  it('the page wires the model and the query to the joined flag (source guard)', () => {
+    const src = readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../../app/invite/page.tsx'), 'utf8');
+    expect(src).toMatch(/enabled: detailsQueryEnabled\(\{ token, joined \}\)/);
+    expect(src).toMatch(/joined,\n\s*\}\);/);
+    expect(src).toMatch(/setJoined\(true\);\n\s*clearHeldInviteToken/);
+  });
+});

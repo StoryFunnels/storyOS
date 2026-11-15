@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NOT_FOUND_COPY, isUserAlreadyExists, joinFailureMessage, joinModel, sameEmail } from './invite-screen';
+import { JOINING_COPY, NOT_FOUND_COPY, detailsQueryEnabled, isUserAlreadyExists, joinFailureMessage, joinModel, sameEmail } from './invite-screen';
 import type { InviteDetails } from './invite-api';
 
 // Pinewood, made up.
@@ -99,5 +99,40 @@ describe('joinFailureMessage', () => {
     expect(joinFailureMessage('mismatch', null)).toMatch(/different address/);
     expect(joinFailureMessage('already_member', null)).toMatch(/already a member/);
     expect(joinFailureMessage('other', null)).toMatch(/Try again/);
+  });
+});
+
+describe('after a successful accept the screen is joining, never the invite outcome (#1302)', () => {
+  const used: InviteDetails = { ...valid, status: 'used' };
+  const expired: InviteDetails = { ...valid, status: 'expired' };
+  const gone: InviteDetails = { status: 'not_found', inviter_name: null, workspace_name: null, workspace_logo_url: null, invited_email: null };
+
+  it.each([
+    ['used (the re-read after our own accept)', used],
+    ['expired', expired],
+    ['not found', gone],
+    ['still valid', valid],
+    ['no details at all', undefined],
+  ])('joined wins over details that say %s, signed in or out', (_n, details) => {
+    for (const session of [out, asUser('new.hire@pinewood.example'), { status: 'loading' } as const]) {
+      expect(joinModel({ details, session, joined: true })).toEqual({ kind: 'joining', ...JOINING_COPY });
+    }
+  });
+  it('joined wins over a failed details read too', () => {
+    expect(joinModel({ details: null, detailsFailed: true, session: out, joined: true }).kind).toBe('joining');
+  });
+  it('not joined: used still reads as used (the screen for a person who never joined is unchanged)', () => {
+    expect(joinModel({ details: used, session: out, joined: false }).kind).toBe('used');
+    expect(joinModel({ details: used, session: out }).kind).toBe('used');
+  });
+  it('a failure after the accept (no joined) still gets its own message', () => {
+    expect(joinFailureMessage('already_member', null)).toBe('You are already a member of this workspace.');
+    expect(joinFailureMessage('expired', 'Maple Ridge')).toContain('expired');
+    expect(joinModel({ details: valid, session: asUser('new.hire@pinewood.example'), joined: false }).kind).toBe('join_one_click');
+  });
+  it('the details query is off once joined, and on only with a token before that', () => {
+    expect(detailsQueryEnabled({ token: 'tok', joined: false })).toBe(true);
+    expect(detailsQueryEnabled({ token: 'tok', joined: true })).toBe(false);
+    expect(detailsQueryEnabled({ token: null, joined: false })).toBe(false);
   });
 });

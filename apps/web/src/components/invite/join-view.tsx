@@ -161,6 +161,17 @@ export function JoinView({
           </p>
         </AuthCard>
       );
+    case 'joining':
+      return (
+        <AuthCard title={model.title}>
+          <p className="m-0 text-body text-ink-secondary" role="status" aria-live="polite" data-testid="invite-joining">
+            {model.body}
+          </p>
+          <Button type="button" size="auth" disabled aria-disabled="true" className="mt-5">
+            Joining…
+          </Button>
+        </AuthCard>
+      );
     case 'unavailable':
       return (
         <AuthCard title={model.title}>

@@ -22,6 +22,7 @@ import { acceptInvite, fetchInviteDetails, joinWithToken } from '@/lib/invite-ap
 import type { JoinFailure, JoinResult } from '@/lib/invite-api';
 import {
   NOT_FOUND_COPY,
+  detailsQueryEnabled,
   isUserAlreadyExists,
   joinFailureMessage,
   joinModel,
@@ -47,12 +48,15 @@ function InviteJoin() {
     now: Date.now(),
   });
   const { data: session, isPending } = useSession();
+  // Set once an accept succeeds and never cleared: from then on the page is leaving, and must not draw what the invite says now.
+  const [joined, setJoined] = useState(false);
 
   const details = useQuery({
     queryKey: ['invite-details', token],
     queryFn: () => fetchInviteDetails(token as string),
-    enabled: Boolean(token),
+    enabled: detailsQueryEnabled({ token, joined }),
     staleTime: 0,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const providers = useQuery({
@@ -91,10 +95,12 @@ function InviteJoin() {
     details: loaded,
     detailsFailed: details.isFetched && !loaded,
     session: joinSession,
+    joined,
   });
 
   function land(result: JoinResult) {
     if (result.ok) {
+      setJoined(true);
       clearHeldInviteToken(window.sessionStorage);
       posthog.capture('invite_accepted');
       router.replace(`/w/${result.workspaceId}`);
@@ -106,6 +112,7 @@ function InviteJoin() {
   function handleFailure(failure: JoinFailure) {
     if (failure === 'already_member') {
       // Already in: nothing to accept. The entry route finds their workspace; the token is spent as far as this tab goes.
+      setJoined(true);
       clearHeldInviteToken(window.sessionStorage);
       router.replace('/');
       return;
