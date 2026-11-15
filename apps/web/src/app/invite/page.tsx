@@ -65,6 +65,8 @@ function InviteJoin() {
   const [mode, setMode] = useState<'new' | 'existing'>('new');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // An error is drawn only after a submit attempt in the current mode (ticket #1302); a mode switch starts clean.
+  const [submitted, setSubmitted] = useState(false);
   const cameFromGoogle = useRef(false);
   const attempted = useRef(false);
 
@@ -133,6 +135,7 @@ function InviteJoin() {
     if (!token || model.kind !== 'join_signed_out') return;
     setBusy(true);
     setError(null);
+    setSubmitted(true);
     const email = model.invitedEmail;
 
     let authed = false;
@@ -161,12 +164,15 @@ function InviteJoin() {
       // The address already has an account (or the person said so): sign in with the same password box.
       const signedIn = await authClient.signIn.email({ email, password });
       if (signedIn.error) {
-        setMode('existing');
-        setError(
-          mode === 'existing'
-            ? (signedIn.error.message ?? 'Sign-in failed')
-            : 'That password does not match the account for this email.',
-        );
+        if (mode === 'existing') {
+          setError(signedIn.error.message ?? 'Sign-in failed');
+        } else {
+          // new -> existing: the form changes to the password-only one and starts clean; the explanatory line there says why.
+          setMode('existing');
+          setPassword('');
+          setError(null);
+          setSubmitted(false);
+        }
         setBusy(false);
         return;
       }
@@ -223,6 +229,7 @@ function InviteJoin() {
             onSubmit={(e) => void onSubmit(e)}
             busy={busy}
             error={error}
+            submitted={submitted}
             forgotHref={resetHrefForInvite(token)}
             onGoogle={onGoogle}
           />
