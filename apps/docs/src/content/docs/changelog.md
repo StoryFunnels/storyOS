@@ -12,6 +12,7 @@ day the change reached the product.
 - **10 Nov** — The install review has a **Wake it automatically** switch for a pack agent's trigger, and each database row names its fields. [Agent triggers install switched off](/guides/pack-manifest/#agent-triggers-install-switched-off)
 - **10 Nov** — Signup opens on **What are you working on?** with Team Board, Dev Tracker and Team Wiki first. [Creating a workspace](/guides/creating-a-workspace/)
 - **10 Nov** — An install that reuses another pack's databases reports them as linked, not created here. [Packs that build on other packs](/guides/pack-manifest/#packs-that-build-on-other-packs)
+- **10 Nov** — A connected provider page leads with its card, and GitHub lists untracked repositories with a Track button. [Connecting GitHub](/guides/github/)
 - **10 Nov** — Notifications says which events also arrive by email and to which address, Email me my work is a setting there, the Inbox offers it once, and every email opens with a Quill header and fits a phone screen. [Mentions and notifications](/concepts/mentions-and-notifications/#what-goes-by-email-and-where-it-arrives)
 - **13 Nov** — An agent given a whole space reaches that space's user databases only, never a system database such as Members. [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
 - **12 Nov** — Deleting one record moves it to Trash and offers Undo for 10 seconds, in the table and in the record panel. [Workspaces, spaces and databases](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space)
@@ -24,6 +25,7 @@ day the change reached the product.
 
 ## Week of 2 November 2026
 
+- **5 Nov** — The sidebar has a Hidden section for the spaces and databases you hid and for system spaces. [Organising the sidebar](/concepts/organising-the-sidebar/)
 - **3 Nov** — A guide to the StoryOS Runner, the program that lets an agent use your own AI. [The StoryOS Runner](/guides/runner/)
 - **3 Nov** — What wakes an agent on your own AI, and what its run record shows. [Agent runs](/concepts/agent-runs/)
 - **3 Nov** — Guides for the Team Wiki and Dev Tracker packs. [The Team Wiki pack](/guides/team-wiki-pack/) · [The Dev Tracker pack](/guides/dev-tracker-pack/)

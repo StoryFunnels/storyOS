@@ -121,6 +121,9 @@ export function joinFailureMessage(failure: 'not_found' | 'expired' | 'revoked' 
   }
 }
 
+/** The sentence under Switch account when the sign-out request throws (API down). Same plain-retry shape as the join failure. */
+export const SWITCH_ACCOUNT_FAILURE = 'Could not sign out. Try again.';
+
 /**
  * Runs the sign-up / sign-in / join steps of a Join submit. Those calls can THROW (`TypeError: Failed to fetch` with the API down),
  * and an uncaught throw left the button on "Joining…" for good (ticket #1302, found on PR 1561). A throw is a failed join like any
@@ -130,11 +133,12 @@ export function joinFailureMessage(failure: 'not_found' | 'expired' | 'revoked' 
 export async function runJoinSubmit(
   steps: () => Promise<void>,
   hooks: { setBusy: (busy: boolean) => void; setError: (message: string | null) => void },
+  failureMessage: string = joinFailureMessage('other', null),
 ): Promise<void> {
   try {
     await steps();
   } catch {
-    hooks.setError(joinFailureMessage('other', null));
+    hooks.setError(failureMessage);
     hooks.setBusy(false);
   }
 }
