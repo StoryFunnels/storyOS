@@ -57,11 +57,13 @@ function useNow(everyMs = 30_000): Date {
   return now;
 }
 
-function Section({ step, title, children }: { step: number; title: string; children: React.ReactNode }) {
+/** Ticket #1285: only the first-time path is numbered (1 to 3, the same three the "How setup works" box lists); the ongoing controls after it are not steps. */
+function Section({ step, title, children }: { step?: number; title: string; children: React.ReactNode }) {
   return (
     <section className="mt-6 border-t border-border-default pt-5">
       <h2 className="mb-2 text-body font-semibold text-ink">
-        {step}. {title}
+        {step ? `${step}. ` : ''}
+        {title}
       </h2>
       {children}
     </section>
@@ -257,7 +259,7 @@ export default function LinearIntegrationPage() {
        
         steps={[
           {
-            label: 'Save access',
+            label: 'Key and teams',
             description: 'Paste a Linear API key and optionally limit the migration to team keys.',
             complete: Boolean(cfg?.has_key),
           },
@@ -267,7 +269,7 @@ export default function LinearIntegrationPage() {
             complete: Boolean(preview),
           },
           {
-            label: 'Import and inspect',
+            label: 'Sync now',
             description: 'Create or update the Linear spaces, then review the imported records.',
             complete: Boolean(imported),
           },
@@ -279,7 +281,7 @@ export default function LinearIntegrationPage() {
             <Label htmlFor="lin-key">
               API key {cfg?.has_key && '(saved — enter to replace)'}
             </Label>
-            <Input
+            <Input size="sm"
               id="lin-key"
               type="password"
               placeholder="lin_api_… (Settings → API in Linear)"
@@ -289,7 +291,7 @@ export default function LinearIntegrationPage() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="lin-teams">Team keys (comma-separated; empty = all teams)</Label>
-            <Input
+            <Input size="sm"
               id="lin-teams"
               placeholder="ENG, OPS"
               value={teamKeys}
@@ -396,7 +398,7 @@ export default function LinearIntegrationPage() {
         )}
       </Section>
 
-      <Section step={4} title="Schedule">
+      <Section title="Schedule">
         <div className="flex items-center gap-3">
           <Switch
             aria-label="Keep the mirror up to date automatically"
@@ -426,7 +428,7 @@ export default function LinearIntegrationPage() {
         </p>
       </Section>
 
-      <Section step={5} title="Write-back">
+      <Section title="Write-back">
         <div className="flex items-center gap-3">
           <Switch
             aria-label="Post StoryOS comments to Linear"
@@ -457,7 +459,7 @@ export default function LinearIntegrationPage() {
         )}
       </Section>
 
-      <Section step={6} title="Health">
+      <Section title="Health">
         {cfg ? (
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-body">
             <dt className="text-muted">Status</dt>

@@ -16,6 +16,7 @@ import {
   restrictPreview,
 } from '@/lib/access-model';
 import type { AccessCard, Grant, GrantRole, Person, PersonRow, Target } from '@/lib/access-model';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /**
  * #924 — the pieces of the Share / Manage access dialog, presentational: the container (`manage-access-dialog.tsx`) owns
@@ -317,7 +318,7 @@ export function AccessMain({
             }
           >
             <Card>
-              {v.inherited.length === 0 && <p className="px-3 py-2 text-label text-muted">Nobody but admins has access to {spaceName} yet.</p>}
+              {v.inherited.length === 0 && <EmptyState variant="list" title={`Nobody but admins has access to ${spaceName} yet.`} />}
               {v.inherited.map((r) => (
                 <PersonLine
                   key={r.person.userId}
@@ -332,7 +333,7 @@ export function AccessMain({
             {v.added.length > 0 ? (
               <GrantRows rows={v.added} targetName={target.name} inSpaceName={spaceName} onRole={onRole} onRemove={onRemove} />
             ) : (
-              <p className="text-label text-muted">Nobody was added to this database directly.</p>
+              <EmptyState variant="list" title="Nobody was added to this database directly." className="px-0" />
             )}
           </Section>
         </>

@@ -1,6 +1,6 @@
 'use client';
 
-import { ApprovalGate, ApprovalRowTag } from '@/components/approvals/use-approval-view';
+import { ApprovalGate, ApprovalRowTag, ApprovalRuleTail } from '@/components/approvals/use-approval-view';
 import { announceDecision, notificationWho, type CausedBy } from '@/components/approvals/caused-by';
 import { WhoAvatar } from '@/components/approvals/who';
 import { PostApprovalPreview } from '@/components/social/post-approval-preview';
@@ -13,8 +13,11 @@ import { Check, Inbox as InboxIcon, Maximize2, X } from 'lucide-react';
 import { api, apiErrorMessage } from '@/lib/api';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { useDateFormat } from '@/lib/preferences';
 import { useBackLayer } from '@/lib/back-layers';
+import { notificationVerb } from '@/components/notification-verbs';
 import { UnreadDot, isUnreadRow, notificationActorClass, notificationRowStateClass } from '@/components/notification-unread';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export type NotificationType =
   | 'assigned'
@@ -39,7 +42,16 @@ export type NotificationType =
   // triggering context, and `ref_id` carries the actual approvals.id to act on.
   | 'action_approval_requested'
   // #236: a record you WATCH changed — snippet carries the "what changed" summary.
-  | 'record_changed';
+  | 'record_changed'
+  // Ticket #1279: the types the API emits that this union lacked (apps/api notifications.service.ts NotificationType).
+  | 'send_email_cap_reached'
+  | 'source_run_cap_reached'
+  | 'invite_accepted'
+  | 'usage_threshold_reached'
+  | 'runner_offline'
+  | 'agent_wake_failed'
+  | 'agent_budget_warning'
+  | 'agent_budget_paused';
 export interface NotificationRow {
   id: string;
   type: NotificationType;
@@ -59,22 +71,6 @@ interface NotificationsPage {
   data: NotificationRow[];
   next_cursor: string | null;
 }
-
-export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
-  assigned: 'assigned you',
-  mentioned: 'mentioned you',
-  commented: 'commented',
-  state_changed: 'updated status on',
-  approval_requested: 'needs your approval on',
-  trial_reminder_23: 'sent a trial reminder',
-  trial_reminder_29: 'sent a final trial reminder',
-  connection_error: 'flagged a connection',
-  auto_reload_failed: 'flagged an auto-reload failure',
-  automation_disabled: 'disabled an automation',
-  action_approval_requested: 'needs your approval to run',
-  record_changed: 'changed',
-};
-const VERBS = NOTIFICATION_VERBS;
 
 /**
  * The approval gate's Approve/Reject (#210, ADR-0010 §4), called from wherever
@@ -220,14 +216,6 @@ export function StagedActionView({ staged }: { staged: StagedActionDetail }) {
   );
 }
 
-function relativeTime(iso: string): string {
-  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (seconds < 60) return 'now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
-
 /** Bucket a timestamp into Today / Yesterday / Earlier for grouped headers.
  * Exported (#790) — the feed view's day breaks need the exact same buckets;
  * reused rather than re-cased a second time. */
@@ -258,6 +246,7 @@ export function useUnreadCount(ws: string) {
 /** Inbox (MN-049, #38): the sidebar row opens this right-side panel — All/Unread
  * filter, day-grouped rows, and cursor pagination. */
 export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void }) {
+  const fmt = useDateFormat();
   useBackLayer(true, onClose); // #962 — Back closes the panel (it is mounted only while open)
   const router = useRouter();
   const qc = useQueryClient();
@@ -374,9 +363,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
 
         <div className="flex-1 overflow-y-auto">
           {rows.length === 0 && !list.isLoading && (
-            <p className="p-6 text-center text-body text-muted">
-              {unreadOnly ? 'No unread notifications.' : "You're all caught up 🎉"}
-            </p>
+            <EmptyState variant="list" title={unreadOnly ? 'No unread notifications.' : "You're all caught up"} />
           )}
           {rows.map((n) => {
             const b = dayBucket(n.created_at);
@@ -422,7 +409,8 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     <span className="block text-body text-ink">
                       {/* Bare notifications (#263) have no actor — a person didn't do this, StoryOS did. An agent-caused approval (#1193) names the agent and run. */}
                       <span className={notificationActorClass(isUnreadRow(n))}>{notificationWho(n).name}</span>{' '}
-                      {VERBS[n.type]}
+                      {notificationVerb(n.type)}
+                      {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRuleTail ws={ws} approvalId={n.ref_id} />}
                       {n.count > 1 ? ` · ${n.count}×` : ''}
                       {n.type === 'action_approval_requested' && n.ref_id && <ApprovalRowTag ws={ws} approvalId={n.ref_id} />}
                     </span>
@@ -539,7 +527,7 @@ export function InboxPanel({ ws, onClose }: { ws: string; onClose: () => void })
                     )}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-meta text-muted">{relativeTime(n.created_at)}</span>
+                    <span className="text-meta text-muted">{fmt.age(n.created_at).text}</span>
                     {isUnreadRow(n) && <UnreadDot />}
                   </span>
                 </div>

@@ -27,12 +27,13 @@ import {
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { EyeOff, Lock, MoreHorizontal, Plus } from 'lucide-react';
+import { CalendarDays, EyeOff, Lock, MoreHorizontal, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { recordHref, recordSegment } from '@/lib/records';
 import { useOpenRecord } from '@/components/entity/split-panel-context';
 import { cn } from '@/lib/utils';
+import { RECORD_TITLE_WEIGHT } from '@/lib/record-title';
 import { StateGlyph } from './state-glyph';
 import { API_URL } from '@/lib/api';
 import { coverImageUrl, isUrlCoverField } from './cover-fields';
@@ -936,7 +937,7 @@ export function Card({
       )}
     >
       <CardCover row={row} cover={cover} />
-      <p className={cn('font-[550] text-ink', s.title, s.clamp, 'leading-[1.4]!')}>{row.title || 'Untitled'}</p>
+      <p className={cn(RECORD_TITLE_WEIGHT, 'text-ink', s.title, s.clamp, 'leading-[1.4]!')}>{row.title || 'Untitled'}</p>
       {chips.length > 0 && (
         <div className={cn('mt-[7px] flex flex-wrap items-center', s.gap)}>
           {chips.map(({ field, value }) => (
@@ -946,6 +947,7 @@ export function Card({
               value={value}
               memberNames={memberNames}
               memberImages={memberImages}
+              surface="card"
             />
           ))}
         </div>
@@ -1021,14 +1023,13 @@ function UrlCoverImage({ src, alt }: { src: string; alt: string }) {
 /**
  * #765 — the permanent record number badge, shared by list and feed (the only
  * two views that still render it inline — board/calendar/gallery never show
- * it at all, per #702). Same "#" + `text-faint` treatment already established
- * everywhere else this number appears as a standalone marker: `cells.tsx`'s
- * own id-column cell, `mentions.tsx`, `collection-section.tsx`'s relation
- * chips, and the record page header itself. List previously had no "#"
- * prefix and feed had no size/color classes — this is the one definition of
- * the glyph, not of the layout: callers still own their own sizing/position
- * (`className`), since that genuinely differs (a fixed gutter slot vs. an
- * inline footer item).
+ * it at all, per #702). #1275 item 3: it writes the bare figure, the way the
+ * table's "ID" column does, so the four views say a record's number one way.
+ * (Mentions, relation chips and the record page header still write "#N";
+ * they are not one of the four views and are left for a product call.)
+ * This is the one definition of the glyph, not of the layout: callers still
+ * own their slot's width (`className`), since that genuinely differs (a fixed
+ * gutter slot vs. an inline footer item).
  *
  * `table-view.tsx`'s own gutter is deliberately NOT a third caller: since
  * #739 it shows a different concept entirely — the view-relative row INDEX
@@ -1037,7 +1038,10 @@ function UrlCoverImage({ src, alt }: { src: string; alt: string }) {
  * that split in two would be the wrong fix, not a missed case.
  */
 export function RecordNumberBadge({ number, className }: { number: number; className?: string }) {
-  return <span className={cn('tabular-nums text-faint', className)}>#{number}</span>;
+  /* #1275 item 3 — the number is written ONE way on every view: the bare figure, 10px faint, which is how the table's ID
+     column draws it (header "ID", cells plain). The list and the feed used to write "#4" at 13px / 11px. The size is
+     the badge's own, so a caller passes only the width of its slot. */
+  return <span className={cn('tabular-nums text-micro text-faint', className)}>{number}</span>;
 }
 
 export function CardFieldChip({
@@ -1046,16 +1050,34 @@ export function CardFieldChip({
   memberNames,
   memberImages,
   status,
+  surface = 'row',
 }: {
   field: Field;
   value: unknown;
   memberNames: Map<string, string>;
   memberImages?: Map<string, string | null>;
+  /**
+   * #1275 item 4 — `card` is the board / gallery card's meta row: people are an 18px initials avatar (the full name on
+   * hover, the Avatar's own title) and a date is a glyph with a 10px muted figure. `row` (default) is the list and the
+   * feed, which have a row's width to name people in: the name pill and the body-size date stay. Both draw through the
+   * shared `ui/avatar` and CellDisplay controls.
+   */
+  surface?: 'card' | 'row';
   /** #1115 — the row's state (or the group's), so a percent draws that state's glyph (a pie while in progress) in its colour. */
   status?: { color: string; category?: StateCategory | null };
 }) {
   if (field.type === 'select' || field.type === 'multi_select' || field.type === 'workflow') {
     return <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />;
+  }
+  if (field.type === 'user' && surface === 'card') {
+    const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
+    return (
+      <span className="inline-flex items-center -space-x-1">
+        {ids.map((id) => (
+          <Avatar key={id} userId={id} name={memberNames.get(id) ?? '?'} image={memberImages?.get(id)} size={18} />
+        ))}
+      </span>
+    );
   }
   if (field.type === 'user') {
     const ids = Array.isArray(value) ? (value as string[]) : [String(value)];
@@ -1082,6 +1104,17 @@ export function CardFieldChip({
       <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-0.5 text-meta text-ink-secondary">
         <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} />
         {field.displayName}
+      </span>
+    );
+  }
+
+  // #1275 item 4 — a date on a card is meta, not content: a calendar glyph and a 10px muted figure (CellDisplay's
+  // `compact` date), so it no longer outweighs the label chip beside it. The FORMAT is not touched here (item 5).
+  if (field.type === 'date' && surface === 'card') {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted">
+        <CalendarDays className="h-2.5 w-2.5 shrink-0" aria-hidden />
+        <CellDisplay field={field} value={value} memberNames={memberNames} memberImages={memberImages} compact />
       </span>
     );
   }

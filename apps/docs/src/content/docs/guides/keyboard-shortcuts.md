@@ -26,7 +26,7 @@ Any of the three opens the same overlay, and the overlay renders the keys for *y
 | **⌘J** (Ctrl+J) | Ask Tyron |
 | **⌘F** (Ctrl+F) | Search the records of the current view (instead of the browser's find) |
 | **⌘A** (Ctrl+A) | Select all loaded rows |
-| **⌘Z** (Ctrl+Z) | Undo the last delete |
+| **⌘Z** (Ctrl+Z) | Undo the last delete (also after the 10-second Undo toast has gone) |
 | **n** | New record (on a database) |
 | **x** | Select row under cursor |
 | **⇧ + click** | Select a range |

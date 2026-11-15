@@ -2,7 +2,7 @@
 process.env.TZ = 'America/Los_Angeles';
 
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REGIONAL, formatDate, formatDateTime, type Regional } from './format';
+import { DEFAULT_REGIONAL, formatAge, formatDate, formatDateTime, formatDayLabel, formatLongDate, type Regional } from './format';
 
 const NOW = new Date(2026, 9, 21, 12, 0); // Wed 21 Oct 2026, noon local
 const sys: Regional = DEFAULT_REGIONAL;
@@ -77,5 +77,79 @@ describe('formatDateTime', () => {
   it('uses the 12-hour clock when asked', () => {
     const out = formatDateTime(new Date(2026, 9, 22, 14, 30), { ...sys, timeFormat: '12h' }, { now: NOW });
     expect(out).toMatch(/^Tomorrow, 0?2:30\s?PM$/i);
+  });
+});
+
+describe('one formatter for every surface (ticket #1275 item 5)', () => {
+  it('writes the month and day in the viewer’s locale: en-US "Nov 14", en-GB "14 Nov"', () => {
+    const d = new Date(2026, 10, 14);
+    expect(formatDate(d, sys, { now: NOW, locale: 'en-US' })).toBe('Nov 14');
+    expect(formatDate(d, sys, { now: NOW, locale: 'en-GB' })).toBe('14 Nov');
+  });
+
+  it('KEEPS Today, Tomorrow and Yesterday in any locale', () => {
+    for (const locale of ['en-US', 'en-GB']) {
+      expect(formatDate(new Date(2026, 9, 21), sys, { now: NOW, locale })).toBe('Today');
+      expect(formatDate(new Date(2026, 9, 22), sys, { now: NOW, locale })).toBe('Tomorrow');
+      expect(formatDate(new Date(2026, 9, 20), sys, { now: NOW, locale })).toBe('Yesterday');
+    }
+  });
+
+  it('the labels around dates follow the same locale (a calendar title, a timeline axis, a board week heading)', () => {
+    const d = new Date(2026, 10, 14);
+    expect(formatDayLabel(d, 'monthDay', { locale: 'en-US' })).toBe('Nov 14');
+    expect(formatDayLabel(d, 'monthDay', { locale: 'en-GB' })).toBe('14 Nov');
+    expect(formatDayLabel(d, 'monthYearLong', { locale: 'en-US' })).toBe('November 2026');
+    expect(formatDayLabel(d, 'monthDayYear', { locale: 'en-GB' })).toBe('14 Nov 2026');
+    expect(formatDayLabel(d, 'weekdayShort', { locale: 'en-US' })).toBe('Sat');
+  });
+
+  it('a UTC date stays the day it names west of UTC (a timeline bucket would read as the day before)', () => {
+    expect(formatDayLabel(new Date(Date.UTC(2026, 10, 1)), 'month', { utc: true, locale: 'en-US' })).toBe('Nov');
+    expect(formatDayLabel(new Date(Date.UTC(2026, 10, 1)), 'monthDay', { utc: true, locale: 'en-US' })).toBe('Nov 1');
+  });
+
+  it('an age is relative inside a day and the shared date words past it, never a bare "12d"', () => {
+    const at = (ms: number) => new Date(NOW.getTime() - ms);
+    expect(formatAge(at(10_000), sys, { now: NOW })).toEqual({ text: 'now', relative: true });
+    expect(formatAge(at(5 * 60_000), sys, { now: NOW })).toEqual({ text: '5m', relative: true });
+    expect(formatAge(at(3 * 3_600_000), sys, { now: NOW })).toEqual({ text: '3h', relative: true });
+    expect(formatAge(new Date(2026, 9, 20, 9), sys, { now: NOW })).toEqual({ text: 'Yesterday', relative: false });
+    expect(formatAge(new Date(2026, 9, 9), sys, { now: NOW, locale: 'en-US' })).toEqual({ text: 'Oct 9', relative: false });
+    expect(formatAge('not a date', sys, { now: NOW })).toEqual({ text: '', relative: false });
+  });
+});
+
+describe('formatLongDate, the weekday form (ticket #1274)', () => {
+  const tue = new Date(2026, 9, 20, 12, 0); // Tuesday 20 October 2026
+  const gb: Regional = { ...DEFAULT_REGIONAL, dateFormat: 'DMY' };
+  const us: Regional = { ...DEFAULT_REGIONAL, dateFormat: 'MDY' };
+
+  it('en-GB (DD/MM/YYYY) is "Tuesday, 20 October" and en-US (MM/DD/YYYY) is "Tuesday, October 20", comma included', () => {
+    expect(formatLongDate(tue, gb)).toBe('Tuesday, 20 October');
+    expect(formatLongDate(tue, us)).toBe('Tuesday, October 20');
+  });
+
+  it('system and YMD follow the viewer locale (the same Intl words, a comma after the weekday)', () => {
+    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(tue);
+    const dayMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' }).format(tue);
+    expect(formatLongDate(tue)).toBe(`${weekday}, ${dayMonth}`);
+    expect(formatLongDate(tue, { ...DEFAULT_REGIONAL, dateFormat: 'YMD' })).toBe(`${weekday}, ${dayMonth}`);
+  });
+
+  it('names the right weekday across month and year boundaries', () => {
+    expect(formatLongDate(new Date(2026, 9, 31, 12), gb)).toBe('Saturday, 31 October');
+    expect(formatLongDate(new Date(2026, 10, 1, 0, 0), gb)).toBe('Sunday, 1 November');
+    expect(formatLongDate(new Date(2026, 11, 31, 23, 59), us)).toBe('Thursday, December 31');
+    expect(formatLongDate(new Date(2027, 0, 1, 0, 0), us)).toBe('Friday, January 1');
+  });
+
+  it('a day-only string is that calendar day, even west of UTC (this file runs in Los Angeles)', () => {
+    expect(formatLongDate('2026-10-20', gb)).toBe('Tuesday, 20 October');
+  });
+
+  it('has no year, and an invalid or empty value is the empty string, never "Invalid Date"', () => {
+    expect(formatLongDate(tue, gb)).not.toMatch(/2026/);
+    for (const bad of [null, undefined, '', 'not a date', new Date('nope')]) expect(formatLongDate(bad, gb)).toBe('');
   });
 });

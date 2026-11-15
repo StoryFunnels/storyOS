@@ -38,7 +38,10 @@ import { WorkspacesService } from './workspaces.service';
 @Controller('workspaces')
 @UseGuards(AuthGuard)
 export class WorkspacesController {
-  constructor(private readonly workspaces: WorkspacesService) {}
+  constructor(
+    private readonly workspaces: WorkspacesService,
+    private readonly invites: InvitesService,
+  ) {}
 
   // #543 — name→id resolution is how an MCP client starts; already clamped to the token's own
   // workspace above, and a bound token must still be able to do it.
@@ -58,9 +61,21 @@ export class WorkspacesController {
 
   @SessionOnly() // #1049: account-level, no :ws, so no workspace binding applies: a person only
   @Post()
-  @ApiOperation({ summary: 'Create a workspace (creator becomes admin)' })
-  create(@Req() req: AuthedRequest, @Body() body: CreateWorkspaceDto) {
-    return this.workspaces.create(req.user.id, body);
+  @ApiOperation({
+    summary:
+      'Create a workspace (creator becomes admin). With invite_token the invite is accepted instead and NO workspace is created: ' +
+      'the response is the workspace joined, with joined_via_invite true. A token that cannot be accepted refuses and creates nothing.',
+  })
+  async create(@Req() req: AuthedRequest, @Body() body: CreateWorkspaceDto) {
+    // Ticket #1302 — an invited person must never end up alone in a workspace of their own because the onboarding step ran. The
+    // token branch returns before anything is created, and a refused token (unknown, used, expired, other email, already a member)
+    // throws the same coded errors as POST /invites/accept rather than falling through to a create.
+    if (body.invite_token !== undefined) {
+      const joined = await this.invites.accept(req.user, body.invite_token);
+      const workspace = (await this.workspaces.listForUser(req.user.id)).find((w) => w.id === joined.workspace_id);
+      return { ...workspace, joined_via_invite: true };
+    }
+    return this.workspaces.create(req.user.id, { ...body, name: body.name as string });
   }
 }
 
