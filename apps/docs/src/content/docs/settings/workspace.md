@@ -20,6 +20,10 @@ change either; for anyone else the fields are read-only.
 The **Client portal branding** (logo and accent colour) is under **Advanced** on the same page, with
 its own Save.
 
+## Delete a workspace
+
+There is no delete button, and no API call for it. This is deliberate. To delete a workspace, contact support.
+
 ## Invitations: expired ones are labelled, and can be sent again
 
 On **Settings → Members**, the **Invitations** box lists every invitation nobody has accepted. Each
