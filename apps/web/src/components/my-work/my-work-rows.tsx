@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, ChevronRight, Database, ExternalLink, MoreHoriz
 import { CellDisplay } from '@/components/table-view/cells';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip } from '@/components/ui/tooltip';
 import { recordSegment } from '@/lib/records';
 import { cn } from '@/lib/utils';
 import { HIT_AREA_24 } from '@/components/ui/header-action';
@@ -16,7 +17,7 @@ import {
   type DenseField,
   type MyWorkDbConfig,
 } from './group-config';
-import { assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
+import { ASSIGNED_BY_UNRECORDED_DETAIL, ASSIGNED_BY_UNRECORDED_LABEL, assignedByLine, dueBucket, type MyWorkRow } from './my-work-model';
 import { databaseColor } from '@/lib/entity-color';
 import { buttonVariants } from '@/components/ui/button';
 
@@ -53,10 +54,13 @@ export function DueText({
     <span
       data-due={bucket}
       className={cn(
-        'text-meta tabular-nums',
+        // 10px like the design's date, with its 12px line so the row is not held open by the date's leading. The split
+        // (overdue red / today ink / later plain) is the build's own, kept on purpose (ticket #1280 item 4).
+        'text-micro leading-3 tabular-nums',
         bucket === 'today' && 'font-semibold text-ink',
         bucket === 'overdue' && 'font-medium text-error',
-        (bucket === 'later' || bucket === 'done') && 'text-faint',
+        // Muted, not faint: a date is something you read, and --text-faint is 3.2:1 on the page (below the 4.5 bar).
+        (bucket === 'later' || bucket === 'done') && 'text-muted',
       )}
     >
       {bucket === 'today' ? 'Today' : fmtDate(due)}
@@ -85,7 +89,7 @@ export function MyWorkRowButton({
 }) {
   const { record, database, facets, config, fields } = row;
   const tint = rowColor(record.values, fields, config);
-  const meta = [record.number != null ? `#${record.number}` : null, database.name, facets.priority?.label].filter(Boolean).join(' · ');
+  const meta = [record.number != null ? `#${record.number}` : null, row.databaseLabel, facets.priority?.label].filter(Boolean).join(' · ');
   return (
     <button
       type="button"
@@ -95,7 +99,7 @@ export function MyWorkRowButton({
       aria-current={selected === 'explicit' ? 'true' : undefined}
       style={tint ? { boxShadow: `inset 3px 0 0 ${tint}` } : undefined}
       className={cn(
-        'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-3 text-left hover:bg-hover',
+        'flex w-full items-start gap-2.5 border-b border-border-default px-4 py-2.5 text-left hover:bg-hover',
         selected === 'explicit' && 'bg-active',
         selected === 'implicit' && 'md:bg-active',
       )}
@@ -104,10 +108,10 @@ export function MyWorkRowButton({
         <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
       </span>
       <span className="min-w-0 flex-1">
-        <span data-mw-title className="block truncate text-body font-medium text-ink">
+        <span data-mw-title className="block truncate text-body font-semibold leading-snug text-ink">
           {record.title || 'Untitled'}
         </span>
-        <span className="block truncate text-label text-muted">{meta}</span>
+        <span className="block truncate text-label leading-tight text-muted">{meta}</span>
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">
         {facets.state && <FacetCell field={facets.stateField} row={row} />}
@@ -117,10 +121,41 @@ export function MyWorkRowButton({
   );
 }
 
+/**
+ * Ticket #1280 item 7 — the "Done · N" heading. A real button (keyboard reachable, aria-expanded, aria-controls) that opens
+ * the finished rows beneath it; closed by default. Its state is page state only: nothing is remembered anywhere.
+ */
+export function DoneGroupHeader({
+  heading,
+  open,
+  onToggle,
+  controlsId,
+}: {
+  heading: string;
+  open: boolean;
+  onToggle: () => void;
+  controlsId: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="my-work-done-toggle"
+      aria-expanded={open}
+      aria-controls={controlsId}
+      onClick={onToggle}
+      className="flex w-full items-center gap-1.5 border-b border-border-default bg-hover/40 px-4 py-1.5 text-left text-label font-medium text-muted hover:text-ink"
+    >
+      {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+      <span>{heading}</span>
+    </button>
+  );
+}
+
 /** A database section (Group = Database): the header and a ⋯ holding that database's own settings. */
 export function SectionHeader({
   ws,
   database,
+  label,
   count,
   collapsed,
   onToggle,
@@ -131,6 +166,8 @@ export function SectionHeader({
 }: {
   ws: string;
   database: MyWorkRow['database'];
+  /** The database as the rows name it (`databaseLabel`): with its space when another database shares the name. */
+  label?: string;
   count: number;
   collapsed: boolean;
   onToggle: () => void;
@@ -146,7 +183,7 @@ export function SectionHeader({
       </button>
       <Link href={`/w/${ws}/d/${database.id}`} className="flex min-w-0 items-center gap-1.5 hover:text-ink">
         <EntityIcon icon={database.icon} color={databaseColor(database.color, database.id)} fallback={<Database className="h-3.5 w-3.5" />} />
-        <span className="truncate">{database.name}</span>
+        <span className="truncate">{label ?? database.name}</span>
         <span className="text-faint">{count}</span>
       </Link>
       <span className="flex-1" />
@@ -202,7 +239,7 @@ export function MyWorkPreview({
           <p className="text-prose font-medium text-ink">{record.title || 'Untitled'}</p>
           <p className="text-label text-muted">
             {record.number != null && <>#{record.number} · </>}
-            {database.name}
+            {row.databaseLabel}
           </p>
         </div>
         <Link
@@ -229,7 +266,13 @@ export function MyWorkPreview({
         )}
         {assigned.kind === 'unrecorded' && (
           <Fact label="Assigned by">
-            <span className="text-muted">{assigned.explanation}</span>
+            <Tooltip label={ASSIGNED_BY_UNRECORDED_DETAIL} side="top" align="start">
+              <span tabIndex={0} className="cursor-help text-muted">
+                {ASSIGNED_BY_UNRECORDED_LABEL}
+                {/* The reason is a tooltip for the mouse and keyboard; this keeps it for a screen reader too. */}
+                <span className="sr-only">. {ASSIGNED_BY_UNRECORDED_DETAIL}</span>
+              </span>
+            </Tooltip>
           </Fact>
         )}
         {extra.map((f) => (

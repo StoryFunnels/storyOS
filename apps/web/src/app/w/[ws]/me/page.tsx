@@ -11,6 +11,7 @@ import { Database, UserRound } from 'lucide-react';
 import { api } from '@/lib/api';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { useMembers } from '@/components/table-view/use-table-data';
+import { useDatabases, useSpaces } from '@/lib/queries';
 import {
   type DenseField,
   type MyWorkDbConfig,
@@ -20,10 +21,13 @@ import {
   sortMyWorkRecords,
 } from '@/components/my-work/group-config';
 import { MyWorkToolbar, type MyWorkGrouping } from '@/components/my-work/my-work-toolbar';
-import { MyWorkPreview, MyWorkRowButton, SectionHeader, rowKey } from '@/components/my-work/my-work-rows';
+import { DoneGroupHeader, MyWorkPreview, MyWorkRowButton, SectionHeader, rowKey } from '@/components/my-work/my-work-rows';
 import {
   buildRows,
+  databaseLabels,
+  doneHeading,
   sortRows,
+  splitDone,
   type MyWorkGroup,
   type MyWorkRow,
   type MyWorkSortKey,
@@ -130,6 +134,8 @@ function MyWorkInner() {
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Ticket #1280 item 7: the Done group is closed on arrival and on every tab switch; nothing is remembered.
+  const [doneOpen, setDoneOpen] = useState(false);
 
   const members = useMembers(ws, true);
   const memberNames = useMemo(() => new Map((members.data ?? []).map((m) => [m.user.id, m.user.name])), [members.data]);
@@ -184,17 +190,33 @@ function MyWorkInner() {
   });
 
   const groups = useMemo(() => grouped.data?.groups ?? [], [grouped.data]);
+  // The space is read from the workspace's own lists (no API change): it only matters when two databases share a name.
+  const spaces = useSpaces(ws, listTab);
+  const allDatabases = useDatabases(ws, listTab);
+  const dbLabels = useMemo(() => {
+    const spaceName = new Map((spaces.data ?? []).map((s) => [s.id, s.name]));
+    const spaceOfDb = new Map((allDatabases.data ?? []).map((d) => [d.id, d.spaceId]));
+    return databaseLabels(
+      groups.map((g) => g.database),
+      (dbId) => spaceName.get(spaceOfDb.get(dbId) ?? ''),
+    );
+  }, [groups, spaces.data, allDatabases.data]);
   const recent = activity.data?.records ?? [];
 
   // filter → sort → (group) ONCE, and read the rendered structure and the flat ↑/↓ order out of that single
   // result: deriving the order separately would be a second ordering implementation, free to drift from the screen.
   const view = useMemo(() => {
-    const rows = buildRows(groups, myWork);
+    const { open: rows, done: doneUnsorted } = splitDone(buildRows(groups, myWork, dbLabels));
+    // Finished rows are one "Done · N" group at the bottom, in both groupings; the toolbar's sort orders them too.
+    const done = sortRows(doneUnsorted, choice.sort);
+    const doneDbIds = new Set(done.map((r) => r.dbId));
+    const doneHeadingText = doneHeading(done.length, groups.some((g) => g.truncated === true));
+    const doneQueue = doneOpen ? done : [];
     if (choice.grouping === 'none') {
       const merged = sortRows(rows, choice.sort);
-      return { merged, sections: [] as Section[], queue: merged };
+      return { merged, sections: [] as Section[], queue: [...merged, ...doneQueue], done, doneHeading: doneHeadingText };
     }
-    const sections: Section[] = groups.map((group) => {
+    const sections: Section[] = groups.flatMap((group) => {
       const config = myWork[group.database.id] ?? EMPTY_MYWORK;
       const fields = group.fields as DenseField[];
       const own = rows.filter((r) => r.dbId === group.database.id);
@@ -207,15 +229,18 @@ function MyWorkInner() {
         ...sg,
         rows: sg.records.map((rec) => byRecord.get(rec.id)!),
       }));
-      return { group, config, fields, count: own.length, subGroups };
+      // A database whose every matching row is finished has nothing open to list: its rows live under Done.
+      if (own.length === 0 && doneDbIds.has(group.database.id)) return [];
+      return [{ group, config, fields, count: own.length, subGroups }];
     });
     const queue: MyWorkRow[] = [];
     for (const s of sections) {
       if (collapsed.has(s.group.database.id)) continue;
       for (const sg of s.subGroups) queue.push(...sg.rows);
     }
-    return { merged: [] as MyWorkRow[], sections, queue };
-  }, [groups, myWork, choice, memberNames, collapsed]);
+    queue.push(...doneQueue);
+    return { merged: [] as MyWorkRow[], sections, queue, done, doneHeading: doneHeadingText };
+  }, [groups, myWork, choice, memberNames, collapsed, dbLabels, doneOpen]);
 
   const activeRow = selectedKey ? view.queue.find((r) => rowKey(r) === selectedKey) ?? null : null;
   // Desktop previews the first row so the right pane is never empty; under md the list shows until a row is tapped.
@@ -270,6 +295,7 @@ function MyWorkInner() {
               onClick={() => {
                 setTab(t.id);
                 setSelectedKey(null);
+                setDoneOpen(false);
               }}
               className={cn(
                 'shrink-0 rounded px-2.5 py-1 text-label font-medium',
@@ -346,7 +372,7 @@ function MyWorkInner() {
                   }
                 />
               )}
-              {!loading && !noItems && view.queue.length === 0 && choice.grouping === 'none' && (
+              {!loading && !noItems && view.merged.length === 0 && view.done.length === 0 && choice.grouping === 'none' && (
                 <EmptyState variant="list" title="Your saved filters hide everything. Clear one above to bring items back." />
               )}
 
@@ -370,6 +396,7 @@ function MyWorkInner() {
                       <SectionHeader
                         ws={ws}
                         database={group.database}
+                        label={dbLabels.get(group.database.id)}
                         count={count}
                         collapsed={isCollapsed}
                         onToggle={() =>
@@ -404,6 +431,26 @@ function MyWorkInner() {
                     </div>
                   );
                 })}
+
+              {view.doneHeading && (
+                <div>
+                  <DoneGroupHeader heading={view.doneHeading} open={doneOpen} onToggle={() => setDoneOpen((o) => !o)} controlsId="my-work-done-rows" />
+                  {doneOpen && (
+                    <div id="my-work-done-rows">
+                      {view.done.map((row) => (
+                        <MyWorkRowButton
+                          key={rowKey(row)}
+                          row={row}
+                          selected={selectionOf(row)}
+                          onSelect={() => setSelectedKey(rowKey(row))}
+                          fmtDate={fmtDate}
+                          now={now}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className={cn('min-w-0 flex-1 overflow-y-auto p-4 sm:p-6', !showDetail && 'hidden md:block')}>

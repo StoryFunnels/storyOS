@@ -67,6 +67,15 @@ function friendlyDate(d: Date, now: Date, relative: boolean): string {
   });
 }
 
+/**
+ * The Friendly option's own example in Preferences > Date format, drawn by the SAME function that draws the "Now:" line and the
+ * dates in views (ticket #1283 item 1). It said "Today, 21 Oct" as fixed text, so a person whose locale writes the month first read
+ * one order in the menu and got the other everywhere else. Whatever order the viewer's locale gives, this follows it.
+ */
+export function friendlyDateExample(now: Date = new Date()): string {
+  return `Today, ${friendlyDate(now, now, false)}`;
+}
+
 function datePart(d: Date, r: Regional, o: FormatOptions = {}): string {
   if (r.dateFormat === 'system') return friendlyDate(d, o.now ?? new Date(), o.relative !== false);
   return d.toLocaleDateString(DATE_LOCALE[r.dateFormat], {
