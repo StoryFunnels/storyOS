@@ -26,7 +26,7 @@ export function DefaultAgentModel({ ws }: { ws: string }) {
 
   return (
     <div
-      className="mb-8 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-card)] border border-border-default bg-card px-3.5 py-3"
+      className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[var(--radius-card)] border border-border-default bg-card px-3.5 py-3"
       data-testid="default-agent-model"
     >
       <div className="min-w-0 flex-1 basis-64">

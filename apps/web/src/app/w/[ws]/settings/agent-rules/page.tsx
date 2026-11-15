@@ -17,6 +17,7 @@ import {
   NOT_COVERED,
   describeAgent,
   describeGate,
+  enforcementSummary,
   gatesInForce,
   orderGates,
   summariseApprovals,
@@ -133,14 +134,8 @@ export default function AgentRulesPage() {
   const recent = (approvals.data ?? []).filter((a) => a.status !== 'pending').slice(0, 15);
   const pending = (approvals.data ?? []).filter((a) => a.status === 'pending');
 
-  // The disclosure stays closed, so its one-line summary carries the two facts a person must not have to open it to learn.
-  const advancedSummary = loading
-    ? 'agents, gates, approvals and what always holds'
-    : failed
-      ? 'some of this could not be loaded'
-      : ungovernedWorkspace(agents, inForce)
-        ? 'no approval gate is in force'
-        : 'agents, gates, approvals and what always holds';
+  // The disclosure stays closed, so its one-line summary carries the fact a person must not have to open it to learn (see enforcementSummary).
+  const advancedSummary = enforcementSummary({ loading, failed, ungoverned: ungovernedWorkspace(agents, inForce) });
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-8">
