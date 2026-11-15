@@ -10,6 +10,7 @@ day the change reached the product.
 ## Week of 9 November 2026
 
 - **15 Nov** — An invitation link opens a Join screen that shows who invited you and to which workspace, and joining never creates a new workspace. [Settings: Workspace](/settings/workspace/)
+- **12 Nov** — Deleting one record moves it to Trash and offers Undo for 10 seconds, in the table and in the record panel. [Workspaces, spaces and databases](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space)
 - **10 Nov** — Settings has a home page and five groups, and the old settings addresses lead to the new pages. [Settings](/settings/overview/)
 - **10 Nov** — My Work lists what is waiting on you, and you can have it emailed as a digest at a time you choose. [Mentions and notifications](/concepts/mentions-and-notifications/)
 - **10 Nov** — A guest is always free, whatever access they hold. [Access and roles](/concepts/access-and-roles/)

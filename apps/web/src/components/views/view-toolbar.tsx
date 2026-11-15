@@ -35,6 +35,7 @@ import { RenameViewDialog, ViewMenuItems } from './view-menu-items';
 import { useRecordCount } from '../table-view/use-table-data';
 import { viewSupportsSummaryWidgets } from './summary-widget-support';
 import { NewRecordButton } from '../record-templates/new-record-button';
+import { useReportToolbarNew } from '@/lib/toolbar-new-signal';
 import {
   RELATIVE_DATE_KINDS,
   amountProblem,
@@ -85,12 +86,15 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  MENU_ITEM_GEOMETRY,
 } from '@/components/ui/dropdown-menu';
 import { DatePicker } from '@/components/ui/date-picker';
 import { DragPreview, useDragPresentation, useSortableSensors, vacatedSlotClass } from '@/components/ui/drag-presentation';
 import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { MenuSelect } from '@/components/ui/menu-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { POPOVER_TITLE } from './popover-heading';
+import { usePopoverFocus } from './popover-focus';
 import { Tooltip } from '@/components/ui/tooltip';
 import { API_URL, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -445,6 +449,9 @@ export function ViewToolbar({
   );
 
   const [renaming, setRenaming] = useState(false);
+  // #1275 item 10 — the phone's floating "+" shows wherever this toolbar has no New (a dashboard, a read-only viewer).
+  const drawsNew = Boolean(ws && db && !readOnly && viewType !== 'dashboard');
+  useReportToolbarNew(drawsNew);
   const viewKind = viewType ?? 'table';
 
   // #964 — the ONE view menu (view-menu.ts). The toolbar door adds what is about the rows on screen:
@@ -546,7 +553,7 @@ export function ViewToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {ws && db && !readOnly && viewType !== 'dashboard' && <NewRecordButton ws={ws} db={db} />}
+        {drawsNew && ws && db && <NewRecordButton ws={ws} db={db} />}
       </div>
       {view && onRenameView && (
         <RenameViewDialog open={renaming} onOpenChange={setRenaming} name={view.name} onRename={onRenameView} />
@@ -615,9 +622,9 @@ export function ColorByButton({
           <Palette className="h-3.5 w-3.5" /> {active ? `Color: ${active.displayName}` : 'Color'}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="min-w-44">
+      <DropdownMenuContent>
         <button
-          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
+          className={cn('flex w-full items-center justify-between rounded text-ink hover:bg-hover', MENU_ITEM_GEOMETRY)}
           onClick={() => onChange(undefined)}
         >
           None {!value && <Check className="h-3.5 w-3.5 text-primary-text" />}
@@ -625,7 +632,7 @@ export function ColorByButton({
         {fields.map((field) => (
           <button
             key={field.id}
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
+            className={cn('flex w-full items-center justify-between rounded text-ink hover:bg-hover', MENU_ITEM_GEOMETRY)}
             onClick={() => onChange(field.id)}
           >
             {field.displayName}
@@ -1517,6 +1524,8 @@ export function FiltersSection({
   // element marked aria-pressed while lifted. Otherwise claim it (so a record page behind does not also close, #834), close, and give
   // focus back to the Filter button.
   const filterButtonRef = useRef<HTMLButtonElement>(null);
+  // #1281 — opening it (click, Enter or Space on the button) moves focus into the panel; Escape above gives it back.
+  const filterPanelRef = usePopoverFocus(open);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1556,9 +1565,9 @@ export function FiltersSection({
               ? `Filter, ${buttonState.applied} applied${buttonState.personalOn ? ', including your personal filter' : ''}`
               : 'Filter'
           }
-          // #965 — YELLOW whenever any condition is applied (the view's or your personal one, pinned included).
+          // #965 — "applied" whenever any condition is applied (the view's or your personal one, pinned included).
           // Disabled and unfinished conditions hide nothing, so they do not turn it on. #992 — the chip is the
-          // prototype's: a pill, gold border and tint when active (toolbar-chip.ts).
+          // prototype's pill; applied it is NOT gold (#1163) but the default fill with a darker ink border (toolbar-chip.ts).
           className={chipClass(buttonState.yellow)}
         >
           <ListFilter className="h-3 w-3" />
@@ -1589,12 +1598,12 @@ export function FiltersSection({
               it is now always both, stacked, each labelled — reading the
               popover top to bottom IS reading the effective filter.
             */}
-            <div className="phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[500px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
+            <div ref={filterPanelRef} role="dialog" aria-label="Filter" tabIndex={-1} className="phone-sheet outline-none absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-h-[70vh] w-[500px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)]">
               {/* #991 — Dara's header bar: "FILTER" in small mono caps on the left, "N of M applied" on the right.
                   #965 — M is every condition built (either section), N the ones that actually run (not disabled,
                   not unfinished). */}
               <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
-                <span className="font-mono text-[9px] uppercase tracking-[0.13em] text-faint">Filter</span>
+                <span className={POPOVER_TITLE}>Filter</span>
                 {buttonState.configured > 0 && (
                   <span className="text-micro text-faint" aria-live="polite">
                     {buttonState.applied} of {buttonState.configured} applied
@@ -2372,7 +2381,7 @@ function ConditionMenu({
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onDuplicate}>
           <Copy className="h-3.5 w-3.5" /> Duplicate
         </DropdownMenuItem>
@@ -2419,7 +2428,7 @@ function GroupMenu({
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-44">
+      <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onDuplicate}>
           <Copy className="h-3.5 w-3.5" /> Duplicate group
         </DropdownMenuItem>
@@ -2535,7 +2544,7 @@ function OptionMultiPick({
             {filtered.map((option) => (
               <label
                 key={option.id}
-                className="flex items-center gap-2 rounded px-2 py-1.5 text-body text-ink hover:bg-hover"
+                className={cn('flex items-center gap-2 rounded text-ink hover:bg-hover', MENU_ITEM_GEOMETRY)}
               >
                 <input
                   type="checkbox"
@@ -2778,6 +2787,8 @@ export function SortButton({
     { onDragEnd },
     sorts.map((_, i) => String(i)),
   );
+  const sortButtonRef = useRef<HTMLButtonElement>(null);
+  const sortPanelRef = usePopoverFocus(open);
   // #814 — this popover is a hand-rolled backdrop, not Radix, so it did not
   // inherit Escape-to-close. Esc during a keyboard drag belongs to dnd-kit
   // (it cancels the lift), so only close when no drag is active.
@@ -2790,6 +2801,8 @@ export function SortButton({
         // #834 — claim it, so the record behind this popover does not also close.
         e.preventDefault();
         setOpen(false);
+        // #1281 — focus goes back to the button it came from, as Filter's does.
+        sortButtonRef.current?.focus();
       }
     };
     document.addEventListener('keydown', onKey);
@@ -2799,6 +2812,7 @@ export function SortButton({
   return (
     <span className="relative">
       <button
+        ref={sortButtonRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={chipClass(sorts.length > 0)}
@@ -2816,10 +2830,10 @@ export function SortButton({
         <>
           <BackLayer dismiss={() => setOpen(false)} />
           <div className="fixed inset-0 z-[var(--z-overlay-backdrop)] max-md:bg-[var(--scrim)]" onClick={() => setOpen(false)} />
-          <div className={cn('phone-sheet absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-w-[calc(100vw-2rem)] rounded-[var(--radius-card)] border border-border-default bg-card shadow-[var(--shadow-popover)]', sorts.length > 1 ? 'w-[27.5rem]' : 'w-64')}>
+          <div ref={sortPanelRef} role="dialog" aria-label={emptyLabel} tabIndex={-1} className={cn('phone-sheet outline-none absolute left-0 top-full z-[var(--z-overlay)] mt-1 max-w-[calc(100vw-2rem)] rounded-[var(--radius-popover)] border border-border-default bg-card shadow-[var(--shadow-popover)]', sorts.length > 1 ? 'w-[27.5rem]' : 'w-64')}>
             <div className="flex h-[30px] items-center justify-between border-b border-border-default px-3">
               {/* #427 — it sorts CARDS; column order lives in the Filter panel's Groups section. */}
-              <span className="font-mono text-micro font-semibold uppercase tracking-wider text-muted">Sort by</span>
+              <span className={POPOVER_TITLE}>Sort by</span>
               {sorts.length > 1 && <span className="text-micro text-faint">first rule wins, the rest break ties</span>}
             </div>
 

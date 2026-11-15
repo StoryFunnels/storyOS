@@ -5545,12 +5545,12 @@ describe('attach_file never fetches the URL itself (#1033)', () => {
     const fetched: unknown[] = [];
     globalThis.fetch = (async (...a: unknown[]) => { fetched.push(a); throw new Error('the MCP process must not fetch'); }) as never;
     try {
-      const res = await attach({ workspace: 'Eng', database: 'Issues', record: '7', url: 'http://169.254.169.254/hetzner/v1/userdata', field: 'Cover', filename: 'x.png' });
+      const res = await attach({ workspace: 'Eng', database: 'Issues', record: '7', url: 'http://169.254.169.254/metadata/v1/userdata', field: 'Cover', filename: 'x.png' });
       expect(res.isError, res.content[0]!.text).toBeFalsy();
       expect(fetched, 'no fetch from the MCP process').toEqual([]);
       const post = calls.find((c) => c.method === 'POST')!;
       expect(post.path).toBe('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/attachments/from-url');
-      expect((post.init as { body: unknown }).body).toEqual({ url: 'http://169.254.169.254/hetzner/v1/userdata', filename: 'x.png' });
+      expect((post.init as { body: unknown }).body).toEqual({ url: 'http://169.254.169.254/metadata/v1/userdata', filename: 'x.png' });
       expect(((post.init as { params: { query: unknown } }).params).query).toEqual({ field: 'f-cover' });
     } finally {
       globalThis.fetch = realFetch;

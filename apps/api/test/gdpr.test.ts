@@ -360,10 +360,17 @@ describe('#1080 self-erase writes no old identifier anywhere and scrubs what alr
     const uniqueName = `Marguerite Quillfeather ${Date.now()}`;
     const person = await signUpUser(app, uniqueName);
     const personId = (await as(person.token, 'GET', '/me')).json().id as string;
+    // The Members projection is fire-and-forget off the membership-event bus, serialized per workspace. Every step below that
+    // depends on its effect awaits the subscriber's own `settle()` hook, never a sleep: accept → projected, remove → tombstoned,
+    // erase → anything the erase emitted has drained. Without the first, whether the person's row was ever created in `left`
+    // depended on whether the accept projection read the membership before the DELETE below removed it (it then no-ops), which
+    // made the "before" event count 1 or 3 depending on machine load.
+    const projection = () => app.get(MembersProjectionSubscriber);
     const joined = async (name: string) => {
       const ws = (await as(boss.token, 'POST', '/workspaces', { name })).json().id as string;
       const inv = await as(boss.token, 'POST', `/workspaces/${ws}/invites`, { email: person.email, role: 'member' });
       await as(person.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+      await projection().settle(ws);
       return ws;
     };
     const stays = await joined('Stays WS 1080');
@@ -371,22 +378,41 @@ describe('#1080 self-erase writes no old identifier anywhere and scrubs what alr
     // The person is removed from `left` BEFORE erasing: their Members row survives there, tombstoned, still holding the real address.
     const memberId = ((await as(boss.token, 'GET', `/workspaces/${left}/members`)).json() as Array<{ id: string; user_id: string }>).find((m) => m.user_id === personId)!.id;
     expect((await as(boss.token, 'DELETE', `/workspaces/${left}/members/${memberId}`)).statusCode).toBeLessThan(300);
-    await new Promise((r) => setTimeout(r, 300));
+    await projection().settle(left);
 
     // Make real history quote the address: it is the person's email in a Members-projection write.
     const needleEmail = person.email.toLowerCase();
     expect((await mentions(needleEmail)).members_rows, 'precondition: the Members rows hold the real address').toBeGreaterThan(0);
-    const eventsBefore = (await rawRows('select count(*)::int n from activity_events where workspace_id = $1', [left]))[0]!.n as number;
+    // ...and specifically in `left`: a tombstoned row with the real address, whose creation + tombstone are in the history.
+    const leftRows = await rawRows(
+      `select r.id from records r join databases d on d.id = r.database_id where d.workspace_id = $1 and d.is_system and d.system_key = 'members' and r.values::text ilike $2`,
+      [left, `%${needleEmail}%`],
+    );
+    expect(leftRows, 'precondition: the person has a Members row in the workspace they left, holding the real address').toHaveLength(1);
+    const leftRowId = leftRows[0]!.id as string;
+    const leftEvents = async () => (await rawRows('select id, record_id from activity_events where workspace_id = $1', [left])) as Array<{ id: string; record_id: string | null }>;
+    const before = await leftEvents();
+    expect(before.filter((e) => e.record_id === leftRowId).length, 'precondition: that row has history for the erase to remove').toBeGreaterThan(0);
 
     const res = await as(person.token, 'POST', '/me/gdpr/erase', { confirm: true });
     expect(res.statusCode, res.body).toBe(200);
-    await new Promise((r) => setTimeout(r, 300));
+    // Drain anything the erase put on the projection: a regression that emits membership events again is caught here, not by luck.
+    await Promise.all([projection().settle(stays), projection().settle(left)]);
 
     for (const needle of [needleEmail, uniqueName]) {
       const found = await mentions(needle);
       expect(found, `"${needle}" must appear in no history table or Members row`).toEqual({ activity_events: 0, field_changes: 0, versions: 0, members_rows: 0 });
     }
-    expect((await rawRows('select count(*)::int n from activity_events where workspace_id = $1', [left]))[0]!.n, 'nothing was written to the workspace they had left').toBe(eventsBefore);
+    // "Nothing was written" means no NEW event row. It is deliberately not "the count is unchanged": the erase REMOVES the erased
+    // person's own Members-row history (overwriteRowWithoutHistory), so the count may fall, and only by exactly those rows.
+    const beforeIds = new Set(before.map((e) => e.id));
+    const after = await leftEvents();
+    expect(after.filter((e) => !beforeIds.has(e.id)), 'nothing was written to the workspace they had left').toEqual([]);
+    const afterIds = new Set(after.map((e) => e.id));
+    expect(
+      before.filter((e) => !afterIds.has(e.id)).every((e) => e.record_id === leftRowId),
+      'the only history the erase removed from that workspace is their own Members row\'s',
+    ).toBe(true);
     for (const ws of [stays, left]) {
       const log = await as(boss.token, 'GET', `/workspaces/${ws}/audit-log`);
       expect(log.statusCode, log.body).toBe(200);
@@ -401,6 +427,8 @@ describe('#1080 self-erase writes no old identifier anywhere and scrubs what alr
     const ws = (await as(boss.token, 'POST', '/workspaces', { name: 'Scrub WS 1080' })).json().id as string;
     const inv = await as(boss.token, 'POST', `/workspaces/${ws}/invites`, { email: person.email, role: 'member' });
     await as(person.token, 'POST', '/invites/accept', { token: new URL(inv.json().accept_url).searchParams.get('token')! });
+    // The accept projects the person's Members row off the bus; without this it could land on either side of the erase below.
+    await app.get(MembersProjectionSubscriber).settle(ws);
     const space = (await as(boss.token, 'POST', `/workspaces/${ws}/spaces`, { name: 'S' })).json();
     const dbId = (await as(boss.token, 'POST', `/workspaces/${ws}/databases`, { space_id: space.id, name: 'Notes' })).json().id as string;
     const rec = (await as(boss.token, 'POST', `/workspaces/${ws}/databases/${dbId}/records`, { values: { name: `call ${person.email}` } })).json();
