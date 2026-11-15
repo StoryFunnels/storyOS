@@ -7,13 +7,20 @@ const good = { status: 'valid', inviter_name: 'Maple Ridge', workspace_name: 'Pi
 
 describe('parseInviteDetails (the contract of PR 1540)', () => {
   it('accepts exactly the five fields, every status', () => {
-    for (const status of ['valid', 'expired', 'used', 'not_found']) expect(parseInviteDetails({ ...good, status })?.status).toBe(status);
+    for (const status of ['valid', 'expired', 'used', 'revoked', 'not_found']) expect(parseInviteDetails({ ...good, status })?.status).toBe(status);
   });
   it('rejects anything that is not the contract, so a proxy page never draws a screen', () => {
-    for (const bad of [null, 'html', 3, {}, { ...good, status: 'revoked' }, { ...good, inviter_name: 4 }, { status: 'valid' }]) expect(parseInviteDetails(bad)).toBeNull();
+    for (const bad of [null, 'html', 3, {}, { ...good, status: 'banana' }, { ...good, inviter_name: 4 }, { status: 'valid' }]) expect(parseInviteDetails(bad)).toBeNull();
   });
   it('drops fields the contract does not name', () => {
     expect(Object.keys(parseInviteDetails({ ...good, role: 'admin', email: 'x' })!).sort()).toEqual(['invited_email', 'inviter_name', 'status', 'workspace_logo_url', 'workspace_name']);
+  });
+});
+
+describe('the invite_revoked code (ticket #1304)', () => {
+  it('maps to revoked, not to other', () => {
+    expect(joinFailureFrom({ error: { code: 'invite_revoked' } })).toBe('revoked');
+    expect(joinFailureFrom({ error: { code: 'something_else' } })).toBe('other');
   });
 });
 
@@ -26,6 +33,11 @@ describe('fetchInviteDetails', () => {
 
   it('reads the details', async () => {
     expect((await fetchInviteDetails(TOKEN, respond({ body: good })))?.workspace_name).toBe('Pinewood Studio');
+  });
+  it('a revoked body is read as revoked, so the screen never falls through to "could not check" (ticket #1304)', async () => {
+    const d = await fetchInviteDetails(TOKEN, respond({ body: { ...good, status: 'revoked' } }));
+    expect(d?.status).toBe('revoked');
+    expect(d?.inviter_name).toBe('Maple Ridge');
   });
   it('is null (could not find out), never not_found, on a 429, a network failure or a non-contract body', async () => {
     expect(await fetchInviteDetails(TOKEN, respond({ ok: false, body: good }))).toBeNull();

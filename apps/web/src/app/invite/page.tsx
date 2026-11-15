@@ -26,6 +26,8 @@ import {
   isUserAlreadyExists,
   joinFailureMessage,
   joinModel,
+  runJoinSubmit,
+  SWITCH_ACCOUNT_FAILURE,
 } from '@/lib/invite-screen';
 import type { JoinSession } from '@/lib/invite-screen';
 import { JoinView, SignedOutForm } from '@/components/invite/join-view';
@@ -144,7 +146,12 @@ function InviteJoin() {
     setError(null);
     setSubmitted(true);
     const email = model.invitedEmail;
+    // A request that THROWS (API down: `Failed to fetch`) lands here: busy is reset and the same retry message the accept path uses shows.
+    await runJoinSubmit(() => signUpOrInAndJoin(email), { setBusy, setError });
+  }
 
+  async function signUpOrInAndJoin(email: string) {
+    if (!token) return;
     let authed = false;
     if (mode === 'new') {
       const created = await authClient.signUp.email({
@@ -191,11 +198,19 @@ function InviteJoin() {
 
   async function onSwitchAccount() {
     if (!token) return;
+    setError(null);
     setBusy(true);
-    await authClient.signOut();
-    setBusy(false);
-    // The Join screen again, token kept (URL and held entry), now signed out.
-    router.replace(inviteJoinPath(token));
+    // A signOut that THROWS (API down) resets busy and shows the retry sentence; it does not navigate (ticket #1302).
+    await runJoinSubmit(
+      async () => {
+        await authClient.signOut();
+        setBusy(false);
+        // The Join screen again, token kept (URL and held entry), now signed out.
+        router.replace(inviteJoinPath(token));
+      },
+      { setBusy, setError },
+      SWITCH_ACCOUNT_FAILURE,
+    );
   }
 
   if (!token) {

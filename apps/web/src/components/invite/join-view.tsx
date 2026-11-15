@@ -217,6 +217,7 @@ export function JoinView({
       );
     case 'expired':
     case 'used':
+    case 'revoked':
       return (
         <AuthCard title={model.title}>
           <WorkspaceMark name={model.workspaceName} logoUrl={model.logoUrl} />
@@ -260,6 +261,11 @@ export function JoinView({
           <p className="m-0 mb-5 text-body text-ink-secondary" role="alert">
             {model.body}
           </p>
+          {error && (
+            <p className="m-0 mb-4 text-body text-error" role="alert" data-testid="invite-switch-error">
+              {error}
+            </p>
+          )}
           <Button type="button" size="auth" onClick={onSwitchAccount} disabled={busy}>
             {model.switchLabel}
           </Button>

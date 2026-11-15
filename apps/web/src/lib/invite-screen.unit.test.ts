@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { JOINING_COPY, NOT_FOUND_COPY, detailsQueryEnabled, isUserAlreadyExists, joinFailureMessage, joinModel, sameEmail } from './invite-screen';
+import { JOINING_COPY, NOT_FOUND_COPY, detailsQueryEnabled, isUserAlreadyExists, joinFailureMessage, joinModel, runJoinSubmit, sameEmail, SWITCH_ACCOUNT_FAILURE } from './invite-screen';
 import type { InviteDetails } from './invite-api';
 
 // Pinewood, made up.
@@ -40,6 +43,12 @@ describe('joinModel: every state of the Join screen (#1302)', () => {
     const used = joinModel({ details: { ...valid, status: 'used' }, session: asUser('x@y.example') });
     expect(expired).toMatchObject({ kind: 'expired', title: 'This invite has expired', body: 'Ask Maple Ridge for a new link.' });
     expect(used).toMatchObject({ kind: 'used', title: 'This invite was already used', body: 'Ask Maple Ridge for a new link.' });
+  });
+  it('revoked says so, names the inviter, offers no join, and never reads as "could not check" or not found (ticket #1304)', () => {
+    const m = joinModel({ details: { ...valid, status: 'revoked' }, session: out });
+    expect(m).toMatchObject({ kind: 'revoked', title: 'This invite was revoked', body: 'Ask Maple Ridge for a new link.', workspaceName: valid.workspace_name });
+    expect(joinModel({ details: { ...valid, status: 'revoked' }, session: asUser('x@y.example') }).kind).toBe('revoked');
+    expect(joinModel({ details: { ...valid, status: 'revoked', inviter_name: null }, session: out })).toMatchObject({ body: 'Ask whoever invited you for a new link.' });
   });
   it('an expired invite whose inviter has no name does not invent one', () => {
     expect(joinModel({ details: { ...valid, status: 'expired', inviter_name: null }, session: out })).toMatchObject({ body: 'Ask whoever invited you for a new link.' });
@@ -90,7 +99,49 @@ describe('isUserAlreadyExists', () => {
   });
 });
 
+describe('runJoinSubmit (a thrown request resets the button, ticket #1302)', () => {
+  const hooks = () => {
+    const calls: string[] = [];
+    return { calls, h: { setBusy: (b: boolean) => calls.push(`busy:${b}`), setError: (m: string | null) => calls.push(`error:${m}`) } };
+  };
+  it('a throw (Failed to fetch) sets the retry message and busy=false', async () => {
+    const { calls, h } = hooks();
+    await runJoinSubmit(async () => { throw new TypeError('Failed to fetch'); }, h);
+    expect(calls).toEqual(['error:Could not join the workspace. Try again.', 'busy:false']);
+  });
+  it('a step that returns normally is left alone: no error, busy untouched (the page is leaving)', async () => {
+    const { calls, h } = hooks();
+    await runJoinSubmit(async () => undefined, h);
+    expect(calls).toEqual([]);
+  });
+  it('a throwing signOut (API down) resets busy and shows the sign-out sentence, with no navigation', async () => {
+    const { calls, h } = hooks();
+    await runJoinSubmit(
+      async () => {
+        await Promise.reject(new TypeError('Failed to fetch'));
+        calls.push('navigate');
+      },
+      h,
+      SWITCH_ACCOUNT_FAILURE,
+    );
+    expect(calls).toEqual(['error:Could not sign out. Try again.', 'busy:false']);
+  });
+  it('the page runs Switch account through it with that sentence', () => {
+    const src = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'app/invite/page.tsx'), 'utf8');
+    expect(src).toMatch(/SWITCH_ACCOUNT_FAILURE,\s*\)/);
+    expect(src).toMatch(/await authClient\.signOut\(\);[\s\S]*router\.replace\(inviteJoinPath/);
+  });
+  it('the page runs the sign-up/sign-in steps through it', () => {
+    const src = readFileSync(join(fileURLToPath(new URL('..', import.meta.url)), 'app/invite/page.tsx'), 'utf8');
+    expect(src).toMatch(/await runJoinSubmit\(\(\) => signUpOrInAndJoin\(email\)/);
+  });
+});
+
 describe('joinFailureMessage', () => {
+  it('revoked says so and a null inviter stays neutral', () => {
+    expect(joinFailureMessage('revoked', null)).toBe('This invite was revoked. Ask whoever invited you for a new link.');
+    expect(joinFailureMessage('revoked', 'Maple Ridge')).toBe('This invite was revoked. Ask Maple Ridge for a new link.');
+  });
   it('a dead invite says so; the not-found one never names the inviter', () => {
     expect(joinFailureMessage('expired', 'Maple Ridge')).toBe('This invite has expired. Ask Maple Ridge for a new link.');
     expect(joinFailureMessage('not_found', 'Maple Ridge')).toBe('This invite link no longer works. Ask whoever invited you for a new link.');

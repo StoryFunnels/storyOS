@@ -4,9 +4,9 @@ import type { InviteDetails } from '@/lib/invite-api';
  * Ticket #1302 — what the Join screen says, decided in one place from the invite details and who is signed in, so the screen, its
  * tests and the copy cannot drift. The screen draws a model; it does not decide.
  *
- * `not_found` is ONE answer for an unknown, malformed, revoked and replaced token (the API returns one body so tokens cannot be
- * probed), so its wording is generic and names nobody. Only `expired` and `used` know the inviter, and name them.
- * Revoked cannot be told from unknown until the API keeps a `revoked_at` (ticket #1304): until then a revoked link reads as not found.
+ * `not_found` is ONE answer for an unknown, malformed and replaced token (the API returns one body so tokens cannot be probed),
+ * so its wording is generic and names nobody. `expired`, `used` and `revoked` know the inviter, and name them. A revoke keeps
+ * the invite row as a tombstone (ticket #1304), which is how `revoked` can be told from unknown.
  */
 export type JoinSession = { status: 'loading' } | { status: 'signed_out' } | { status: 'signed_in'; email: string };
 
@@ -17,7 +17,7 @@ export type JoinModel =
   /** The details could not be read (offline, rate limited). Not the same as the link being dead. */
   | { kind: 'unavailable'; title: string; body: string }
   | { kind: 'not_found'; title: string; body: string }
-  | { kind: 'expired' | 'used'; title: string; body: string; workspaceName: string; logoUrl: string | null }
+  | { kind: 'expired' | 'used' | 'revoked'; title: string; body: string; workspaceName: string; logoUrl: string | null }
   | { kind: 'join_signed_out'; title: string; workspaceName: string; logoUrl: string | null; invitedEmail: string; action: string }
   | { kind: 'join_one_click'; title: string; workspaceName: string; logoUrl: string | null; invitedEmail: string; action: string }
   | {
@@ -74,6 +74,10 @@ export function joinModel(input: {
     return { kind: 'used', title: 'This invite was already used', body: askFor(inviter), workspaceName, logoUrl };
   }
 
+  if (details.status === 'revoked') {
+    return { kind: 'revoked', title: 'This invite was revoked', body: askFor(inviter), workspaceName, logoUrl };
+  }
+
   const invitedEmail = details.invited_email ?? '';
   const title = inviter ? `${inviter} invited you to ${workspaceName}` : `You have been invited to ${workspaceName}`;
   const action = `Join ${workspaceName}`;
@@ -99,11 +103,13 @@ export function isUserAlreadyExists(error: { code?: string; status?: number; mes
 }
 
 /** The sentence under a failed accept. A failure that means the invite is dead says so; the rest is a plain retry. */
-/** `not_found` after a valid read can be a race or a revoke, so it never names the inviter (same rule as the not-found screen). */
-export function joinFailureMessage(failure: 'not_found' | 'expired' | 'mismatch' | 'already_member' | 'other', inviter: string | null): string {
+/** `not_found` after a valid read can be a race, so it never names the inviter (same rule as the not-found screen). */
+export function joinFailureMessage(failure: 'not_found' | 'expired' | 'revoked' | 'mismatch' | 'already_member' | 'other', inviter: string | null): string {
   switch (failure) {
     case 'expired':
       return `This invite has expired. ${askFor(inviter)}`;
+    case 'revoked':
+      return `This invite was revoked. ${askFor(inviter)}`;
     case 'not_found':
       return `This invite link no longer works. ${askFor(null)}`;
     case 'mismatch':
@@ -112,5 +118,27 @@ export function joinFailureMessage(failure: 'not_found' | 'expired' | 'mismatch'
       return 'You are already a member of this workspace.';
     default:
       return 'Could not join the workspace. Try again.';
+  }
+}
+
+/** The sentence under Switch account when the sign-out request throws (API down). Same plain-retry shape as the join failure. */
+export const SWITCH_ACCOUNT_FAILURE = 'Could not sign out. Try again.';
+
+/**
+ * Runs the sign-up / sign-in / join steps of a Join submit. Those calls can THROW (`TypeError: Failed to fetch` with the API down),
+ * and an uncaught throw left the button on "Joining…" for good (ticket #1302, found on PR 1561). A throw is a failed join like any
+ * other: busy is reset and the same retry message the accept path shows is set. The error itself is neither logged nor echoed (it can
+ * carry the request URL). A step that returns normally owns its own busy/error handling, as before.
+ */
+export async function runJoinSubmit(
+  steps: () => Promise<void>,
+  hooks: { setBusy: (busy: boolean) => void; setError: (message: string | null) => void },
+  failureMessage: string = joinFailureMessage('other', null),
+): Promise<void> {
+  try {
+    await steps();
+  } catch {
+    hooks.setError(failureMessage);
+    hooks.setBusy(false);
   }
 }
