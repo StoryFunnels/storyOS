@@ -312,7 +312,7 @@ describe('buildIconCatalog brand set (list_icon_set, #298)', () => {
 describe('icon param description (create_database/update_database/create_space, #251)', () => {
   it('advertises set: refs and points at the ICONS section of get_started (list_icon_set is a maintainer tool, ticket #1262)', () => {
     expect(ICON_PARAM_DESCRIPTION).toContain('set:');
-    expect(ICON_PARAM_DESCRIPTION).toContain('get_started section="ICONS"');
+    expect(ICON_PARAM_DESCRIPTION).toContain('get_started section "ICONS"');
     expect(ICON_PARAM_DESCRIPTION).not.toContain('list_icon_set');
   });
 
@@ -5749,7 +5749,7 @@ describe('preview_formula (#1263)', () => {
     // ticket #1262: the LISTED text is a short lead; the full text is what get_started serves under 'TOOL NOTES <tool>'.
     const lead = defs.get('preview_formula')!.description;
     expect(lead).toMatch(/Saves NOTHING/);
-    expect(lead).toContain("call get_started section='TOOL NOTES preview_formula'");
+    expect(lead).toContain('[Full notes: get_started section "TOOL NOTES preview_formula"]');
     const full = notes.get('preview_formula')!;
     expect(full).toMatch(/Saves NOTHING/);
     expect(full).toMatch(/return_type/);

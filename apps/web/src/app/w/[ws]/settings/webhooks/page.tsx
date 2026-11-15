@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { AdvancedSection, SettingsPageHeader } from '@/components/settings/settings-chrome';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /** MN-032. The event names are the activity-event taxonomy (ADR-0004). */
 const EVENTS = [
@@ -130,9 +131,7 @@ export default function WebhooksSettingsPage() {
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-default bg-card">
         {(webhooks.data ?? []).length === 0 && (
-          <p className="px-4 py-6 text-body text-muted">
-            No webhooks yet. Add one to push changes into another tool.
-          </p>
+          <EmptyState variant="list" title="No webhooks yet. Add one to push changes into another tool." />
         )}
         {(webhooks.data ?? []).map((hook) => (
           <div key={hook.id} className="border-b border-border-default last:border-b-0">
@@ -259,7 +258,7 @@ function Deliveries({ ws, id }: { ws: string; id: string }) {
 
   if (deliveries.isLoading) return <p className="px-4 pb-3 text-label text-muted">Loading…</p>;
   if ((deliveries.data ?? []).length === 0) {
-    return <p className="px-4 pb-3 text-label text-muted">No deliveries yet.</p>;
+    return <EmptyState variant="list" title="No deliveries yet." />;
   }
 
   return (

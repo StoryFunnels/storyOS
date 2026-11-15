@@ -112,9 +112,10 @@ export const SidebarRow = forwardRef<HTMLDivElement, {
       className={cn(
         // `relative` so #412's absolutely-positioned insertion marker anchors to
         // the row rather than escaping to the nearest positioned ancestor.
-        // #805 — 24px, not the old ~20 (py-[3px] around a 14px line): the
-        // artifact's row height, measured.
-        'group relative flex h-6 items-center justify-between rounded pr-2 text-body',
+        // Ticket #1273 — 22px rows with a 12px label (text-label), the prototype's measured density: the tree is the densest
+        // list in the product. It was 24px/13px (#805), which fit about 8% fewer rows and read heavier than designed.
+        // Children inherit the size: a row's link must NOT restate `text-body`, or the two drift again.
+        'group relative flex h-[22px] items-center justify-between rounded pr-2 text-label',
         // #972 — finger-sized in the phone drawer: 34px, and 32px for a view (lens) row
         lens ? 'max-md:h-8' : 'max-md:h-[34px]',
         edge === 'header' ? 'mx-0 pr-3.5' : 'mx-1.5',
