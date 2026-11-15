@@ -8,7 +8,7 @@
  * So the store is a MODULE singleton (`commentDrafts`): in memory only for the session, keyed by `workspace/database/record`, so a
  * draft can never surface on another record. It is never written to disk or localStorage — a draft can contain anything.
  * It is cleared by a successful post (`set(key, null)`), by an identity change (sign-out, expired or swapped session: `clear()`,
- * called from `IdentitySync`) and when the user is looking at a different workspace (`dropOutside`).
+ * called from `IdentitySync`) and when the active workspace changes (`onWorkspaceChange` -> `dropOutside`, called from the workspace layout, not from any one page).
  *
  * `doc` is BlockNote's document (opaque here); emptiness is decided by the caller, because only the caller knows BlockNote's
  * "an empty paragraph is empty" rule (`isDocEmpty`). Passing `null` clears.
@@ -113,6 +113,16 @@ export function createCommentDraftStore(): CommentDraftStore {
       return at !== undefined && now - at >= 0 && now - at <= FOCUS_HANDOFF_WINDOW_MS;
     },
   };
+}
+
+/**
+ * The decision made when the active workspace id changes (and on first mount): drafts keyed to any OTHER workspace are dropped, drafts
+ * in `next` are kept. Hook-free so it can be tested in node; the workspace layout (`app/w/[ws]/layout.tsx`) calls it from an effect on
+ * `ws`, which runs for EVERY page under a workspace. It used to run only when a `RecordDetail` mounted, so a draft on a WS1 record
+ * survived a visit to WS2's home page and reappeared on coming back.
+ */
+export function onWorkspaceChange(store: CommentDraftStore, next: string): void {
+  store.dropOutside(next);
 }
 
 /** The session's one store. Module scope on purpose: the record page unmounts on navigation, this must not. */

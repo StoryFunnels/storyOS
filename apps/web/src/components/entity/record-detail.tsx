@@ -448,10 +448,7 @@ export function RecordDetail({
   // "Contents" ambiguity: it was never a fourth tab, it was "About" garbled.
   const [tab, setTab] = useState<RecordPanelTab>('activity');
   // Ticket #1277 — the draft store is a module singleton (comment-draft.ts), so a half-typed comment survives the layout switch AND
-  // leaving the record and coming back. Looking at a workspace drops any draft belonging to another one.
-  useEffect(() => {
-    commentDrafts.dropOutside(ws);
-  }, [ws]);
+  // leaving the record and coming back. Dropping drafts of another workspace is the workspace layout's job (onWorkspaceChange).
   // Ticket #1277 — 900px and wider the panel is the side column; below it the SAME panel stacks under the fields (record-layout.ts).
   const sideBeside = useMediaQuery(RECORD_SPLIT_QUERY);
   // Ticket #1277 item 6 — the peek's own tabs: Details (everything the peek already showed) and Comments (the full page's component).

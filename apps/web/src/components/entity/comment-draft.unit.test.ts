@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { commentDrafts, createCommentDraftStore, createFocusTracker, FOCUS_HANDOFF_WINDOW_MS } from './comment-draft';
+import { commentDrafts, createCommentDraftStore, createFocusTracker, FOCUS_HANDOFF_WINDOW_MS, onWorkspaceChange } from './comment-draft';
 
 // Ticket #1277. The remount itself (side column <-> stacked section) needs a real DOM + BlockNote (which cannot render in node:
 // `useCreateBlockNote` touches `window`), so it is checked live; these pin the store the composers share.
@@ -61,6 +61,51 @@ describe('createCommentDraftStore: drafts', () => {
     expect(store.get('w1/d/a')).toEqual(doc);
     expect(store.get('w10/d/a')).toBeUndefined();
     expect(store.get('w2/d/a')).toBeUndefined();
+  });
+});
+
+describe('onWorkspaceChange: the active workspace changed', () => {
+  it('drops a draft keyed to the workspace the user left (draft in WS1, now looking at WS2)', () => {
+    const store = createCommentDraftStore();
+    store.set('ws1/d/r', doc);
+    store.handOffFocus('ws1/d/r', 0);
+    onWorkspaceChange(store, 'ws2'); // WS2's home page: no RecordDetail mounts, and the draft must still go
+    expect(store.get('ws1/d/r')).toBeUndefined();
+    expect(store.takeFocusHandoff('ws1/d/r', 1)).toBe(false);
+    onWorkspaceChange(store, 'ws1'); // ...and coming back to the WS1 record finds nothing
+    expect(store.get('ws1/d/r')).toBeUndefined();
+  });
+
+  it('keeps every draft in the workspace being shown (same-workspace navigation and re-renders)', () => {
+    const store = createCommentDraftStore();
+    store.set('ws1/d/a', doc);
+    store.set('ws1/d2/b', doc);
+    onWorkspaceChange(store, 'ws1');
+    onWorkspaceChange(store, 'ws1');
+    expect(store.get('ws1/d/a')).toEqual(doc);
+    expect(store.get('ws1/d2/b')).toEqual(doc);
+  });
+});
+
+describe('the draft store never touches browser storage', () => {
+  const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  // The store module plus anything it imports by a relative path (it has none today; a future import is scanned too).
+  const files = new Set<string>([join(__dirname, 'comment-draft.ts')]);
+  for (const f of [...files]) {
+    for (const m of strip(readFileSync(f, 'utf8')).matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
+      for (const ext of ['.ts', '.tsx']) {
+        try {
+          const p = join(f, '..', m[1] + ext);
+          readFileSync(p);
+          files.add(p);
+        } catch {
+          /* not this extension */
+        }
+      }
+    }
+  }
+  it.each([...files])('%s', (f) => {
+    expect(strip(readFileSync(f, 'utf8'))).not.toMatch(/localStorage|sessionStorage|indexedDB|document\s*\.\s*cookie/);
   });
 });
 
@@ -171,6 +216,7 @@ describe('wiring (source grep: BlockNote cannot render in node)', () => {
   const panels = readFileSync(join(__dirname, 'panels.tsx'), 'utf8');
   const detail = readFileSync(join(__dirname, 'record-detail.tsx'), 'utf8');
   const providers = readFileSync(join(__dirname, '../../app/providers.tsx'), 'utf8');
+  const wsLayout = readFileSync(join(__dirname, '../../app/w/[ws]/layout.tsx'), 'utf8');
 
   it('the record page passes the shared singleton, not a per-page store', () => {
     expect(detail).toContain('drafts={commentDrafts}');
@@ -186,5 +232,14 @@ describe('wiring (source grep: BlockNote cannot render in node)', () => {
   });
   it('an identity change clears the drafts', () => {
     expect(providers).toContain('commentDrafts.clear()');
+  });
+  // Why a grep: the effect lives in a layout that needs the router and a session to render. The decision itself
+  // (onWorkspaceChange) is behaviourally tested above; this only pins that the layout, which runs on every workspace page, calls it,
+  // and that the old per-record wiring is not the thing holding it (that was the bug: it ran only when a RecordDetail mounted).
+  it('the workspace layout drops other workspaces\' drafts when the workspace changes, on every page', () => {
+    expect(wsLayout).toMatch(/useEffect\(\(\) => \{\s*onWorkspaceChange\(commentDrafts, ws\);\s*\}, \[ws\]\)/);
+  });
+  it('the record page does not carry the workspace clear (it only ran when a record mounted)', () => {
+    expect(detail).not.toContain('dropOutside');
   });
 });
