@@ -20,6 +20,15 @@
 export const FOCUS_HANDOFF_WINDOW_MS = 1500;
 
 /**
+ * The ONE key a composer's draft, its React identity and its post target share. `CommentsPanel` uses it as the composer's React `key`
+ * so that switching the record IN PLACE (the same `RecordDetail` instance receiving a new `rec`, as a peek or split pane does) remounts
+ * the composer: otherwise the BlockNote editor, created once, keeps record A's text while `rec` is already B, and Send posts it to B.
+ */
+export function commentDraftKey(ws: string, db: string, rec: string): string {
+  return `${ws}/${db}/${rec}`;
+}
+
+/**
  * Does this composer hold keyboard focus, for the purpose of handing it to its successor when it unmounts?
  *
  * Reading `document.activeElement` in the cleanup does not work: by then focus is already on <body>. The blur arrives EARLIER and

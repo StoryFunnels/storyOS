@@ -15,7 +15,7 @@ import { api, API_URL } from '@/lib/api';
 import { Avatar } from '@/components/ui/avatar';
 import { AgentAvatar } from '@/components/tyron/agent-avatar';
 import { commentAuthorView } from './comment-author';
-import { createFocusTracker, type CommentDraftStore } from './comment-draft';
+import { commentDraftKey, createFocusTracker, type CommentDraftStore } from './comment-draft';
 import { SourceBadge } from './source-badge';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
@@ -160,7 +160,7 @@ export function CommentComposer({
   // no clean "reset to empty" — recreating via this dep is the reliable clear).
   const [resetKey, setResetKey] = useState(0);
 
-  const draftKey = `${ws}/${db}/${rec}`;
+  const draftKey = commentDraftKey(ws, db, rec);
   const editor = useCreateBlockNote(
     { schema: mentionSchema, initialContent: drafts?.get(draftKey) as never },
     [resetKey],
@@ -444,7 +444,9 @@ export function CommentsPanel({
         </div>
       ))}
 
-      <CommentComposer ws={ws} db={db} rec={rec} drafts={drafts} />
+      {/* Keyed by record: an in-place record switch must remount the composer (new editor, that record's own draft), never carry A's
+          text into B's Send. */}
+      <CommentComposer key={commentDraftKey(ws, db, rec)} ws={ws} db={db} rec={rec} drafts={drafts} />
     </div>
   );
 }

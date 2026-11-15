@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { commentDrafts, createCommentDraftStore, createFocusTracker, FOCUS_HANDOFF_WINDOW_MS, onWorkspaceChange } from './comment-draft';
+import { commentDraftKey, commentDrafts, createCommentDraftStore, createFocusTracker, FOCUS_HANDOFF_WINDOW_MS, onWorkspaceChange } from './comment-draft';
 
 // Ticket #1277. The remount itself (side column <-> stacked section) needs a real DOM + BlockNote (which cannot render in node:
 // `useCreateBlockNote` touches `window`), so it is checked live; these pin the store the composers share.
@@ -106,6 +106,22 @@ describe('the draft store never touches browser storage', () => {
   }
   it.each([...files])('%s', (f) => {
     expect(strip(readFileSync(f, 'utf8'))).not.toMatch(/localStorage|sessionStorage|indexedDB|document\s*\.\s*cookie/);
+  });
+});
+
+describe('commentDraftKey: one identity per record (an in-place switch must not reuse a composer)', () => {
+  it('differs whenever the record, database or workspace differs, so the composer remounts and loads its own draft', () => {
+    const a = commentDraftKey('w', 'd', 'r1');
+    expect(commentDraftKey('w', 'd', 'r2')).not.toBe(a);
+    expect(commentDraftKey('w', 'd2', 'r1')).not.toBe(a);
+    expect(commentDraftKey('w2', 'd', 'r1')).not.toBe(a);
+    expect(commentDraftKey('w', 'd', 'r1')).toBe(a);
+  });
+  it("record B's composer seeds from B's own draft, never A's text", () => {
+    const store = createCommentDraftStore();
+    store.set(commentDraftKey('w', 'd', 'A'), doc);
+    expect(store.get(commentDraftKey('w', 'd', 'B'))).toBeUndefined();
+    expect(store.get(commentDraftKey('w', 'd', 'A'))).toEqual(doc);
   });
 });
 
@@ -229,6 +245,12 @@ describe('wiring (source grep: BlockNote cannot render in node)', () => {
     expect(panels).toContain('drafts?.handOffFocus(draftKey)');
     expect(panels).toContain('queueMicrotask(focusTracker.blur(');
     expect(panels).toContain('drafts?.takeFocusHandoff(draftKey)');
+  });
+  // The in-place switch (peek/split pane re-targeted: same RecordDetail, new `rec`) is invisible to a store test; the guard is that
+  // the composer is keyed by the record, and that the draft key it seeds/posts with is the same helper.
+  it('the composer is keyed by record, so an in-place record switch remounts it (no cross-record Send)', () => {
+    expect(panels).toContain('<CommentComposer key={commentDraftKey(ws, db, rec)}');
+    expect(panels).toContain('const draftKey = commentDraftKey(ws, db, rec);');
   });
   it('an identity change clears the drafts', () => {
     expect(providers).toContain('commentDrafts.clear()');
