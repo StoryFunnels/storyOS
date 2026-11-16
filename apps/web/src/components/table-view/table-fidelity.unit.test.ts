@@ -15,10 +15,12 @@ describe('table header and ID column fidelity (#1275 items 2 and 3)', () => {
   });
   it('the record-number column is labelled "ID", not "#", and keeps its full name on hover', () => {
     expect(header).toMatch(/field\.type === 'id' \? 'ID' : field\.displayName/);
-    expect(header).toMatch(/title=\{field\.type === 'id' \? field\.displayName : undefined\}/);
   });
-  it('KEEPS other columns labelled by their own name, truncating', () => {
-    expect(header).toMatch(/className="truncate"/);
+  it('KEEPS other columns labelled by their own name, truncating, and EVERY header carries its full name on hover', () => {
+    // 2026-11-16: the hover title used to be ID-only, so a long column name was
+    // cut with no way to read it (the record-page defect, second surface).
+    expect(header).toMatch(/className="truncate" title=\{field\.displayName\}/);
+    expect(header).not.toMatch(/title=\{field\.type === 'id' \? field\.displayName : undefined\}/);
   });
   it('the ID cell is the 10px faint figure; the column is still wide enough for ID + mark + ⋯', () => {
     expect(code('components/table-view/cells.tsx')).toContain('truncate text-micro tabular-nums text-faint">{String(value)}');

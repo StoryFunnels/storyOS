@@ -795,7 +795,7 @@ function SortableFormField({
         <button {...attributes} {...listeners} className="cursor-grab text-faint hover:text-muted" title="Drag to reorder">
           <GripVertical className="h-3.5 w-3.5" />
         </button>
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="flex-1 truncate text-left text-body text-ink">
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="flex-1 truncate text-left text-body text-ink" title={field.displayName}>
           {field.displayName}
           {/* #669 — stays faint on purpose: a type annotation beside a name
               you can already read, the textbook decorative case (#665). */}

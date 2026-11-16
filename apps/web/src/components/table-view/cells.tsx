@@ -614,7 +614,10 @@ export function EmptyFieldAffordance({
    * than a filled value (`text-ink`), so the hierarchy survives.
    */
   return (
-    <span className={cn('truncate text-body text-muted transition-colors hover:text-ink', className)}>
+    <span
+      className={cn('truncate text-body text-muted transition-colors hover:text-ink', className)}
+      title={`${emptyAffordanceVerb(field.type)} ${field.displayName}`}
+    >
       {emptyAffordanceVerb(field.type)} {field.displayName}
     </span>
   );

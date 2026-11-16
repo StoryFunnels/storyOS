@@ -250,7 +250,7 @@ export function HeaderCell({
         {/* #1275 item 3 — the record-number column is labelled "ID", as designed. #930 had cut it to "#" because the
             column was 56px and "ID" plus the pin button left room for one letter; #1018 widened the column to
             ID_COLUMN_WIDTH (76), which holds "ID", the 12px freeze mark and ⋯ side by side. */}
-        <span className="truncate" title={field.type === 'id' ? field.displayName : undefined}>
+        <span className="truncate" title={field.displayName}>
           {field.type === 'id' ? 'ID' : field.displayName}
         </span>
         {/* The sort direction and its rank, inline, only when this column is sorted (prototype `.hdir`). */}

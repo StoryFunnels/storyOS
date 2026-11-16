@@ -83,7 +83,7 @@ export function GroupChip({
           className={chipClass(Boolean(groupField))}
         >
           <Group className="h-3 w-3" />
-          <span className="tb-group max-w-[12rem] truncate">{groupField ? `Group: ${groupField.displayName}` : 'Group'}</span>
+          <span className="tb-group max-w-[12rem] truncate" title={groupField ? `Group: ${groupField.displayName}` : undefined}>{groupField ? `Group: ${groupField.displayName}` : 'Group'}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className="max-h-96 w-64 overflow-y-auto p-1">
@@ -111,7 +111,7 @@ export function GroupChip({
                 onPatch(groupingPatch({ viewType, config, fieldId: f.id, isDateField: f.type === 'date' }))
               }
             >
-              <span className="min-w-0 flex-1 truncate">{f.displayName}</span>
+              <span className="min-w-0 flex-1 truncate" title={f.displayName}>{f.displayName}</span>
               {config.group_by_field_id === f.id && <Check className="h-3.5 w-3.5 shrink-0 text-primary-text" />}
             </button>
           );
