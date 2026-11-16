@@ -3,16 +3,18 @@ name: Publish @storyos/runner to npm
 # Publishes the Runner when a tag like `runner-v0.1.0` is pushed. Tag-only: there
 # is no workflow_dispatch and nothing here runs on a branch or a pull request.
 #
-# The job runs in the npm-publish environment, which holds NPM_TOKEN.
+# The job runs in the npm-publish environment and publishes with npm trusted
+# publishing: the job's short-lived OIDC identity (id-token: write, granted on
+# the publish job only) is exchanged for publish rights, and the release carries
+# provenance. There is no stored npm credential anywhere in this workflow.
 #
 # This is a second workflow, not a second tag in npm-publish.yml, on purpose:
 # each package keeps its own tag filter, so one tag publishes one package.
 #
-# Settings mirror npm-publish.yml: same pinned actions, Node 22, NPM_TOKEN handed
-# to the publish step only as NODE_AUTH_TOKEN, and contents: read (no id-token,
-# no provenance). Extra guard here: the tag version must equal
-# packages/runner/package.json version. Both workflows also require the tagged
-# commit to be on main.
+# Settings mirror npm-publish.yml: same pinned actions, Node 22, pinned npm, and
+# job-level id-token with workflow-level contents: read. Extra guard here: the tag
+# version must equal packages/runner/package.json version. Both workflows also
+# require the tagged commit to be on main.
 on:
   push:
     tags:
@@ -27,6 +29,9 @@ jobs:
     environment: npm-publish
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -60,6 +65,24 @@ jobs:
       # and it is cheap to run once more on the exact commit being published.
       - run: pnpm license:runner
       - run: pnpm build
-      - run: pnpm --filter @storyos/runner publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships an older
+      # npm. Pin an exact version so a release never depends on whatever
+      # "latest" is that day, then fail early if the install did not take.
+      - name: Install npm 11.21.2
+        run: npm install -g npm@11.21.2
+      - name: npm supports trusted publishing (>= 11.5.1)
+        run: |
+          NPM_VERSION="$(npm --version)"
+          echo "npm $NPM_VERSION"
+          if [ "$(printf '%s\n' 11.5.1 "$NPM_VERSION" | sort -V | head -n1)" != "11.5.1" ]; then
+            echo "::error::npm $NPM_VERSION is older than 11.5.1, which cannot publish with trusted publishing."
+            exit 1
+          fi
+      # pnpm packs the tarball (it rewrites workspace: ranges and adds the repo
+      # LICENSE, exactly as `pnpm publish` did); npm publishes that tarball,
+      # because only npm can exchange the OIDC identity for publish rights.
+      - name: Publish @storyos/runner
+        working-directory: packages/runner
+        run: |
+          pnpm pack --pack-destination "$RUNNER_TEMP/pack"
+          npm publish "$RUNNER_TEMP/pack/"*.tgz --provenance --access public
