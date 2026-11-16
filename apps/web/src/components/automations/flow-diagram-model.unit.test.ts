@@ -34,6 +34,55 @@ describe('triggerLabel (#283)', () => {
     expect(triggerLabel({ type: 'record_updated' }, fields)).toBe('When a record changes');
   });
 
+  it('reads a schedule with its cadence and time', () => {
+    expect(triggerLabel({ type: 'schedule', every: 'day', at: '09:00' }, fields)).toBe(
+      'Every day at 09:00 (server time)',
+    );
+    expect(triggerLabel({ type: 'schedule', every: 'hour' }, fields)).toBe('Every hour (server time)');
+  });
+
+  it('omits the time of day for hourly and minute cadences', () => {
+    expect(triggerLabel({ type: 'schedule', every: 'hour', at: '09:00' }, fields)).toBe('Every hour (server time)');
+    expect(triggerLabel({ type: 'schedule', every: 'minutes', minutes: 15, at: '09:00' }, fields)).toBe(
+      'Every 15 minutes (server time)',
+    );
+    expect(triggerLabel({ type: 'schedule', every: 'minutes' }, fields)).toBe('Every few minutes (server time)');
+  });
+
+  it('names the weekday and the active window', () => {
+    expect(triggerLabel({ type: 'schedule', every: 'week', at: '09:00', weekday: 1 }, fields)).toBe(
+      'Every week on Mon at 09:00 (server time)',
+    );
+    expect(triggerLabel({ type: 'schedule', every: 'week', at: '09:00', weekday: 5 }, fields)).toBe(
+      'Every week on Fri at 09:00 (server time)',
+    );
+    expect(
+      triggerLabel(
+        { type: 'schedule', every: 'minutes', minutes: 30, between: { from: '09:00', to: '17:00' }, weekdays: [1, 2, 3, 4, 5] },
+        fields,
+      ),
+    ).toBe('Every 30 minutes, 09:00-17:00, Mon-Fri (server time)');
+    expect(triggerLabel({ type: 'schedule', every: 'day', at: '09:00', weekdays: [6, 0, 1] }, fields)).toBe(
+      'Every day at 09:00, Mon, Sat, Sun (server time)',
+    );
+  });
+
+  it('reads a weekly schedule and names a non-default time zone', () => {
+    expect(triggerLabel({ type: 'schedule', every: 'week', at: '09:00' }, fields)).toBe(
+      'Every week at 09:00 (server time)',
+    );
+    expect(
+      triggerLabel({ type: 'schedule', every: 'day', at: '09:00', timezone: 'Europe/Kyiv' }, fields),
+    ).toBe('Every day at 09:00 (Europe/Kyiv)');
+  });
+
+  it('never prints "undefined" for a schedule without `every`', () => {
+    const label = triggerLabel({ type: 'schedule' }, fields);
+    expect(label).toBe('On a schedule (server time)');
+    expect(label).not.toContain('undefined');
+    expect(triggerLabel({ type: 'schedule', at: '09:00' }, fields)).toBe('On a schedule at 09:00 (server time)');
+  });
+
   it('describes record_linked with its relation field and direction (#270)', () => {
     expect(
       triggerLabel({ type: 'record_linked', relation_field_id: 'f-clients', direction: 'link' }, fields),
