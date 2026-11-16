@@ -51,6 +51,8 @@ interface Rule {
     weekday?: number;
     minutes?: number;
     timezone?: string;
+    weekdays?: number[];
+    between?: { from: string; to: string };
   };
   condition: { field: string; op: string; value?: unknown } | null;
   actions: ButtonAction[];
@@ -1066,7 +1068,13 @@ function RuleEditor({
               }),
               // Display-only: the editor has no controls for these, so read them off the saved rule.
               ...(triggerType === 'schedule'
-                ? { minutes: rule?.trigger.minutes, timezone: rule?.trigger.timezone }
+                ? {
+                    minutes: rule?.trigger.minutes,
+                    timezone: rule?.trigger.timezone,
+                    weekday: rule?.trigger.weekday,
+                    weekdays: rule?.trigger.weekdays,
+                    between: rule?.trigger.between,
+                  }
                 : {}),
             }}
             condition={isWebhookTrigger ? undefined : (buildCondition() as DiagramCondition | undefined)}

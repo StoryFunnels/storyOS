@@ -49,6 +49,24 @@ describe('triggerLabel (#283)', () => {
     expect(triggerLabel({ type: 'schedule', every: 'minutes' }, fields)).toBe('Every few minutes (server time)');
   });
 
+  it('names the weekday and the active window', () => {
+    expect(triggerLabel({ type: 'schedule', every: 'week', at: '09:00', weekday: 1 }, fields)).toBe(
+      'Every week on Mon at 09:00 (server time)',
+    );
+    expect(triggerLabel({ type: 'schedule', every: 'week', at: '09:00', weekday: 5 }, fields)).toBe(
+      'Every week on Fri at 09:00 (server time)',
+    );
+    expect(
+      triggerLabel(
+        { type: 'schedule', every: 'minutes', minutes: 30, between: { from: '09:00', to: '17:00' }, weekdays: [1, 2, 3, 4, 5] },
+        fields,
+      ),
+    ).toBe('Every 30 minutes, 09:00-17:00, Mon-Fri (server time)');
+    expect(triggerLabel({ type: 'schedule', every: 'day', at: '09:00', weekdays: [6, 0, 1] }, fields)).toBe(
+      'Every day at 09:00, Mon, Sat, Sun (server time)',
+    );
+  });
+
   it('reads a weekly schedule and names a non-default time zone', () => {
     expect(triggerLabel({ type: 'schedule', every: 'week', at: '09:00' }, fields)).toBe(
       'Every week at 09:00 (server time)',

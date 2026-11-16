@@ -31,6 +31,12 @@ export interface DiagramTrigger {
   minutes?: number;
   /** IANA zone; absent means the server's own zone. */
   timezone?: string;
+  /** Weekly rules: 0 = Sunday. */
+  weekday?: number;
+  /** Minutes/hour/day rules: the days it runs on (0 = Sunday). */
+  weekdays?: number[];
+  /** Active window for minutes/hour rules. */
+  between?: { from: string; to: string };
 }
 
 export interface DiagramAction {
@@ -85,6 +91,26 @@ const OP_LABELS: Record<string, string> = {
 /** Extended from automations-panel.tsx's `triggerSentence` — same sentences,
  * plus #270's record_linked (relation field + link/unlink direction), which
  * the original never handled (fell through to the raw trigger type). */
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** [1,2,3,4,5] -> "Mon-Fri"; [1,3] -> "Mon, Wed". Runs of 3+ collapse; the week reads Mon first, Sunday last. */
+function weekdaysLabel(days: number[]): string {
+  const pos = [...new Set(days)].filter((d) => d >= 0 && d <= 6).map((d) => (d + 6) % 7).sort((x, y) => x - y);
+  const name = (p: number) => DAY_NAMES[(p + 1) % 7] ?? '';
+  const parts: string[] = [];
+  let i = 0;
+  while (i < pos.length) {
+    let j = i;
+    while (j + 1 < pos.length && (pos[j + 1] ?? -1) === (pos[j] ?? -2) + 1) j++;
+    const first = pos[i] ?? 0;
+    const last = pos[j] ?? 0;
+    if (j - i >= 2) parts.push(`${name(first)}-${name(last)}`);
+    else for (let k = first; k <= last; k++) parts.push(name(k));
+    i = j + 1;
+  }
+  return parts.join(', ');
+}
+
 export function triggerLabel(trigger: DiagramTrigger, fields: Field[]): string {
   if (trigger.type === 'record_created') return 'When a record is created';
   if (trigger.type === 'record_updated') {
@@ -112,7 +138,12 @@ export function triggerLabel(trigger: DiagramTrigger, fields: Field[]): string {
     } else {
       cadence = `On a schedule${trigger.at ? ` at ${trigger.at}` : ''}`;
     }
-    return `${cadence} (${trigger.timezone ?? 'server time'})`;
+    const extras: string[] = [];
+    if (trigger.between) extras.push(`${trigger.between.from}-${trigger.between.to}`);
+    if (every === 'week' && trigger.weekday !== undefined && DAY_NAMES[trigger.weekday]) {
+      cadence = cadence.replace('Every week', `Every week on ${DAY_NAMES[trigger.weekday]}`);
+    } else if (trigger.weekdays?.length) extras.push(weekdaysLabel(trigger.weekdays));
+    return `${cadence}${extras.length ? `, ${extras.join(', ')}` : ''} (${trigger.timezone ?? 'server time'})`;
   }
   if (trigger.type === 'webhook_received') return 'A webhook is received';
   return trigger.type;
