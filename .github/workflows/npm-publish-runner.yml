@@ -3,17 +3,16 @@ name: Publish @storyos/runner to npm
 # Publishes the Runner when a tag like `runner-v0.1.0` is pushed. Tag-only: there
 # is no workflow_dispatch and nothing here runs on a branch or a pull request.
 #
-# This is a second workflow, not a second tag in npm-publish.yml, on purpose:
-# that file's `publish` job has no condition, so adding `runner-v*` to its tag
-# list would make an mcp publish fire on every runner tag. Guarding it would mean
-# editing the mcp job. Keeping them apart leaves npm-publish.yml byte-identical.
+# The job runs in the npm-publish environment, which holds NPM_TOKEN.
 #
-# Settings mirror npm-publish.yml exactly: same pinned actions, Node 22, the
-# NPM_TOKEN repo secret handed to the publish step only as NODE_AUTH_TOKEN, and
-# `contents: read` (no id-token, no provenance: the mcp publish has neither).
-# Two guards the mcp job does not have, because a tag is the only trigger:
-#   1. the tag version must equal packages/runner/package.json "version";
-#   2. the tagged commit must already be on main.
+# This is a second workflow, not a second tag in npm-publish.yml, on purpose:
+# each package keeps its own tag filter, so one tag publishes one package.
+#
+# Settings mirror npm-publish.yml: same pinned actions, Node 22, NPM_TOKEN handed
+# to the publish step only as NODE_AUTH_TOKEN, and contents: read (no id-token,
+# no provenance). Extra guard here: the tag version must equal
+# packages/runner/package.json version. Both workflows also require the tagged
+# commit to be on main.
 on:
   push:
     tags:
@@ -25,6 +24,7 @@ permissions:
 jobs:
   publish:
     if: github.ref_type == 'tag'
+    environment: npm-publish
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

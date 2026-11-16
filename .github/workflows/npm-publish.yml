@@ -1,23 +1,35 @@
 name: Publish @storyos/mcp to npm
 
-# Publishes the MCP package when a tag like `mcp-v0.1.0` is pushed (or manually).
-# Requires an NPM_TOKEN repo secret (npm automation token with publish rights to
-# the @storyos scope). prepublishOnly builds + bundles a self-contained package.
+# Publishes the MCP package when a tag like `mcp-v0.1.0` is pushed. Tag-only.
+# The job runs in the `npm-publish` environment, which holds NPM_TOKEN (an npm
+# automation token with publish rights to the @storyos scope); the token is
+# handed to the publish step only. prepublishOnly builds + bundles a
+# self-contained package. The tagged commit must already be on main.
 on:
   push:
     tags:
       - 'mcp-v*'
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   publish:
+    if: github.ref_type == 'tag'
+    environment: npm-publish
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Tagged commit is on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main. Tag a commit that has been merged."
+            exit 1
+          fi
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
