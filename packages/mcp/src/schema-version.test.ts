@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   MCP_SERVER_VERSION,
@@ -73,5 +74,14 @@ describe('get_started actually prints the schema version (#365)', () => {
     const intro = result.content[0]!.text;
     expect(intro).toContain(SCHEMA_VERSION_NOTICE);
     expect(intro).toMatch(/reconnect/i);
+  });
+
+  it('reports the version in package.json, so a release bump cannot leave serverInfo behind', () => {
+    // PACKAGE_VERSION is a literal (the bundle cannot read package.json at run
+    // time), so it can drift: 0.1.1 shipped still reporting 0.1.0.
+    const pkg = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { version: string };
+    expect(MCP_SERVER_VERSION.split('+')[0]).toBe(pkg.version);
   });
 });
