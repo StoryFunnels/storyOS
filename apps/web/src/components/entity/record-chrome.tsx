@@ -98,7 +98,7 @@ export function HiddenFieldRow({ ws, db, field }: { ws: string; db: string; fiel
     field.config?.['entity_hidden'] === true || AUDIT_TYPES.has(field.type) ? '' : ' (empty)';
   return (
     <div className="flex min-h-7 items-center justify-between py-0.5">
-      <span className="truncate text-label text-faint">
+      <span className="truncate text-label text-faint" title={field.displayName}>
         {field.displayName}
         {reason}
       </span>

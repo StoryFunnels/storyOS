@@ -54,11 +54,31 @@ describe('item 2: field rows are the design\'s 30px row, label 13px regular', ()
   });
 
   it('the row is 30px: label and value cells both min-h-[30px], no extra vertical padding, a 13px glyph', () => {
-    expect(row).toContain("flex min-h-[30px] items-center gap-1.5', ROW_LABEL_CLS");
+    expect(row).toContain("flex min-h-[30px] items-start gap-1.5', ROW_LABEL_CLS");
     expect(row).toContain('flex min-h-[30px] min-w-0 items-center gap-1');
     expect(row).toContain('ROW_VALUE_CLS');
     expect(row).toContain('h-[13px] w-[13px]');
     expect(row).not.toMatch(/\bpy-0\.5\b|pt-0\.5/);
+  });
+
+  it('a field name is NEVER cut off: the label wraps in full (no truncate, no line clamp) and carries the full name on hover', () => {
+    // Ievgen, 2026-11-16 (urgent): "Total payments · DC …" ×2 on one record, no
+    // way to read which was which. Two-line clamping was tried and still hid the
+    // distinguishing END of similar names, so the label is unclamped.
+    const label = row.slice(row.indexOf('ROW_LABEL_CLS'), row.indexOf('ScalarValue'));
+    expect(label).toContain('{field.displayName}');
+    expect(label).toContain('title={field.displayName}');
+    expect(label).toContain('break-words');
+    expect(label).not.toMatch(/\btruncate\b|line-clamp/);
+    // the glyph stays on the label's first line when the name wraps
+    expect(label).toContain('mt-2 h-[13px] w-[13px] shrink-0');
+  });
+
+  it('the strip and body labels that DO truncate keep the full name on hover', () => {
+    const sidebar = scalar.slice(scalar.indexOf("w-[88px] shrink-0 truncate"), scalar.indexOf('export function UnifiedFieldRow'));
+    expect(sidebar).toContain('title={field.displayName}');
+    const body = scalar.slice(scalar.indexOf('export function BodyScalar'));
+    expect(body).toMatch(/className="truncate" title=\{field\.displayName\}/);
   });
 
   it('KEEPS the 150px label column (every value starts at one x), and the strip / body scalar keep their own label style', () => {

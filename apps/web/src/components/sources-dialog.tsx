@@ -617,7 +617,7 @@ export function SourcesDialog({ ws, db, onDone }: { ws: string; db: string; onDo
                       {label}
                       {isKey && <span className="ml-1.5 text-meta font-normal text-muted">(external key)</span>}
                     </p>
-                    <p className="truncate text-meta text-muted">→ {fieldName}</p>
+                    <p className="truncate text-meta text-muted" title={fieldName}>→ {fieldName}</p>
                   </div>
                   <span className="inline-flex shrink-0 overflow-hidden rounded border border-border-default text-[10px] font-semibold uppercase leading-none">
                     {(['in', 'out', 'both'] as const).map((d) => (

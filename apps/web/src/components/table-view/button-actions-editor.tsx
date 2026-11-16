@@ -604,7 +604,9 @@ function FieldValuesEditor({
         const field = settable.find((f) => f.apiName === key);
         return (
           <div key={key} className="flex items-center gap-1.5 text-label text-ink">
-            <span className="w-28 shrink-0 truncate text-muted">{field?.displayName ?? key}</span>
+            <span className="w-28 shrink-0 truncate text-muted" title={field?.displayName ?? key}>
+              {field?.displayName ?? key}
+            </span>
             <SetValueEditor
               ws={ws}
               field={field}

@@ -596,7 +596,9 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
         <FieldTypeGlyph type={field.type} />
         {/* #174: labels stay text-muted (readable); #176: Title-case-ish, not
             all-caps, for Fibery parity. #206: shared label style. */}
-        <span className={cn('w-[88px] shrink-0 truncate', FIELD_LABEL_CLS)}>{field.displayName}</span>
+        <span className={cn('w-[88px] shrink-0 truncate', FIELD_LABEL_CLS)} title={field.displayName}>
+          {field.displayName}
+        </span>
         <div className="min-w-0 flex-1">
           <ScalarValue field={field} cell schemaEditable={schemaEditable} onToggleZone={onToggleZone} {...vp} />
         </div>
@@ -623,9 +625,18 @@ export function SidebarField({ field, schemaEditable, onToggleZone, topDivider, 
 export function UnifiedFieldRow({ field, schemaEditable, onToggleZone, ...vp }: VP & { field: Field }) {
   return (
     <div className={cn('group grid grid-cols-[150px_1fr] items-start gap-2.5 rounded-[var(--radius-control)] pr-1.5 hover:bg-hover/50', ROW_VALUE_CLS)}>
-      <span className={cn('flex min-h-[30px] items-center gap-1.5', ROW_LABEL_CLS)}>
-        <FieldTypeGlyph type={field.type} className="h-[13px] w-[13px]" />
-        <span className="truncate">{field.displayName}</span>
+      {/* items-start + the glyph's top margin keep the type icon on the label's
+          FIRST line when a long name wraps (centred, it floated mid-paragraph). */}
+      <span className={cn('flex min-h-[30px] items-start gap-1.5', ROW_LABEL_CLS)}>
+        <FieldTypeGlyph type={field.type} className="mt-2 h-[13px] w-[13px] shrink-0" />
+        {/* A field name is never cut off: it wraps in full. Similar names often
+            differ only at the END ("Total payments · Spring fair tickets" vs
+            "… donations"), so a truncated or 2-line-clamped label made those
+            rows indistinguishable, with no way to read them. Field names are
+            capped at 100 chars, so the worst case is a few lines. */}
+        <span className="min-w-0 break-words py-1" title={field.displayName}>
+          {field.displayName}
+        </span>
       </span>
       <div className="flex min-h-[30px] min-w-0 items-center gap-1">
         <div className="min-w-0 flex-1">
@@ -688,7 +699,9 @@ export function BodyScalar({ field, schemaEditable, onToggleZone, ...vp }: VP & 
       {/* #206: same type icon + label treatment as the sidebar / top strip. */}
       <span className={cn('flex w-40 shrink-0 items-center gap-1 pt-0.5', FIELD_LABEL_CLS)}>
         <FieldTypeGlyph type={field.type} />
-        <span className="truncate">{field.displayName}</span>
+        <span className="truncate" title={field.displayName}>
+          {field.displayName}
+        </span>
         {schemaEditable && <FieldMenu field={field} onToggleZone={onToggleZone} ws={vp.ws} db={vp.db} />}
       </span>
       <div className="min-w-0 flex-1">

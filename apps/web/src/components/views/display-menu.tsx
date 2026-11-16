@@ -602,7 +602,7 @@ function SortableCardField({ field, onRemove }: { field: Field; onRemove: () => 
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
-      <span className="flex-1 truncate">{field.displayName}</span>
+      <span className="flex-1 truncate" title={field.displayName}>{field.displayName}</span>
       <button
         onClick={onRemove}
         className="text-faint opacity-0 hover:text-error group-hover:opacity-100"

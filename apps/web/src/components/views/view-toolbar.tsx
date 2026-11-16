@@ -2861,7 +2861,7 @@ export function SortButton({
                     className={SORT_PICK_ROW}
                     onClick={() => onChange(pickPrimarySort(sorts, f.apiName, { keepRest: true, flipIfSame: true }))}
                   >
-                    <span className="min-w-0 flex-1 truncate">{f.displayName}</span>
+                    <span className="min-w-0 flex-1 truncate" title={f.displayName}>{f.displayName}</span>
                     {active && first && (
                       <>
                         <span className="shrink-0 text-meta text-muted">{directionLabel(f.type, first.direction, f.options)}</span>

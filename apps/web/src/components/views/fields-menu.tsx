@@ -322,7 +322,7 @@ function FieldRow({
           <span className="h-3 w-3 rounded-full bg-card" />
         </span>
         <Icon className="h-3.5 w-3.5 shrink-0 text-faint" />
-        <span className="truncate">{field.displayName}</span>
+        <span className="truncate" title={field.displayName}>{field.displayName}</span>
       </button>
       {onOpenConfig && (
         <Tooltip label="Options" side="right">

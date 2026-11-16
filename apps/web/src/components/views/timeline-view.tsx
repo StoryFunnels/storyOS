@@ -603,7 +603,7 @@ export function TimelineView({
                   className="relative flex items-center border-r border-border-default px-3 text-meta font-semibold uppercase tracking-wide text-muted"
                   style={{ width: colW(f) }}
                 >
-                  <span className="truncate">{f.displayName}</span>
+                  <span className="truncate" title={f.displayName}>{f.displayName}</span>
                   {i < leftFields.length - 1 && (
                     <span
                       onPointerDown={(e) => {
