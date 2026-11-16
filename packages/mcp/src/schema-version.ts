@@ -51,7 +51,7 @@
 export const TOOL_SCHEMA_VERSION = 3;
 
 /** Package version, kept separate from the schema version it carries. */
-const PACKAGE_VERSION = '0.1.0';
+const PACKAGE_VERSION = '0.1.2';
 
 /**
  * What the client sees as `serverInfo.version`. The `+tools.N` build-metadata
