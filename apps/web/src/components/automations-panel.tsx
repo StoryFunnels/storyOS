@@ -49,6 +49,8 @@ interface Rule {
     every?: string;
     at?: string;
     weekday?: number;
+    minutes?: number;
+    timezone?: string;
   };
   condition: { field: string; op: string; value?: unknown } | null;
   actions: ButtonAction[];
@@ -1053,16 +1055,20 @@ function RuleEditor({
         </div>
         {actionsView === 'canvas' ? (
           <FlowDiagramEditor
-            trigger={
-              buildAutomationTrigger({
+            trigger={{
+              ...buildAutomationTrigger({
                 triggerType,
                 triggerFieldId,
                 relationFieldId,
                 linkDirection,
                 every,
                 at,
-              })
-            }
+              }),
+              // Display-only: the editor has no controls for these, so read them off the saved rule.
+              ...(triggerType === 'schedule'
+                ? { minutes: rule?.trigger.minutes, timezone: rule?.trigger.timezone }
+                : {}),
+            }}
             condition={isWebhookTrigger ? undefined : (buildCondition() as DiagramCondition | undefined)}
             actions={actions}
             onChange={setActions}

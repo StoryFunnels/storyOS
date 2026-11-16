@@ -27,6 +27,10 @@ export interface DiagramTrigger {
   direction?: 'link' | 'unlink';
   every?: string;
   at?: string;
+  /** Interval for every:'minutes' (API-created rules). */
+  minutes?: number;
+  /** IANA zone; absent means the server's own zone. */
+  timezone?: string;
 }
 
 export interface DiagramAction {
@@ -95,9 +99,20 @@ export function triggerLabel(trigger: DiagramTrigger, fields: Field[]): string {
     return `When a record is linked or unlinked via ${via}`;
   }
   if (trigger.type === 'schedule') {
-    // Never print the word "undefined": a schedule with no cadence reads as a plain schedule.
-    const cadence = trigger.every ? `Every ${trigger.every}` : 'On a schedule';
-    return `${cadence}${trigger.at ? ` at ${trigger.at}` : ''} (server time)`;
+    // Never print the word "undefined"; and only say "at HH:MM" where the cadence has a time of day
+    // (the editor hides the time for hourly, so a stored default must not surface on the canvas).
+    const every = trigger.every;
+    let cadence: string;
+    if (every === 'minutes') {
+      cadence = trigger.minutes ? `Every ${trigger.minutes} minutes` : 'Every few minutes';
+    } else if (every === 'hour') {
+      cadence = 'Every hour';
+    } else if (every) {
+      cadence = `Every ${every}${trigger.at ? ` at ${trigger.at}` : ''}`;
+    } else {
+      cadence = `On a schedule${trigger.at ? ` at ${trigger.at}` : ''}`;
+    }
+    return `${cadence} (${trigger.timezone ?? 'server time'})`;
   }
   if (trigger.type === 'webhook_received') return 'A webhook is received';
   return trigger.type;
