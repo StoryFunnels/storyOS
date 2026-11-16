@@ -4,6 +4,7 @@
 
 The first release since 0.1.1. The server also now reports its real package
 version in `serverInfo.version` (it still said `0.1.0`).
+Declares the MCP Registry name so the package can be listed.
 
 ### New tools
 

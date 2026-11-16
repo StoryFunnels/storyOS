@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "dev.storyos/storyos",
+  "title": "StoryOS",
+  "description": "Your StoryOS workspace (records, approvals and agents) for Claude, ChatGPT and any MCP client.",
+  "version": "0.1.2",
+  "websiteUrl": "https://storyos.dev",
+  "repository": {
+    "url": "https://github.com/StoryFunnels/storyOS",
+    "source": "github",
+    "subfolder": "packages/mcp"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.storyos.dev/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@storyos/mcp",
+      "version": "0.1.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "STORYOS_TOKEN",
+          "description": "StoryOS personal API token (mn_pat_...), created under API tokens in StoryOS. Scoped to one workspace.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "STORYOS_URL",
+          "description": "Base URL of the StoryOS API, for example https://app.storyos.dev for the cloud. When unset the server uses http://localhost:3001 (local development).",
+          "isRequired": false
+        },
+        {
+          "name": "STORYOS_MCP_PROFILE",
+          "description": "Set to internal to also expose the internal tool profile. Leave unset for the default tools.",
+          "isRequired": false
+        },
+        {
+          "name": "WEB_URL",
+          "description": "Base URL of the StoryOS web app, used to build links in tool results. When unset the server uses http://localhost:3000.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
