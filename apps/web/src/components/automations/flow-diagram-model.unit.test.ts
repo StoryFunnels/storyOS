@@ -34,6 +34,20 @@ describe('triggerLabel (#283)', () => {
     expect(triggerLabel({ type: 'record_updated' }, fields)).toBe('When a record changes');
   });
 
+  it('reads a schedule with its cadence and time', () => {
+    expect(triggerLabel({ type: 'schedule', every: 'day', at: '09:00' }, fields)).toBe(
+      'Every day at 09:00 (server time)',
+    );
+    expect(triggerLabel({ type: 'schedule', every: 'hour' }, fields)).toBe('Every hour (server time)');
+  });
+
+  it('never prints "undefined" for a schedule without `every`', () => {
+    const label = triggerLabel({ type: 'schedule' }, fields);
+    expect(label).toBe('On a schedule (server time)');
+    expect(label).not.toContain('undefined');
+    expect(triggerLabel({ type: 'schedule', at: '09:00' }, fields)).toBe('On a schedule at 09:00 (server time)');
+  });
+
   it('describes record_linked with its relation field and direction (#270)', () => {
     expect(
       triggerLabel({ type: 'record_linked', relation_field_id: 'f-clients', direction: 'link' }, fields),

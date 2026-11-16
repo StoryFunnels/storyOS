@@ -17,7 +17,7 @@ import { DateOperandEditor, opsForField, SortButton } from '@/components/views/v
 import type { SortSpec } from '@/components/views/sort-config';
 import { FlowDiagram } from '@/components/automations/flow-diagram';
 import { triggerLabel } from '@/components/automations/flow-diagram-model';
-import type { DiagramCondition, DiagramRule } from '@/components/automations/flow-diagram-model';
+import type { DiagramCondition, DiagramRule, DiagramTrigger } from '@/components/automations/flow-diagram-model';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
@@ -99,7 +99,7 @@ export function buildAutomationTrigger(params: {
   linkDirection: '' | 'link' | 'unlink';
   every: string;
   at: string;
-}): Record<string, unknown> {
+}): DiagramTrigger & Record<string, unknown> {
   const { triggerType, triggerFieldId, relationFieldId, linkDirection, every, at } = params;
   if (triggerType === 'schedule') return { type: 'schedule', every, at };
   if (triggerType === 'record_updated') {
@@ -1053,7 +1053,16 @@ function RuleEditor({
         </div>
         {actionsView === 'canvas' ? (
           <FlowDiagramEditor
-            trigger={{ type: triggerType, field_id: triggerFieldId || undefined }}
+            trigger={
+              buildAutomationTrigger({
+                triggerType,
+                triggerFieldId,
+                relationFieldId,
+                linkDirection,
+                every,
+                at,
+              })
+            }
             condition={isWebhookTrigger ? undefined : (buildCondition() as DiagramCondition | undefined)}
             actions={actions}
             onChange={setActions}

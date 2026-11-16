@@ -95,7 +95,9 @@ export function triggerLabel(trigger: DiagramTrigger, fields: Field[]): string {
     return `When a record is linked or unlinked via ${via}`;
   }
   if (trigger.type === 'schedule') {
-    return `Every ${trigger.every}${trigger.at ? ` at ${trigger.at}` : ''} (server time)`;
+    // Never print the word "undefined": a schedule with no cadence reads as a plain schedule.
+    const cadence = trigger.every ? `Every ${trigger.every}` : 'On a schedule';
+    return `${cadence}${trigger.at ? ` at ${trigger.at}` : ''} (server time)`;
   }
   if (trigger.type === 'webhook_received') return 'A webhook is received';
   return trigger.type;
