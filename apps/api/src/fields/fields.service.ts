@@ -10,6 +10,9 @@ import {
 import { isEmptyFieldValue } from './field-value-emptiness';
 import { countRecordsWithValue, type FieldUsageCount } from './field-usage-count';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { codedException } from '../common/coded-exception';
+import { withTimeout } from '../common/with-timeout';
+import { safeErrorText } from '../records/computed-field-guard';
 import type {
   CreatableFieldType,
   FilterNode,
@@ -219,8 +222,14 @@ class FormulaCompileFailure extends Error {
   }
 }
 
+/** Ticket #1314: the longest a formula dry-run waits for its sample evaluation. */
+const FORMULA_PREVIEW_TIMEOUT_MS = 15_000;
+
 @Injectable()
 export class FieldsService {
+  /** Ticket #1314: how long a formula dry-run may take. A property, not a constant, so a test can shorten it. */
+  formulaPreviewTimeoutMs = FORMULA_PREVIEW_TIMEOUT_MS;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly recordsService: RecordsService,
@@ -694,12 +703,23 @@ export class FieldsService {
       }
       throw error;
     }
-    const samples = await this.recordsService.previewFormulaSamples(
-      databaseId,
-      compiled.ast,
-      compiled.result_type,
-      Math.min(input.samples ?? FORMULA_PREVIEW_MAX_SAMPLES, FORMULA_PREVIEW_MAX_SAMPLES),
-      membership,
+    // Ticket #1314: the dry-run ran for more than two minutes once. A bounded wait with a readable error beats a hung request.
+    const samples = await withTimeout(
+      this.recordsService.previewFormulaSamples(
+        databaseId,
+        compiled.ast,
+        compiled.result_type,
+        Math.min(input.samples ?? FORMULA_PREVIEW_MAX_SAMPLES, FORMULA_PREVIEW_MAX_SAMPLES),
+        membership,
+      ),
+      this.formulaPreviewTimeoutMs,
+      () =>
+        codedException(
+          504,
+          'formula_preview_timeout',
+          `The formula preview did not finish within ${Math.round(this.formulaPreviewTimeoutMs / 1000)} seconds, so it was stopped. The expression may be too expensive for this database (a lookup or rollup over many linked records), or a field it reads cannot be computed. Try a simpler expression, or save it and read a record.`,
+          { timeout_ms: this.formulaPreviewTimeoutMs },
+        ),
     );
     return { valid: true, return_type: compiled.result_type as FormulaPreviewResponse['return_type'], samples, errors: [] };
   }
@@ -1519,7 +1539,26 @@ export class FieldsService {
       );
     }
 
-    compileFilter(pruned, ctx);
+    const where = compileFilter(pruned, ctx);
+
+    /*
+     * Ticket #1314 — compiling is not running. The filter above is a string of SQL until a database plans it, and one that
+     * compiled here once failed on every read ("column does not exist") while this method answered 201. So run it, against the
+     * related database, selecting nothing (`LIMIT 0` still has Postgres resolve every column and cast): a filter the engine
+     * cannot execute is refused HERE, with a 422 the caller can read, instead of being stored and failing later for everyone.
+     * The error text is the driver's own message, never the query.
+     */
+    try {
+      await this.db
+        .select({ id: records.id })
+        .from(records)
+        .where(and(eq(records.databaseId, targetDbId), isNull(records.deletedAt), where))
+        .limit(0);
+    } catch (err) {
+      throw new UnprocessableEntityException(
+        `rollup filter cannot be evaluated against the related database (${safeErrorText(err)}). Change or remove the filter`,
+      );
+    }
   }
 
   /** Soft-delete lookups AND rollups that point at a deleted target field or severed relation field. */

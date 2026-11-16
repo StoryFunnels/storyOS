@@ -4,6 +4,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
   UnprocessableEntityException,
@@ -89,8 +90,12 @@ import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context'
 // runtime dependency on CommentsService, so this can't create the module
 // cycle a value import would (comments.module.ts already imports records).
 import type { CommentSegment } from '../comments/comments.service';
+import { ComputedFieldFailures, nullCells } from './computed-field-guard';
 
 type RecordRow = typeof records.$inferSelect;
+
+/** Ids per statement when a rollup fetches its linked records (a statement allows 65,535 parameters). */
+const ROLLUP_TARGET_CHUNK = 5000;
 
 /** MN-080: a resolved relation write — validated targets plus which side we're on. */
 interface LinkPlan {
@@ -157,6 +162,10 @@ export interface PendingApprovalResult {
  */
 @Injectable()
 export class RecordsService implements OnModuleInit {
+  private readonly logger = new Logger(RecordsService.name);
+  /** Ticket #1314: one log line per broken computed field, however often its database is read. */
+  private readonly computedFailures = new ComputedFieldFailures(this.logger);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly notificationsService: NotificationsService,
@@ -610,6 +619,30 @@ export class RecordsService implements OnModuleInit {
   }
 
   /**
+   * Ticket #1314 — the linked records a rollup reads, with the rollup's filter applied.
+   *
+   * It is a plain `select ... from records`, NEVER `db.query.records.findMany({ where })`. The relational query builder rewrites
+   * every column inside a `where` to the root table's alias, including the columns of a subquery nested in the compiled filter:
+   * a filter on a relation field compiles to `EXISTS (SELECT 1 FROM record_links WHERE record_links.relation_id = ...)`, which came
+   * out as `records.relation_id` and failed with "column records.relation_id does not exist", so one filtered rollup failed every
+   * listing of its database. The select builder keeps each column on its own table, which is also what every view/query path uses.
+   *
+   * The ids are fetched in chunks so a large page cannot exceed the 65,535-parameter limit of a single statement.
+   */
+  private async fetchRollupTargetRows(reader: Db, ids: string[], filterSql?: SQL): Promise<RecordRow[]> {
+    const out: RecordRow[] = [];
+    for (let i = 0; i < ids.length; i += ROLLUP_TARGET_CHUNK) {
+      const chunk = ids.slice(i, i + ROLLUP_TARGET_CHUNK);
+      const rows: RecordRow[] = await reader
+        .select()
+        .from(records)
+        .where(and(inArray(records.id, chunk), isNull(records.deletedAt), filterSql));
+      out.push(...rows);
+    }
+    return out;
+  }
+
+  /**
    * MN-064: aggregates related records through the already-attached relation
    * chips. One target-defs load + one records batch per rollup field. Empty
    * relation: 0 for count, null for the rest.
@@ -629,6 +662,8 @@ export class RecordsService implements OnModuleInit {
     if (rollupDefs.length === 0 || projected.length === 0) return projected;
 
     for (const def of rollupDefs) {
+      // Ticket #1314: a rollup that cannot be computed leaves ITS cells empty and the rest of the page intact.
+      try {
       const rawOp = def.config['op'];
       // #286: first/last is argmax/argmin, not an aggregate — it orders the
       // linked records and reads a value off the ONE that wins, so it shares
@@ -685,9 +720,7 @@ export class RecordsService implements OnModuleInit {
           chips?.forEach((chip) => linkedIds.add(chip.id));
         }
         if (linkedIds.size > 0) {
-          const conditions = [inArray(records.id, [...linkedIds]), isNull(records.deletedAt)];
-          if (filterSql) conditions.push(filterSql);
-          const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+          const targetRows = await this.fetchRollupTargetRows(this.db, [...linkedIds], filterSql);
           for (const row of targetRows) {
             passesFilter.add(row.id);
             if (targetFieldId) {
@@ -722,6 +755,10 @@ export class RecordsService implements OnModuleInit {
         } else {
           record.values[def.api_name] = Math.max(...nums);
         }
+      }
+      } catch (err) {
+        this.computedFailures.report(def, err);
+        nullCells(projected, def.api_name);
       }
     }
     return projected;
@@ -796,15 +833,15 @@ export class RecordsService implements OnModuleInit {
     for (const record of projected) record.values[def.api_name] = null;
     if (linkedIds.size === 0) return;
 
-    const conditions = [inArray(records.id, [...linkedIds]), isNull(records.deletedAt)];
+    let filterSql: SQL | undefined;
     if (filterNode) {
       const ctx: CompilerContext = {
         defs: new Map(targetDefs.map((d) => [d.api_name, d])),
         currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
       };
-      conditions.push(compileFilter(filterNode, ctx));
+      filterSql = compileFilter(filterNode, ctx);
     }
-    const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+    const targetRows = await this.fetchRollupTargetRows(this.db, [...linkedIds], filterSql);
     const rowById = new Map(targetRows.map((row) => [row.id, row]));
 
     for (const record of projected) {
@@ -875,15 +912,15 @@ export class RecordsService implements OnModuleInit {
     }
     if (linkedIds.size === 0) return;
 
-    const conditions = [inArray(records.id, [...linkedIds]), isNull(records.deletedAt)];
+    let filterSql: SQL | undefined;
     if (filterNode) {
       const ctx: CompilerContext = {
         defs: new Map(targetDefs.map((d) => [d.api_name, d])),
         currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
       };
-      conditions.push(compileFilter(filterNode, ctx));
+      filterSql = compileFilter(filterNode, ctx);
     }
-    const targetRows = await this.db.query.records.findMany({ where: and(...conditions) });
+    const targetRows = await this.fetchRollupTargetRows(this.db, [...linkedIds], filterSql);
     const rowById = new Map(targetRows.map((row) => [row.id, row]));
     const attachmentChips = await loadAttachmentChips(
       this.db,
@@ -1104,7 +1141,27 @@ export class RecordsService implements OnModuleInit {
     return projected;
   }
 
+  /**
+   * Ticket #1314: formulas never fail the page. A cell whose evaluation throws is null (attachFormulasUnguarded), and so is
+   * every cell of a formula whose page-level inputs (select labels, related records) could not be loaded.
+   */
   private async attachFormulas(
+    projected: ProjectedRecord[],
+    defs: FieldDef[],
+  ): Promise<ProjectedRecord[]> {
+    try {
+      return await this.attachFormulasUnguarded(projected, defs);
+    } catch (err) {
+      for (const def of defs) {
+        if (def.type !== 'formula' || !def.config['ast']) continue;
+        this.computedFailures.report(def, err);
+        nullCells(projected, def.api_name);
+      }
+      return projected;
+    }
+  }
+
+  private async attachFormulasUnguarded(
     projected: ProjectedRecord[],
     defs: FieldDef[],
   ): Promise<ProjectedRecord[]> {
@@ -1170,7 +1227,8 @@ export class RecordsService implements OnModuleInit {
           const result = evaluateFormula(def.config['ast'] as FormulaNode, bag, related);
           record.values[def.api_name] = result ?? null;
           bag[def.api_name] = result ?? null;
-        } catch {
+        } catch (err) {
+          this.computedFailures.report(def, err);
           record.values[def.api_name] = null;
         }
       }
@@ -1907,18 +1965,15 @@ export class RecordsService implements OnModuleInit {
       .where(and(eq(recordLinks.relationId, relation.id), inArray(myCol, recordIds)));
     if (links.length === 0) return result;
 
-    const conditions = [
-      inArray(records.id, [...new Set(links.map((l) => l.other))]),
-      isNull(records.deletedAt),
-    ];
+    let filterSql: SQL | undefined;
     if (filterNode) {
       const ctx: CompilerContext = {
         defs: new Map(targetDefs.map((d) => [d.api_name, d])),
         currentUserId: '', // rollup filters may not reference "me" (validated at field-create time)
       };
-      conditions.push(compileFilter(filterNode, ctx));
+      filterSql = compileFilter(filterNode, ctx);
     }
-    const targetRows = await reader.query.records.findMany({ where: and(...conditions) });
+    const targetRows = await this.fetchRollupTargetRows(reader, [...new Set(links.map((l) => l.other))], filterSql);
     const rowById = new Map(targetRows.map((row) => [row.id, row]));
 
     const candidatesByParent = new Map<string, Array<(typeof targetRows)[number]>>();
@@ -2193,6 +2248,7 @@ export class RecordsService implements OnModuleInit {
     if (lookupDefs.length === 0 || projected.length === 0) return projected;
 
     for (const def of lookupDefs) {
+      try {
       const relationDef = defs.find((d) => d.id === def.config['relation_field_id']);
       if (!relationDef || relationDef.type !== 'relation') continue; // dangling — resolve to nothing
       const side = relationDef.config['side'] as 'a' | 'b';
@@ -2222,9 +2278,7 @@ export class RecordsService implements OnModuleInit {
       }
       if (linkedIds.size === 0) continue;
 
-      const targetRows = await this.db.query.records.findMany({
-        where: and(inArray(records.id, [...linkedIds]), isNull(records.deletedAt)),
-      });
+      const targetRows = await this.fetchRollupTargetRows(this.db, [...linkedIds]);
       const valueOf = (row: (typeof targetRows)[number]): unknown => {
         if (targetDef.type === 'title') return row.title;
         const raw = (row.values as Record<string, unknown>)[targetDef.id];
@@ -2244,6 +2298,10 @@ export class RecordsService implements OnModuleInit {
           .map((chip) => byId.get(chip.id))
           .filter((v) => v !== undefined && v !== null);
         record.values[def.api_name] = single ? (resolved[0] ?? null) : resolved;
+      }
+      } catch (err) {
+        this.computedFailures.report(def, err);
+        nullCells(projected, def.api_name);
       }
     }
     return projected;
