@@ -249,6 +249,25 @@ older single-database fields, which are unchanged.
 - **Re-installing a pack that adopted a database keeps using it**, with or without repeating the choice, and
   does not create a duplicate.
 - **Uninstalling never deletes an adopted database or its data.**
+- **Installing the pack again after an uninstall works.** It adds no second copy of a field, and the adopted
+  database ends up as it was after the first install.
+
+##### A relation whose field name is already taken
+
+A pack relation needs a free field name on both databases. If the database you adopted already has a field
+with that name and it is not a relation, for example a text field called `Sprint` where the pack wants a
+`Sprint` relation, the install is refused with a 422 that names the field and its type:
+`"Issues.Sprint" already exists as a text field, but the pack needs a relation field there. Rename or remove it, or install the pack onto a database without it.`
+
+- **The preview says so first.** The database's `not_applied` list has an entry of kind `relation` with
+  `blocks_install: true`, and the preview does not list that field among the fields the pack would add.
+- **A refused install changes nothing.** The message ends with `Nothing was installed.`, and the adopted
+  database keeps its fields and records. Trying again after a refusal does not trip over what the first try
+  left behind.
+- **To go on,** rename or remove the field in the way, or adopt a different database.
+- **A field of another type that is not a relation is kept, not refused.** If a same-named field exists as,
+  say, text where the pack wants a date, the install leaves it as it is and the result entry for that field is
+  `reused` with a `reason`: `A "Due Date" field already exists as text; the pack wants date, so it is kept as it is.`
 
 #### Reuse in the web install review
 

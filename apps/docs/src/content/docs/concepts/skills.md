@@ -46,10 +46,12 @@ Running a skill through MCP (`run_skill`) **resolves its instructions** and retu
 not call a model or execute anything. **Your own AI** carries the instructions out (through MCP,
 never metered), or you apply them by hand.
 
-**An agent can name skills.** An agent record has a **Skills** field listing skills by name. When
-the agent runs, the names are looked up in the workspace's skills when the run starts, so an edit
-made since the last run is what the next run uses. A run whose agent names a skill that no longer
-exists fails, naming it, instead of quietly running without it.
+**An agent can name skills.** An agent record has a **Skills** field listing skills, one per line.
+When a pack installs an agent, or an agent runs, each line is tied to the skill itself and shown as
+`Name [skill:<id>]`. So **renaming a skill does not break the agent**. A line you type with just a name
+is matched by name the first time the agent runs, and the link is added then. The skills are read when
+the run starts, so an edit made since the last run is what the next run uses. A run whose agent names a
+skill that was deleted fails, naming it, instead of quietly running without it.
 
 ### On a Runner, the skills' instructions are sent
 
@@ -60,13 +62,13 @@ instructions**, as a run inside StoryOS is, not just the skill names.
 - **What is sent:** for each skill, its name, its "when to use" and its instructions, each in a block
   labelled with the skill's name, under "Your skills" in the run's instructions. They are treated as
   your manager's guidance for the job, and they do not override the rules the run is given.
-- **When it is read:** when the Runner claims the job, by name, as the agent's owner. An edit made
+- **When it is read:** when the Runner claims the job, by the link to the skill (or by name for a line with no link yet), as the agent's owner. An edit made
   since the last run is what the next run uses.
 - **Long skills are cut, and the run is told.** One skill is cut at 6,000 characters and all of an
   agent's skills together at 24,000. A skill that is cut says how many characters it has and how many
   were given, and a skill past the total is still named with that note.
 - **The Run records the skill by name, not its text.**
-- **A skill that cannot be sent stops the run.** If a skill the agent names was removed or renamed, or
+- **A skill that cannot be sent stops the run.** If a skill the agent names was removed, or
   its owner cannot read it, the run does not start: it fails, the Run names the skill, and the agent's
   owner is notified. It does not run quietly without it.
 - **A personal skill reaches a Runner only from its author, on the author's own Runner.** If the

@@ -91,15 +91,25 @@ An agent in a manifest may declare:
 If `ai_mode` is omitted, no mode is written, and the agent behaves as an agent with no mode set did before
 (Non-AI). If `skills` is empty, nothing is written.
 
-### Skills are looked up by name when a run starts
+### Skills follow the skill, not its name
 
-The install records the names on the agent's **Skills** field, one per line. It does not copy the skills.
-Each run looks the names up again as the agent's owner, ignoring case and surrounding spaces, so an
-edit to a skill is used from the next run.
+The manifest names skills, never ids. The install writes each name on the agent's **Skills** field, one
+per line, and adds the link to the skill it bundled or reused, shown as `Name [skill:<id>]`. It does not
+copy the skills. Each run follows the link as the agent's owner, so an edit to a skill is used from the
+next run, and **renaming a skill does not break the agent**.
 
-If a name cannot be found (removed, renamed, or not visible to the owner), the run does not start. It
-is recorded as failed, names each missing skill, and says to rename the skill back or re-attach the one
-you want by editing the agent's Skills field.
+- **A name with no link still works.** An agent made before this, or a line you typed, is matched by name
+  (ignoring case and surrounding spaces) the first time it runs. The link is then added to that line.
+- **A pack update keeps the link.** A skill you renamed is still the pack's skill, so it is not duplicated.
+  A skill you deleted is not replaced by another skill that has the same name.
+- **A manifest cannot carry a link.** A skill or agent name that looks like `[skill:<id>]` is refused (422),
+  so a pack cannot point an agent at a skill it does not bundle.
+- **Export writes the current name.** If you renamed the skill since, the manifest carries the new name,
+  never an id.
+
+If a linked skill cannot be found (deleted, or not visible to the owner), the run does not start. It is
+recorded as failed, names each missing skill, and says to restore the skill or re-attach the one you want
+by editing the agent's Skills field. A skill that was only renamed is not missing.
 
 When skills do load, the run record has a step listing them. A skill's instructions are cut at 6,000
 characters, and the cut says how long the full text was.

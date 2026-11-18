@@ -9,6 +9,8 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **11 Nov** — A pack install onto a database you adopted stops with a message naming the field when a relation's name is taken by a field of another type, the preview warns first, and installing again after an uninstall works. [A relation whose field name is already taken](/mcp/tools/#a-relation-whose-field-name-is-already-taken)
+- **12 Nov** — A pack agent follows its skills by link, so renaming a skill no longer breaks the agent or a pack update. [Skills follow the skill, not its name](/guides/pack-manifest/#skills-follow-the-skill-not-its-name)
 - **11 Nov** — Dry-run a formula before saving it, over the API and MCP: it returns the result type and sample values, or errors with the position and the nearest valid name. [Formulas](/concepts/formulas/#check-a-formula-before-you-save-it)
 - **10 Nov** — A run held by an agent's monthly budget is named in the web app instead of showing as something else. [The StoryOS Runner](/guides/runner/#budgets)
 - **15 Nov** — An invitation link opens a Join screen that shows who invited you and to which workspace, and joining never creates a new workspace. [Settings: Workspace](/settings/workspace/)
