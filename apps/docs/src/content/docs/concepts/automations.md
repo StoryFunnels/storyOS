@@ -170,6 +170,12 @@ but editable. A **List / Canvas** switch sits above the actions.
 - **It's one rule, not two.** Both views edit the same list of actions, so switching never loses
   anything and a rule you open and save without changes is identical whichever view you last
   looked at.
+- **The trigger box names the schedule.** For an **On a schedule** rule it reads, for example,
+  "Every day at 09:00 (server time)", "Every hour (server time)" or "Every 30 minutes, 09:00-17:00, Mon-Fri
+  (Europe/Kyiv)". It gives the interval, the weekday or weekdays, the active window and the time zone, and
+  it says "server time" when the rule has no time zone. A weekly rule reads "Every week on Mon at 09:00".
+  A rule with no interval reads "On a schedule". It is a label only; the editor's trigger settings are
+  where you change the schedule.
 - **Deliberately simple.** A rule is a straight line of actions with, at most, one optional
   condition on each — there are no loops, no parallel branches and no rejoining paths.
 
