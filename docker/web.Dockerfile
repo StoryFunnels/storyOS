@@ -22,15 +22,10 @@ ARG NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=
 ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=$NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
 ARG NEXT_PUBLIC_POSTHOG_HOST=
 ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
-# #593 — next/metadata's metadataBase (og:image/twitter:image) is read at
-# BUILD time for every statically prerendered route (/, /login, /signup, …),
-# not just at request time like the dynamic routes #566 already fixed. The
-# compose `environment:` block only reaches `docker compose up`, never `build`
-# — so the running container had WEB_URL and the build that froze its static
-# HTML did not. Both are kept: this build arg fixes the static pages, the
-# runtime env (docker-compose.yml) keeps the dynamic ones correct.
-ARG WEB_URL=http://localhost:3000
-ENV WEB_URL=$WEB_URL
+# Ticket #1122 — no WEB_URL here. #593 baked it in as a build arg for the prerendered pages, but this one image is
+# deployed to staging AND production, so every image carried the origin it was built with (staging's) into
+# production. The root layout now reads WEB_URL per request from the container env (docker-compose.yml), and
+# scripts/check-built-html.mjs (run by the build below) fails if a deployment origin ends up in the build output.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 COPY packages/config ./packages/config
 COPY packages/schemas ./packages/schemas

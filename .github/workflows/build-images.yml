@@ -165,11 +165,10 @@ jobs:
                 echo "NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}"
                 echo "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${{ vars.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN }}"
                 echo "NEXT_PUBLIC_POSTHOG_HOST=${{ vars.NEXT_PUBLIC_POSTHOG_HOST }}"
-                # #593 — an EXPLICIT empty value would override the Dockerfile's
-                # own ARG default with "" rather than falling through to it, and
-                # the next build would crash on `new URL('')`. Falls back to
-                # staging's real origin.
-                echo "WEB_URL=${{ vars.WEB_URL || 'https://staging.storyos.dev' }}"
+                # Ticket #1122 — no WEB_URL build arg: this image is deployed to staging
+                # AND production, so the origin is read at runtime from each host's
+                # compose env. Building with staging's origin put it into production's
+                # link previews.
                 echo 'EOF'
               } >> "$GITHUB_ENV"
               ;;
