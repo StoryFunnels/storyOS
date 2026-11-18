@@ -16,6 +16,7 @@ import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from 'n
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { Client } from 'pg';
 
 export class AgencySeedRefused extends Error {
   constructor(reason: string) {
@@ -49,6 +50,77 @@ export function assertLocalHost(host: string): void {
   if (!LOCAL_HOSTS.has(host)) {
     throw new AgencySeedRefused(`Postgres host '${host}' is not local (localhost, 127.0.0.1 or ::1 only)`);
   }
+}
+
+/**
+ * WHO MADE THE DATABASE (#1297, the follow-up on the name-only guard).
+ *
+ * A name is not ownership: a hand-made `storyos_pinewood_x` holding somebody's other data matches
+ * the name rules, and the seed would append a second workspace and ten users to it. So the shell
+ * scripts record what they create in the database's own Postgres comment, written right after
+ * `createdb` (`pinewood-<kind>:<db>`, kind = stack | rig | template, optionally followed by
+ * `; detail`), and this repeats the rule scripts/pinewood/lib.sh applies (pw_comment_has_marker,
+ * pw_require_ours): a database whose comment is not exactly one of those markers for ITS OWN name is
+ * somebody else's, and the seed refuses it. The name rules above run first and win, so a forged
+ * marker on a protected or unrelated name still refuses.
+ */
+export const OWNERSHIP_KINDS = ['stack', 'rig', 'template'] as const;
+export type OwnershipKind = (typeof OWNERSHIP_KINDS)[number];
+
+export function ownershipMarker(kind: OwnershipKind, database: string): string {
+  return `pinewood-${kind}:${database}`;
+}
+
+/** Exactly the marker, or the marker followed by `;` and a detail. Same rule as pw_comment_has_marker. */
+export function commentHasMarker(comment: string, marker: string): boolean {
+  return comment === marker || comment.startsWith(`${marker};`);
+}
+
+/** The one-line adoption command lib.sh prints, for the kind this database name belongs to. */
+export function adoptionCommand(database: string): string {
+  const kind: OwnershipKind = TEMPLATE_DB.test(database) ? 'template' : 'stack';
+  return `psql -d postgres -c "COMMENT ON DATABASE ${database} IS '${ownershipMarker(kind, database)}'"`;
+}
+
+/** `comment` is the database's Postgres comment, or null when the database does not exist. */
+export function assertAgencyOwnership(database: string, comment: string | null): void {
+  if (comment === null) {
+    throw new AgencySeedRefused(`database '${database}' does not exist; create and migrate it with scripts/pinewood/pinewood-up.sh (or pinewood-template.sh) first`);
+  }
+  if (OWNERSHIP_KINDS.some((kind) => commentHasMarker(comment, ownershipMarker(kind, database)))) return;
+  throw new AgencySeedRefused(
+    `database '${database}' already exists and this tooling did not create it (its comment is not '${ownershipMarker('stack', database)}', ` +
+      `'${ownershipMarker('rig', database)}' or '${ownershipMarker('template', database)}'); refusing to seed it. ` +
+      `A database you made by hand is adopted deliberately: ${adoptionCommand(database)}`,
+  );
+}
+
+/**
+ * Ask Postgres for the comment of the database the URL names. A database that is not there is
+ * `null`; a Postgres that does not answer is a refusal, never "absent": unresolvable must not read
+ * as "nothing to protect".
+ */
+export async function readDatabaseComment(connectionString: string, database: string): Promise<string | null> {
+  const client = new Client({ connectionString, connectionTimeoutMillis: 5000 });
+  try {
+    await client.connect();
+    const res = await client.query<{ comment: string | null }>(
+      `SELECT coalesce(shobj_description(oid, 'pg_database'), '') AS comment FROM pg_database WHERE datname = current_database()`,
+    );
+    return res.rows[0]?.comment ?? '';
+  } catch (err) {
+    if ((err as { code?: string }).code === '3D000') return null;
+    throw new AgencySeedRefused(
+      `cannot ask Postgres whether '${database}' was made by this tooling (${(err as Error).message}); refusing rather than guessing`,
+    );
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/** The decision the command runs before the app boots, dry run included (the shell's plan does the same). */
+export async function guardAgencyOwnership(env: Record<string, string | undefined>, target: AgencyTarget): Promise<void> {
+  assertAgencyOwnership(target.database, await readDatabaseComment(env.DATABASE_URL!, target.database));
 }
 
 export interface AgencyTarget {

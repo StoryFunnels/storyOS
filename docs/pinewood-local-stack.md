@@ -127,6 +127,8 @@ Running it again changes nothing: a record is "there" when a record of that titl
 
 `seed:agency` refuses, with exit code 2 before the app boots, the same things the shell scripts do: a database that is not `storyos_pinewood*` (or the `storyos_agency_tpl*` template the stack builds), the protected names including the shared founder database `storyos`, an unset `DATABASE_URL` (the API's own default is the founder database), a non-local host, a `host=`/`hostaddr=` override in the URL, and `NODE_ENV=production`. `apps/api/test/seed-agency-guard.test.ts` holds both rule sets to each other by feeding the same names to `lib.sh`.
 
+It also applies the ownership rule from "What these scripts will drop, and what they will migrate": it asks Postgres for the database's comment and refuses (exit 2, before the app boots, `--dry-run` included) any database whose comment is not `pinewood-stack:<db>`, `pinewood-rig:<db>` or `pinewood-template:<db>` (optionally followed by `; detail`) for that database's own name. A name is not ownership: a hand-made `storyos_pinewood_x` holding other data matches the name rules and would otherwise get a second workspace and ten users appended. The refusal prints the same one-line adoption command the shell scripts print. A database that does not exist, or a Postgres that does not answer, is a refusal too. `apps/api/test/seed-agency-ownership.test.ts` checks it against real databases and against `pw_comment_has_marker`.
+
 To give the studio room for eleven people it sets a seat allowance on the workspace through the entitlements service (the seam the admin panel uses); the Free plan's two seats would refuse its own invites.
 
 ## Not built yet
