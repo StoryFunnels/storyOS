@@ -22,6 +22,20 @@ export function offlineSince(r: RunnerRow, now: Date): Date | null {
   return now.getTime() - heard.getTime() > RUNNER_OFFLINE_AFTER_MS ? heard : null;
 }
 
+/**
+ * "Connected", defined ONCE (ticket #1320, the Settings "N Runners connected" count): the Runner is ACTIVE and has been heard from
+ * within RUNNER_OFFLINE_AFTER_MS. It is exactly the complement of `offlineSince` for an active Runner, so `connected`, `offline_since`
+ * and `connection: "offline"` can never disagree, and the edge is the same: heard exactly one window ago is still connected.
+ *
+ * It is liveness only. A Runner whose tool hit its limit, or that is outside its working hours, is still connected (it is
+ * heartbeating); that is `hold`, and the count reports it separately as `at_limit_count`. A pending Runner is never connected, a
+ * revoked one is not listed. The SQL form the counts use is `connectedSql` in runner-counts.ts; the two are kept equal by
+ * test/runners-connected-count.test.ts (rows vs counts, at the window edge, on a fixed clock).
+ */
+export function isConnected(r: Pick<RunnerRow, 'status' | 'lastSeenAt' | 'activatedAt' | 'createdAt'>, now: Date): boolean {
+  return r.status === 'active' && now.getTime() - (r.lastSeenAt ?? r.activatedAt ?? r.createdAt).getTime() <= RUNNER_OFFLINE_AFTER_MS;
+}
+
 /** One answer to "can this Runner work right now, and if not why", first match wins (ADR-0021 §11). */
 export function runnerConnection(r: RunnerRow, now: Date): RunnerConnection {
   if (r.status === 'revoked') return 'revoked';
@@ -42,6 +56,8 @@ export function presentRunner(r: RunnerRow, agents: Array<{ id: string; name: st
     name: r.name,
     status: r.status,
     connection: runnerConnection(r, now),
+    // ticket #1320: the one definition of "connected" (isConnected above); the counts in the list envelope are built from the same rule.
+    connected: isConnected(r, now),
     // `reserve_measurable` per tool: true only where the tool reports plan-level usage (never faked). The Runners page says so when false.
     tools: r.tools.map((t) => ({ ...t, reserve_measurable: reserveMeasurable(t) })),
     chosen_tool: r.chosenTool,

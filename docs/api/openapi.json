@@ -11019,7 +11019,7 @@
             "bearer": []
           }
         ],
-        "summary": "Your own Runners (never anyone else's, admins included): status, connection, tools, chosen tool, versions, offline_since and the agents on each",
+        "summary": "Your own Runners (never anyone else's, admins included): {data, total_count, connected_count, offline_count, at_limit_count, needs_attention}. Each row: status, connection, connected (active and heard from within 2 minutes), tools, chosen tool, versions, last_seen_at, offline_since and the agents on it. The counts are one aggregate over the same rows (ticket #1320): connected_count is \"N Runners connected\", needs_attention is true when one is offline or at its limit (the warning colour). A guest 403, a non-member 404.",
         "tags": [
           "runners"
         ],
