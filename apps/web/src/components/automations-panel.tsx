@@ -36,6 +36,8 @@ const ACTIONS_VIEW_OPTIONS = [
   { value: 'canvas' as const, label: 'Canvas' },
 ];
 
+type ScheduleSettings = Pick<Rule['trigger'], 'minutes' | 'weekday' | 'weekdays' | 'between' | 'timezone'>;
+
 interface Rule {
   id: string;
   name: string;
@@ -103,9 +105,30 @@ export function buildAutomationTrigger(params: {
   linkDirection: '' | 'link' | 'unlink';
   every: string;
   at: string;
+  /**
+   * #1317 — schedule settings the editor has no control for (API/MCP-created
+   * rules carry them). Passed back through so a save never widens the rule.
+   * `weekday` only applies to a weekly cadence and `weekdays` never does
+   * (schedule-cadence.ts rejects both combinations), `minutes` only to
+   * every:'minutes'; the rest are cadence-independent.
+   */
+  preserved?: Pick<ScheduleSettings, 'minutes' | 'weekday' | 'weekdays' | 'between' | 'timezone'>;
 }): DiagramTrigger & Record<string, unknown> {
-  const { triggerType, triggerFieldId, relationFieldId, linkDirection, every, at } = params;
-  if (triggerType === 'schedule') return { type: 'schedule', every, at };
+  const { triggerType, triggerFieldId, relationFieldId, linkDirection, every, at, preserved } = params;
+  if (triggerType === 'schedule') {
+    return {
+      type: 'schedule',
+      every,
+      // The editor hides the time for an hourly rule, and an hourly/minutes rule
+      // saved without one must not gain a stray "09:00" from the form's default.
+      ...(every === 'hour' || every === 'minutes' ? {} : { at }),
+      ...(preserved?.minutes !== undefined && every === 'minutes' ? { minutes: preserved.minutes } : {}),
+      ...(preserved?.weekday !== undefined && every === 'week' ? { weekday: preserved.weekday } : {}),
+      ...(preserved?.weekdays !== undefined && every !== 'week' ? { weekdays: preserved.weekdays } : {}),
+      ...(preserved?.between !== undefined ? { between: preserved.between } : {}),
+      ...(preserved?.timezone !== undefined ? { timezone: preserved.timezone } : {}),
+    };
+  }
   if (triggerType === 'record_updated') {
     return { type: 'record_updated', ...(triggerFieldId ? { field_id: triggerFieldId } : {}) };
   }
@@ -117,6 +140,30 @@ export function buildAutomationTrigger(params: {
     };
   }
   return { type: triggerType };
+}
+
+/**
+ * #1317 — read-only note for the schedule settings the editor has no control
+ * for (interval, weekdays, active window, time zone). They are kept on save
+ * (see `buildAutomationTrigger`'s `preserved`), so say they exist. The wording
+ * is `triggerLabel`'s, not a second copy.
+ */
+export function SavedScheduleSettings({ trigger }: { trigger?: Rule['trigger'] }) {
+  if (
+    !trigger ||
+    trigger.type !== 'schedule' ||
+    (trigger.weekdays === undefined &&
+      trigger.between === undefined &&
+      trigger.timezone === undefined &&
+      trigger.minutes === undefined)
+  ) {
+    return null;
+  }
+  return (
+    <span className="text-xs text-text-muted" data-testid="saved-schedule-settings">
+      Saved schedule (kept as is): {triggerLabel(trigger, [])}
+    </span>
+  );
 }
 
 /** Buttons & automations panel (MN-046/047) — per-database sections. */
@@ -596,6 +643,7 @@ function RuleEditor({
       linkDirection,
       every,
       at,
+      preserved: rule?.trigger,
     });
     // Webhook rules have no triggering record for a condition to evaluate
     // against — v1 rejects one server-side, so don't even build it here.
@@ -790,6 +838,7 @@ function RuleEditor({
                   placeholder="09:00"
                 />
               )}
+              <SavedScheduleSettings trigger={rule?.trigger} />
             </>
           )}
         </div>
@@ -1057,26 +1106,15 @@ function RuleEditor({
         </div>
         {actionsView === 'canvas' ? (
           <FlowDiagramEditor
-            trigger={{
-              ...buildAutomationTrigger({
-                triggerType,
-                triggerFieldId,
-                relationFieldId,
-                linkDirection,
-                every,
-                at,
-              }),
-              // Display-only: the editor has no controls for these, so read them off the saved rule.
-              ...(triggerType === 'schedule'
-                ? {
-                    minutes: rule?.trigger.minutes,
-                    timezone: rule?.trigger.timezone,
-                    weekday: rule?.trigger.weekday,
-                    weekdays: rule?.trigger.weekdays,
-                    between: rule?.trigger.between,
-                  }
-                : {}),
-            }}
+            trigger={buildAutomationTrigger({
+              triggerType,
+              triggerFieldId,
+              relationFieldId,
+              linkDirection,
+              every,
+              at,
+              preserved: rule?.trigger,
+            })}
             condition={isWebhookTrigger ? undefined : (buildCondition() as DiagramCondition | undefined)}
             actions={actions}
             onChange={setActions}
