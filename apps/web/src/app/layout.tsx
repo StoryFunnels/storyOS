@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import Script from 'next/script';
+import { connection } from 'next/server';
 import { preload } from 'react-dom';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
@@ -23,37 +24,45 @@ import './globals.css';
  * URL is the same content-hashed file the @font-face rule fetches, which makes it one request.
  */
 
-export const metadata: Metadata = {
-  // #566 — unset before this meant Next fell back to 'http://localhost:3000'
-  // for resolving og:image/twitter:image on EVERY page, so a shared link's
-  // unfurl preview pointed at the reader's own machine. `WEB_URL` is the
-  // existing public-origin var (docker-compose.yml), already passed to the
-  // mcp service for the same reason — reused here, not a second source of truth.
-  metadataBase: new URL(process.env.WEB_URL ?? 'http://localhost:3000'),
-  title: { default: 'StoryOS — the open-source work OS', template: '%s · StoryOS' },
-  description:
-    'Open-source, self-hostable work OS: user-defined relational databases, boards, calendars, automations and formulas. Free forever.',
-  icons: {
-    icon: [
-      { url: '/favicon.svg', type: 'image/svg+xml' },
-      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
-    ],
-    apple: '/apple-touch-icon.png',
-  },
-  openGraph: {
-    title: 'StoryOS — the open-source work OS',
-    description: 'Databases · relations · boards · automations — self-hosted, free forever.',
-    images: [{ url: '/og.png', width: 1200, height: 630 }],
-    siteName: 'StoryOS',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'StoryOS — the open-source work OS',
-    description: 'Databases · relations · boards · automations — self-hosted, free forever.',
-    images: ['/og.png'],
-  },
-};
+// #566 — metadataBase resolves og:image/twitter:image on EVERY page; unset, Next fell back to 'http://localhost:3000' and a
+// shared link's unfurl preview pointed at the reader's own machine. `WEB_URL` is the existing public-origin var
+// (docker-compose.yml), already passed to the mcp service for the same reason — reused here, not a second source of truth.
+//
+// Ticket #1122 — it must be read per REQUEST, from the container's env. A static `metadata` export is evaluated at BUILD
+// time for every prerendered route (/, /login, /signup, …), and one image is deployed to staging and production, so every
+// image carried whichever origin it was built with (staging's) into production. `connection()` opts the routes into
+// request-time rendering, so `process.env.WEB_URL` is the running container's. `||`, not `??`: an empty WEB_URL in a
+// compose file must not crash every page on `new URL('')`. scripts/check-built-html.mjs starts the built server with a
+// WEB_URL the build never saw and fails the build if og:image does not follow it.
+export async function generateMetadata(): Promise<Metadata> {
+  await connection();
+  return {
+    metadataBase: new URL(process.env.WEB_URL || 'http://localhost:3000'),
+    title: { default: 'StoryOS — the open-source work OS', template: '%s · StoryOS' },
+    description:
+      'Open-source, self-hostable work OS: user-defined relational databases, boards, calendars, automations and formulas. Free forever.',
+    icons: {
+      icon: [
+        { url: '/favicon.svg', type: 'image/svg+xml' },
+        { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      ],
+      apple: '/apple-touch-icon.png',
+    },
+    openGraph: {
+      title: 'StoryOS — the open-source work OS',
+      description: 'Databases · relations · boards · automations — self-hosted, free forever.',
+      images: [{ url: '/og.png', width: 1200, height: 630 }],
+      siteName: 'StoryOS',
+      type: 'website',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: 'StoryOS — the open-source work OS',
+      description: 'Databases · relations · boards · automations — self-hosted, free forever.',
+      images: ['/og.png'],
+    },
+  };
+}
 
 export const viewport = { width: 'device-width', initialScale: 1, themeColor: '#FAF7F1' };
 
