@@ -133,4 +133,6 @@ To give the studio room for eleven people it sets a seat allowance on the worksp
 
 ## Not built yet
 
-Nothing from ticket #1269's dataset list is missing. Still to do by hand: the screenshots the ticket asks for (table, board, record page, Inbox), and a real `pinewood-up.sh` / `pinewood-template.sh` run once this is on `main` (the scripts call `seed:agency` from the clone's `main`, so they only pick it up after the merge).
+Nothing from ticket #1269's dataset list is missing. `pinewood-up.sh`, `pinewood-template.sh` and `pinewood-rig.sh` have each been run for real against the seeded dataset (ticket #1297); the standing stack on its real names and ports (`~/storyos-envs/pinewood`, `storyos_pinewood`, :3500/:3600) is still the owner's first `--init`.
+
+Both scripts hand `seed:agency` the env file they are configured with (`PINEWOOD_ENV_FILE`), because their child processes run under `env -i`. Before that, a stack with its own env file wrote its seed password into the default `~/storyos-envs/pinewood.env` instead.

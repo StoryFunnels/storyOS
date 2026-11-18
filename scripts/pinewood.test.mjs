@@ -577,3 +577,37 @@ test('the choke point itself refuses a database the script did not create, whate
   }
   assert.deepEqual(pgDbs(pg), ['storyos_decoy', 'storyos_pinewood']);
 });
+
+// ---- seed:agency gets the configured env file (ticket #1297, found on the first real run) -----
+// `env -i` drops PINEWOOD_ENV_FILE, so the seed used to write its throwaway password to its own
+// default ~/storyos-envs/pinewood.env, i.e. the standing stack's file, from a throwaway stack.
+
+test('KEPT: seed:agency is handed the env file this run is configured with, and still a marked database only', () => {
+  const pg = fakePg({ storyos_pinewood: MARK('stack', 'storyos_pinewood', '; created=then') });
+  const envFile = join(root, 'elsewhere', 'my.env');
+  const r = lib(`pw_seed_agency stack storyos_pinewood "${envFile}" "${clone}"`, { FAKE_PG_DIR: pg, PW_PGHOST: 'localhost', PW_PGPORT: '5432', PW_PGUSER: 'tester' });
+  assert.equal(r.code, 0, r.err);
+  assert.match(pgLog(pg), new RegExp(`^pnpm: DATABASE_URL=postgres://tester@localhost:5432/storyos_pinewood PINEWOOD_ENV_FILE=${envFile} --filter @storyos/api seed:agency$`, 'm'));
+  // and an unmarked database is refused at the same choke point
+  const foreign = fakePg({ storyos_pinewood: 'someone else' });
+  const bad = lib(`pw_seed_agency stack storyos_pinewood "${envFile}" "${clone}"`, { FAKE_PG_DIR: foreign, PW_PGHOST: 'localhost', PW_PGPORT: '5432', PW_PGUSER: 'tester' });
+  assert.equal(bad.code, 2);
+  assert.doesNotMatch(pgLog(foreign), /seed:agency/);
+});
+
+test('the template build passes PINEWOOD_ENV_FILE to seed:agency, and both scripts seed through the one function', () => {
+  const repo = join(root, 'pinewood-seeded');
+  mkdirSync(join(repo, 'apps/api'), { recursive: true });
+  mkdirSync(join(repo, 'node_modules'), { recursive: true });
+  writeFileSync(join(repo, 'apps/api/package.json'), '{"name":"@storyos/api","scripts":{"seed:agency":"x"}}\n');
+  const pg = fakePg(TPL_MARKED);
+  const envFile = join(root, 'tpl-secrets.env');
+  const res = run(TEMPLATE, ['--repo', repo], { FAKE_PG_DIR: pg, PINEWOOD_ENV_FILE: envFile });
+  assert.equal(res.code, 0, res.all);
+  assert.match(pgLog(pg), new RegExp(`PINEWOOD_ENV_FILE=${envFile} --filter @storyos/api seed:agency$`, 'm'));
+  for (const file of [UP, TEMPLATE]) {
+    const src = readFileSync(file, 'utf8');
+    assert.match(src, /pw_seed_agency (stack|template) /, `${file} must seed through pw_seed_agency`);
+    assert.doesNotMatch(src, /pnpm --filter @storyos\/api seed:agency/, `${file} must not call the seed by hand`);
+  }
+});
