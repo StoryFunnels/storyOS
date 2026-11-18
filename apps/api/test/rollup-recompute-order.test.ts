@@ -74,7 +74,7 @@ describe('#897 concurrent recomputes cannot persist out of order', () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
     let calls = 0;
-    const spy = vi.spyOn(RecordsService.prototype as never, 'computeRollupValuesForChunk' as never).mockImplementation((async function (this: unknown, ...args: unknown[]) {
+    const spy = vi.spyOn(RecordsService.prototype as unknown as { computeRollupValuesForChunk: (...a: unknown[]) => Promise<unknown> }, 'computeRollupValuesForChunk').mockImplementation((async function (this: unknown, ...args: unknown[]) {
       const first = ++calls === 1;
       const value = await real.apply(this, args); // the aggregate this call READ
       if (first) await gate; // ...then held, as a slow recompute would be, before it persists

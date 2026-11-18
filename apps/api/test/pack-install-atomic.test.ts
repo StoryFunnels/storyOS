@@ -13,6 +13,9 @@ import { AutomationsService } from '../src/automations/automations.service';
 import { SkillsService } from '../src/skills/skills.service';
 import { RelationsService } from '../src/relations/relations.service';
 
+/** `recordInstall` is private on PacksService, so `vi.spyOn` can only reach it through this structural view. */
+type RecordInstallSeam = { recordInstall: (...a: unknown[]) => Promise<unknown> };
+
 /**
  * ticket #1112 — a pack install that fails midway used to leave everything it had already built (spaces, databases, fields, agents,
  * views, rules, sample records, skills), and installing again then 409'd on the names it had left. The install is all-or-nothing now:
@@ -84,7 +87,7 @@ afterEach(() => vi.restoreAllMocks());
 function failOn<T extends object>(service: T, method: keyof T & string, nth: number, when: (args: unknown[]) => boolean = () => true) {
   const original = (service[method] as (...a: unknown[]) => unknown).bind(service);
   let seen = 0;
-  vi.spyOn(service as never, method as never).mockImplementation(((...args: unknown[]) => {
+  vi.spyOn(service as unknown as Record<string, (...a: unknown[]) => unknown>, method).mockImplementation(((...args: unknown[]) => {
     if (when(args) && ++seen === nth) throw new Error(`injected failure in ${method} (call ${nth})`);
     return original(...args);
   }) as never);
@@ -127,7 +130,7 @@ describe('ticket #1112 — a pack install is all-or-nothing', () => {
     { step: 'the last install step (a bundled skill)', arm: () => failOn(app.get(SkillsService, { strict: false }), 'create', 1) },
     {
       step: 'recording the install',
-      arm: () => vi.spyOn(app.get(PacksService, { strict: false }) as never, 'recordInstall' as never).mockRejectedValue(new Error('injected failure in recordInstall') as never),
+      arm: () => vi.spyOn(app.get(PacksService, { strict: false }) as unknown as RecordInstallSeam, 'recordInstall').mockRejectedValue(new Error('injected failure in recordInstall') as never),
     },
   ];
 
@@ -166,7 +169,7 @@ describe('ticket #1112 — a pack install is all-or-nothing', () => {
       if (failure === 'mid-agents') {
         failOn(app.get(RecordsService, { strict: false }), 'create', 1, (a) => (a[2] as { name?: string } | undefined)?.name === m.agents[1]!.name);
       } else {
-        vi.spyOn(app.get(PacksService, { strict: false }) as never, 'recordInstall' as never).mockRejectedValue(new Error('injected failure in recordInstall') as never);
+        vi.spyOn(app.get(PacksService, { strict: false }) as unknown as RecordInstallSeam, 'recordInstall').mockRejectedValue(new Error('injected failure in recordInstall') as never);
       }
       const failed = await install(ws, m);
       expect(failed.statusCode, failed.body).toBeGreaterThanOrEqual(400);
@@ -191,7 +194,7 @@ describe('ticket #1112 — a pack install is all-or-nothing', () => {
 
     // v2 adds a bundled skill; recording the install fails after the skill was created. The skill goes, v1's install stays whole.
     const v2 = { ...richManifest(), version: '2.0.0' } as PackManifest;
-    vi.spyOn(app.get(PacksService, { strict: false }) as never, 'recordInstall' as never).mockRejectedValue(new Error('injected failure in recordInstall') as never);
+    vi.spyOn(app.get(PacksService, { strict: false }) as unknown as RecordInstallSeam, 'recordInstall').mockRejectedValue(new Error('injected failure in recordInstall') as never);
     const failed = await install(ws, v2);
     expect(failed.statusCode, failed.body).toBeGreaterThanOrEqual(400);
     expect(await footprint(ws)).toEqual(afterV1);
@@ -245,7 +248,7 @@ describe('ticket #1246 - an also_install request is one install', () => {
   const failDependentRecord = () => {
     const service = app.get(PacksService, { strict: false }) as unknown as { recordInstall: (...a: unknown[]) => Promise<unknown> };
     const real = service.recordInstall.bind(service);
-    vi.spyOn(service as never, 'recordInstall' as never).mockImplementation(((m: unknown, manifest: { slug: string }, ...rest: unknown[]) =>
+    vi.spyOn(service, 'recordInstall').mockImplementation(((m: unknown, manifest: { slug: string }, ...rest: unknown[]) =>
       manifest.slug === 'deal-desk-probe' ? Promise.reject(new Error('injected failure in recordInstall')) : real(m, manifest, ...rest)) as never);
   };
 
@@ -293,7 +296,7 @@ describe('ticket #1246 - an also_install request is one install', () => {
     const ws = await newWs('Also nested failure');
     const before = await footprint(ws);
     const service = app.get(PacksService, { strict: false }) as unknown as { recordInstall: (...a: unknown[]) => Promise<unknown> };
-    vi.spyOn(service as never, 'recordInstall' as never).mockRejectedValue(new Error('injected failure in recordInstall') as never);
+    vi.spyOn(service, 'recordInstall').mockRejectedValue(new Error('injected failure in recordInstall') as never);
     const failed = await install(ws, dealDesk(), also);
     expect(failed.statusCode, failed.body).toBeGreaterThanOrEqual(400);
     expect(await footprint(ws)).toEqual(before);

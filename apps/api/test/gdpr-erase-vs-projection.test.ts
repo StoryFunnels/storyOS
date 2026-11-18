@@ -42,7 +42,7 @@ function gateProjection(step: 'roleOptionIds' | 'ensureMembersDb' = 'roleOptionI
   const proto = MembersDbService.prototype as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
   const original = proto[step]!;
   let used = false;
-  const spy = vi.spyOn(proto as never, step as never).mockImplementation(async function (this: unknown, ...args: unknown[]) {
+  const spy = vi.spyOn(proto, step).mockImplementation(async function (this: unknown, ...args: unknown[]) {
     if (!used) {
       used = true;
       entered();

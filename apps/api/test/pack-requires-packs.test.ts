@@ -235,7 +235,7 @@ describe('also_install rolls back when the dependent install fails (#1246)', () 
     const service = app.get(PacksService, { strict: false }) as unknown as { recordInstall: (...a: unknown[]) => Promise<unknown> };
     const real = service.recordInstall.bind(service);
     // Fail only the dependent pack's own install; Agency OS (the also_install pack) records normally.
-    return vi.spyOn(service as never, 'recordInstall' as never).mockImplementation(((m: unknown, manifest: { slug: string }, ...rest: unknown[]) =>
+    return vi.spyOn(service, 'recordInstall').mockImplementation(((m: unknown, manifest: { slug: string }, ...rest: unknown[]) =>
       manifest.slug === 'deal-desk' ? Promise.reject(new Error('injected failure in recordInstall')) : real(m, manifest, ...rest)) as never);
   };
   afterEach(() => vi.restoreAllMocks());
@@ -281,7 +281,7 @@ describe('also_install rolls back when the dependent install fails (#1246)', () 
     const service = app.get(PacksService, { strict: false }) as unknown as { rollbackInstall: (...a: unknown[]) => Promise<string[]> };
     const real = service.rollbackInstall.bind(service);
     // The compensating rollback reports what it could not remove; fail it for the pack this request installed first (Deal Desk's own cleanup runs for real).
-    vi.spyOn(service as never, 'rollbackInstall' as never).mockImplementation(((m: unknown, ledger: { result?: { slug: string } }, ...rest: unknown[]) =>
+    vi.spyOn(service, 'rollbackInstall').mockImplementation(((m: unknown, ledger: { result?: { slug: string } }, ...rest: unknown[]) =>
       ledger.result?.slug === 'agency-os' ? Promise.resolve(['injected failure in rollback']) : real(m, ledger, ...rest)) as never);
     const res = await install(ws, { required_packs: { 'agency-os': 'also_install' } });
     expect(res.statusCode).toBe(500);

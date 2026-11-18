@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { connectTestDb } from './helpers/db';
@@ -31,7 +31,7 @@ const mention = (dbId: string, recId: string, userId: string, text: string) =>
 const inbox = async (p: { token: string }) => as(p, 'GET', `/workspaces/${ws}/notifications`);
 const unread = async (p: { token: string }) => (await as(p, 'GET', `/workspaces/${ws}/notifications/unread-count`)).json().count as number;
 
-let emailSend: ReturnType<typeof vi.spyOn>;
+let emailSend: MockInstance<EmailService['send']>;
 let slackSend: ReturnType<typeof vi.spyOn>;
 const emailedTo = () => emailSend.mock.calls.map((c) => (c[0] as { to: string }).to);
 

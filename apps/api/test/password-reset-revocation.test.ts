@@ -1,6 +1,6 @@
 // MUST be first: turns MCP_OAUTH on before AppModule is imported (env() caches it).
 import { restoreMcpOAuth } from './helpers/enable-mcp-oauth';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
@@ -19,7 +19,7 @@ import { EmailService } from '../src/mail/email.service';
  */
 let app: NestFastifyApplication;
 let db: Db;
-let send: ReturnType<typeof vi.spyOn>;
+let send: MockInstance<EmailService['send']>;
 
 beforeAll(async () => {
   app = await createTestApp();

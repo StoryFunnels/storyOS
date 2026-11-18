@@ -1,0 +1,19 @@
+{
+  // Type-checks apps/api/test/** (ticket #1247). Not wired into `typecheck` or CI
+  // yet: that happens once `pnpm --filter @storyos/api typecheck:test` is clean.
+  //
+  // Vitest runs these files through Vite as ES modules with bundler-style
+  // resolution, not through the NodeNext/CommonJS build that tsconfig.json
+  // describes for `src`. Checking them as NodeNext reports errors that cannot
+  // happen at runtime (`import.meta` "in CommonJS", extensionless dynamic
+  // imports, and drizzle's CJS and ESM type copies treated as two different
+  // types), so the module settings here match how the tests actually run.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["test"]
+}

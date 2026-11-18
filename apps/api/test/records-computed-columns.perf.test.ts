@@ -4,6 +4,9 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { RecordsService } from '../src/records/records.service';
 
+/** The three private COMPUTED passes, viewed structurally so `vi.spyOn` can reach them. */
+type ComputedPasses = Record<'attachLookups' | 'attachRollups' | 'attachFormulas', (page: unknown) => Promise<unknown>>;
+
 /**
  * #467 — AC1: MEASURE FIRST. "The assumption that computed columns dominate
  * the cost is untested" (the ticket's own words). This isolates the cost of
@@ -139,9 +142,9 @@ describe.skipIf(!enabled)('#467 — computed-column cost on a wide table (AC1 me
     // Passthrough stub — isolates the cost of the three COMPUTED passes
     // specifically, while everything else (row fetch, serialization,
     // attachFiles) still runs for real.
-    const lookupsSpy = vi.spyOn(recordsService as never, 'attachLookups').mockImplementation(async (p) => p as never);
-    const rollupsSpy = vi.spyOn(recordsService as never, 'attachRollups').mockImplementation(async (p) => p as never);
-    const formulasSpy = vi.spyOn(recordsService as never, 'attachFormulas').mockImplementation(async (p) => p as never);
+    const lookupsSpy = vi.spyOn(recordsService as unknown as ComputedPasses, 'attachLookups').mockImplementation(async (p) => p);
+    const rollupsSpy = vi.spyOn(recordsService as unknown as ComputedPasses, 'attachRollups').mockImplementation(async (p) => p);
+    const formulasSpy = vi.spyOn(recordsService as unknown as ComputedPasses, 'attachFormulas').mockImplementation(async (p) => p);
     const after = await timePage();
     lookupsSpy.mockRestore();
     rollupsSpy.mockRestore();
