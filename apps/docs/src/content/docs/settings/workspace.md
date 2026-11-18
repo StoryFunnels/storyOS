@@ -63,11 +63,11 @@ If the link cannot be used, the screen says so instead of the form:
 |---|---|
 | Expired | "This invite has expired." and to ask the person who invited you (by name, when known) for a new link. |
 | Already used | "This invite was already used." with the same request. |
-| Revoked | "This invite was revoked." and to ask the person who invited you (by name, when known) for a new link. |
+| Revoked | "This invite was revoked." and "Ask *Name* for a new link." (or "Ask whoever invited you for a new link." when no name is known). |
 | Unknown | "This invite link no longer works. Ask whoever invited you for a new link." It names no one. |
 
 The expired, used and revoked screens show the workspace name and a single button: **Sign in**, or
-**Go to my workspaces** when the person is already signed in. A link that never existed looks the same
+**Go to my workspaces** when the person is already signed in. A revoked link shows this screen for 30 days after the revoke; after that it reads like a link that never existed. A link that never existed looks the same
 as one that was replaced by a newer invitation, on purpose, so nobody can use the screen to find out
 which links exist. Send the person a new invitation, or use **Send again** on one that expired.
 

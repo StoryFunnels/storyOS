@@ -193,8 +193,8 @@ per minute per client address.
 
 `status` is `valid`, `expired`, `used`, `revoked` or `not_found`. The other four fields are filled for
 the first four and are all `null` for `not_found`. A token that never existed, is malformed or was
-replaced by a resend returns the same `not_found` body. A revoked invite reads as `revoked` for a
-retention period, then as `not_found`.
+replaced by a resend returns the same `not_found` body. A revoked invite reads as `revoked` for 30 days
+after the revoke, then as `not_found`.
 
 **`POST /api/v1/workspaces`** takes `invite_token`. With a token, a signed-in person joins the invited
 workspace and nothing is created: the response is that workspace plus `joined_via_invite: true`.

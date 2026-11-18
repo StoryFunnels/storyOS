@@ -9,6 +9,8 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **16 Nov** — A schedule trigger on the automation canvas names its interval, weekday or weekdays, active window and time zone, instead of "Every undefined". [Editing a rule's actions on a canvas](/concepts/automations/#editing-a-rules-actions-on-a-canvas)
+- **15 Nov** — A revoked invite link opens a "This invite was revoked" screen that says who to ask for a new link, for 30 days after the revoke. [Settings: Workspace](/settings/workspace/#what-the-person-you-invite-sees)
 - **11 Nov** — Dry-run a formula before saving it, over the API and MCP: it returns the result type and sample values, or errors with the position and the nearest valid name. [Formulas](/concepts/formulas/#check-a-formula-before-you-save-it)
 - **10 Nov** — A run held by an agent's monthly budget is named in the web app instead of showing as something else. [The StoryOS Runner](/guides/runner/#budgets)
 - **15 Nov** — An invitation link opens a Join screen that shows who invited you and to which workspace, and joining never creates a new workspace. [Settings: Workspace](/settings/workspace/)
