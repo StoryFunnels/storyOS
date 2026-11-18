@@ -9,6 +9,8 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **11 Nov** — The MCP tool list is lighter for clients that cap tools: long grammars moved out of tool descriptions into `get_started` sections, and maintainer tools are only on the internal profile. [MCP tools](/mcp/tools/#how-an-agent-reads-it)
+- **13 Nov** — The gold mark on a record, `last_ai_change_at`, now means an agent or an MCP connection changed it. An automation or a person in the web app no longer sets it, and old values were recomputed. [When an AI last changed a record](/api/conventions/#when-an-ai-last-changed-a-record)
 - **11 Nov** — Dry-run a formula before saving it, over the API and MCP: it returns the result type and sample values, or errors with the position and the nearest valid name. [Formulas](/concepts/formulas/#check-a-formula-before-you-save-it)
 - **10 Nov** — A run held by an agent's monthly budget is named in the web app instead of showing as something else. [The StoryOS Runner](/guides/runner/#budgets)
 - **15 Nov** — An invitation link opens a Join screen that shows who invited you and to which workspace, and joining never creates a new workspace. [Settings: Workspace](/settings/workspace/)
