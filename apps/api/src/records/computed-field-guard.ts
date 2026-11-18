@@ -44,6 +44,19 @@ export class ComputedFieldFailures {
 
   constructor(private readonly logger: GuardLogger) {}
 
+  private readonly seenSteps = new Set<string>();
+
+  /**
+   * Ticket #1319: a step of the write-side cascade (not one field's cell) failed for a reason outside any single computed field, so
+   * the rest of the cascade carries on. Logged once per step key per process; the key is an id (a relation or field), never a row.
+   */
+  reportStep(key: string, label: string, err: unknown): boolean {
+    if (this.seenSteps.has(key)) return false;
+    this.seenSteps.add(key);
+    this.logger.warn(`${label} (${key}) failed and was skipped; the other steps ran (${safeErrorText(err)})`);
+    return true;
+  }
+
   /** Records one failure; returns true when this call wrote the log line (the first for that field). */
   report(def: ComputedFieldRef, err: unknown): boolean {
     if (this.seen.has(def.id)) return false;
@@ -61,4 +74,30 @@ export function nullCells(
   apiName: string,
 ): void {
   for (const record of records) record.values[apiName] = null;
+}
+
+/**
+ * Ticket #1319 — the WRITE side of the same guard. A record write re-materializes the derived cells of the records linked to it; a
+ * cell that cannot be computed there must not fail or stall anything else. This is the ONE place that decides what happens:
+ *
+ *  - the cell is stored as null (CLEARED, never left holding the number it had before the field broke: a stale value that looks
+ *    right is worse than an empty one, and a sort/filter on it would use the wrong figure),
+ *  - the failure is logged through the same once-per-field `ComputedFieldFailures` the read path uses, and
+ *  - the caller's other cells, other fields and other parent records carry on.
+ *
+ * `run` must execute inside its own savepoint when it shares a Postgres transaction with other work: an error inside a transaction
+ * aborts the whole transaction (every later statement fails with "current transaction is aborted") unless the failing statement is
+ * rolled back to a savepoint first. The caller passes `isolate` for that (a nested drizzle transaction is a savepoint).
+ */
+export async function computeCellGuarded<T>(
+  failures: ComputedFieldFailures,
+  def: ComputedFieldRef,
+  run: () => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false }> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (err) {
+    failures.report(def, err);
+    return { ok: false };
+  }
 }
