@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DomainEventsService } from '../events/domain-events.service';
 import type { DomainEvent } from '../events/domain-events.service';
 import { RecordsService } from './records.service';
+import { safeErrorText } from './computed-field-guard';
 
 /**
  * MN-267: the reverse-lookup half of rollup materialization. Rollup depends
@@ -61,7 +62,9 @@ export class RollupInvalidationSubscriber implements OnModuleInit {
       })
       .catch((err: unknown) =>
         this.logger.warn(
-          `rollup invalidation failed for record ${event.recordId}: ${err instanceof Error ? err.message : String(err)}`,
+          // Ticket #1319: the driver's own error text and the database id only. A raw error message from the query layer carries the
+          // statement and its parameters, which are row data, and a record id is a row.
+          `rollup invalidation failed for database ${event.databaseId} (${safeErrorText(err)})`,
         ),
       );
   }
