@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
@@ -27,7 +27,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const inject = (method: string, url: string, payload?: unknown) =>
   app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(admin.token), payload: payload as never });
 
-type Probe = { error: ReturnType<typeof vi.spyOn>; warn: ReturnType<typeof vi.spyOn> };
+type LogFn = (message: unknown) => void;
+type Probe = { error: MockInstance<LogFn>; warn: MockInstance<LogFn> };
 let probe: Probe;
 let lookback = vi.spyOn(WebhooksService.prototype as unknown as { lookbackSeconds: () => number }, 'lookbackSeconds');
 
@@ -52,7 +53,7 @@ async function queuedMarkers(subId: string) {
   return rows.map(marker).filter((m): m is string => typeof m === 'string').sort();
 }
 const ev = (wsId: string, m: string, type = 'record.created') => ({ workspaceId: wsId, type, payload: { marker: m } });
-const logged = (spy: ReturnType<typeof vi.spyOn>) => spy.mock.calls.map((c) => String(c[0]));
+const logged = (spy: MockInstance<LogFn>) => spy.mock.calls.map((c) => String(c[0]));
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -75,7 +76,7 @@ function arm(seconds: number): Probe {
   // Fresh dedupe state per scenario: this service instance is shared by the whole file.
   (svc as unknown as { reportedLost: Set<string> }).reportedLost.clear();
   (svc as unknown as { warnedLongTx: Set<string> }).warnedLongTx.clear();
-  const logger = (svc as unknown as { logger: { error: () => void; warn: () => void } }).logger;
+  const logger = (svc as unknown as { logger: { error: LogFn; warn: LogFn } }).logger;
   probe = { error: vi.spyOn(logger, 'error').mockImplementation(() => undefined), warn: vi.spyOn(logger, 'warn').mockImplementation(() => undefined) };
   // spyOn on an already-spied method returns the SAME spy, calls and all: start each scenario clean.
   probe.error.mockClear();

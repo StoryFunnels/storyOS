@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
@@ -18,7 +18,7 @@ import { EmailService } from '../src/mail/email.service';
  */
 let app: NestFastifyApplication;
 let db: Db;
-let send: ReturnType<typeof vi.spyOn>;
+let send: MockInstance<EmailService['send']>;
 
 const PASSWORD = 'test-password-123';
 let seq = 0;

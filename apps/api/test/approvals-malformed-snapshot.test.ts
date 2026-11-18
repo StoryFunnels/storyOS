@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -54,7 +54,7 @@ const MALFORMED: Array<[string, unknown]> = [
 ];
 
 let good: { id: string };
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<Logger['warn']>;
 let malformedIds: string[] = [];
 const list = async (token: string, qs = '') => {
   const res = await as(token, 'GET', `/workspaces/${ws}/approvals${qs}`);
