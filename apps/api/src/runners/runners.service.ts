@@ -34,6 +34,7 @@ import {
 import type { RunnerPairInput, RunnerReport } from './runner.dto';
 import { generatePairingCode, hashPairingCode, hashRunnerToken, mintRunnerToken, normalizePairingCode, safeEqualHex } from './runner-secrets';
 import { canonicalJson, presentRunner, recordRunnerEvent } from './runner-present';
+import { runnerCounts } from './runner-counts';
 import { AgentWakesService, returnClaimedWakesTx } from './agent-wakes.service';
 import type { WakeRow } from './agent-wakes.service';
 import type { RunnerRow } from './runner-present';
@@ -373,14 +374,17 @@ export class RunnersService {
     return out;
   }
 
-  /** The caller's own Runners, never anyone else's, and never a revoked one (a removed or cancelled Runner is gone from the page). */
+  /** The caller's own Runners, never anyone else's, and never a revoked one (a removed or cancelled Runner is gone from the page), with the counts Settings shows. */
   async list(workspaceId: string, userId: string, now = new Date()) {
     const rows = await this.db.query.runners.findMany({
       where: and(eq(runners.workspaceId, workspaceId), eq(runners.userId, userId), ne(runners.status, 'revoked')),
       orderBy: [desc(runners.createdAt)],
     });
     const agents = await this.assignedAgents(rows.map((r) => r.id));
-    return { data: rows.map((r) => presentRunner(r, agents.get(r.id) ?? [], now)) };
+    // ticket #1320: the counts are an aggregate over the same rows, at the same `now`, so Settings can say "N Runners connected"
+    // from this one response (the rows' `connected` and these counts share one definition: runner-present.ts `isConnected`).
+    const counts = await runnerCounts(this.db, workspaceId, userId, now);
+    return { data: rows.map((r) => presentRunner(r, agents.get(r.id) ?? [], now)), ...counts };
   }
 
   private async present(row: RunnerRow, now: Date) {

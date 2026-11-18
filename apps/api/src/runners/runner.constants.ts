@@ -19,7 +19,11 @@ export const PAIRING_FAILURE_WINDOW_MS = 10 * 60_000;
 /** How many codes one person may ask for in an hour, so "Add a Runner" cannot be used to mass-produce live guessable codes. */
 export const PAIRING_CODES_PER_HOUR = 20;
 
-/** The Runner is offline when it has not been heard from this long (and is active). */
+/**
+ * The Runner is offline when it has not been heard from this long (and is active). It is also THE "connected" window (ticket #1320):
+ * connected = active and heard from within this long, in `isConnected` and in the counts. One constant, so the two cannot drift;
+ * the edge (exactly this long ago is still connected, one millisecond more is offline) is pinned by test/runners-connected-count.test.ts.
+ */
 export const RUNNER_OFFLINE_AFTER_MS = 120_000;
 /** What the Runner is told to do. */
 export const RUNNER_HEARTBEAT_INTERVAL_SECONDS = 30;

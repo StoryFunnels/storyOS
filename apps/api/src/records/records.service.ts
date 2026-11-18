@@ -90,7 +90,7 @@ import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context'
 // runtime dependency on CommentsService, so this can't create the module
 // cycle a value import would (comments.module.ts already imports records).
 import type { CommentSegment } from '../comments/comments.service';
-import { ComputedFieldFailures, nullCells } from './computed-field-guard';
+import { ComputedFieldFailures, computeCellGuarded, nullCells } from './computed-field-guard';
 
 type RecordRow = typeof records.$inferSelect;
 
@@ -1269,41 +1269,51 @@ export class RecordsService implements OnModuleInit {
     );
     if (formulaDefs.length === 0 || rows.length === 0) return;
 
-    const selectDefs = defs.filter((d) => d.type === 'select' || d.type === 'workflow');
-    const labelByOption = new Map<string, string>();
-    if (selectDefs.length > 0) {
-      const options = await this.db.query.selectOptions.findMany({
-        where: inArray(
-          selectOptions.fieldId,
-          selectDefs.map((d) => d.id),
-        ),
-      });
-      for (const option of options) labelByOption.set(option.id, option.label);
-    }
-
     const ordered = orderFormulasByDependency(formulaDefs);
-
+    const labelByOption = new Map<string, string>();
     /*
-     * #300: the related records a relation aggregate reduces over. Loaded ONCE
-     * for the whole batch, through the same loader the read path uses, so a
-     * materialized `count({Issues})` and the value printed in the cell are
-     * computed from identical data.
-     *
-     * This is what makes materializing a cross-record formula defensible at all.
-     * #298 deliberately refused to: a value frozen at this record's own write
-     * time is stale the moment a linked record changes. It is safe now for the
-     * same reason a rollup's is — invalidateRollupsForChange recomputes it when
-     * the related record or the link set changes.
+     * Ticket #1319 — the inputs are loaded behind the shared guard. When they cannot be loaded, every formula of this batch is
+     * stored as null (reported once per field) instead of the failure leaving the previous materialized value in place and the write
+     * path to swallow it silently; the same choice the read path makes for a page whose formula inputs fail to load.
      */
-    const relationApiNames = this.relationRefsOf(formulaDefs, byApiName);
     let relatedByRecord = new Map<string, Record<string, Array<Record<string, unknown>>>>();
-    if (relationApiNames.size > 0) {
-      const chips = await this.relationChipsFromLinks(
-        defs,
-        relationApiNames,
-        rows.map((r) => r.id),
-      );
-      relatedByRecord = await this.loadRelatedBags(chips, defs, relationApiNames);
+    let inputsFailed = false;
+    try {
+      const selectDefs = defs.filter((d) => d.type === 'select' || d.type === 'workflow');
+      if (selectDefs.length > 0) {
+        const options = await this.db.query.selectOptions.findMany({
+          where: inArray(
+            selectOptions.fieldId,
+            selectDefs.map((d) => d.id),
+          ),
+        });
+        for (const option of options) labelByOption.set(option.id, option.label);
+      }
+
+      /*
+       * #300: the related records a relation aggregate reduces over. Loaded ONCE
+       * for the whole batch, through the same loader the read path uses, so a
+       * materialized `count({Issues})` and the value printed in the cell are
+       * computed from identical data.
+       *
+       * This is what makes materializing a cross-record formula defensible at all.
+       * #298 deliberately refused to: a value frozen at this record's own write
+       * time is stale the moment a linked record changes. It is safe now for the
+       * same reason a rollup's is — invalidateRollupsForChange recomputes it when
+       * the related record or the link set changes.
+       */
+      const relationApiNames = this.relationRefsOf(formulaDefs, byApiName);
+      if (relationApiNames.size > 0) {
+        const chips = await this.relationChipsFromLinks(
+          defs,
+          relationApiNames,
+          rows.map((r) => r.id),
+        );
+        relatedByRecord = await this.loadRelatedBags(chips, defs, relationApiNames);
+      }
+    } catch (err) {
+      inputsFailed = true;
+      for (const def of ordered) this.computedFailures.report(def, err);
     }
 
     await this.db.transaction(async (tx) => {
@@ -1332,6 +1342,10 @@ export class RecordsService implements OnModuleInit {
         bag.id = row.number ?? null;
         const patch: Record<string, unknown> = {};
         for (const def of ordered) {
+          if (inputsFailed) {
+            patch[def.id] = null;
+            continue;
+          }
           try {
             const result = evaluateFormula(
               def.config['ast'] as FormulaNode,
@@ -1340,7 +1354,8 @@ export class RecordsService implements OnModuleInit {
             );
             patch[def.id] = result ?? null;
             bag[def.api_name] = result ?? null;
-          } catch {
+          } catch (err) {
+            this.computedFailures.report(def, err);
             patch[def.id] = null;
           }
         }
@@ -1716,25 +1731,39 @@ export class RecordsService implements OnModuleInit {
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${'rollup:' + recordId}, 0))`);
         }
         const patchByRecord = new Map<string, Record<string, unknown>>();
+        /*
+         * Ticket #1319 — each rollup is computed in its OWN savepoint, behind the shared computed-field guard. A rollup that cannot be
+         * computed (a stored filter the engine rejects, a field it names that is gone) used to throw out of this transaction: every
+         * healthy rollup of the same chunk kept the value it had before, the formulas over them were never re-materialized, and, for a
+         * database error, Postgres had aborted the transaction so nothing after it could run anyway. Now the failing rollup's cell is
+         * CLEARED (null: a stale number that looks right is worse than an empty cell, and a sort or filter would use it), the failure is
+         * logged once per field, and every other field of the chunk is computed and written as usual.
+         */
         for (const def of rollupDefs) {
-          const values = await this.computeRollupValuesForChunk(def, defs, chunk, tx as unknown as Db);
+          const outcome = await computeCellGuarded(this.computedFailures, def, () =>
+            tx.transaction((sp) => this.computeRollupValuesForChunk(def, defs, chunk, sp as unknown as Db)),
+          );
           for (const recordId of chunk) {
             const patch = patchByRecord.get(recordId) ?? {};
-            patch[def.id] = values.has(recordId)
-              ? values.get(recordId)
-              : def.config['op'] === 'count' || def.config['op'] === 'collect'
-                ? 0
-                : null;
+            patch[def.id] = !outcome.ok
+              ? null
+              : outcome.value.has(recordId)
+                ? outcome.value.get(recordId)
+                : def.config['op'] === 'count' || def.config['op'] === 'collect'
+                  ? 0
+                  : null;
             patchByRecord.set(recordId, patch);
           }
         }
         for (const def of pickOneDefs) {
-          const values = await this.computePickOneKeysForChunk(def, defs, chunk, tx as unknown as Db);
+          const outcome = await computeCellGuarded(this.computedFailures, def, () =>
+            tx.transaction((sp) => this.computePickOneKeysForChunk(def, defs, chunk, sp as unknown as Db)),
+          );
           for (const recordId of chunk) {
             const patch = patchByRecord.get(recordId) ?? {};
             // No winner is null — never 0. A pick-one has no "count" reading, and
             // 0 would sort as a real value below every genuine one.
-            patch[def.id] = values.get(recordId) ?? null;
+            patch[def.id] = outcome.ok ? (outcome.value.get(recordId) ?? null) : null;
             patchByRecord.set(recordId, patch);
           }
         }
@@ -2103,110 +2132,124 @@ export class RecordsService implements OnModuleInit {
         ),
       });
       for (const rel of rels) {
-        const mySide: 'a' | 'b' = rel.databaseAId === event.databaseId ? 'a' : 'b';
-        const otherDbId = mySide === 'a' ? rel.databaseBId : rel.databaseAId;
-        const reverseFieldId = mySide === 'a' ? rel.fieldBId : rel.fieldAId;
-        const otherDefs = await this.fieldDefs(otherDbId);
-        const relevantRollups = otherDefs.filter((d) => {
-          if (d.type !== 'rollup' || d.config['relation_field_id'] !== reverseFieldId) return false;
-          if (d.config['op'] === 'count') return true; // link-membership rollup — safe (if redundant) to always recompute
-          if (changedApiNames.has(d.config['target_field_api_name'] as string)) return true;
-          /*
-           * ticket #1200: a rollup over a FORMULA names the formula as its target, but a write only ever lists the
-           * fields that were typed into (qty, price) — never the formula that depends on them. Matching on the target's
-           * name would therefore never fire, and a quote's total would go stale the moment a line's quantity changed.
-           * So any change to a record whose database holds that formula can move the sum. Coarse on purpose, for the
-           * reason formulaAggregateAffected below is: a formula can read several fields and an under-matching filter
-           * leaves a wrong number on screen, which is the failure this exists to prevent.
-           */
-          if (myDefs.some((x) => x.type === 'formula' && x.api_name === d.config['target_field_api_name'])) return true;
-          // MN-295: a filtered sum/avg/min/max also needs recompute when the
-          // changed field is one the filter reads, not just the target field.
-          const filterNode = activeFilter(d.config['filter'] as FilterNode | undefined);
-          if (!filterNode) return false;
-          return [...filterReferencedFields(filterNode)].some((f) => changedApiNames.has(f));
-        });
-        // #132: the other side's computed name may depend on this change too —
-        // either through a rollup we're about to recompute, or through a lookup
-        // that reads the very field that changed. Compute this alongside the
-        // rollup set so a single linked-ids fetch feeds both cascades.
-        const otherTitleDef = this.computedTitleDef(otherDefs);
-        const titleAffected =
-          !!otherTitleDef &&
-          this.titleAffectedByRelatedChange(
-            otherTitleDef,
-            otherDefs,
-            reverseFieldId,
-            changedApiNames,
-            relevantRollups,
-          );
         /*
-         * #300: a formula relation aggregate on the OTHER side reads this
-         * record through the reverse field, so a change here can move it just
-         * as it moves a rollup. Without this the materialized sort key would
-         * only refresh the next time that record happened to be written — which
-         * is precisely the staleness #298 refused to accept.
-         *
-         * Deliberately coarse: any formula aggregating over this relation is
-         * recomputed, without checking WHICH related field the formula reads.
-         * A rollup names one target field so it can be precise; a formula can
-         * read several fields plus a condition over several more, and a filter
-         * that under-matches leaves a wrong number on screen — the failure this
-         * whole ticket exists to prevent. Over-recomputing is bounded by the
-         * same chunked fan-out and costs a query.
+         * Ticket #1319 — one relation's cascade (a parent database whose cascade fails for a reason outside any one field: a lock or
+         * connection error, a computed name that cannot be built) must not stop the cascade into the OTHER parents of this write. A
+         * rollup that cannot be computed no longer reaches here at all (recomputeRollupsForRelationField clears it behind the shared
+         * guard); this catches whatever else is left, once per relation, with ids only.
          */
-        const formulaAggregateAffected = otherDefs.some(
-          (d) =>
-            d.type === 'formula' &&
-            (d.config['ast'] as unknown) &&
-            [...this.relationRefsOf([d], new Map(otherDefs.map((x) => [x.api_name, x])))].some(
-              (apiName) => otherDefs.find((x) => x.api_name === apiName)?.id === reverseFieldId,
-            ),
-        );
-        if (relevantRollups.length === 0 && !titleAffected && !formulaAggregateAffected) continue;
-
-        const myCol = mySide === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
-        const otherCol = mySide === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
-        const links = await this.db
-          .select({ other: otherCol })
-          .from(recordLinks)
-          .where(and(eq(recordLinks.relationId, rel.id), eq(myCol, event.recordId)));
-        const otherIds = links.map((l) => l.other);
-        if (otherIds.length === 0) continue;
-        if (relevantRollups.length > 0)
-          await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
-        if (titleAffected) await this.recomputeTitlesForRecords(otherDbId, otherIds);
-        // #300: recomputeRollupsForRelationField re-materializes formulas as its
-        // last step, so this only needs to run when it did NOT run at all.
-        if (formulaAggregateAffected && relevantRollups.length === 0) {
-          const freshRows = await this.db.query.records.findMany({
-            where: inArray(records.id, otherIds),
+        try {
+          const mySide: 'a' | 'b' = rel.databaseAId === event.databaseId ? 'a' : 'b';
+          const otherDbId = mySide === 'a' ? rel.databaseBId : rel.databaseAId;
+          const reverseFieldId = mySide === 'a' ? rel.fieldBId : rel.fieldAId;
+          const otherDefs = await this.fieldDefs(otherDbId);
+          const relevantRollups = otherDefs.filter((d) => {
+            if (d.type !== 'rollup' || d.config['relation_field_id'] !== reverseFieldId) return false;
+            if (d.config['op'] === 'count') return true; // link-membership rollup — safe (if redundant) to always recompute
+            if (changedApiNames.has(d.config['target_field_api_name'] as string)) return true;
+            /*
+             * ticket #1200: a rollup over a FORMULA names the formula as its target, but a write only ever lists the
+             * fields that were typed into (qty, price) — never the formula that depends on them. Matching on the target's
+             * name would therefore never fire, and a quote's total would go stale the moment a line's quantity changed.
+             * So any change to a record whose database holds that formula can move the sum. Coarse on purpose, for the
+             * reason formulaAggregateAffected below is: a formula can read several fields and an under-matching filter
+             * leaves a wrong number on screen, which is the failure this exists to prevent.
+             */
+            if (myDefs.some((x) => x.type === 'formula' && x.api_name === d.config['target_field_api_name'])) return true;
+            // MN-295: a filtered sum/avg/min/max also needs recompute when the
+            // changed field is one the filter reads, not just the target field.
+            const filterNode = activeFilter(d.config['filter'] as FilterNode | undefined);
+            if (!filterNode) return false;
+            return [...filterReferencedFields(filterNode)].some((f) => changedApiNames.has(f));
           });
-          await this.materializeFormulas(otherDefs, freshRows).catch(() => undefined);
+          // #132: the other side's computed name may depend on this change too —
+          // either through a rollup we're about to recompute, or through a lookup
+          // that reads the very field that changed. Compute this alongside the
+          // rollup set so a single linked-ids fetch feeds both cascades.
+          const otherTitleDef = this.computedTitleDef(otherDefs);
+          const titleAffected =
+            !!otherTitleDef &&
+            this.titleAffectedByRelatedChange(
+              otherTitleDef,
+              otherDefs,
+              reverseFieldId,
+              changedApiNames,
+              relevantRollups,
+            );
+          /*
+           * #300: a formula relation aggregate on the OTHER side reads this
+           * record through the reverse field, so a change here can move it just
+           * as it moves a rollup. Without this the materialized sort key would
+           * only refresh the next time that record happened to be written — which
+           * is precisely the staleness #298 refused to accept.
+           *
+           * Deliberately coarse: any formula aggregating over this relation is
+           * recomputed, without checking WHICH related field the formula reads.
+           * A rollup names one target field so it can be precise; a formula can
+           * read several fields plus a condition over several more, and a filter
+           * that under-matches leaves a wrong number on screen — the failure this
+           * whole ticket exists to prevent. Over-recomputing is bounded by the
+           * same chunked fan-out and costs a query.
+           */
+          const formulaAggregateAffected = otherDefs.some(
+            (d) =>
+              d.type === 'formula' &&
+              (d.config['ast'] as unknown) &&
+              [...this.relationRefsOf([d], new Map(otherDefs.map((x) => [x.api_name, x])))].some(
+                (apiName) => otherDefs.find((x) => x.api_name === apiName)?.id === reverseFieldId,
+              ),
+          );
+          if (relevantRollups.length === 0 && !titleAffected && !formulaAggregateAffected) continue;
+
+          const myCol = mySide === 'a' ? recordLinks.fromRecordId : recordLinks.toRecordId;
+          const otherCol = mySide === 'a' ? recordLinks.toRecordId : recordLinks.fromRecordId;
+          const links = await this.db
+            .select({ other: otherCol })
+            .from(recordLinks)
+            .where(and(eq(recordLinks.relationId, rel.id), eq(myCol, event.recordId)));
+          const otherIds = links.map((l) => l.other);
+          if (otherIds.length === 0) continue;
+          if (relevantRollups.length > 0)
+            await this.recomputeRollupsForRelationField(otherDbId, reverseFieldId, otherIds);
+          if (titleAffected) await this.recomputeTitlesForRecords(otherDbId, otherIds);
+          // #300: recomputeRollupsForRelationField re-materializes formulas as its
+          // last step, so this only needs to run when it did NOT run at all.
+          if (formulaAggregateAffected && relevantRollups.length === 0) {
+            const freshRows = await this.db.query.records.findMany({
+              where: inArray(records.id, otherIds),
+            });
+            await this.materializeFormulas(otherDefs, freshRows).catch(() => undefined);
+          }
+        } catch (err) {
+          this.computedFailures.reportStep(rel.id, 'rollup cascade for relation', err);
         }
       }
     }
 
     for (const link of event.linkedRelations ?? []) {
-      await this.recomputeRollupsForRelationField(event.databaseId, link.fieldId, [event.recordId]);
-      // #132: this record's OWN link-set changed, so its computed name (if it
-      // references a lookup/rollup through this relation) may have changed too —
-      // recompute it alongside its own rollup.
-      await this.recomputeTitlesForRecords(event.databaseId, [event.recordId]);
-      if (link.otherRecordIds.length === 0) continue;
-      const relation = await this.db.query.relations.findFirst({
-        where: eq(relations.id, link.relationId),
-      });
-      if (!relation) continue;
-      const reverseFieldId =
-        relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
-      await this.recomputeRollupsForRelationField(
-        link.otherDatabaseId,
-        reverseFieldId,
-        link.otherRecordIds,
-      );
-      // #132: and the other side's names, if THEY look back through the reverse field.
-      await this.recomputeTitlesForRecords(link.otherDatabaseId, link.otherRecordIds);
+      try {
+        await this.recomputeRollupsForRelationField(event.databaseId, link.fieldId, [event.recordId]);
+        // #132: this record's OWN link-set changed, so its computed name (if it
+        // references a lookup/rollup through this relation) may have changed too —
+        // recompute it alongside its own rollup.
+        await this.recomputeTitlesForRecords(event.databaseId, [event.recordId]);
+        if (link.otherRecordIds.length === 0) continue;
+        const relation = await this.db.query.relations.findFirst({
+          where: eq(relations.id, link.relationId),
+        });
+        if (!relation) continue;
+        const reverseFieldId =
+          relation.fieldAId === link.fieldId ? relation.fieldBId : relation.fieldAId;
+        await this.recomputeRollupsForRelationField(
+          link.otherDatabaseId,
+          reverseFieldId,
+          link.otherRecordIds,
+        );
+        // #132: and the other side's names, if THEY look back through the reverse field.
+        await this.recomputeTitlesForRecords(link.otherDatabaseId, link.otherRecordIds);
+      } catch (err) {
+        this.computedFailures.reportStep(link.relationId, 'rollup cascade for linked relation', err);
+      }
     }
   }
 
