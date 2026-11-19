@@ -12,6 +12,7 @@ import type { FilterNode, ViewConfig } from './use-view-state';
 import { queryBodyFromConfig } from './use-view-state';
 import { useViewSearch } from './view-search';
 import { ViewQueryError } from './query-error';
+import { newRecordHref } from '@/components/entity/new-record';
 
 /** Gallery view (MN-090): records as a responsive grid of cards — a board with no
  * columns. Reuses the MN-089 card (title + chips + colored triangles). */
@@ -40,8 +41,8 @@ export function GalleryView({
 
   const addRecord = () =>
     createRecord.mutate(
-      { name: 'Untitled' },
-      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+      {},
+      { onSuccess: (created) => router.push(newRecordHref(ws, db, created.id)) },
     );
 
   const memberQuery = useMembers(ws, !readOnly);
