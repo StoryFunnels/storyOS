@@ -7,6 +7,7 @@ import { packWorkflow } from '../src/packs/pack-workflow';
 import { createTestApp } from './helpers/app';
 import { call, joinAs } from './helpers/members';
 import { signUpUser } from './helpers/users';
+import { must } from './helpers/must';
 
 /**
  * ticket #1146 — Team Board, a built-in pack, built from the prototype's Team Board.
@@ -172,7 +173,7 @@ describe('#1146 a real install creates everything the prototype shows', () => {
     // hide_empty_groups would also hide an empty To Do; hidden_option_ids would hide a column even when it holds cards. Neither is set.
     expect(board.config.hide_empty_groups ?? false).toBe(false);
     expect((board.config.hidden_option_ids as unknown[] | undefined) ?? []).toEqual([]);
-    const card = (await rows(ws, d.id))[0];
+    const card = must((await rows(ws, d.id))[0], 'a teaching card');
     expect((await as('PATCH', `/workspaces/${ws}/databases/${d.id}/records/${card.id}`, { values: { status: null } })).statusCode).toBe(200);
     const after = await rows(ws, d.id);
     expect(after.length).toBe(proto.samples);

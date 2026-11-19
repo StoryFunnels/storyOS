@@ -19,7 +19,10 @@ let db: Db;
 let admin: { token: string; email: string };
 let adminId: string;
 let wsId: string;
-const ids: Record<string, string> = {};
+// Every key is assigned in beforeAll (like the `let`s above); naming them lets tsc catch a misspelt `ids.x`.
+type IdKey = 'space' | 'tasks' | 'tasksStatus' | 'tasksPriority' | 'tasksType' | 'projects' | 'projectsRag' | 'projectsPipeline'
+  | 'bugs' | 'bugsWorkflow' | 'notes' | 'doneOption' | 'record';
+const ids = {} as Record<IdKey, string>;
 
 const as = (t: string, m: string, u: string, p?: unknown) => app.inject({ method: m as never, url: `/api/v1${u}`, headers: authed(t), payload: p as never });
 const mkDb = async (name: string) =>
