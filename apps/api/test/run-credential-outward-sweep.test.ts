@@ -15,6 +15,7 @@ import type { RunCredentialWorld } from './helpers/run-credential-fixture';
 import { EXPLICIT, FANOUT_CONSUMERS, FANOUT_PROOF, HELD_DELETE_ROUTES, OWN_STATE_DELETE_ROUTES, isDeleteCapable, mechanismOf } from './helpers/outward-audit';
 import { AgentDeleteHoldService } from '../src/action-gates/agent-delete-hold.service';
 import type { Mechanism } from './helpers/outward-audit';
+import { must } from './helpers/must';
 import { connections } from '../src/db/schema';
 import { seal } from '../src/common/secretbox';
 import { EmailService } from '../src/mail/email.service';
@@ -389,7 +390,7 @@ describe('4. GATED: what a run credential can ask for is staged for a person, no
     const skill = res.json() as { visibility: string; public_token?: string | null; pending_approval_id?: string };
     expect(skill.visibility, 'never public until a person decides').not.toBe('public');
     expect(skill.public_token ?? null).toBeNull();
-    expect((await snapshot())['approvals'], 'one approval was raised').toBe(before + 1);
+    expect((await snapshot())['approvals'], 'one approval was raised').toBe(must(before, 'the approvals count') + 1);
     // ... and the credential cannot decide it (approve/reject are admin-scoped, and need a person).
     const pending = (await pool.query("select id from approvals where status = 'pending' order by created_at desc limit 1")).rows[0].id as string;
     for (const verb of ['approve', 'reject']) {

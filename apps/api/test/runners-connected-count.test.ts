@@ -5,6 +5,7 @@ import { signUpUser } from './helpers/users';
 import { call, joinAs } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
+import { must } from './helpers/must';
 import { RunnersService } from '../src/runners/runners.service';
 import { RUNNER_OFFLINE_AFTER_MS } from '../src/runners/runner.constants';
 import { isConnected } from '../src/runners/runner-present';
@@ -138,7 +139,7 @@ describe('the window edge (a fixed clock, no sleeping)', () => {
     await setSeen(id, ago(RUNNER_OFFLINE_AFTER_MS + 1));
     const past = await listAt(owner.id);
     expect(past.data[0]).toMatchObject({ connected: false, connection: 'offline' });
-    expect(past.data[0].offline_since).not.toBeNull();
+    expect(must(past.data[0], 'the runner row').offline_since).not.toBeNull();
     expect(past).toMatchObject({ connected_count: 0, offline_count: 1, needs_attention: true });
   });
 
@@ -201,7 +202,7 @@ describe('rows and counts agree (they share one definition)', () => {
     for (let i = 0; i < 6; i++) ids.push(await pairActive(owner));
     ids.push(await pairPending(owner));
     const ages = [0, 1_000, RUNNER_OFFLINE_AFTER_MS - 1, RUNNER_OFFLINE_AFTER_MS, RUNNER_OFFLINE_AFTER_MS + 1, 3_600_000];
-    for (let i = 0; i < ages.length; i++) await setSeen(ids[i], ago(ages[i]));
+    for (let i = 0; i < ages.length; i++) await setSeen(ids[i]!, ago(ages[i]!)); // both arrays built just above; i < ages.length < ids.length
     await pool.query('update runners set paused_until = $2 where id = $1', [ids[1], new Date(NOW.getTime() + 60_000)]);
     await pool.query('update runners set paused_until = $2 where id = $1', [ids[5], new Date(NOW.getTime() + 60_000)]); // stale AND at its limit
 
