@@ -6,7 +6,8 @@
  * PINEWOOD_SEED_PASSWORD or the stack's throwaway env file (see agency-guard.ts), never from the repo.
  *
  * It refuses, before the app boots, any database that is not storyos_pinewood* (or the
- * storyos_agency_tpl* template), any non-local host, and production. Idempotent: a second run
+ * storyos_agency_tpl* template), any database whose Postgres comment is not a marker the pinewood
+ * scripts wrote (see agency-guard.ts), any non-local host, and production. Idempotent: a second run
  * adds nothing and touches nothing. `--dry-run` prints what it would load and writes nothing.
  */
 // MUST be first: it is what lets DATABASE_URL in apps/api/.env be seen (and be refused) here.
@@ -16,12 +17,14 @@ import { FastifyAdapter } from '@nestjs/platform-fastify';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { AgencySeedRefused, guardAgencyTarget, resolveSeedPassword } from './agency-guard';
+import { AgencySeedRefused, guardAgencyOwnership, guardAgencyTarget, resolveSeedPassword } from './agency-guard';
 import { applyAgency } from './agency-apply';
 import { buildAgencyData, countAgencyRecords } from './agency-data';
 
 async function main() {
   const target = guardAgencyTarget(process.env);
+  // Before the app boots, and before --dry-run prints a plan it would then refuse: a database this tooling did not create is not ours to write to.
+  await guardAgencyOwnership(process.env, target);
   const data = buildAgencyData(new Date());
   console.log(`seed:agency: Pinewood Studio -> ${target.database} (${countAgencyRecords(data)} records planned)`);
   if (process.argv.includes('--dry-run')) {

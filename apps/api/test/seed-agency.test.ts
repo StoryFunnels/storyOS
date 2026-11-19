@@ -102,6 +102,19 @@ describe('seed:agency, first run', () => {
     for (const email of AGENT_LOGINS.map((a) => a.email)) expect(email).toMatch(/@pinewood\.example$/);
   });
 
+  it('gives every quote a real Status, so the Quotes board has no "No value" column of nine', async () => {
+    const options = ['Draft', 'Sent', 'Accepted', 'Declined', 'Expired'];
+    for (const q of [...DATA.quotes, DATA.approval.quote]) expect(options, q.title).toContain(q.values.Status);
+    expect(DATA.approval.quote.values.Status).toBe('Draft');
+    expect(new Set(DATA.quotes.map((q) => q.values.Status)).size).toBeGreaterThan(2);
+    // and the database really holds them: no quote is left without one
+    const quotes = await rows(await database('Sales', 'Quotes'));
+    expect(quotes.length).toBeGreaterThan(0);
+    const field = Object.keys(quotes[0]!.values ?? {}).find((k) => /^status$/i.test(k));
+    expect(field, 'Quotes has a Status value on its rows').toBeDefined();
+    for (const r of quotes) expect(r.values[field!], r.title).toBeTruthy();
+  });
+
   it('uses only reserved example domains for every email it invents', () => {
     const json = JSON.stringify(DATA) + JSON.stringify(STUDIO_CAST) + JSON.stringify(AGENT_LOGINS);
     const emails = json.match(/[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[a-z]+/g) ?? [];
