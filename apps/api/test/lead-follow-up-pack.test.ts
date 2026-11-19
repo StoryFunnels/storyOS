@@ -116,7 +116,7 @@ describe('#1324 the manifest', () => {
     expect(ins.length).toBeLessThanOrEqual(5000);
     for (const must of [
       'You never send anything', 'Do Not Contact is ticked, draft nothing', 'never send, schedule or queue', 'never set a Follow-up to Approved or Sent',
-      'never change the lead\'s Stage', 'WhatsApp only when WhatsApp Consent is ticked', 'never a group', 'say why in Reviewer Note', 'Never invent a price',
+      'never change the lead\'s Stage', 'WhatsApp only when WhatsApp Consent is ticked', 'Never a group', 'say why in Reviewer Note', 'Never invent a price',
       '⟦CALL TIME⟧', 'last chance', 'at most one nudge per stage', 'easy way to say "not now"', 'draft one short close and then nothing more',
     ]) {
       expect(ins, must).toContain(must);
@@ -459,10 +459,13 @@ describe('#1324 the automation and the agent triggers DO their job', () => {
       expect(await wakes(), `created in ${stage}`).toBe(n);
     }
     // a MOVE into a stage wakes it too, and a change to anything else does not
-    const mover = (await rows(ws, leads.id)).find((r) => r.title === 'Created in New')!;
-    await as('PATCH', `/workspaces/${ws}/databases/${leads.id}/records/${mover.id}`, { values: { company: 'Renamed Co' } });
+    // (a wake is one per lead while it is pending, so the move is tried on a lead that has not woken it yet: created with no stage)
+    const mk = await as('POST', `/workspaces/${ws}/databases/${leads.id}/records`, { values: { name: 'Created with no stage' } });
+    expect(mk.statusCode, mk.body).toBe(201);
+    expect(await wakes(), 'no stage, no wake').toBe(n);
+    await as('PATCH', `/workspaces/${ws}/databases/${leads.id}/records/${mk.json().id}`, { values: { company: 'Renamed Co' } });
     expect(await wakes(), 'editing Company wakes nothing').toBe(n);
-    await as('PATCH', `/workspaces/${ws}/databases/${leads.id}/records/${mover.id}`, { values: { stage: optId(leads, 'Stage', 'Negotiating') } });
+    await as('PATCH', `/workspaces/${ws}/databases/${leads.id}/records/${mk.json().id}`, { values: { stage: optId(leads, 'Stage', 'Negotiating') } });
     expect(await wakes(), 'moved to Negotiating').toBe(n + 1);
   }, 180_000);
 
