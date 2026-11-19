@@ -74,7 +74,7 @@ pinewood_template() {
   (cd "$repo" && pw_run_with_db template "$tpl" pnpm --filter @storyos/api db:migrate) || pw_refuse "migrate failed on $tpl"
   echo
   if grep -q '"seed:agency"' "$repo/apps/api/package.json"; then
-    (cd "$repo" && pw_run_with_db template "$tpl" LOG_LEVEL=warn pnpm --filter @storyos/api seed:agency) || pw_refuse "seed:agency failed on $tpl"
+    pw_seed_agency template "$tpl" "${PINEWOOD_ENV_FILE:-$HOME/storyos-envs/pinewood.env}" "$repo" || pw_refuse "seed:agency failed on $tpl"
     seeded="migrations + seed:agency"
   fi
   pw_mark_db template "$tpl" "sha=$sha, $seeded, built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

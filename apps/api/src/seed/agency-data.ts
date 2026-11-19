@@ -240,18 +240,19 @@ export function buildAgencyData(today: Date): AgencyData {
     task('Review Tidewater photography moodboard', P.tide, 'Triage', 'Low', '@maya', 13, 2),
   ];
 
-  const quote = (title: string, validIn: number, ago: number): PlannedRecord => ({
-    title, createdDaysAgo: ago, values: { 'Valid until': day(validIn) },
+  // Every quote carries a Status: left unset, the Quotes board showed all nine under "No value".
+  const quote = (title: string, validIn: number, ago: number, status: string): PlannedRecord => ({
+    title, createdDaysAgo: ago, values: { 'Valid until': day(validIn), Status: status },
   });
   const quotes: PlannedRecord[] = [
-    quote('Quote: Quarry Hill Vineyard tasting-room site', 12, 9),
-    quote('Quote: Birchwood Physio local search', 5, 12),
-    quote('Quote: Lumen & Loom winter campaign', 20, 7),
-    quote('Quote: Tidewater Shopify store build', -3, 30),
-    quote('Quote: Maple Street seasonal photography', 14, 5),
-    quote('Quote: Alder & Ash Joinery portfolio site', -10, 26),
-    quote('Quote: Brightpath term-time ad package', 9, 4),
-    quote('Quote: Penny Lane Pet Supplies email flows', 16, 3),
+    quote('Quote: Quarry Hill Vineyard tasting-room site', 12, 9, 'Sent'),
+    quote('Quote: Birchwood Physio local search', 5, 12, 'Sent'),
+    quote('Quote: Lumen & Loom winter campaign', 20, 7, 'Sent'),
+    quote('Quote: Tidewater Shopify store build', -3, 30, 'Expired'),
+    quote('Quote: Maple Street seasonal photography', 14, 5, 'Accepted'),
+    quote('Quote: Alder & Ash Joinery portfolio site', -10, 26, 'Declined'),
+    quote('Quote: Brightpath term-time ad package', 9, 4, 'Sent'),
+    quote('Quote: Penny Lane Pet Supplies email flows', 16, 3, 'Accepted'),
   ];
 
   const invoice = (
@@ -296,7 +297,7 @@ export function buildAgencyData(today: Date): AgencyData {
   ];
 
   const approval: AgencyData['approval'] = {
-    quote: quote('Quote: Harbor Dental recall campaign (draft)', 21, 0),
+    quote: quote('Quote: Harbor Dental recall campaign (draft)', 21, 0, 'Draft'),
     ruleName: 'Chase an unanswered quote',
     commentTemplate: 'Hi, just checking you have had a chance to look at {Title}. Happy to walk through it on a call.',
   };

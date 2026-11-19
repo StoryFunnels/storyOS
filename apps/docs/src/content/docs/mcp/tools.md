@@ -9,17 +9,29 @@ The MCP server exposes three families of tools: **read**, **write**, and **build
 design the workspace, not just fill it. `get_started` is the orientation tool: it returns the overview, a workspace map, and an index of reference sections.
 
 `get_started` also carries the long reference text that the tool list leaves out, so a client that
-caps tools or context stays light: each tool's listed description is a short lead, and the full
-grammar (every automation trigger and action, pack install options, field config, source setup, the
-icon names for the `icon` parameter) is in its **TOOL NOTES** and **ICONS** sections. The
-list above is the customer tool set; a few maintainer tools (git branch names, a person's pinned
-tabs and dismissed hints) are only offered on the internal profile.
+caps tools or context stays light. Each tool's listed description is a short lead that ends with a
+pointer such as `[Full notes: get_started section "TOOL NOTES create_automation"]`. The full grammar
+(every automation trigger and action, pack install options, field config, source setup) is in that
+tool's **TOOL NOTES** section. The filter cheat-sheet is in **FILTERS**, and the icon names for the
+`icon` parameter are in **ICONS**.
+
+**How an agent reads it.** Call `get_started` with no arguments for the overview and an index of
+section names. Call it again with `section` set to one name from that index to get just that section.
+The name is matched exactly first, then without regard to case. An unknown name returns the list of
+valid names. Reading one section keeps the result small enough that a client will not cut it off.
+
+**Which tools a connection sees.** A customer connection gets the customer tool set. A few
+maintainer tools are only offered on the internal profile (`?profile=internal`): the git branch name
+tool, a person's pinned tabs and dismissed hints, and the icon catalogue. An AI has no use for a
+person's tab strip or hint cards, and the icon names are in **ICONS**. An [agent run on a
+Runner](/concepts/agent-runs/) is offered a short list built for its role, and those tools keep their
+full descriptions, so it does not need a lead plus a second call.
 
 ## Read
 
 | Tool | What it does |
 |---|---|
-| `get_started` | Orientation, a workspace map, and the filter cheat-sheet. |
+| `get_started` | Orientation, a workspace map, and an index of reference sections. Pass `section` to read one (FILTERS, ICONS, TOOL NOTES for a tool). |
 | `list_workspaces` | Workspaces the token can access. |
 | `list_databases` | Databases in a workspace. |
 | `describe_database` | A database's schema — exact `api_name`s, types, options, relation targets: what a write is keyed by. |

@@ -4,4 +4,4 @@
 # The pinewood scripts run children under `env -i`, so FAKE_PG_DIR does not survive;
 # the test writes the directory into $HOME/.fake-pg-dir before each run (HOME does).
 d="${FAKE_PG_DIR:-$(cat "$HOME/.fake-pg-dir")}"
-echo "pnpm: DATABASE_URL=${DATABASE_URL:-} $*" >>"$d/log"
+echo "pnpm: DATABASE_URL=${DATABASE_URL:-}${PINEWOOD_ENV_FILE:+ PINEWOOD_ENV_FILE=$PINEWOOD_ENV_FILE} $*" >>"$d/log"

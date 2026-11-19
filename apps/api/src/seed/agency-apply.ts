@@ -421,7 +421,11 @@ async function applyApproval(
   const have = idsByTitle.get('Sales/Quotes')!;
   if (!have.has(data.approval.quote.title)) {
     const payload: Record<string, unknown> = { name: data.approval.quote.title };
-    for (const [k, v] of Object.entries(data.approval.quote.values)) payload[quotes.fields.get(k)!.apiName] = v;
+    for (const [k, v] of Object.entries(data.approval.quote.values)) {
+      const apiName = quotes.fields.get(k)!.apiName;
+      // A select value is sent as its option id, exactly as the ordinary record path does (resolveValue).
+      payload[apiName] = typeof v === 'string' ? (quotes.options.get(`${apiName}:${v}`) ?? v) : v;
+    }
     const made = ok<{ id: string }>(await call('POST', `${ws}/databases/${quotes.id}/records`, { values: payload }, token), 'create the trigger quote');
     have.set(data.approval.quote.title, made.id);
     result.records_created++;

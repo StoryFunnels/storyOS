@@ -215,6 +215,18 @@ pw_check_db() {
   pw_assert_local_host "$PW_PGHOST"
 }
 
+# seed:agency, run from a checkout against a database this tooling made. The child runs under
+# `env -i`, so the seed's throwaway login password is read from (or generated into) whatever
+# file PINEWOOD_ENV_FILE names HERE; without passing it the seed fell back to its own default,
+# ~/storyos-envs/pinewood.env, and a throwaway stack's password landed in the standing stack's
+# file (found on the first real run, ticket #1297).
+#   pw_seed_agency <stack|template> <dbname> <env-file> <checkout>
+pw_seed_agency() {
+  local kind="$1" db="$2" env_file="$3" repo="$4"
+  [ -n "$env_file" ] || pw_refuse "internal: pw_seed_agency needs the env file path"
+  (cd "$repo" && pw_run_with_db "$kind" "$db" LOG_LEVEL=warn PINEWOOD_ENV_FILE="$env_file" pnpm --filter @storyos/api seed:agency)
+}
+
 pw_run_with_db() {
   local kind="$1" db="$2"
   shift 2
