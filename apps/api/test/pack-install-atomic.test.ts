@@ -40,7 +40,7 @@ const install = (ws: string, manifest: unknown, extra: Record<string, unknown> =
 /**
  * Everything an install can leave (the workspace's own Members projection database is ambient: any member action provisions it lazily, so it is not pack debris), counted INCLUDING soft-deleted rows — a rollback that merely hides rows still leaves the names behind.
  */
-async function footprint(ws: string): Promise<Record<string, number>> {
+async function footprint(ws: string) {
   const n = async (sql: string) => Number((await pool.query(sql, [ws])).rows[0].n);
   return {
     spaces: await n('select count(*) n from spaces where workspace_id=$1'),

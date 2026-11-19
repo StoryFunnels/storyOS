@@ -533,7 +533,7 @@ describe('GitHub App connect (integration)', () => {
       try {
         const ticket = (await as('POST', `/workspaces/${backWs}/databases/${ticketsDbId}/records`, { values: { name: 'No perms' } })).json();
         calls.postComment = 0;
-        const res = await deliver('pull_request', prPayload({ action: 'opened', number: 701, branch: `story-${ticket.number}` }), backWs);
+        const res = await deliver('pull_request', prPayload({ action: 'opened', number: 701, branch: `story-${ticket.number}` }));
         // Delivery still 200 and the state automation still ran.
         expect(res.statusCode, res.body).toBe(200);
         expect(res.json().state_applied).toBe('In Progress');

@@ -3,6 +3,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { DB } from '../src/db/db.module';
 import { authed, signUpUser } from './helpers/users';
+import { must } from './helpers/must';
 import { MembersProjectionSubscriber } from '../src/members/members-projection.subscriber';
 
 let app: NestFastifyApplication;
@@ -437,7 +438,7 @@ describe('#1080 self-erase writes no old identifier anywhere and scrubs what alr
     expect((await mentions(needle)).activity_events, 'precondition: history quotes it').toBeGreaterThan(0);
     expect((await as(person.token, 'POST', '/me/gdpr/erase', { confirm: true })).statusCode).toBe(200);
     const found = await mentions(needle);
-    expect(found.activity_events + found.field_changes + found.versions).toBe(0);
+    expect(must(found.activity_events, 'activity_events count') + must(found.field_changes, 'field_changes count') + must(found.versions, 'versions count')).toBe(0);
     // The workspace's OWN record is its content and stays; only the trail was scrubbed.
     const kept = (await as(boss.token, 'GET', `/workspaces/${ws}/databases/${dbId}/records/${rec.id}`)).json();
     expect(String(kept.title)).toContain('emailed');
