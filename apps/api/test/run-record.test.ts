@@ -5,6 +5,7 @@ import { authed, signUpUser } from './helpers/users';
 import { call, joinAs } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
+import { must } from './helpers/must';
 import { WAKE_LIMIT_FALLBACK_MS, WAKE_LIMIT_MAX_MS } from '../src/runners/wake.constants';
 import { resolveLimitUntil, capSummary, addUsage } from '../src/runners/run-record';
 
@@ -149,7 +150,7 @@ describe('AC1: every run leaves a run record with the fields', () => {
       session_id: 'sess-1',
       input_record: w.ticket,
     });
-    expect((v.agent as Array<{ id: string }>)[0].id).toBe(agent); // the Agent relation
+    expect(must((v.agent as Array<{ id: string }>)[0], 'the Agent relation').id).toBe(agent); // the Agent relation
     expect(new Date(v.started_at as string).getTime()).toBeGreaterThanOrEqual(before - 1000); // STARTED at the claim, not queued earlier
     expect(new Date(v.finished_at as string).getTime()).toBeGreaterThanOrEqual(new Date(v.started_at as string).getTime());
     expect(v.limit_resumes_at ?? null).toBeNull();

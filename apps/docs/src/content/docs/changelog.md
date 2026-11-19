@@ -11,6 +11,8 @@ day the change reached the product.
 
 - **15 Nov** — The audit log names the person and says what happened in words, with the record's number, title and database; its filters sit under **Filter**, and each row can copy its record ID. [Data & security, and You](/settings/data-and-you/)
 - **15 Nov** — Agent rules leads with **Recent agent actions**, in the audit log's words, and keeps the read-only enforcement view in a closed **How agent rules are enforced** section. [AI](/settings/ai/)
+- **11 Nov** — The MCP tool list is lighter for clients that cap tools: long grammars moved out of tool descriptions into `get_started` sections, and maintainer tools are only on the internal profile. [MCP tools](/mcp/tools/#how-an-agent-reads-it)
+- **13 Nov** — The gold mark on a record, `last_ai_change_at`, now means an agent or an MCP connection changed it. An automation or a person in the web app no longer sets it, and old values were recomputed. [When an AI last changed a record](/api/conventions/#when-an-ai-last-changed-a-record)
 - **16 Nov** — A schedule trigger on the automation canvas names its interval, weekday or weekdays, active window and time zone, instead of "Every undefined". [Editing a rule's actions on a canvas](/concepts/automations/#editing-a-rules-actions-on-a-canvas)
 - **15 Nov** — A revoked invite link opens a "This invite was revoked" screen that says who to ask for a new link, for 30 days after the revoke. [Settings: Workspace](/settings/workspace/#what-the-person-you-invite-sees)
 - **11 Nov** — Dry-run a formula before saving it, over the API and MCP: it returns the result type and sample values, or errors with the position and the nearest valid name. [Formulas](/concepts/formulas/#check-a-formula-before-you-save-it)

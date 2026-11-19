@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { must } from './helpers/must';
 import { summarizeChanges } from '../src/records/record-change-summary';
 import { EmailService } from '../src/mail/email.service';
 import type { MailMessage } from '../src/mail/mail-driver';
@@ -105,9 +106,10 @@ describe('record watch/subscribe (#236)', () => {
     const notifs = (await as(watcher.token, 'GET', `/workspaces/${wsId}/notifications`)).json();
     const changed = recordChanged(notifs.data);
     expect(changed.length).toBeGreaterThanOrEqual(1);
-    expect(changed[0].snippet).toContain('Status');
-    expect(changed[0].snippet).toContain('Todo');
-    expect(changed[0].snippet).toContain('Done');
+    const first = must(changed[0], 'a record_changed notification');
+    expect(first.snippet).toContain('Status');
+    expect(first.snippet).toContain('Todo');
+    expect(first.snippet).toContain('Done');
   });
 
   it('does not notify the actor about their own change', async () => {

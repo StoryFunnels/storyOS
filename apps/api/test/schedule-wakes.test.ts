@@ -30,11 +30,14 @@ async function mkAgent(name: string, aiMode: string | null, enabled = true): Pro
   expect(res.statusCode, res.body).toBe(201);
   return res.json().id as string;
 }
-async function mkRecords(db: string, n: number, prefix: string) {
+async function mkRecords(db: string, n: number, prefix: string): Promise<string[]> {
+  const ids: string[] = [];
   for (let i = 0; i < n; i++) {
     const r = await as('POST', `/workspaces/${ws}/databases/${db}/records`, { values: { name: `${prefix} ${i}` } });
     expect(r.statusCode, r.body).toBe(201);
+    ids.push(r.json().id as string);
   }
+  return ids;
 }
 async function mkRule(db: string, agent: string, trigger: unknown = { type: 'schedule', every: 'day', at: '03:00' }) {
   const rule = await as('POST', `/workspaces/${ws}/databases/${db}/automations`, {
@@ -150,8 +153,9 @@ describe('#1175 a schedule firing wakes a Your-own-AI agent once, with no record
     const db = (await as('POST', `/workspaces/${ws}/databases`, { space_id: (await as('GET', `/workspaces/${ws}/spaces`)).json()[0].id, name: 'Inbox' })).json().id as string;
     const agent = await mkAgent('Inbox owl', 'Your own AI');
     await mkRule(db, agent, { type: 'record_created' });
-    await mkRecords(db, 3, 'Mail');
-    for (let i = 0; i < 3; i++) await automationsSvc().settleAll?.();
+    const mails = await mkRecords(db, 3, 'Mail');
+    // wait for each record's record_created automation chain to finish before draining the jobs it enqueued
+    for (const id of mails) await automationsSvc().settle(id);
     await drain();
     const rows = await wakeRows(agent);
     expect(rows).toHaveLength(3);

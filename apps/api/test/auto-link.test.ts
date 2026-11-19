@@ -8,7 +8,7 @@ import { authed, signUpUser } from './helpers/users';
  * Clients.email == Contacts.email links the two, run-now and on-write.
  */
 let app: NestFastifyApplication;
-let owner: { token: string; id: string };
+let owner: { token: string; email: string };
 let ws: string;
 let clients: string;
 let contacts: string;

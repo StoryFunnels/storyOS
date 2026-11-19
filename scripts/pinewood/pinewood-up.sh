@@ -167,7 +167,7 @@ pinewood_up() {
 
   pw_say "step 5/7: seed:agency"
   if grep -q '"seed:agency"' "$home/apps/api/package.json"; then
-    (cd "$home" && pw_run_with_db stack "$db" LOG_LEVEL=warn pnpm --filter @storyos/api seed:agency) || pw_refuse "seed:agency failed on $db"
+    pw_seed_agency stack "$db" "$env_file" "$home" || pw_refuse "seed:agency failed on $db"
   else
     pw_say "  no seed:agency command at $short yet (ticket #1269 follow-up): the database holds migrations only"
   fi

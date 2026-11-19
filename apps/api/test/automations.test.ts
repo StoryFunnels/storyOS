@@ -187,7 +187,7 @@ describe('automations (MN-047)', () => {
     await pool.end();
 
     const urgentComments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${urgent.id}/comments`)).json();
-    expect(urgentComments.data.some((c: { body: Array<{ text: string }> }) => c.body[0].text === 'Still urgent!')).toBe(true);
+    expect(urgentComments.data.some((c: { body: [{ text: string }, ...unknown[]] }) => c.body[0].text === 'Still urgent!')).toBe(true);
     const calmComments = (await inject('GET', `/workspaces/${wsId}/databases/${dbId}/records/${calm.id}/comments`)).json();
     expect(calmComments.data).toHaveLength(0);
 

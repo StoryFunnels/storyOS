@@ -7,6 +7,7 @@ import { createTestApp } from './helpers/app';
 import { connectTestDb } from './helpers/db';
 import { signUpUser } from './helpers/users';
 import { call, joinAs } from './helpers/members';
+import { must } from './helpers/must';
 import { selectOptions } from '../src/db/schema';
 
 /**
@@ -86,10 +87,10 @@ describe('#961 every write path keeps positions dense', () => {
   it('PATCH position moves the option to that INDEX (0 = first), the others shift, positions stay dense', async () => {
     const { db, field, ids } = await selectField(['A', 'B', 'C', 'D']);
     const patch = (opt: string, position: number) => as('PATCH', `/workspaces/${ws}/databases/${db}/fields/${field}/options/${opt}`, { position });
-    expect((await patch(ids.D, 1)).statusCode).toBe(200); // to index 1
+    expect((await patch(must(ids.D, 'option D'), 1)).statusCode).toBe(200); // to index 1
     expect(await served(db, field)).toEqual(['A', 'D', 'B', 'C']);
     expect(dense(await stored(field))).toEqual([0, 1, 2, 3]);
-    expect((await patch(ids.A, 99)).statusCode).toBe(200); // far past the end: last, still dense
+    expect((await patch(must(ids.A, 'option A'), 99)).statusCode).toBe(200); // far past the end: last, still dense
     expect(await served(db, field)).toEqual(['D', 'B', 'C', 'A']);
     expect(dense(await stored(field))).toEqual([0, 1, 2, 3]);
   });
