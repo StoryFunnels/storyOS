@@ -130,6 +130,7 @@ export default defineConfig({
             { label: 'Run your work with an agent team', slug: 'guides/agent-team' },
             { label: 'Writing a pack manifest', slug: 'guides/pack-manifest' },
             { label: 'The Team Board pack', slug: 'guides/team-board-pack' },
+            { label: 'The Shop OS pack', slug: 'guides/shop-os-pack' },
             { label: 'The Team Wiki pack', slug: 'guides/team-wiki-pack' },
             { label: 'The Dev Tracker pack', slug: 'guides/dev-tracker-pack' },
             { label: 'The Deal Desk pack', slug: 'guides/deal-desk-pack' },

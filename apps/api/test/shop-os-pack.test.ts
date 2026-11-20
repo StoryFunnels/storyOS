@@ -213,6 +213,7 @@ describe('#1322 installs on a fresh workspace', () => {
     expect(field(o, 'Status').options!.map((x) => [x.label, x.category])).toEqual([
       ['New', 'backlog'], ['Packing', 'started'], ['Shipped', 'started'], ['Delivered', 'completed'], ['Cancelled', 'canceled'],
     ]);
+    expect(field(o, 'Status').options!.map((x) => x.label)).toEqual(STATUSES);
     expect(field(o, 'Payment Status').options!.map((x) => [x.label, x.category])).toEqual([
       ['Unpaid', 'unstarted'], ['Part paid', 'started'], ['Paid', 'completed'], ['Refunded', 'canceled'],
     ]);

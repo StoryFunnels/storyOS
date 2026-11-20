@@ -235,6 +235,7 @@ export const SHOP_OS_PACK: PackRegistryEntry = {
         name: 'Customers',
         type: 'table',
         default: true,
+        config: {},
       },
       {
         database: 'Products',
