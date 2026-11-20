@@ -931,10 +931,10 @@ export const updateAutomationSchema = z
  * state (or has nothing to start at). The ONE place that says what a state is, for every create path.
  *
  *   - a `workflow` field is a state by type: its first option, in the field's own order (#1088);
- *   - a `select` is a state exactly when its options carry state categories (#1014, what a pack declares and a board groups by): its first
- *     CATEGORISED option in the field's order. A select with no categorised option (Priority, Type) is NOT a state and is never filled:
- *     unconfigured is not invalid. Every built-in pack declares its state as such a select, which is why #1088's workflow-only rule left
- *     every pack-made database starting empty (#1325);
+ *   - a `select` is a state exactly when EVERY one of its options carries a state category (#1014, what a pack declares and a board
+ *     groups by): its first option in the field's order. A select with no categories (Priority, Type), or only some (an ordinary select
+ *     with one categorised option), is NOT a state and is never filled: unconfigured is not invalid. Every built-in pack declares its
+ *     state as a fully categorised select, which is why #1088's workflow-only rule left every pack-made database starting empty (#1325);
  *   - anything else, `multi_select` included, is never filled.
  *
  * `optionCategories` is `FieldDef.option_categories` (option id to category, `null` = none).
@@ -946,7 +946,7 @@ export function firstStateOptionId(
 ): string | undefined {
   if (!optionOrder || optionOrder.length === 0) return undefined;
   if (type === 'workflow') return optionOrder[0];
-  if (type === 'select') return optionOrder.find((id) => optionCategories?.[id] != null);
+  if (type === 'select') return optionOrder.every((id) => optionCategories?.[id] != null) ? optionOrder[0] : undefined;
   return undefined;
 }
 

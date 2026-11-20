@@ -75,9 +75,9 @@ describe('#1088 the Dev Project template: everything lands in Triage', () => {
  *   - a `select` with no categorised option (Priority, Type) must stay empty;
  *   - an explicit null on the state still wins.
  */
-const isStateField = (f: F) => f.type === 'workflow' || (f.type === 'select' && (f.options ?? []).some((o) => o.category != null));
+const isStateField = (f: F) => f.type === 'workflow' || (f.type === 'select' && (f.options ?? []).length > 0 && (f.options ?? []).every((o) => o.category != null));
 /** The first state, read from the stored options themselves (not from the helper under test): lowest position among the categorised ones. */
-const firstStateOf = (f: F) => [...(f.options ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).find((o) => f.type === 'workflow' || o.category != null)!;
+const firstStateOf = (f: F) => [...(f.options ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0]!;
 const packsWithStates = new Map<string, Array<{ db: string; field: string; first: string }>>();
 describe('#1325 every built-in pack: a new record lands in its first state', () => {
   it.each(PACK_REGISTRY.map((p) => [p.slug] as const))('%s', async (slug) => {
@@ -254,10 +254,12 @@ describe('#1325 a categorised select starts at its first state', () => {
     expect(b!.values['status'] ?? null, 'explicit null in the same batch still wins').toBeNull();
   });
 
-  it('"first" is the lowest-ordered CATEGORISED option, not the lowest option', async () => {
-    const db = await newCatDb('Partial', [{ label: 'Misc' }, { label: 'Todo', category: 'unstarted' }, { label: 'Done', category: 'completed' }]);
-    const status = await statusOf(db);
-    expect(labelOf(status, (await create(db, { name: 'x' })).values['status'])).toBe('Todo');
+  it('a select that mixes categorised and uncategorised options is an ordinary select, not a state: never filled', async () => {
+    const db = await newCatDb('Mixed', [{ label: 'Low' }, { label: 'High', category: 'started' }]);
+    const r = await create(db, { name: 'x' });
+    expect(r.values['status'] ?? null).toBeNull();
+    const first = await newCatDb('Mixed first', [{ label: 'Todo', category: 'unstarted' }, { label: 'Misc' }]);
+    expect((await create(first, { name: 'y' })).values['status'] ?? null).toBeNull();
   });
 
   it('a select with NO categorised option is never filled: unconfigured is not invalid', async () => {

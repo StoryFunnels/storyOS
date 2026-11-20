@@ -119,10 +119,14 @@ describe('a workflow field starts at its first state (#1088)', () => {
 
 describe('a categorised select starts at its first state (#1325)', () => {
   const order = ['opt-misc', 'opt-triage', 'opt-done'];
-  const cats = { 'opt-misc': null, 'opt-triage': 'backlog', 'opt-done': 'completed' };
-  it('the first CATEGORISED option, in the field\'s order', () => {
-    expect(fieldDefaultValue('select', {}, NOW, order, cats)).toBe('opt-triage');
-    expect(firstStateOptionId('select', order, cats)).toBe('opt-triage');
+  const cats = { 'opt-misc': 'unstarted', 'opt-triage': 'backlog', 'opt-done': 'completed' };
+  it('a FULLY categorised select: its first option, in the field\'s order', () => {
+    expect(fieldDefaultValue('select', {}, NOW, order, cats)).toBe('opt-misc');
+    expect(firstStateOptionId('select', order, cats)).toBe('opt-misc');
+  });
+  it('a select with only SOME categorised options (an ordinary select) is not a state: never filled', () => {
+    expect(fieldDefaultValue('select', {}, NOW, order, { ...cats, 'opt-misc': null })).toBeUndefined();
+    expect(fieldDefaultValue('select', {}, NOW, order, { ...cats, 'opt-done': null })).toBeUndefined();
   });
   it('a select with no categorised option, or no categories handed in, is not a state and is never filled', () => {
     expect(fieldDefaultValue('select', {}, NOW, order, { 'opt-misc': null, 'opt-triage': null, 'opt-done': null })).toBeUndefined();
@@ -137,7 +141,7 @@ describe('a categorised select starts at its first state (#1325)', () => {
   it('a configured default wins; applyFieldDefaults fills an ABSENT key only', () => {
     expect(fieldDefaultValue('select', { default: 'opt-done' }, NOW, order, cats)).toBe('opt-done');
     const defs = [{ api_name: 'status', type: 'select', config: {}, option_order: order, option_categories: cats }];
-    expect(applyFieldDefaults(defs, { name: 'x' }, NOW)).toEqual({ name: 'x', status: 'opt-triage' });
+    expect(applyFieldDefaults(defs, { name: 'x' }, NOW)).toEqual({ name: 'x', status: 'opt-misc' });
     expect(applyFieldDefaults(defs, { name: 'x', status: null }, NOW)).toEqual({ name: 'x', status: null });
     expect(applyFieldDefaults(defs, { name: 'x', status: 'opt-done' }, NOW)).toEqual({ name: 'x', status: 'opt-done' });
   });
