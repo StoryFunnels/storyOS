@@ -69,6 +69,7 @@ import { ViewQueryError } from './query-error';
 import { boardGroupIsReadOnly } from './groupable-fields';
 import { groupCountLabel } from './paginated-count';
 import { databaseColor } from '@/lib/entity-color';
+import { newRecordHref } from '@/components/entity/new-record';
 
 const NO_VALUE = '__none__';
 
@@ -646,7 +647,6 @@ export function BoardView({
             onAdd={() =>
               createRecord.mutate(
                 {
-                  name: 'Untitled',
                   // #499 — lookup is never writable (even at create), so a new
                   // card in a lookup column lands unassigned rather than erroring.
                   ...(column.id !== NO_VALUE && groupField.type !== 'lookup'
@@ -664,7 +664,7 @@ export function BoardView({
                 },
                 {
                   // Land on the new record so it can be named right away.
-                  onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`),
+                  onSuccess: (created) => router.push(newRecordHref(ws, db, created.id)),
                 },
               )
             }
