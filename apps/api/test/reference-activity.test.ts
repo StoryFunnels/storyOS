@@ -43,10 +43,13 @@ const docMentioning = (...recordIds: string[]) => [
   },
 ];
 
+/** A `reference.created` entry of GET .../activity/comments, as far as these tests read it (activity.service.ts). */
+type ReferenceEvent = { type: string; actor: { id: string; name: string } | null; reference: { target_record: { id: string } } };
+
 async function referenceEvents() {
   const res = await inject('GET', `/workspaces/${ws}/databases/${tasksDb}/activity/comments`);
   expect(res.statusCode, res.body).toBe(200);
-  return (res.json().data as Array<{ type: string }>).filter((e) => e.type === 'reference.created');
+  return (res.json().data as Array<{ type: string }>).filter((e): e is ReferenceEvent => e.type === 'reference.created');
 }
 
 beforeAll(async () => {
@@ -77,7 +80,7 @@ describe('#670 reference.created activity events', () => {
       reference: { target_record: { id: targetA.id, title: 'Target A' } },
       source: 'human',
     });
-    expect((events[0] as { actor: { name: string } | null }).actor?.name).toBeTruthy();
+    expect(events[0]?.actor?.name).toBeTruthy();
   });
 
   it('re-saving the SAME content (unchanged mention set) emits ZERO new reference.created events', async () => {
@@ -94,7 +97,7 @@ describe('#670 reference.created activity events', () => {
     const events = await referenceEvents();
     // One for A (from the first test) + one for B (new here) = 2 total, ever.
     expect(events).toHaveLength(2);
-    const targetIds = events.map((e) => (e as { reference: { target_record: { id: string } } }).reference.target_record.id);
+    const targetIds = events.map((e) => e.reference.target_record.id);
     expect(targetIds.sort()).toEqual([targetA.id, targetB.id].sort());
   });
 

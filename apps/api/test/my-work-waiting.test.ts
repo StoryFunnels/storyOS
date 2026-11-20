@@ -227,7 +227,13 @@ describe('#1250 waiting', () => {
     const w = await tab(token, 'waiting');
     const item = w.approvals.items.find((x: { approval_id: string }) => x.approval_id === id);
     expect(item, 'the approval is listed').toBeTruthy();
-    return item as { rule_id: string | null; rule_name: string | null; rule_label: string | null; preview_text: string };
+    return item as {
+      rule_id: string | null;
+      rule_name: string | null;
+      rule_label: string | null;
+      preview_text: string;
+      record: { id: string; number: number; title: string; database_id: string; database_name: string } | null;
+    };
   };
 
   it('#1280 approvals: a rule-gated approval carries the rule id and its CURRENT name; a rename shows up on the next read', async () => {

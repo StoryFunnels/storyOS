@@ -111,7 +111,7 @@ async function storedRuleHeaders(): Promise<Record<string, string>> {
 }
 
 function buttonActionsFromIntrospection(body: {
-  fields: Array<{ id: string; config: { actions?: Array<Record<string, unknown>> } }>;
+  fields: Array<{ id: string; config: { actions?: Array<{ type: string; url?: string; headers?: Record<string, unknown> }> } }>;
 }) {
   return body.fields.find((f) => f.id === buttonId)!.config.actions!;
 }

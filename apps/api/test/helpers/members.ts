@@ -1,4 +1,5 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import type { MembershipRole } from '@storyos/schemas';
 import { authed, signUpUser } from './users';
 
 /**
@@ -21,7 +22,7 @@ export async function joinAs(
   ownerToken: string,
   ws: string,
   name: string,
-  role: 'member' | 'guest',
+  role: MembershipRole,
   grants?: Array<{ space_id?: string; database_id?: string; role: string }>,
 ): Promise<Person> {
   const user = await signUpUser(app, name);

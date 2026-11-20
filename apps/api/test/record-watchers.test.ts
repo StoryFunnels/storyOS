@@ -68,7 +68,9 @@ beforeAll(async () => {
   // #273 — capture what would have gone out over email, mirroring
   // email.service.test.ts's driver-swap (never a real network send in tests).
   const emailService = app.get(EmailService);
-  emailService.driver = { name: 'test-capture', send: async (message: MailMessage) => sentEmails.push(message) };
+  emailService.driver = { name: 'test-capture', send: async (message: MailMessage) => {
+    sentEmails.push(message);
+  } };
 });
 
 afterAll(async () => {
