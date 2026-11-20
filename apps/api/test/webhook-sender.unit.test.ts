@@ -9,6 +9,7 @@ import {
   verifySignature,
 } from '../src/webhooks/webhook-sender';
 import { jsonEscape, parseTemplateBody } from '../src/automations/actions.service';
+import type { WebhookFetcher } from '../src/common/net-guard';
 
 const SECRET = 'whsec_test';
 
@@ -127,9 +128,9 @@ describe('delivery (MN-032)', () => {
   };
 
   it('signs the exact bytes it sends, and reports 2xx as ok', async () => {
-    let seen: { headers: Record<string, string>; body: string } | null = null;
-    const fetcher = vi.fn(async (_url: string, init: never) => {
-      seen = init as unknown as { headers: Record<string, string>; body: string };
+    let seen: Parameters<WebhookFetcher>[1] | null = null;
+    const fetcher = vi.fn<WebhookFetcher>(async (_url, init) => {
+      seen = init;
       return { status: 200 };
     });
 

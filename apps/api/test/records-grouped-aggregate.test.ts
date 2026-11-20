@@ -86,7 +86,7 @@ describe('#750 — grouped by select', () => {
     const groups = byKey(body.groups);
     // Bug's real count (60) would have read as whatever fit on page one — the
     // exact #750/#755 defect. Asserting the true number, not just "a number".
-    const bug = body.groups.find((g: { key: string }) => g.value === 60);
+    const bug = body.groups.find((g: { key: string; value: number }) => g.value === 60);
     expect(bug).toBeTruthy();
   });
 

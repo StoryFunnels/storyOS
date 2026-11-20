@@ -55,7 +55,7 @@ async function seedClients(ws: string, spaceName: string, fields: Array<{ name: 
   }
   return { id, space };
 }
-const clientsItem = (body: { databases: Array<{ name: string; existing_elsewhere?: Record<string, unknown> }> }) => body.databases.find((d) => d.name === 'Clients')!;
+const clientsItem = (body: { databases: Array<{ name: string; action: string; existing_elsewhere?: Record<string, unknown> }> }) => body.databases.find((d) => d.name === 'Clients')!;
 
 /** Make the installer's access to the named databases read-only, or hide them from the installer altogether (the same seam #1156's tests use). */
 function limitAccess(ids: string[], mode: 'viewer' | 'hidden') {

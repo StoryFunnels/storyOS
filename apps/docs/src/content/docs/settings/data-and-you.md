@@ -24,7 +24,12 @@ who opens the page is told that only admins can export the whole workspace. See
 button. They stay restorable for 30 days.
 
 **Audit log.** **Settings → Audit log** shows who did what, people and agents, across the workspace,
-with **Load more** at the bottom. The filters are under **Advanced**: an actor, a type,
+with **Load more** at the bottom. Each row reads as a sentence: the time, the person's name (with
+**(removed)** after someone who has left, and a badge when an agent or an automation acted), and what
+happened, for example a record chip with its number and title and the database it is in. A record you
+may not read shows as "a record". A deleted record says "(in Trash)". Press the copy button on a row
+to take its record ID for the filter. If the log cannot load, the page says so and offers **Try again**.
+The filters are under **Filter**, a closed section that says how many are applied: an actor, a type,
 a record or object ID, and a From and To date (typed as `2026-10-27`, `jul 15` or `yesterday`). See
 [record history](/concepts/record-history/) for what the log records.
 

@@ -39,7 +39,7 @@ afterAll(async () => {
   await app?.close();
 });
 
-const patch = (url: string, payload: unknown) =>
+const patch = (url: string, payload: Record<string, unknown>) =>
   app.inject({ method: 'PATCH', url, headers: authed(admin.token), payload });
 
 describe('the purpose line survives a round trip at all three levels', () => {

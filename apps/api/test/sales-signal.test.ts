@@ -59,13 +59,13 @@ async function salesSignalRow(wsId: string) {
  * call (never awaited by the caller, by design) to land — same polling
  * convention ai-field.test.ts's waitForJobAndTick uses for its own
  * fire-and-forget domain-event path. */
-async function waitForSalesSignal(wsId: string): Promise<{ sentAt: string | null; reason: string | null }> {
+async function waitForSalesSignal(wsId: string): Promise<{ sentAt: Date | null; reason: string | null }> {
   for (let i = 0; i < 40; i++) {
     const row = await salesSignalRow(wsId);
-    if (row.sentAt) return row as { sentAt: string; reason: string };
+    if (row.sentAt) return row;
     await new Promise((r) => setTimeout(r, 25));
   }
-  return salesSignalRow(wsId) as Promise<{ sentAt: null; reason: null }>;
+  return salesSignalRow(wsId);
 }
 
 function forceSeatBlocked(wsId: string) {
