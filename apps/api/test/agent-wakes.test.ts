@@ -5,6 +5,7 @@ import { authed, signUpUser } from './helpers/users';
 import { call, joinAs, setRestricted } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
+import { must } from './helpers/must';
 import { AgentsService } from '../src/agents/agents.service';
 import { AgentTriggerSubscriber } from '../src/agents/trigger.subscriber';
 import { AgentWakesService } from '../src/runners/agent-wakes.service';
@@ -521,7 +522,8 @@ describe('the queue is readable, with ONE derived run_state and honest waiting c
     const runner = await pairRunner(owner, [agent]);
     const shown = await mkTicket('Seen by the guest');
     expect((await wakes.enqueue({ workspaceId: ws, agentId: agent, reason: 'manual', recordId: shown, requestedBy: null })).outcome).toBe('created');
-    const rowFor = (body: { agents: Array<{ agent_id: string }> }) => body.agents.find((a) => a.agent_id === agent) as { runner: unknown; can_run: boolean; waiting: number };
+    const rowFor = (body: { agents: Array<{ agent_id: string; runner: unknown; can_run: boolean; waiting: number }> }) =>
+      must(body.agents.find((a) => a.agent_id === agent), 'the agent\'s row in the wake summary');
 
     const ownerSummary = rowFor((await as(owner.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`)).json());
     expect(ownerSummary.runner).toEqual({ id: runner.id, name: "Owner's MacBook" });

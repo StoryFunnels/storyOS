@@ -59,7 +59,7 @@ interface FieldDetail {
   apiName: string;
   type: string;
   config?: Record<string, unknown>;
-  options?: Array<{ id: string; label: string }>;
+  options?: Array<{ id: string; label: string; color: string }>;
 }
 
 interface ViewDetail {

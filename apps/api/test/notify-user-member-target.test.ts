@@ -148,7 +148,7 @@ describe('#730 — notify_user targets a specific workspace member (@member:<id>
     // to '@me' semantics.
     const adminCount = (await as(admin.token, 'GET', `/workspaces/${wsId}/notifications/unread-count`)).json();
     const adminList = (await as(admin.token, 'GET', `/workspaces/${wsId}/notifications`)).json();
-    expect(adminList.data.some((n: { snippet: string }) => n.snippet?.includes('Jamie Rivera') && n.type === 'mentioned')).toBe(false);
+    expect(adminList.data.some((n: { snippet: string; type: string }) => n.snippet?.includes('Jamie Rivera') && n.type === 'mentioned')).toBe(false);
     void adminCount;
   });
 });

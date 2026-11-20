@@ -55,10 +55,10 @@ describe('#956 every enabled subscription is scanned, not the first 100', () => 
   });
 
   it('the loss audit visits it too', async () => {
-    const spy = vi.spyOn(webhooks as unknown as { reportLost: (s: { url?: string }, t: string[]) => Promise<number> }, 'reportLost');
+    const spy = vi.spyOn(webhooks as unknown as { reportLost: (s: { id: string }, t: string[]) => Promise<number> }, 'reportLost');
     const sub = (await db.query.webhookSubscriptions.findFirst({ where: eq(webhookSubscriptions.url, target) }))!;
     await webhooks.auditBehindFloor();
-    expect(spy.mock.calls.map((c) => c[0].id ?? (c[0] as { id?: string }).id)).toContain(sub.id);
+    expect(spy.mock.calls.map((c) => c[0].id)).toContain(sub.id);
     spy.mockRestore();
   });
 });
