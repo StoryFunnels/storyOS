@@ -82,8 +82,8 @@ interacts with these lanes.
   so each session has an isolated tree.
 - **Claim tickets in the backlog** (`storyos/issues` over MCP): set the issue
   to In Progress before starting, so two sessions never build the same thing.
-- **Full local CI before pushing**: `pnpm lint && pnpm typecheck && pnpm test
-  && pnpm build && pnpm docs:check && pnpm install --frozen-lockfile`, plus
+- **Full local CI before pushing**: `pnpm lint && pnpm typecheck
+  && pnpm typecheck:test && pnpm test && pnpm build && pnpm docs:check && pnpm install --frozen-lockfile`, plus
   the SDK drift check if API surface changed.
 
 ## Merging
