@@ -65,7 +65,8 @@ curl -s -X POST $API/api/v1/me/tokens \
   rollup over a database outside the boundary comes back empty when you read a record). That is
   about reading values back: a *filter* over such a field can still tell a match from a non-match
   (tracked as ticket #881), so do not treat the boundary as hiding what those values are. A space
-  covers every database in it, now and later.
+  covers every user database in it, now and later. A system database, such as Members (the
+  workspace's people list), is covered only when its id is listed in `database_ids`.
 - **Refused in words.** Asking for anything outside the boundary returns `403` saying the token is
   bound to specific spaces or databases, **identically whether or not the thing exists**, so the
   refusal is not a way to find out what is there. An agent is told it is the boundary, not that

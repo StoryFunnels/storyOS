@@ -30,6 +30,9 @@ export type SystemDatabaseKey = (typeof SYSTEM_DATABASE_KEYS)[number];
  * email (ADR-0017); the Agents / Runs / Agent Triggers pack is system too. A system database reaches an agent only when someone NAMES
  * it in the agent's "Target databases", never by the space around it.
  *
+ * Ticket #1328 — the same holds for a token a person binds to a space (#543 `resource_scope`): the binding covers the space's user
+ * databases, and a system database only when `resource_scope.database_ids` names it. A token with no binding is not affected.
+ *
  * THE one predicate. The scope resolver (`resolveAgentScope`, behind the scope endpoint, the Runner claim, the MCP `get_agent_scope`
  * and the web agent page) and the access layer's bound-credential rule (`AccessService.closedResources`) both call it, so what the
  * agent is told it can reach and what it can actually reach cannot drift. Identity is the `is_system` FLAG, never the name: a person's
