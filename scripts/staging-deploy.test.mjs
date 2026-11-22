@@ -29,3 +29,15 @@ test('staging checks out the sha it deploys, not the tip of main', () => {
   assert.match(deploy, /checkout -q --detach \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(deploy, /^\s+git pull/m);
 });
+
+// Ticket #1121 — staging deploys through the `staging` environment and pins the
+// host key, the same way deploy-production.yml does.
+test('staging deploys through the staging environment', () => {
+  assert.match(deploy, /^ {4}environment:\s*\n {6}name:\s*staging\s*$/m);
+});
+
+test('staging pins its SSH host key', () => {
+  assert.match(deploy, /secrets\.STAGING_KNOWN_HOSTS/);
+  assert.match(deploy, /^\s+StrictHostKeyChecking yes\s*$/m);
+  assert.doesNotMatch(deploy, /accept-new|StrictHostKeyChecking=no|StrictHostKeyChecking no/);
+});

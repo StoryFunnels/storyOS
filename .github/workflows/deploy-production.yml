@@ -89,7 +89,7 @@ jobs:
           install -m 600 /dev/null ~/.ssh/prod_key && printf '%s\n' "$PROD_SSH_KEY" > ~/.ssh/prod_key
           printf '%s\n' "$PROD_KNOWN_HOSTS" > ~/.ssh/known_hosts
           # StrictHostKeyChecking=yes: a host that does not match the pinned key
-          # is refused, never silently trusted (staging's accept-new would).
+          # is refused, never silently trusted (build-images.yml pins staging the same way).
           cat > ~/.ssh/config <<EOF
           Host prod
             HostName ${{ secrets.PROD_HOST }}

@@ -267,6 +267,11 @@ jobs:
     # skips this job too.
     if: always() && needs.merge.result == 'success'
     timeout-minutes: 10
+    # Holds STAGING_HOST / STAGING_SSH_KEY / STAGING_KNOWN_HOSTS. The environment
+    # only releases them to runs from `main`, the same as deploy-production.yml.
+    environment:
+      name: staging
+      url: https://staging.storyos.dev
     # Staging is not a gate on publishing images: this job runs after `merge`,
     # so by the time it can fail, every `:<sha>` image is already pushed.
     # #1125 — it used to be `continue-on-error`, which kept the run green while
@@ -279,12 +284,30 @@ jobs:
       group: deploy-staging
       cancel-in-progress: false
     steps:
-      - name: Deploy over SSH
+      # Same pattern as deploy-production.yml: the host key is pinned, not
+      # learned on first connect.
+      - name: SSH setup (pinned host key)
         env:
-          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
         run: |
-          install -m 600 /dev/null deploy_key && printf '%s\n' "$SSH_KEY" > deploy_key
-          ssh -i deploy_key -o StrictHostKeyChecking=accept-new deploy@${{ secrets.STAGING_HOST }} bash -s <<'EOF'
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/staging_key && printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_key
+          printf '%s\n' "$STAGING_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # StrictHostKeyChecking=yes: a host that does not match the pinned key
+          # is refused, never silently trusted.
+          cat > ~/.ssh/config <<EOF
+          Host staging
+            HostName ${{ secrets.STAGING_HOST }}
+            User deploy
+            IdentityFile ~/.ssh/staging_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Deploy over SSH
+        run: |
+          ssh staging bash -s <<'EOF'
           set -euo pipefail
           cd ~/storyOS
 
