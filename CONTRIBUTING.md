@@ -83,7 +83,7 @@ fix(api): computed record title is computed from what the caller may read (ticke
 Run the full local CI. A failure after push wastes a merge-queue slot.
 
 ```bash
-pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:check && pnpm install --frozen-lockfile
+pnpm lint && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm build && pnpm docs:check && pnpm install --frozen-lockfile
 ```
 
 - If you changed API surface, run `pnpm sdk:generate` and commit the drift. CI checks for it.
