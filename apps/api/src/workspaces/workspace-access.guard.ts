@@ -22,11 +22,10 @@ export type Membership = typeof memberships.$inferSelect & {
    * codebase applies) and the caller's real role is kept here, because AccessService derives
    * the synthetic grants from it. Never set from anything but the token row.
    *
-   * `agentCredential` (ticket #1296) is true when the credential belongs to an AGENT. A whole-space binding then covers the space's
-   * USER databases only: a system database (Members, the Agents pack) is closed to it unless named in `databaseIds`. Derived from
-   * the credential's agent identity, which the guard re-resolves live on every request, so it can never be set by the caller.
+   * A whole-space binding covers the space's USER databases only (tickets #1296, #1328), for an agent's credential and a person's
+   * bound token alike: a system database (Members, the Agents pack) is closed to it unless named in `databaseIds`.
    */
-  bound?: { spaceIds: string[]; databaseIds: string[]; realRole: 'admin' | 'member' | 'guest'; agentCredential?: boolean };
+  bound?: { spaceIds: string[]; databaseIds: string[]; realRole: 'admin' | 'member' | 'guest' };
 };
 export type WorkspaceRequest = AuthedRequest & { membership: Membership };
 
@@ -76,7 +75,6 @@ export class WorkspaceAccessGuard implements CanActivate {
             spaceIds: ceiling.space_ids,
             databaseIds: ceiling.database_ids,
             realRole: membership.role,
-            ...((request as AuthedRequest).auth?.agentId ? { agentCredential: true } : {}),
           },
         }
       : membership;
