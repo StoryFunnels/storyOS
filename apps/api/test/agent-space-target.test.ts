@@ -163,16 +163,19 @@ describe('#1195 a personal space is never reachable, and an unresolvable target 
   });
 });
 
-describe('#1195 MUST KEEP: a database-only agent is unchanged', () => {
-  it('its credential is not bound (target_databases stays the agent\'s brief), and the scope API says enforced: false', async () => {
+describe('#1330 a database-only agent is bound to the databases it names', () => {
+  // Until ticket #1330 this block asserted the opposite ("target_databases stays the agent's brief", enforced: false). That was the
+  // documented design and it let a database-only credential reach every database its owner could, Members included.
+  it('its credential is bound (enforced: true): it reaches the database it names and not another database', async () => {
     const agent = await mkAgent('Db only', { target_databases: 'Ledger' });
     await assign(agent);
     const claimed = await claimFor(agent);
-    expect(claimed.agent.scope.enforced).toBe(false);
+    expect(claimed.agent.scope.enforced).toBe(true);
     expect(claimed.agent.scope.databases.map((d) => d.name)).toEqual(['Ledger']);
-    expect((await create(claimed.credential.token, otherDb, 'as before')).statusCode).toBe(201);
+    expect((await create(claimed.credential.token, ledger, 'its own database')).statusCode).toBe(201);
+    expect((await create(claimed.credential.token, otherDb, 'not its database')).statusCode).toBeGreaterThanOrEqual(403);
     const scope = (await as(admin.token, 'GET', `/workspaces/${ws}/agents/${agent}/scope`)).json();
-    expect(scope.enforced).toBe(false);
+    expect(scope.enforced).toBe(true);
   });
 
   it('an agent cannot widen its own scope by writing its own "Target spaces" (a person sets where it works)', async () => {

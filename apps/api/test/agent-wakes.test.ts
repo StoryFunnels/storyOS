@@ -308,17 +308,15 @@ describe('each wake source creates exactly one queued wake, and a repeat coalesc
 });
 
 describe('a wake is NEVER created for something its author cannot see', () => {
-  it('a guest who can read the record but not the Agents database cannot wake an agent by @-mention; a guest who can read both can', async () => {
+  it('a guest cannot wake an agent by @-mention, even one holding a grant on the Agents database (a system database is closed to a guest, ticket #1331)', async () => {
+    // Until #1331 the guest holding a viewer grant on Agents ("guestFull") woke the agent, authored by them. That grant has no effect now.
     const agent = await mkAgent(owner, 'Guarded bot');
     const ticket = await mkTicket('Guest ticket');
-    const denied = await comment(guestPartial.token, ticket, [para(agentMention(agent), txt(' please'))]);
-    expect(denied.statusCode, denied.body).toBe(201); // the comment itself is fine...
-    expect(await wakeRows(agent)).toHaveLength(0); // ...it just wakes nothing
-    const allowed = await comment(guestFull.token, ticket, [para(agentMention(agent), txt(' please'))]);
-    expect(allowed.statusCode, allowed.body).toBe(201);
-    const rows = await wakeRows(agent);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].requested_by).toBe(guestFull.id);
+    for (const guest of [guestPartial, guestFull]) {
+      const res = await comment(guest.token, ticket, [para(agentMention(agent), txt(' please'))]);
+      expect(res.statusCode, res.body).toBe(201); // the comment itself is fine...
+      expect(await wakeRows(agent)).toHaveLength(0); // ...it just wakes nothing
+    }
   });
 
   it('a person who cannot see the RECORD cannot wake an agent on it, even one they can see (record-scoped refusal)', async () => {
@@ -455,10 +453,12 @@ describe('the queue is readable, with ONE derived run_state and honest waiting c
     expect((await wakes.enqueue({ workspaceId: ws, agentId: agent, reason: 'manual', recordId: shown, requestedBy: null })).outcome).toBe('created');
     const adminView = (await as(admin.token, 'GET', `/workspaces/${ws}/agent-wakes?agent=${agent}`)).json();
     expect(adminView.data).toHaveLength(2);
-    // The full guest holds grants on Tickets and the Agents database, not on "Quiet room".
+    // A guest holding a grant on the Agents database sees nothing either: a system database is closed to a guest (ticket #1331). This line
+    // used to read the one readable wake ("shown") as the full guest; no guest reads the Agents pack now.
     const guestView = (await as(guestFull.token, 'GET', `/workspaces/${ws}/agent-wakes?agent=${agent}`)).json();
-    expect(guestView.data.map((w: { record: { id: string } }) => w.record.id)).toEqual([shown]);
-    expect((await as(guestFull.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`)).json().agents.find((a: { agent_id: string }) => a.agent_id === agent).waiting).toBe(1);
+    expect(guestView.data).toEqual([]);
+    expect((await as(guestFull.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`)).json()).toMatchObject({ agents: [], waiting_total: 0 });
+    expect(shown).toBeTruthy();
     expect((await as(admin.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`)).json().agents.find((a: { agent_id: string }) => a.agent_id === agent).waiting).toBe(2);
     // A guest with no grant on the Agents database sees no agent and no wake at all.
     const blind = await as(guestPartial.token, 'GET', `/workspaces/${ws}/agent-wakes?agent=${agent}`);
@@ -483,24 +483,20 @@ describe('the queue is readable, with ONE derived run_state and honest waiting c
     const summary = async (who: { token: string }) => (await as(who.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`)).json();
     const row = (body: { agents: Row[] }, agent: string) => body.agents.find((a) => a.agent_id === agent)!;
 
-    // The repro: every wake is about a record the guest cannot read. Empty, and it SAYS it is not the whole picture.
+    // The repro used a guest who could read the Agents database and some of the records. Ticket #1331 closed the Agents pack to every guest,
+    // so a guest now gets the empty, 'limited' answer for every agent (the same as one with no grant at all, asserted at the end of this
+    // test). The partial-read "short list" case is not reachable through a guest any more.
     const empty = await list(guestFull, onlyHiddenAgent);
     expect(empty).toMatchObject({ data: [], visibility: 'limited' });
     const guestSummary = await summary(guestFull);
-    expect(row(guestSummary, onlyHiddenAgent)).toMatchObject({ waiting: 0, waiting_visibility: 'limited' });
-    expect(guestSummary.visibility).toBe('limited');
-    // A short list says so too, and still names only the readable record.
+    expect(guestSummary).toMatchObject({ agents: [], waiting_total: 0, visibility: 'limited' });
     const short = await list(guestFull, mixedAgent);
-    expect(short.visibility).toBe('limited');
-    expect(short.data.map((w: { record: { id: string } }) => w.record.id)).toEqual([shown]);
-    expect(row(guestSummary, mixedAgent)).toMatchObject({ waiting: 1, waiting_visibility: 'limited' });
+    expect(short).toMatchObject({ data: [], visibility: 'limited' });
+    expect(shown).toBeTruthy();
     // Nothing in the answer counts or names what is hidden.
     expect(JSON.stringify([empty, short, guestSummary])).not.toContain('Hidden 1228');
     expect(JSON.stringify([empty, short])).not.toContain(hidden);
     expect(Object.keys(empty).sort()).toEqual(['data', 'next_cursor', 'visibility']);
-    // An agent nothing has hidden anything from is plainly full, for the same guest: a truthful empty.
-    expect(await list(guestFull, quietAgent)).toMatchObject({ data: [], visibility: 'full' });
-    expect(row(guestSummary, quietAgent)).toMatchObject({ waiting: 0, waiting_visibility: 'full' });
 
     // Admin: unchanged, the real list and count, full.
     expect(await list(admin, onlyHiddenAgent)).toMatchObject({ visibility: 'full' });
@@ -530,13 +526,13 @@ describe('the queue is readable, with ONE derived run_state and honest waiting c
     const ownerWake = (await as(owner.token, 'GET', `/workspaces/${ws}/agent-wakes?agent=${agent}`)).json().data[0];
     expect(ownerWake.run_state.runner_name).toBe("Owner's MacBook");
 
+    // Ticket #1331: a guest holding a grant on the Agents database used to be told "a Runner serves it" (masked). A system database is now
+    // closed to every guest, so the guest is told nothing at all: no agent row, no wake. (The masking itself is exercised by no guest now.)
     const guestRes = await as(guestFull.token, 'GET', `/workspaces/${ws}/agent-wakes/summary`);
-    const guestSummary = rowFor(guestRes.json());
-    expect(guestSummary).toMatchObject({ runner: { id: null, name: 'a Runner' }, can_run: true, waiting: 1 });
+    expect(guestRes.json().agents).toEqual([]);
+    expect(shown).toBeTruthy();
     const guestWakes = await as(guestFull.token, 'GET', `/workspaces/${ws}/agent-wakes?agent=${agent}`);
-    expect(guestWakes.json().data).toHaveLength(1);
-    expect(guestWakes.json().data[0].run_state).toMatchObject({ runner_name: 'a Runner' });
-    expect(guestWakes.json().data[0].run_state.tool).toBeUndefined();
+    expect(guestWakes.json().data).toEqual([]);
     // Nothing that names the machine or the Runner reaches the guest, in either answer.
     for (const body of [guestRes.body, guestWakes.body]) {
       expect(body).not.toContain("Owner's MacBook");

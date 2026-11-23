@@ -164,9 +164,13 @@ is a database the agent's manager cannot open: the agent's credential is never w
 An entry that matches nothing, or matches a personal space, is reported as `unresolved` rather than
 dropped silently.
 
-- **`enforced`.** An agent with at least one target space has its scope enforced on its credential: it
-  works in the user databases of those spaces plus any it names. An agent with only target databases keeps
-  the behaviour it always had: its Target databases text is its brief, not a boundary.
+- **`enforced`.** An agent that names a target space or a target database has its scope enforced on its
+  credential: it works in the user databases of those spaces plus the databases it names, and nowhere else.
+  That includes an agent with only target databases: it reaches exactly those, not the other databases in
+  their spaces, not other spaces, and no system database it does not name. Because the credential is bound,
+  it can use the routes for records, databases, fields, views, relations, comments and search inside that
+  scope, but not workspace-level routes such as documents, spaces, folders, automations, skills or the
+  members list. An agent that names nothing is not bound.
 - **Who sets it.** A person edits these fields. An agent that tries to change an agent's Target spaces is
   refused with a 403, like its Tools, Model and budget. The hire card's **Works in** picker lists
   databases only (see [Hiring an agent](/guides/hiring-an-agent/)), so to target a space, edit the
