@@ -35,8 +35,8 @@ let owner: { token: string };
 const as = (method: string, url: string, payload?: unknown) => call(app, owner.token, method, url, payload);
 const newWs = async () => (await as('POST', '/workspaces', { name: `Team Board ${Date.now()}` })).json().id as string;
 
-interface Opt { id: string; label: string; category?: string | null }
-interface Fld { id: string; displayName: string; apiName: string; type: string; options?: Opt[] }
+interface Opt { id: string; label: string; color: string; category?: string | null }
+interface Fld { id: string; displayName: string; apiName: string; type: string; config: Record<string, unknown>; options?: Opt[] }
 interface View { id: string; name: string; type: string; isDefault: boolean; config: Record<string, unknown> }
 const dbsOf = async (ws: string) => ((await as('GET', `/workspaces/${ws}/databases`)).json() as Array<{ id: string; name: string; spaceId: string }>).filter((d) => d.name !== 'Members');
 const detail = async (ws: string, name: string) => {
@@ -181,8 +181,8 @@ describe('#1146 a real install creates everything the prototype shows', () => {
   });
 
   it('Labels has the four prototype options with their colours', async () => {
-    const labels = (await detail(ws, 'Tasks')).fields.find((f) => f.displayName === 'Labels') as Fld & { options: Array<Opt & { color?: string }> };
-    expect(labels.options.map((o) => ({ label: o.label, color: o.color }))).toEqual(proto.labels);
+    const labels = must((await detail(ws, 'Tasks')).fields.find((f) => f.displayName === 'Labels'), 'the Labels field');
+    expect(must(labels.options, 'the Labels options').map((o) => ({ label: o.label, color: o.color }))).toEqual(proto.labels);
   });
 
   it('"All projects" shows Owner, Target date and Open tasks (and not the raw Tasks link); Open tasks counts only the tasks that are not Done', async () => {

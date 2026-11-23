@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { must } from './helpers/must';
 
 /**
  * #778 — `RecordsService.project()` copied `row.computedValues` VERBATIM
@@ -115,10 +116,12 @@ describe('#778 — computed_values agrees with the caller-narrowed values, never
 
     const list = await as(guest.token, 'GET', `/workspaces/${wsId}/databases/${projectsDb}/records`);
     expect(list.statusCode, list.body).toBe(200);
-    const row = (list.json().data as Array<{ id: string }>).find((r) => r.id === projectA) as {
-      values: Record<string, unknown>;
-      computed_values: Record<string, unknown>;
-    };
+    const row = must(
+      (list.json().data as Array<{ id: string; values: Record<string, unknown>; computed_values: Record<string, unknown> }>).find(
+        (r) => r.id === projectA,
+      ),
+      'project A in the guest\'s list',
+    );
     expect(row.values[countApiName]).toBe(1);
     expect(row.computed_values[countFieldId]).toBe(1);
   });

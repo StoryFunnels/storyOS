@@ -165,8 +165,10 @@ across every user and every record in the workspace, and filterable by actor, by
 space, database or view id), by event type, by the kind of actor (`source`: human, agent, automation
 or mcp), and by date range (default: the last 30 days).
 
-- **In the app: Settings → Audit log**, visible to admins only. Filter by **Actor**, **Type**, a
-  **Record or object ID**, and a **From** / **To** date, and use **Load more** to page back. A
+- **In the app: Settings → Audit log**, visible to admins only. Each row names the person and says
+  what happened in words, with the record's number, title and database, never an id. Under
+  **Filter**, pick an **Actor**, a **Type**, a **Record or object ID**, and a **From** / **To** date,
+  and use **Load more** to page back. A copy button on each row takes the record ID for that filter. A
   non-admin who opens the address sees only "Only workspace admins can view the audit log", and the
   page makes no request for the data.
 - **A removed member still appears by name** on their historical rows, the same no-FK design this
@@ -186,6 +188,11 @@ and by `list_audit_log` on both event rows and field-change rows:
   Runner later does not rewrite history.
 
 A row written by a person has these fields `null`.
+
+Every row about a record also carries the words, so you need no lookup per row: `record` (`id`,
+`number`, `title`, `database_id`, `database_name`, `deleted`, `withheld`), `actor_name`, `actor_kind`
+(`member` or `system`) and `actor_removed`, and on a relation event `other_record`. A record you may
+not read comes back with only its `id` and `withheld: true`, and its values are blanked.
 
 **In the app**, the Settings → Audit log detail names the agent. At the time of writing it does not
 show the run number or the Runner's name; those two come from the API and MCP.

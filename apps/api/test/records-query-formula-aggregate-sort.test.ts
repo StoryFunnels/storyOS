@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
+import { must } from './helpers/must';
 
 /**
  * #300 slice B — sorting and filtering by a FORMULA RELATION AGGREGATE
@@ -57,6 +58,9 @@ async function issue(projectId: string, values: Record<string, unknown>): Promis
   return created;
 }
 
+/** A row of POST .../records/query, as far as these tests read it. */
+type QueryRow = { id: string; title: string; values: Record<string, unknown> };
+
 /**
  * The recompute cascade is fire-and-forget by design (bounded fan-out, never
  * awaited by the write that triggered it), so a materialized value lands shortly
@@ -65,9 +69,9 @@ async function issue(projectId: string, values: Record<string, unknown>): Promis
  */
 async function pollQuery(
   payload: Record<string, unknown>,
-  until: (rows: Array<Record<string, never>>) => boolean,
-): Promise<Array<Record<string, never>>> {
-  let rows: Array<Record<string, never>> = [];
+  until: (rows: Array<QueryRow>) => boolean,
+): Promise<Array<QueryRow>> {
+  let rows: Array<QueryRow> = [];
   for (let i = 0; i < 40; i++) {
     const res = await inject('POST', `/workspaces/${wsId}/databases/${projectsDb}/records/query`, payload);
     expect(res.statusCode, res.body).toBeLessThan(300);
@@ -78,7 +82,7 @@ async function pollQuery(
   return rows; // let the assertion below fail with a readable diff
 }
 
-const titlesOf = (rows: Array<Record<string, never>>) => rows.map((r) => (r as { title: string }).title);
+const titlesOf = (rows: Array<QueryRow>) => rows.map((r) => r.title);
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -150,15 +154,13 @@ describe('sorting by a formula relation aggregate (#300)', () => {
     // Big totals 13, Small 1 — the same ORDER as the count here, so the real
     // assertion is the value below: a sum that silently counted would read 2.
     expect(titlesOf(rows).slice(0, 2)).toEqual(['Big', 'Small']);
-    const bigRow = rows.find((r) => (r as { title: string }).title === 'Big') as unknown as {
-      values: Record<string, unknown>;
-    };
+    const bigRow = must(rows.find((r) => r.title === 'Big'), 'the Big row');
     expect(bigRow.values.total_estimate).toBe(13);
   });
 
   it('an empty relation is 0 for count and empty for sum', async () => {
     const rows = await pollQuery({ filter: { and: [{ field: 'name', op: 'eq', value: 'Empty' }] } }, (r) => r.length === 1);
-    const values = (rows[0] as unknown as { values: Record<string, unknown> }).values;
+    const values = must(rows[0], 'the Empty row').values;
     expect(values.open_issues).toBe(0);
     // Not 0 — "no data" and "adds up to zero" are different answers, and this
     // matches Rollup deliberately so the two never disagree.

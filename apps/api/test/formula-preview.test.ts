@@ -6,6 +6,7 @@ import { connectTestDb } from './helpers/db';
 import { authed, signUpUser } from './helpers/users';
 import { call, joinAs, setRestricted } from './helpers/members';
 import type { Person } from './helpers/members';
+import { must } from './helpers/must';
 import { fields, records } from '../src/db/schema';
 
 /**
@@ -267,7 +268,7 @@ describe('a GUEST with RECORD-scoped grants previews ONLY the records they can r
       return { token: user.token, email: user.email, id: (await call(app, user.token, 'GET', '/me')).json().id } as Person;
     };
     // Deals 2 and 4 only: no database grant, no space grant. Deal 4 is inside the newest-5 window, Deal 2 is outside it.
-    guest = await invite('Record Guest', [{ record_id: ids[1], role: 'viewer' }, { record_id: ids[3], role: 'viewer' }]);
+    guest = await invite('Record Guest', [{ record_id: must(ids[1], 'Deal 2'), role: 'viewer' }, { record_id: must(ids[3], 'Deal 4'), role: 'viewer' }]);
     // A guest whose only grant is a record in a DIFFERENT database: no access at all to Deals.
     const quoteRecs = (await inject('GET', `/workspaces/${ws}/databases/${quotesDb}/records`)).json();
     grantless = await invite('Elsewhere Guest', [{ record_id: (quoteRecs.data ?? quoteRecs.records ?? quoteRecs)[0].id, role: 'viewer' }]);

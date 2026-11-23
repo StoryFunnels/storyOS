@@ -9,6 +9,8 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **15 Nov** — The audit log names the person and says what happened in words, with the record's number, title and database; its filters sit under **Filter**, and each row can copy its record ID. [Data & security, and You](/settings/data-and-you/)
+- **15 Nov** — Agent rules leads with **Recent agent actions**, in the audit log's words, and keeps the read-only enforcement view in a closed **How agent rules are enforced** section. [AI](/settings/ai/)
 - **11 Nov** — The MCP tool list is lighter for clients that cap tools: long grammars moved out of tool descriptions into `get_started` sections, and maintainer tools are only on the internal profile. [MCP tools](/mcp/tools/#how-an-agent-reads-it)
 - **13 Nov** — The gold mark on a record, `last_ai_change_at`, now means an agent or an MCP connection changed it. An automation or a person in the web app no longer sets it, and old values were recomputed. [When an AI last changed a record](/api/conventions/#when-an-ai-last-changed-a-record)
 - **11 Nov** — A pack install onto a database you adopted stops with a message naming the field when a relation's name is taken by a field of another type, the preview warns first, and installing again after an uninstall works. [A relation whose field name is already taken](/mcp/tools/#a-relation-whose-field-name-is-already-taken)

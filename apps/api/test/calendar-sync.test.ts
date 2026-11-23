@@ -74,7 +74,10 @@ describe('Google Calendar pull and two-way sync (#20)', () => {
     // `updatedMin`, never by event date, so those are pure data.)
     let externalUpdated = new Date(Date.now() - 60_000).toISOString();
     const outbound: Array<{ url: string; method: string; body?: string }> = [];
-    calendar.fetcher = async (url, init) => {
+    calendar.fetcher = async (input, init) => {
+      // CalendarSyncService always fetches by URL string; anything else is a request this fake was not written for.
+      if (typeof input !== 'string') throw new Error(`Unexpected Calendar request input: ${String(input)}`);
+      const url = input;
       const method = init?.method ?? 'GET';
       if (url.includes('/events?')) {
         return new Response(

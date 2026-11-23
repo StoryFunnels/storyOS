@@ -6,6 +6,7 @@ import { DEV_TRACKER_PACK } from './dev-tracker';
 import { TEAM_BOARD_PACK } from './team-board';
 import { TEAM_WIKI_PACK } from './team-wiki';
 import { DEAL_DESK_PACK } from './deal-desk';
+import { LEAD_FOLLOW_UP_PACK } from './lead-follow-up';
 
 /**
  * The built-in Business Pack gallery (MN-219 / #161).
@@ -27,6 +28,7 @@ export const PACK_REGISTRY: PackRegistryEntry[] = [
   DEV_TRACKER_PACK,
   TEAM_WIKI_PACK,
   DEAL_DESK_PACK,
+  LEAD_FOLLOW_UP_PACK,
   {
     slug: 'support-inbox',
     name: 'Support Inbox',

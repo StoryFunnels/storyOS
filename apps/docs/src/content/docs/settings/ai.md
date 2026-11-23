@@ -42,8 +42,15 @@ person". From the top:
   the person whose AI wrote them. Skills already shared stay shared. It is on until an admin turns it
   off, and only a person can change it: the web app is the way, not an API token or a connected AI.
   This switch used to be on General. See [skills](/concepts/skills/) for what sharing means.
-- **Agents**, **Gates in force**, **Always enforced** and **What this page cannot show**: the read-only
-  view of what the server enforces, as before. Nothing in these sections widens a scope or decides an
-  approval. See [approval gates](/concepts/approval-gates/).
+- **Recent agent actions.** What agents and API tokens changed lately, newest first. Each row starts
+  with the agent, then says what it did in words, the same words as the audit log: a record chip
+  with its number and title, and the database it is in. Select a row for the full chain. A link
+  **Full audit log →** opens [Settings → Audit log](/settings/data-and-you/). If some rows name no
+  credential, one note above the list says so, instead of repeating it on each row.
+- **How agent rules are enforced.** A closed section. Its one-line summary says "no approval gate is
+  in force" when that is true, so you do not have to open it. Inside: **Agents**, **Gates in force**,
+  **Approvals**, **Always enforced** and **What this page cannot show**, the read-only view of what
+  the server enforces. Nothing in these sections widens a scope or decides an approval. See
+  [approval gates](/concepts/approval-gates/).
 
 **Runners** is covered in [the Runner guide](/guides/runner/).

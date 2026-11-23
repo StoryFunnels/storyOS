@@ -12,7 +12,7 @@ import { call } from './helpers/members';
  */
 let app: NestFastifyApplication;
 let token: string;
-let ws: string, space: string, db: string, field: string;
+let ws: string, space: string, db: string;
 const as = (method: string, url: string, payload?: unknown) => call(app, token, method, url, payload);
 const ids: Record<string, string> = {};
 
@@ -22,8 +22,13 @@ beforeAll(async () => {
   ws = (await as('POST', '/workspaces', { name: 'Empty Patch WS' })).json().id;
   space = (await as('GET', `/workspaces/${ws}/spaces`)).json()[0].id;
   db = (await as('POST', `/workspaces/${ws}/databases`, { space_id: space, name: 'Tasks' })).json().id;
-  field = (await as('POST', `/workspaces/${ws}/databases/${db}/fields`, { display_name: 'Kind', type: 'select', options: [{ label: 'A', color: 'gray' }] })).json();
-  ids.option = field.options?.[0]?.id;
+  const field = (await as('POST', `/workspaces/${ws}/databases/${db}/fields`, { display_name: 'Kind', type: 'select', options: [{ label: 'A', color: 'gray' }] })).json() as {
+    id: string;
+    options?: Array<{ id: string }>;
+  };
+  // Left unset when absent: the probes' own 'a fixture was not created' check then names it.
+  const optionId = field.options?.[0]?.id;
+  if (optionId) ids.option = optionId;
   ids.field = field.id;
   ids.record = (await as('POST', `/workspaces/${ws}/databases/${db}/records`, { values: { name: 'r' } })).json().id;
   ids.view = (await as('POST', `/workspaces/${ws}/databases/${db}/views`, { name: 'V', type: 'table' })).json().id;
