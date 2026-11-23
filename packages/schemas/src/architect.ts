@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { creatableFieldTypeSchema, OPTION_COLORS, stateCategorySchema } from './fields';
 import { relationCardinalitySchema } from './relations';
+import { filterSchema } from './query';
 
 /**
  * The Architect's plan (#213 / #214, ADR-0010 §6 —
@@ -165,6 +166,11 @@ export const planTriggerSchema = z.object({
   state_option: nameSchema,
   /** True = this trigger never starts a run by itself (ADR-0010 §5): a person starts each run. */
   human_gate: z.boolean().default(false),
+  /**
+   * ticket #1324 follow-up - a record filter (the one saved views use, field by api_name) that must MATCH for this trigger to wake the
+   * agent. A record that does not match wakes nothing, and the skip is recorded as a wake that was skipped. Optional: absent = always wakes.
+   */
+  condition: filterSchema.optional(),
 });
 export type PlanTrigger = z.infer<typeof planTriggerSchema>;
 

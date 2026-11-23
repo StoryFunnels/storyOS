@@ -2,7 +2,7 @@ import { Body, Controller, Get, NotFoundException, Param, Post, Query, Req, UseG
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { agentScopeResponseSchema, agentWakeSourcesResponseSchema } from '@storyos/schemas';
+import { agentScopeResponseSchema, agentWakeSourcesResponseSchema, filterSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
 import { assertHumanSource } from '../auth/assert-human-source';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
@@ -29,6 +29,12 @@ const createTriggerSchema = z
     /** True = this trigger never starts a run by itself (ADR-0010 §5): a person starts each run. State bindings only. */
     human_gate: z.boolean().optional(),
     enabled: z.boolean().optional(),
+    /**
+     * ticket #1324 follow-up: a record filter (the shape saved views use, fields by api_name) that must MATCH for the trigger to wake the
+     * agent, checked at wake time against the record. A record that does not match wakes nothing, and the skip shows in the wake list. A
+     * filter that cannot be compiled against the database is a 422 here; one that breaks later fails closed (wakes nothing).
+     */
+    condition: filterSchema.optional(),
   })
   .refine(
     (v) => (v.relation_field_id ? !v.state_field_id && !v.state_option_id : Boolean(v.state_field_id && v.state_option_id)),

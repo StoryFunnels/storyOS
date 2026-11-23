@@ -794,6 +794,8 @@ export class ArchitectService {
           state_option_id: option.id,
           human_gate: planned.human_gate,
           enabled: state.enabled,
+          // ticket #1324 follow-up: the trigger's own filter (a pack's Do Not Contact guard). Validated by createBinding against the live database.
+          ...(planned.condition ? { condition: planned.condition } : {}),
         },
         'agent',
       );

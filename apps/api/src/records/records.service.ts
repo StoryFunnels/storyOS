@@ -54,6 +54,7 @@ import type { ChangeSource } from '../db/schema';
 import { isAgencySource } from './agency-source';
 import type { LabelledField } from '@storyos/schemas';
 import type { QueryRecordsInput } from '@storyos/schemas';
+import { readTriggerCondition, TRIGGER_CONDITION_MAX_CHARS } from '../agents/trigger-condition';
 import { compileFilter, cursorCondition, filterReferencedFields, optionRank, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter, keysBetween } from './rank';
@@ -3161,6 +3162,33 @@ export class RecordsService implements OnModuleInit {
     }
   }
 
+  /**
+   * ticket #1324 follow-up - a trigger's `condition` written through the records API (the edit a person makes on the Agent Triggers database)
+   * goes through the same gate as one created through `POST /agents/triggers`: it must be a valid filter, and it must COMPILE against the
+   * binding's database. A write that cannot is a 422 here, not a trigger that silently fails closed later. Identity is the is_system flag
+   * plus the fixed key 'agent_triggers' (#1063), never the name. Clearing it (empty) is allowed: that is removing the guard on purpose.
+   * `bindingDatabaseId` is the database the binding watches: the record's own `database` value, or the stored one on an update.
+   */
+  private async assertTriggerConditionWritable(databaseId: string, input: Record<string, unknown>, actorId: string | null, storedBindingDatabase?: () => Promise<string | undefined>): Promise<void> {
+    if (!('condition' in input)) return;
+    const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+    if (!db?.isSystem || db.systemKey !== 'agent_triggers') return;
+    const condition = readTriggerCondition(input['condition']);
+    if (condition.kind === 'none') return;
+    if (condition.kind === 'invalid') throw new UnprocessableEntityException(`The trigger's condition is not usable: ${condition.reason}.`);
+    if (typeof input['condition'] === 'string' && input['condition'].length > TRIGGER_CONDITION_MAX_CHARS) {
+      throw new UnprocessableEntityException(`The trigger's condition is longer than ${TRIGGER_CONDITION_MAX_CHARS} characters.`);
+    }
+    const bound = typeof input['database'] === 'string' ? (input['database'] as string) : await storedBindingDatabase?.();
+    if (!bound || !/^[0-9a-f-]{36}$/i.test(bound)) return; // nothing to compile against yet: the evaluator still fails closed
+    const defs = await this.fieldDefs(bound);
+    try {
+      compileFilter(condition.filter, { defs: new Map(defs.map((d) => [d.api_name, d])), currentUserId: actorId ?? '' });
+    } catch (error) {
+      throw new UnprocessableEntityException(`The trigger's condition cannot be used on that database: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   /** Batch create (≤100, enforced by the DTO), one transaction, one activity event each. */
   async createBatch(
     workspaceId: string,
@@ -3189,6 +3217,7 @@ export class RecordsService implements OnModuleInit {
     for (const input of inputs) {
       await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
       await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+      await this.assertTriggerConditionWritable(databaseId, input, actorId);
     }
     const defs = await this.fieldDefs(databaseId);
     /*
@@ -3538,6 +3567,10 @@ export class RecordsService implements OnModuleInit {
     await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
     await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
     await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+    await this.assertTriggerConditionWritable(databaseId, input, actorId, async () => {
+      const stored = await this.get(databaseId, recordId).catch(() => null);
+      return typeof stored?.values['database'] === 'string' ? (stored.values['database'] as string) : undefined;
+    });
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
