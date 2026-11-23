@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { EntityIcon } from '@/components/ui/icon-picker';
 import { useWithShortcut } from '@/lib/shortcuts';
 import { databaseColor } from '@/lib/entity-color';
+import { newRecordHref } from '@/components/entity/new-record';
 
 /**
  * Mobile quick-capture (mobile-responsive-plan.md, MN-230c): "a fast 'new
@@ -43,7 +44,7 @@ export function QuickAddFab() {
     onSuccess: (created, dbId) => {
       setOpen(false);
       setQuery('');
-      router.push(`/w/${ws}/d/${dbId}/r/${created.id}`);
+      router.push(newRecordHref(ws, dbId, created.id));
     },
     onError: () => toast.error('Could not create item'),
   });
