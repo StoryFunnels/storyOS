@@ -548,7 +548,7 @@ describe('#1324 follow-up: the Do Not Contact trigger condition', () => {
   }
 
   it('toggling Do Not Contact on an existing lead, then moving its stage, is judged on the value AT THE MOVE', async () => {
-    const id = await mkLead('Toggled lead');
+    const id = await mkLead('Toggled lead', { stage: null }); // explicitly null: a lead sent without a stage lands in the first one (ticket #1325)
     await patch(id, { ...dnc(true) });
     await patch(id, { stage: optId(leads, 'Stage', 'Contacted') });
     let w = await wakesFor(id);
