@@ -111,6 +111,7 @@ import { DragPreview, useDragPresentation, vacatedSlotClass } from '@/components
 import type { RecordRow } from '@/components/table-view/use-table-data';
 import { useSortableSensors } from '@/components/ui/drag-presentation';
 import { AI_POLL_MS, recordHasPendingAi } from '@/lib/ai-field-state';
+import { NEW_RECORD_PARAM, wantsTitleFocus } from './new-record';
 
 /**
  * The full record body — title, pinned strip, body fields (collections + rich
@@ -458,6 +459,21 @@ export function RecordDetail({
   // #937 — the title is a textarea that grows to its text: a record title wraps, it is never cut to one line with an ellipsis.
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const titleText = titleDraft ?? record.data?.title ?? '';
+  // Ticket #1326 — arrived from a quick-add / New (`?new=1`): put the cursor in the title once the record has rendered,
+  // then drop the flag so a refresh or Back does not steal focus. Only the record's own route (no `variant`): a peek
+  // pane beside a view must not grab focus from the view.
+  const recordLoaded = !!record.data;
+  const databaseLoaded = !!database.data;
+  useEffect(() => {
+    if (variant || !recordLoaded || typeof window === 'undefined') return;
+    if (!wantsTitleFocus(window.location.search)) return;
+    const el = titleRef.current;
+    if (!el) return; // gate still showing — retry on the next render
+    el.focus();
+    const url = new URL(window.location.href);
+    url.searchParams.delete(NEW_RECORD_PARAM);
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [variant, recordLoaded, databaseLoaded]);
   useEffect(() => {
     const el = titleRef.current;
     if (!el) return;

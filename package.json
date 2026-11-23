@@ -11,6 +11,7 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "typecheck:test": "turbo run typecheck:test",
     "test": "turbo run test && pnpm test:scripts",
     "test:scripts": "node --test scripts/*.test.mjs",
     "format": "prettier --write .",

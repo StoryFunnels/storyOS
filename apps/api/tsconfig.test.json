@@ -1,6 +1,8 @@
 {
-  // Type-checks apps/api/test/** (ticket #1247). Not wired into `typecheck` or CI
-  // yet: that happens once `pnpm --filter @storyos/api typecheck:test` is clean.
+  // Type-checks apps/api/test/** (ticket #1247). Runs in CI as `pnpm typecheck:test`
+  // (turbo task, `dependsOn: ["^build"]`): workspace packages such as @storyos/sdk
+  // resolve to their built dist/ types, so they must be built first. Running
+  // `pnpm --filter @storyos/api typecheck:test` directly needs that build too.
   //
   // Vitest runs these files through Vite as ES modules with bundler-style
   // resolution, not through the NodeNext/CommonJS build that tsconfig.json

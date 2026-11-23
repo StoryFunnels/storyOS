@@ -23,6 +23,7 @@ import {
   useApplyTemplate,
   useRecordTemplates,
 } from './record-templates';
+import { newRecordHref } from '@/components/entity/new-record';
 
 const PRIMARY =
   'border border-primary bg-primary text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60';
@@ -48,7 +49,7 @@ export function NewRecordButton({ ws, db }: { ws: string; db: string }) {
       if (error) throw error;
       return data as unknown as { id: string };
     },
-    onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`),
+    onSuccess: (created) => router.push(newRecordHref(ws, db, created.id)),
     onError: () => toast.error('Could not create the record'),
   });
   useEffect(() => {

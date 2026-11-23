@@ -61,6 +61,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/compon
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { databaseColor } from '@/lib/entity-color';
+import { newRecordHref } from '@/components/entity/new-record';
 
 function DatabasePageInner() {
   const confirm = useConfirm();
@@ -467,8 +468,8 @@ function DatabasePageInner() {
                 ? undefined
                 : () =>
                     createRecord.mutate(
-                      { name: 'Untitled' },
-                      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+                      {},
+                      { onSuccess: (created) => router.push(newRecordHref(ws, db, created.id)) },
                     )
             }
           />
