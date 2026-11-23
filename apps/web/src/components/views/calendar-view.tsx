@@ -43,6 +43,7 @@ import { activeFilterNode, andFilterNodes } from './filter-config';
 import { ViewQueryError } from './query-error';
 import { CALENDAR_INCREMENT_OPTIONS, CalendarTimeGrid, dayRangeFilter } from './calendar-time-grid';
 import { shiftDateValue } from './calendar-time-grid-layout';
+import { newRecordHref } from '@/components/entity/new-record';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -248,8 +249,8 @@ export function CalendarView({
   function handleCreate(iso: string) {
     if (!writable || !dateField) return;
     createRecord.mutate(
-      { name: 'Untitled', [dateField.apiName]: iso },
-      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+      { [dateField.apiName]: iso },
+      { onSuccess: (created) => router.push(newRecordHref(ws, db, created.id)) },
     );
   }
 

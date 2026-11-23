@@ -23,6 +23,7 @@ import { useViewSearch } from './view-search';
 import { feedActionFields } from './feed-actions';
 import { EmptyDatabase, databaseNoun } from './empty-database';
 import { ViewQueryError } from './query-error';
+import { newRecordHref } from '@/components/entity/new-record';
 
 /** Feed view (MN-093): a single-column stream of wide cards — title, a preview of
  * the record's first rich-text field, the card fields, and who/when. Built for
@@ -53,8 +54,8 @@ export function FeedView({
 
   const addRecord = () =>
     createRecord.mutate(
-      { name: 'Untitled' },
-      { onSuccess: (created) => router.push(`/w/${ws}/d/${db}/r/${created.id}`) },
+      {},
+      { onSuccess: (created) => router.push(newRecordHref(ws, db, created.id)) },
     );
 
   // #702 — feed was found rendering `row.number` unconditionally too, the same
