@@ -927,6 +927,30 @@ export const updateAutomationSchema = z
   });
 
 /**
+ * #1088 / #1325 - the option a NEW record starts at when its field has no configured default, or `undefined` when the field is not a
+ * state (or has nothing to start at). The ONE place that says what a state is, for every create path.
+ *
+ *   - a `workflow` field is a state by type: its first option, in the field's own order (#1088);
+ *   - a `select` is a state exactly when EVERY one of its options carries a state category (#1014, what a pack declares and a board
+ *     groups by): its first option in the field's order. A select with no categories (Priority, Type), or only some (an ordinary select
+ *     with one categorised option), is NOT a state and is never filled: unconfigured is not invalid. Every built-in pack declares its
+ *     state as a fully categorised select, which is why #1088's workflow-only rule left every pack-made database starting empty (#1325);
+ *   - anything else, `multi_select` included, is never filled.
+ *
+ * `optionCategories` is `FieldDef.option_categories` (option id to category, `null` = none).
+ */
+export function firstStateOptionId(
+  type: string,
+  optionOrder: readonly string[] | undefined,
+  optionCategories?: Readonly<Record<string, string | null>>,
+): string | undefined {
+  if (!optionOrder || optionOrder.length === 0) return undefined;
+  if (type === 'workflow') return optionOrder[0];
+  if (type === 'select') return optionOrder.every((id) => optionCategories?.[id] != null) ? optionOrder[0] : undefined;
+  return undefined;
+}
+
+/**
  * #203 — the value a field prefills onto a NEW record, or `undefined` when it
  * has no default.
  *
@@ -944,11 +968,13 @@ export function fieldDefaultValue(
   config: Record<string, unknown> | null | undefined,
   now: Date,
   /**
-   * #1088 — the field's option ids in the field's own order (`FieldDef.option_order`). Only a WORKFLOW field uses it: with no
-   * configured default, a new record starts at the first state. Omitted by a caller that has no options to hand, which then gets
-   * exactly the old behaviour (only a configured default).
+   * #1088 — the field's option ids in the field's own order (`FieldDef.option_order`). Only a STATE uses it (a workflow field, or since
+   * #1325 a categorised select; see `firstStateOptionId`): with no configured default, a new record starts at the first state. Omitted
+   * by a caller that has no options to hand, which then gets exactly the old behaviour (only a configured default).
    */
   optionOrder?: readonly string[],
+  /** #1325 - option id to state category (`FieldDef.option_categories`): what makes a `select` a state. */
+  optionCategories?: Readonly<Record<string, string | null>>,
 ): unknown {
   const cfg = config ?? {};
   if (type === 'checkbox') {
@@ -981,12 +1007,11 @@ export function fieldDefaultValue(
     // other type it handles.
     const def = cfg['default'];
     if (typeof def === 'string' && def.length > 0) return def;
-    // #1088 — no configured default, and this is a WORKFLOW field (a state): a new record starts at the FIRST state, so it is on a
+    // #1088 — no configured default, and this is a state (firstStateOptionId): a new record starts at the FIRST state, so it is on a
     // board column and in a queue from the moment it exists ("everything lands in Triage"). A plain `select` is NOT filled: an empty
     // Priority or Type is a legitimate answer, an empty State never is. Explicitly empty still wins, because applyFieldDefaults only
     // fills an ABSENT key.
-    if (type === 'workflow' && optionOrder && optionOrder.length > 0) return optionOrder[0];
-    return undefined;
+    return firstStateOptionId(type, optionOrder, optionCategories);
   }
   return undefined;
 }
@@ -999,14 +1024,21 @@ export function fieldDefaultValue(
  * form should not have the server put it back.
  */
 export function applyFieldDefaults(
-  defs: Array<{ api_name: string; type: string; config?: Record<string, unknown> | null; option_order?: string[] }>,
+  defs: Array<{
+    api_name: string;
+    type: string;
+    config?: Record<string, unknown> | null;
+    option_order?: string[];
+    /** #1325 - lets a categorised `select` start at its first state, like a workflow field. */
+    option_categories?: Record<string, string | null>;
+  }>,
   input: Record<string, unknown>,
   now: Date,
 ): Record<string, unknown> {
   const out = { ...input };
   for (const def of defs) {
     if (def.api_name in out) continue;
-    const value = fieldDefaultValue(def.type, def.config, now, def.option_order);
+    const value = fieldDefaultValue(def.type, def.config, now, def.option_order, def.option_categories);
     if (value !== undefined) out[def.api_name] = value;
   }
   return out;

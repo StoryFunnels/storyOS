@@ -461,8 +461,10 @@ describe('#1324 the automation and the agent triggers DO their job', () => {
       expect(await wakes(), `created in ${stage}`).toBe(n);
     }
     // a MOVE into a stage wakes it too, and a change to anything else does not
-    // (a wake is one per lead while it is pending, so the move is tried on a lead that has not woken it yet: created with no stage)
-    const mk = await as('POST', `/workspaces/${ws}/databases/${leads.id}/records`, { values: { name: 'Created with no stage' } });
+    // (a wake is one per lead while it is pending, so the move is tried on a lead that has not woken it yet: created with its stage
+    // EXPLICITLY null. Leaving Stage out would not do: a fully-categorised select takes its first state on create (ticket #1325), so
+    // a lead sent without a stage lands in the first stage and enters it, which is a wake, not the "no stage, no wake" this proves.)
+    const mk = await as('POST', `/workspaces/${ws}/databases/${leads.id}/records`, { values: { name: 'Created with no stage', stage: null } });
     expect(mk.statusCode, mk.body).toBe(201);
     expect(await wakes(), 'no stage, no wake').toBe(n);
     await as('PATCH', `/workspaces/${ws}/databases/${leads.id}/records/${mk.json().id}`, { values: { company: 'Renamed Co' } });
