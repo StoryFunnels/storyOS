@@ -232,3 +232,62 @@ describe('#1296 an agent owned by a GUEST', () => {
     await expectMembersClosed(token, 'guest-owned agent');
   });
 });
+
+/**
+ * ticket #1328 — the same rule for a token a PERSON binds to a space (#543 `resource_scope`): the binding covers the space's user
+ * databases, and a system database only when the binding names it. An unbound token is not a binding and is unchanged.
+ */
+describe('#1328 a token a person binds to a space', () => {
+  const mintBound = async (token: string, resource_scope: { space_ids?: string[]; database_ids?: string[] }) => {
+    const res = await as(token, 'POST', '/me/tokens', { name: 'bound by a person', workspace_id: ws, scope: 'write', resource_scope: { space_ids: [], database_ids: [], ...resource_scope } });
+    expect(res.statusCode, res.body).toBe(201);
+    return res.json().token as string;
+  };
+
+  it('bound to a space by an ADMIN or a MEMBER (a guest cannot mint one): no read or write of Members, and Members is not listed', async () => {
+    for (const [label, owner] of [['admin', admin.token], ['member', manager.token]] as const) {
+      const token = await mintBound(owner, { space_ids: [general] });
+      await expectMembersClosed(token, `${label}-bound PAT`);
+      const dbs = await as(token, 'GET', `/workspaces/${ws}/databases`);
+      expect(dbs.statusCode, dbs.body).toBeLessThan(300);
+      expect(JSON.stringify(dbs.json()), `${label}: Members listed`).not.toContain(membersDb);
+      const systemIds = (await pool.query('select id from databases where workspace_id = $1 and is_system', [ws])).rows.map((r: { id: string }) => r.id);
+      for (const id of systemIds) expect((await query(token, id)).statusCode, `${label}: system database ${id}`).toBeGreaterThanOrEqual(403);
+    }
+  });
+
+  it('MUST KEEP: the space-bound token still reads and writes the space\'s user databases, the one called "Members" included', async () => {
+    const token = await mintBound(manager.token, { space_ids: [general] });
+    expect(answered(await query(token, ledger))).toBe(true);
+    expect((await create(token, ledger, 'bound PAT wrote this')).statusCode).toBe(201);
+    const own = await query(token, lookalike);
+    expect(answered(own), own.body).toBe(true);
+    expect(own.body).toContain('My own list entry');
+    expect((await query(token, elsewhere)).statusCode).toBeGreaterThanOrEqual(403);
+  });
+
+  it('MUST KEEP: a binding that NAMES Members reaches it, beside the space or alone, and no other system database', async () => {
+    for (const binding of [{ space_ids: [general], database_ids: [membersDb] }, { database_ids: [membersDb] }]) {
+      const token = await mintBound(admin.token, binding);
+      const read = await query(token, membersDb);
+      expect(answered(read), read.body).toBe(true);
+      expect(read.body).toContain(adminEmail);
+      const others = (await pool.query('select id from databases where workspace_id = $1 and is_system and id <> $2', [ws, membersDb])).rows.map((r: { id: string }) => r.id);
+      for (const id of others) expect((await query(token, id)).statusCode, `system database ${id}`).toBeGreaterThanOrEqual(403);
+    }
+  });
+
+  it('MUST KEEP: an UNBOUND token (admin\'s or member\'s) and a session reach Members exactly as before', async () => {
+    const unbound = async (owner: string) => {
+      const res = await as(owner, 'POST', '/me/tokens', { name: 'unbound', workspace_id: ws, scope: 'write' });
+      expect(res.statusCode, res.body).toBe(201);
+      return res.json().token as string;
+    };
+    for (const token of [await unbound(admin.token), await unbound(manager.token), admin.token, manager.token]) {
+      const read = await query(token, membersDb);
+      expect(answered(read), read.body).toBe(true);
+      expect(read.body).toContain(adminEmail);
+      expect(JSON.stringify((await as(token, 'GET', `/workspaces/${ws}/databases`)).json())).toContain(membersDb);
+    }
+  });
+});
