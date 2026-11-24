@@ -2377,12 +2377,18 @@ export class RecordsService implements OnModuleInit {
    * An anonymous write (`actorId` null: a public form submit, its inline create, a portal recipient's edit) gets
    * the error without it — otherwise any visitor read every member's name and email out of one bad submit, where
    * the form definition deliberately hands out id + name only.
+   *
+   * #1334 — the same holds for a caller with partial access: a guest, or a credential bound to specific spaces or
+   * databases (the access guard runs that as role 'guest', see WorkspaceAccessGuard). It is told the person was not
+   * found, without the list. The list stays for a full member (admin/member session, unbound token) and for internal
+   * writers that pass no membership. What a write ACCEPTS is unchanged for everyone.
    */
   private async resolveUserInputs(
     workspaceId: string,
     defs: FieldDef[],
     input: Record<string, unknown>,
     actorId: string | null,
+    membership?: Membership,
   ): Promise<Record<string, unknown>> {
     const userKeys = Object.keys(input).filter(
       (k) => defs.find((d) => d.api_name === k)?.type === 'user',
@@ -2413,9 +2419,10 @@ export class RecordsService implements OnModuleInit {
       const named = byName.get(value.toLowerCase()) ?? [];
       if (named.length === 1) return named[0]!.id;
 
-      // Name the candidates: the agent's next turn should be able to fix itself. Never to an anonymous caller (#1069).
-      const who =
-        actorId === null ? '' : ` Members: ${directory.map((u) => `${u.name} <${u.email}>`).join(', ')}`;
+      // Name the candidates: the agent's next turn should be able to fix itself. Only to a full member: never to an
+      // anonymous caller (#1069), a guest or a bound credential (#1334).
+      const listCandidates = actorId !== null && membership?.role !== 'guest';
+      const who = listCandidates ? ` Members: ${directory.map((u) => `${u.name} <${u.email}>`).join(', ')}` : '';
       throw new UnprocessableEntityException({
         message: 'Record values validation failed',
         details: [
@@ -3205,7 +3212,7 @@ export class RecordsService implements OnModuleInit {
     // MN-118: people resolve to real ids before validation, so a name can never be
     // stored verbatim and reported as success.
     const resolved = await Promise.all(
-      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input, actorId)),
+      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input, actorId, options.membership)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
     // #1104 — a gated agent's create is staged, never written. After validation (an invalid write is a 422 now, not an
@@ -3542,7 +3549,7 @@ export class RecordsService implements OnModuleInit {
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
       defs,
-      await this.resolveUserInputs(workspaceId, defs, input, actorId),
+      await this.resolveUserInputs(workspaceId, defs, input, actorId, membership),
     );
     // #1104 — a gated agent's update is staged, never written (see holdIfAgentGated). The RAW patch is staged, so an
     // approval re-runs this whole path: validation, links, rules and history all apply at approval time as they would now.
@@ -4715,7 +4722,7 @@ export class RecordsService implements OnModuleInit {
     const defs = await this.fieldDefs(databaseId);
     const validated = this.validateOrThrow(
       defs,
-      await this.resolveUserInputs(membership.workspaceId, defs, values, membership.userId),
+      await this.resolveUserInputs(membership.workspaceId, defs, values, membership.userId, membership),
     );
     if (validated.links) await this.planLinks(databaseId, defs, validated.links, membership);
   }
