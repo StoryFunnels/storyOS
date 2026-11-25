@@ -211,10 +211,10 @@ describe('#1296 naming a system database is the only way in', () => {
     for (const id of others) expect((await query(token, id)).statusCode, `system database ${id}`).toBeGreaterThanOrEqual(403);
   });
 
-  it('naming a system database does not widen the space: an agent with only that name is unchanged (its target list is its brief)', async () => {
+  it('naming a system database does not widen anything: an agent with only that name has exactly that database as its scope (ticket #1330)', async () => {
     const agent = await mkAgent('Name only', { target_databases: membersDb });
     const scope = await scopeOf(agent);
-    expect(scope.enforced).toBe(false);
+    expect(scope.enforced).toBe(true); // was false until ticket #1330: a database-only agent's list was its brief, not a boundary
     expect(scope.databases.map((d) => d.id)).toEqual([membersDb]);
   });
 });

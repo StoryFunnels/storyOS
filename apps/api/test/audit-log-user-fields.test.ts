@@ -170,14 +170,16 @@ describe('#1287 a person who is not a current, visible member never prints as an
     expect(displayUserValue(adaId, asGuest), 'REJECT: no grant on the Members database').toBe('A person you cannot see');
     expect(displayUserValue([adaId, bobId], asGuest)).toEqual(['A person you cannot see', 'A person you cannot see']);
     expect(JSON.stringify(displayUserValue([adaId, bobId], asGuest))).not.toMatch(/Ada|Bob|[0-9a-f]{8}/);
-    // KEEP: the same rule lets the person through where the viewer may read the row (an admin; and a record grant for a guest)
+    // KEEP: the same rule lets the person through where the viewer may read the row (an admin)
     const asAdmin = await read(await membershipOf(await meId(admin.token)));
     expect(displayUserValue([adaId, bobId], asAdmin)).toEqual(['Ada Lovelace', 'Bob Barker']);
     const g2 = await signUpUser(app, 'Granted Guest');
     await invite(g2, 'guest', [{ space_id: elsewhere, role: 'viewer' }, { record_id: adaRow.recordId, role: 'viewer' }]);
     const granted = await read(await membershipOf(await meId(g2.token)));
-    expect(displayUserValue(adaId, granted), 'KEEP: a guest granted that one row').toBe('Ada Lovelace');
-    expect(displayUserValue(bobId, granted), 'REJECT: but not the neighbour row').toBe('A person you cannot see');
+    // Ticket #1331: a guest never reads a system database's records, so a record grant on a Members row no longer lets the name through
+    // (this used to be 'Ada Lovelace', asserted as the KEEP case). Show nothing, as the ruling says.
+    expect(displayUserValue(adaId, granted), 'REJECT: a record grant on a Members row has no effect for a guest').toBe('A person you cannot see');
+    expect(displayUserValue(bobId, granted), 'REJECT: nor the neighbour row').toBe('A person you cannot see');
   });
 });
 
