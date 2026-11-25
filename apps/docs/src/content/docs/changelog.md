@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **25 Nov** — A built-in Shop OS pack: customers, products, orders and order lines, an order board by status, an Unpaid Orders view, and a drafter agent that installs switched off. [The Shop OS pack](/guides/shop-os-pack/)
 - **15 Nov** — The audit log names the person and says what happened in words, with the record's number, title and database; its filters sit under **Filter**, and each row can copy its record ID. [Data & security, and You](/settings/data-and-you/)
 - **15 Nov** — Agent rules leads with **Recent agent actions**, in the audit log's words, and keeps the read-only enforcement view in a closed **How agent rules are enforced** section. [AI](/settings/ai/)
 - **11 Nov** — The MCP tool list is lighter for clients that cap tools: long grammars moved out of tool descriptions into `get_started` sections, and maintainer tools are only on the internal profile. [MCP tools](/mcp/tools/#how-an-agent-reads-it)

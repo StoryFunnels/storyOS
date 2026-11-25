@@ -68,6 +68,7 @@ Unpaid or Part paid. Its instructions say it:
   missing, and never inventing a tracking number, date, price, discount or refund;
 - uses no pressure: no "final reminder", no deadline, no late fee;
 - writes nothing for a Cancelled or Refunded order.
+- writes nothing, and says so in one line, when the customer has neither an Email nor a Phone.
 
 The agent's instructions are text a model follows. Two things are enforced by StoryOS instead: every record change
 the agent tries waits in the Approvals inbox for a person, and a pack agent's trigger never starts without a person
