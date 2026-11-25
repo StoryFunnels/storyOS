@@ -140,7 +140,7 @@ export class WorkspaceController {
   @MinRole('admin')
   @ApiOperation({ summary: 'Deleted spaces in this workspace (admin)' })
   listSpacesTrash(@Req() req: WorkspaceRequest) {
-    return this.spaces.listTrash(req.membership.workspaceId);
+    return this.spaces.listTrash(req.membership);
   }
 
   @RequiresScope('admin')
@@ -208,7 +208,7 @@ export class WorkspaceController {
   @MinRole('admin')
   @ApiOperation({ summary: 'Restore a deleted space, its cascade-deleted databases, and their fields/records/views (admin)' })
   restoreSpace(@Req() req: WorkspaceRequest, @Param('space') spaceId: string) {
-    return this.spaces.restore(req.membership.workspaceId, spaceId);
+    return this.spaces.restore(req.membership, spaceId);
   }
 
   // --- Members ---

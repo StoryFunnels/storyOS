@@ -296,9 +296,11 @@ export class SpacesService {
   }
 
   /** #37 — deleted spaces in this workspace, for the trash view. */
-  async listTrash(workspaceId: string) {
+  async listTrash(membership: Membership) {
     const rows = await this.db.query.spaces.findMany({
-      where: and(eq(spaces.workspaceId, workspaceId), isNotNull(spaces.deletedAt)),
+      // #1220 — another member's deleted personal space is as invisible as their live one (admins included). The
+      // predicate is the same one `list()` uses, so the two can't drift.
+      where: and(eq(spaces.workspaceId, membership.workspaceId), isNotNull(spaces.deletedAt), this.access.notOthersPersonal(membership)),
       orderBy: [desc(spaces.deletedAt)],
     });
     return rows.map((s) => ({ id: s.id, name: s.name, deleted_at: s.deletedAt }));
@@ -314,11 +316,13 @@ export class SpacesService {
    * deleted keeps its own, earlier `deletedAt` and is left alone — same
    * symmetry `restoreDatabaseCascade` already applies one level down.
    */
-  async restore(workspaceId: string, spaceId: string) {
+  async restore(membership: Membership, spaceId: string) {
+    const { workspaceId } = membership;
     const space = await this.db.query.spaces.findFirst({
       where: and(eq(spaces.id, spaceId), eq(spaces.workspaceId, workspaceId), isNotNull(spaces.deletedAt)),
     });
-    if (!space) throw new NotFoundException('Space not found in trash');
+    // #1220 — someone else's personal space answers exactly like an id that is not in the trash: no 403 that would confirm it exists.
+    if (!space || !this.access.canSeePersonal(membership, space)) throw new NotFoundException('Space not found in trash');
     const deletedAt = space.deletedAt!;
 
     const containedDatabases = await this.db.query.databases.findMany({
