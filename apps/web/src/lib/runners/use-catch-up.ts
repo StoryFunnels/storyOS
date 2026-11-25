@@ -9,6 +9,7 @@ import { databaseQuery, useDatabase } from '@/components/table-view/use-table-da
 import { GENERIC_SCOPE, scopeWords, triggerScope } from './catch-up';
 import type { ScopeWords, TriggerBindingLike } from './catch-up';
 import { runnerKeys } from './queries';
+import { catchUpListKey } from './use-catch-up-list';
 import type { CatchUpResult } from './types';
 
 /**
@@ -90,7 +91,13 @@ export function catchUpMutationOptions(qc: QueryClient, ws: string) {
   return {
     mutationFn: async (agentId: string) =>
       unwrap<CatchUpResult>(await api.POST('/api/v1/workspaces/{ws}/agents/{agent}/catch-up', { params: { path: { ws, agent: agentId } } } as never)),
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: runnerKeys.summary(ws) }),qc.invalidateQueries({ queryKey: ['agent-wakes', ws] })]),
+    // Ticket #1224: the named list is re-read too, so the Not started rows on the Runs list go once the click has queued them.
+    onSettled: (_r: unknown, _e: unknown, agentId: string) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: runnerKeys.summary(ws) }),
+        qc.invalidateQueries({ queryKey: ['agent-wakes', ws] }),
+        qc.invalidateQueries({ queryKey: catchUpListKey(ws, agentId) }),
+      ]),
   };
 }
 

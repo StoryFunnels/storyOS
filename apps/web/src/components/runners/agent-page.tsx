@@ -28,6 +28,8 @@ import { clockTime, limitBrand, shortDate, toolName } from '@/lib/runners/words'
 import { catchUpCount, offersCatchUp } from '@/lib/runners/catch-up';
 import { CATCH_UP_FAILED, startedToast } from '@/lib/runners/catch-up-copy';
 import { useCatchUp, useCatchUpScope } from '@/lib/runners/use-catch-up';
+import { useCatchUpList } from '@/lib/runners/use-catch-up-list';
+import { usableList } from '@/lib/runners/catch-up-list';
 import { useAgentScope, useAgentWakeLines } from '@/lib/runners/use-agent-facts';
 import { canReadWakeFacts } from '@/lib/runners/wake-facts';
 import { isAgentWorkable } from '@/lib/runners/works-in';
@@ -75,6 +77,10 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const catchUp = catchUpCount(catchUpRow);
   const catchUpWords = useCatchUpScope(ws, agentId, catchUp !== null);
   const catchUpMutation = useCatchUp(ws);
+  // Ticket #1224: the names behind the count. Asked only where the count is told (non-null, so never for a guest or another member)
+  // and where the box can show; a refusal or a failure leaves the count UI untouched.
+  const catchUpList = useCatchUpList(ws, agentId, catchUp !== null && usesRunner && !masked);
+  const waitingList = usableList(catchUpList.data, catchUp);
   const [catchUpError, setCatchUpError] = useState<string | null>(null);
   // Ticket #1289: what wakes it and where it works. Both reads are admin-only on the server, so nobody else is asked and nobody
   // else sees the rows (hidden, never "nothing configured").
@@ -175,6 +181,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
               agentName={agent.name}
               count={catchUp}
               words={catchUpWords}
+              list={waitingList}
               job={agent.job}
               asksPhrases={asksBeforePhrases(agent.asksBefore)}
               runs={{
@@ -249,7 +256,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
           runWithoutAi={mayRunWithoutAi ? { onSwitch: runWithoutAi, pending: aiMode.switchBack.isPending } : undefined}
         />
       )}
-      <RunList masked={masked} ws={ws} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
+      <RunList masked={masked} ws={ws} notStarted={catchUp !== null && offersCatchUp({ usesRunner, hasRunner: Boolean(assigned), mayLearnMachine: !masked, count: catchUp }) ? waitingList : null} notStartedWords={catchUpWords} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
       <SystemTables ws={ws} databases={databases.data ?? []} />
     </div>
   );

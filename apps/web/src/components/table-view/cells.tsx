@@ -243,6 +243,24 @@ export function formatNumberValue(
   return format === 'percent' ? `${body}%` : body;
 }
 
+/**
+ * #1256 — a sum/avg/min/max rollup takes the number format of the field it aggregates (or an explicit one): the API
+ * resolves it at read time into the rollup's own `config` (`format` / `currency_code` / `precision`, plus
+ * `format_inherited`), the same keys a number field carries, so the number draws through the SAME `formatNumberValue`
+ * rather than a second formatter. A rollup with no `format` (count, or a sum over a field with no format) keeps the
+ * plain figure it always had: an integer as is, anything else to two places.
+ *
+ * An averaged value is rarely tidy (3.3333333333333335) and a plain/percent source field with no `precision` would
+ * otherwise print all of it, so a non-integer with no configured precision is held to two places, as the unformatted
+ * branch already does.
+ */
+export function formatRollupNumber(field: { config: Record<string, unknown> }, value: number): string {
+  const hasFormat = typeof field.config['format'] === 'string';
+  if (!hasFormat) return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  const needsCap = !Number.isInteger(value) && typeof field.config['precision'] !== 'number';
+  return formatNumberValue(needsCap ? { config: { ...field.config, precision: 2 } } : field, value);
+}
+
 interface DisplayProps {
   field: Field;
   value: unknown;
@@ -445,8 +463,7 @@ export function CellDisplay({ field, value, memberNames, memberImages, wrap, com
         const asDate = formatDateValue(fmt, value);
         return <span className="truncate text-body text-ink-secondary">{asDate ?? String(value)}</span>;
       }
-      const shown = Number.isInteger(value) ? String(value) : value.toFixed(2);
-      return <span className="w-full truncate text-right text-body tabular-nums">{shown}</span>;
+      return <span className="w-full truncate text-right text-body tabular-nums">{formatRollupNumber(field, value)}</span>;
     }
     case 'lookup': {
       // Server resolves values (select ids → labels); scalar or array by cardinality.

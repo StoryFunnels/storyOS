@@ -1,3 +1,4 @@
+import { runnerNavCount, type RunnerCounts } from '@/lib/runners/connected-count';
 import { canConnectAi, canOpenAdminSettings, type SettingsPageId } from '@/lib/settings-nav';
 
 /**
@@ -28,6 +29,8 @@ export interface SettingsSignals {
   packs?: number;
   packNames?: string[];
   packUpdates?: number;
+  /** Ticket #1321: the viewer's own Runners, as the API counted them. Absent until it answers, and when it refuses or fails. */
+  runners?: RunnerCounts;
 }
 
 export interface SettingsHomeCard {
@@ -60,6 +63,8 @@ export function settingsNavCounts(role: string | undefined, s: SettingsSignals):
   if (canConnectAi(role)) {
     if (s.aiNeedReconnect) out['connect-ai'] = { text: `${s.aiNeedReconnect} to fix`, warn: true };
     if (s.tokens) out['api-tokens'] = { text: String(s.tokens) };
+    const runners = runnerNavCount(s.runners);
+    if (runners) out.runners = runners;
   }
   return out;
 }
