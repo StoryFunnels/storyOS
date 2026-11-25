@@ -6,8 +6,8 @@ import type { RunsLineInput, ScopeWords } from './catch-up';
  * Ticket #1152 — Dara's catch-up copy (ticket comments of 2026-10-29, prototype v45 to v47), in ONE module so a test pins each
  * string and a screen cannot reword it. Where the API cannot say what her sentence needs, the words degrade to what is true
  * instead of inventing it:
- *  - no record is ever NAMED (no endpoint lists which records wait), so "Acme Co (sample) was in Onboarding" reads "It was in Onboarding";
- *  - the dialog's record list is one row: the count and the rule that selected them ("Status is Onboarding");
+ *  - a record is NAMED only when the catch-up list (ticket #1224) is available: "Acme Co (sample) was in Onboarding"; without it the
+ *    words read "It was in Onboarding", and the dialog's record list is one row: the count and the rule ("Status is Onboarding");
  *  - the job text is the agent's own job line, quoted, because free text cannot be spliced into a sentence without breaking it.
  * More than one click's worth (25) is said out loud: the button never promises more than it will do.
  */
@@ -18,9 +18,10 @@ export function boxTitle(n: number, words: ScopeWords): string {
   return `${n} ${plural(words.noun, n)} already waiting`;
 }
 
-export function boxBody(n: number, agent: string, words: ScopeWords): string {
+export function boxBody(n: number, agent: string, words: ScopeWords, subject: string | null = null): string {
   const where = words.state ? `in ${words.state.label}` : 'already in its trigger state';
-  const first = `${n === 1 ? 'It was' : 'They were'} ${where} before ${agent} could run, so ${n === 1 ? 'it' : 'they'} won’t wake it. New ${plural(words.noun, 2)} will.`;
+  // Ticket #1224: with exactly one record and its name, the sentence names it; the rest of the wording is unchanged.
+  const first = `${n === 1 ? (subject ?? 'It') + ' was' : 'They were'} ${where} before ${agent} could run, so ${n === 1 ? 'it' : 'they'} won’t wake it. New ${plural(words.noun, 2)} will.`;
   return n > CATCH_UP_MAX_PER_CLICK ? `${first} It starts ${CATCH_UP_MAX_PER_CLICK} at a time.` : first;
 }
 

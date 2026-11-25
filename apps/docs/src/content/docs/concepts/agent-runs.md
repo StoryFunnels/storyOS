@@ -92,7 +92,11 @@ them, see [Sharing your subscription](/guides/runner/#sharing-your-subscription)
 `get_agent_wake_summary` returns counts instead: per agent, its Runner (null when none), whether it
 can run, its `budget`, and how many wakes are waiting, plus the total waiting and how many enabled Your-own-AI
 agents have no working Runner. Both tools list only wakes whose record and agent you can read; a
-hidden one is neither shown nor counted. The Run's **Trigger** column has no value for `assigned`,
+hidden one is neither shown nor counted. So an empty list is not always "nothing started the agent".
+`GET .../agent-wakes` carries `visibility`, and the summary carries `visibility` and, for each agent,
+`waiting_visibility`. `full` means the answer is everything the queue holds. `limited` means at least
+one wake, or the whole Agents database, is not yours to read, so the list or the count is a floor. It
+is a yes or no, never a count of what you cannot open. The agent page does not use it yet. The Run's **Trigger** column has no value for `assigned`,
 `mention` or `approval_decided`: those read *State change* (assigned) or *Manual* (the other two), and
 the **Wake reason** field holds the real reason.
 
