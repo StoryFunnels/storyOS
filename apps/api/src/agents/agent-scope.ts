@@ -59,8 +59,9 @@ export interface ScopeSpace {
 
 export interface ResolvedAgentScope {
   /**
-   * True when the agent targets at least one SPACE. Only then is the scope enforced on its credential: a database-only agent keeps
-   * exactly the behaviour it had before this ticket (its "Target databases" text is the agent's brief, not a boundary).
+   * True when the agent names at least one SPACE or DATABASE. Then the scope is enforced on its credential, so it reaches exactly the
+   * databases listed below and nothing else (ticket #1330 extended this from space targets to database targets: a database-only agent's
+   * list used to be its brief, not a boundary, and that reached Members and other spaces). An agent that names nothing is not bound.
    */
   enforced: boolean;
   spaces: ScopeSpace[];
@@ -181,7 +182,9 @@ export async function resolveAgentScope(db: Db, workspaceId: string, agentId: st
   }
 
   return {
-    enforced: targets.spaces.length > 0,
+    // Tickets #1195 / #1330 — an agent that names a space OR databases has a scope, and a scope is a boundary: its credential reaches exactly
+    // what `databases` lists (and, for a space, whatever is added to it later). Only an agent that names nothing at all is unbound.
+    enforced: targets.spaces.length > 0 || targets.databases.length > 0,
     spaces: spaceMatch.hits,
     databases: [...out.values()].sort((a, b) => a.name.localeCompare(b.name)),
     unresolved: [...spaceMatch.missed, ...missedDbs],

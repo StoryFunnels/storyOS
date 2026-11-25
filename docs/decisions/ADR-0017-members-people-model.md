@@ -184,6 +184,15 @@ A guest invite without at least one grant is refused in the schema layer
 (`packages/schemas/src/workspaces.ts:97-107`), and a grant-less guest is
 non-billable.
 
+**Amended 2026-11-23 (ticket #1331, Otto's ruling): a guest has a row, but never reads the
+Members database.** Guests are outsiders; the directory of colleagues' names and emails is
+not theirs. A guest never reaches ANY system database (Members, Agents, Runs, Agent
+Triggers), whatever space, database or record grant they hold: `AccessService`
+closes every `is_system` database to a guest (a real one, or a credential a guest owns),
+and ignores a grant placed on a system database or one of its records. Where a guest needs
+to show a person, it is the names already on the records they can read, never the directory.
+This answers OPEN-5 for guests only.
+
 ## 7. Removal: tombstone, never delete
 
 **Decided, shipped, and this one is firm.** Removing a member flips `active` to
