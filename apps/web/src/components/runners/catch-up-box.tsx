@@ -6,6 +6,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { boxBody, boxButton, boxTitle, DIALOG_CANCEL, DIALOG_STARTING, dialogAsks, dialogButton, dialogJob, dialogRunsLine, dialogTitle, scopeRow } from '@/lib/runners/catch-up-copy';
 import { startsNow } from '@/lib/runners/catch-up';
 import type { RunsLineInput, ScopeWords } from '@/lib/runners/catch-up';
+import { andMoreLine, DIALOG_NAMES, firstItems, itemTitle, moreCount, notListedLine, singleSubject } from '@/lib/runners/catch-up-list';
+import type { WaitingList } from '@/lib/runners/catch-up-list';
 
 /** What the muted "N runs on <machine> with <tool>" line needs, except N (it is `startsNow(count)`). */
 export type CatchUpRuns = Omit<RunsLineInput, 'n'>;
@@ -23,6 +25,7 @@ export function CatchUpBox({
   agentName,
   count,
   words,
+  list = null,
   job,
   asksPhrases,
   runs,
@@ -34,6 +37,8 @@ export function CatchUpBox({
   agentName: string;
   count: number;
   words: ScopeWords;
+  /** Ticket #1224: the waiting records by name; null when not read (or refused), and the count wording stands. */
+  list?: WaitingList | null;
   job: string;
   asksPhrases: readonly string[];
   runs: CatchUpRuns;
@@ -61,7 +66,7 @@ export function CatchUpBox({
       >
         <div className="flex min-w-[220px] flex-1 flex-col gap-0.5">
           <h3 className="m-0 text-body font-semibold text-ink">{boxTitle(count, words)}</h3>
-          <p className="m-0 text-body leading-[1.45] text-ink-secondary">{boxBody(count, agentName, words)}</p>
+          <p className="m-0 text-body leading-[1.45] text-ink-secondary">{boxBody(count, agentName, words, singleSubject(list))}</p>
         </div>
         <Button
           type="button"
@@ -81,6 +86,7 @@ export function CatchUpBox({
             agentName={agentName}
             count={count}
             words={words}
+            list={list}
             job={job}
             asksPhrases={asksPhrases}
             runs={runs}
@@ -100,6 +106,7 @@ export function CatchUpDialogBody({
   agentName,
   count,
   words,
+  list = null,
   job,
   asksPhrases,
   runs,
@@ -111,6 +118,7 @@ export function CatchUpDialogBody({
   agentName: string;
   count: number;
   words: ScopeWords;
+  list?: WaitingList | null;
   job: string;
   asksPhrases: readonly string[];
   runs: CatchUpRuns;
@@ -120,16 +128,35 @@ export function CatchUpDialogBody({
   onStart: () => void;
 }) {
   const row = scopeRow(count, words);
+  // Ticket #1224: up to five names, then "and N more" (from the server's total) and "N you cannot open", in place of the one count row.
+  const names = list ? firstItems(list, DIALOG_NAMES) : [];
+  const tail = list ? [andMoreLine(moreCount(list, names.length)), notListedLine(list.not_listed)].filter((x): x is string => x !== null) : [];
   const asks = dialogAsks(asksPhrases);
   return (
     <div data-testid="catch-up-dialog">
-      {row && (
-        <ul className="mb-3 list-none rounded-[var(--radius-control)] border border-border-default p-0">
-          <li className="flex justify-between gap-2 px-2.5 py-[7px] text-body text-ink">
-            <span>{row.left}</span>
-            <span className="text-label text-muted">{row.right}</span>
-          </li>
+      {list && (names.length > 0 || tail.length > 0) ? (
+        <ul className="mb-3 list-none rounded-[var(--radius-control)] border border-border-default p-0 [&>li+li]:border-t [&>li+li]:border-border-default" data-testid="catch-up-names">
+          {names.map((it) => (
+            <li key={it.id} className="flex justify-between gap-2 px-2.5 py-[7px] text-body text-ink">
+              <span className="min-w-0 truncate">{itemTitle(it)}</span>
+              <span className="shrink-0 text-label text-muted">{row ? row.right : it.database_name}</span>
+            </li>
+          ))}
+          {tail.map((t) => (
+            <li key={t} className="px-2.5 py-[7px] text-label text-muted">
+              {t}
+            </li>
+          ))}
         </ul>
+      ) : (
+        row && (
+          <ul className="mb-3 list-none rounded-[var(--radius-control)] border border-border-default p-0">
+            <li className="flex justify-between gap-2 px-2.5 py-[7px] text-body text-ink">
+              <span>{row.left}</span>
+              <span className="text-label text-muted">{row.right}</span>
+            </li>
+          </ul>
+        )
       )}
       <p className="m-0 mb-2 text-body leading-[1.5] text-ink-secondary">{dialogJob(count, agentName, words, job)}</p>
       {asks && <p className="m-0 mb-2 text-body leading-[1.5] text-ink-secondary">{asks}</p>}

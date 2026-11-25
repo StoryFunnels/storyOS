@@ -1,4 +1,12 @@
 {
+  "shop-os": {
+    "why": "You sell products to customers and want every order, and whether it has been paid, in one place.",
+    "can": [
+      "See every order by status, from new to delivered",
+      "Spot the orders that have not been paid yet",
+      "Get a shipping or delivery message drafted for you to send yourself"
+    ]
+  },
   "agency-os": {
     "why": "You run client work and need to see every client, what you are doing for them, and what is slipping.",
     "can": [

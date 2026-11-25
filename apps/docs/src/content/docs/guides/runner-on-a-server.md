@@ -64,6 +64,11 @@ forward it to the session, so the session uses your subscription.
 
 ## 3. Install and pair the Runner
 
+:::caution[Not on npm yet]
+The `@storyos/runner` package was not yet on the npm registry when this was written, so
+`npm install -g @storyos/runner` cannot find it until it is published.
+:::
+
 Autostart needs a permanent install, not the `npx` cache:
 
 ```sh

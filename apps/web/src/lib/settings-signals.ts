@@ -1,3 +1,4 @@
+import type { RunnerCounts } from '@/lib/runners/connected-count';
 import type { SettingsSignals } from '@/lib/settings-home';
 
 /** What the queries returned; a field is `undefined` until its query has succeeded (a failed or never-asked query stays `undefined`). */
@@ -10,6 +11,7 @@ export interface SettingsRawData {
   tokens?: Array<{ last_used_at: string | null }>;
   connections?: Array<{ name: string; status: string }>;
   packs?: Array<{ name: string; update_available: boolean }>;
+  runners?: RunnerCounts;
 }
 
 /** Turn raw responses into signals. Expiry is judged against `now`, injected so the rule can be tested. */
@@ -42,5 +44,6 @@ export function deriveSettingsSignals(raw: SettingsRawData, now: number): Settin
     s.packNames = raw.packs.map((p) => p.name);
     s.packUpdates = raw.packs.filter((p) => p.update_available).length;
   }
+  if (raw.runners) s.runners = raw.runners;
   return s;
 }
