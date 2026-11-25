@@ -68,3 +68,16 @@ describe('create_agent_trigger wording about human_gate (#1183, #1212)', () => {
     expect(src).toMatch(/The default is false: the agent wakes by itself/);
   });
 });
+
+describe('create_agent_trigger wording about condition (ticket #1324 follow-up)', () => {
+  const tool = describeTool('create_agent_trigger');
+
+  it('says a condition is checked by the server at wake time, that the skip is kept and listed, and that a broken one wakes nothing', () => {
+    expect(tool.description).toMatch(/condition is an optional record filter/);
+    expect(tool.description).toMatch(/a record that does not match wakes nothing/);
+    expect(tool.description).toMatch(/list_agent_wakes/);
+    expect(tool.description).toMatch(/fails closed/);
+    const src = readFileSync(fileURLToPath(new URL('./tools.ts', import.meta.url)), 'utf8');
+    expect(src).toMatch(/condition: z\.any\(\)\.optional\(\)\.describe\('A record filter the record must match for the trigger to wake the agent/);
+  });
+});

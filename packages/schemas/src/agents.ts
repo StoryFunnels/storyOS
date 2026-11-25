@@ -55,6 +55,11 @@ export const agentTriggerWakeSourceSchema = z.object({
   relation_field: wakeSourceRefSchema.nullable(),
   /** True = this trigger never starts a run by itself: a person starts each one (ADR-0010 section 5). */
   human_gate: z.boolean(),
+  /**
+   * The record filter that must match for this trigger to wake the agent (null = none: every matching state change wakes it). A stored value
+   * that is not a valid filter is returned as it is: the trigger FAILS CLOSED on it (wakes nothing, and each skip is recorded).
+   */
+  condition: z.unknown().nullable(),
   /** False = installed but switched off (a pack's trigger ships off): it is listed, never hidden. */
   enabled: z.boolean(),
 });

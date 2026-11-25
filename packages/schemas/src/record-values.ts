@@ -283,12 +283,29 @@ function coerce(field: FieldDef, raw: unknown): { value?: unknown; error?: strin
   }
 }
 
-export const createRecordSchema = z.object({
+/** One record to create: its values, nothing else. The batch create takes a list of these. */
+export const createRecordItemSchema = z.object({
   values: z.record(z.string(), z.unknown()).default({}),
 });
 
+/**
+ * Create one record. `view_id` (ticket #1333) names the view the record is being made FROM ("New" on a filtered view): the values that
+ * view's filter requires are filled in under whatever `values` supplies, so the new record is inside the view, and the response says
+ * (`view_match`) whether it is. A view the caller cannot read, another member's personal view, or an id that is not a view of this
+ * database changes nothing and is not an error. Without it the create behaves exactly as before.
+ */
+export const createRecordSchema = createRecordItemSchema.extend({
+  view_id: z
+    .uuid()
+    .optional()
+    .describe(
+      'The view this record is created from. Fields the view filters on are pre-filled so the record lands inside the view (state: the first allowed state, in workflow order); explicit values always win. The response carries `view_match`.',
+    ),
+});
+
+/** The batch create takes plain items: a view context is a property of ONE create (the "New" button), not of a bulk write. */
 export const createRecordsBatchSchema = z.object({
-  records: z.array(createRecordSchema).min(1).max(100),
+  records: z.array(createRecordItemSchema).min(1).max(100),
 });
 
 /**
