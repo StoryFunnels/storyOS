@@ -83,6 +83,8 @@ services:
       POSTHOG_HOST: ${POSTHOG_HOST:-}
       # OAuth for hosted-MCP connectors (MN-154). Off unless set true; needs oidc tables migrated.
       MCP_OAUTH: ${MCP_OAUTH:-}
+      # Days of record-level activity to keep (#1024). Empty = 90; `never` or 0 = keep everything; minimum 35.
+      ACTIVITY_EVENTS_RETENTION_DAYS: ${ACTIVITY_EVENTS_RETENTION_DAYS:-}
       # GitHub App (#247). All optional — absent means the Connect flow is simply
       # unavailable and the app boots fine. Prefer the inline PEM (\n-escaped) in
       # GITHUB_APP_PRIVATE_KEY; the container can't read a host file path unless you

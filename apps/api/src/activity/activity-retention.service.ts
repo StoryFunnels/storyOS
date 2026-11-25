@@ -23,8 +23,10 @@ import { env } from '../config/env';
  * cursor. A retention under a month would make a budget quietly under-count. So no setting goes below {@link MIN_RETENTION_DAYS}.
  *
  * HOW IT DELETES: batches, never one giant DELETE. Each batch picks its rows `FOR UPDATE SKIP LOCKED`, so two nodes (or two
- * overlapping calls) take disjoint rows: nothing is deleted twice, nothing waits, nothing deadlocks. The walk advances a
- * (created_at, id) pointer so the kept rows are passed once, not re-read by every batch. Logs counts, never row data.
+ * overlapping calls) take disjoint rows: nothing is deleted twice, nothing waits, nothing deadlocks. The walk also advances a
+ * (created_at, id) pointer so the kept rows (which stay at the old end of the index) are passed once per run, not re-read by every
+ * batch. That one is a cost measure only: with the pointer removed the results are identical (checked by mutation), so no test can
+ * assert it. Logs counts, never row data.
  */
 export const DEFAULT_RETENTION_DAYS = 90;
 /** A month's budget plus the longest webhook lookback, with slack. Not configurable below this. */

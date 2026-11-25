@@ -205,7 +205,7 @@ describe('batching and concurrency', () => {
     expect((await present(ids)).size).toBe(0);
   });
 
-  it('skips over kept rows without re-reading them and without stalling: kept rows between expiring ones do not end the walk', async () => {
+  it('kept rows between expiring ones do not end the walk or get deleted', async () => {
     const rec = await mk('interleaved');
     const keep: string[] = [];
     const drop: string[] = [];
