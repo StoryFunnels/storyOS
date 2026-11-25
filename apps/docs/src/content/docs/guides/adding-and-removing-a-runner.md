@@ -103,6 +103,22 @@ Through the API, `GET /api/v1/workspaces/{ws}/runners` lists your own Runners: s
 tools it found, the chosen tool, versions, when it went offline and the agents on each. Removed
 Runners are not listed. The MCP tool `list_runners` returns the same, read only.
 
+Next to `data`, the answer carries counts of your own Runners, worked out on the server in one
+query:
+
+| Field | Counts |
+|---|---|
+| `total_count` | Your listed Runners: pending and active. |
+| `connected_count` | Active Runners heard from in the last two minutes. |
+| `offline_count` | Active Runners not heard from in that time. A pending Runner is in neither. |
+| `at_limit_count` | Active Runners whose tool's limit is still in force. A Runner can be at its limit and connected, or at its limit and offline. |
+| `needs_attention` | `true` when any Runner is offline or at its limit. |
+
+Each Runner also has `connected`, true by the same rule, so a row and the counts never disagree.
+A Runner at its limit or outside its working hours is still connected, because it still reports in.
+The counts cover your own Runners only, as the list does. This is the number a screen can show as
+"N connected"; the Settings screen does not show it yet.
+
 `PATCH /api/v1/workspaces/{ws}/runners/{id}` with `{ "tool": "..." }` changes which detected tool
 your agents use on that Runner. The same call takes `working_hours` and `reserve_percent`.
 
