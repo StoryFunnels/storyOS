@@ -212,6 +212,11 @@ describe('#1335 a name binds one database, not every database of that name', () 
     const scope = await scopeOf(agent);
     expect(scope.databases.map((d) => d.id)).toEqual([userMembers]);
     expect(scope.unresolved).toEqual(['Tasks']);
+    // RUNTIME: a database-only agent's credential is bound too (ticket #1330), so the same name cannot reach the Members projection
+    const token = await mintFor(agent);
+    expect(answered(await query(token, userMembers))).toBe(true);
+    await expectMembersClosed(token, 'database-only agent, name "Members"');
+    await expectClosed(token, tasksGeneral, 'general task', 'database-only agent, ambiguous name');
   });
 });
 
