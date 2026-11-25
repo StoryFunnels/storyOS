@@ -1316,6 +1316,8 @@ export const activityEvents = pgTable(
     index('activity_agent_created_idx').on(t.agentId, t.createdAt),
     // #882 — "everything this credential did".
     index('activity_token_created_idx').on(t.tokenId, t.createdAt),
+    // #1024 — the retention purge walks the table oldest-first in batches; without this each batch is a seq scan of the whole table.
+    index('activity_created_idx').on(t.createdAt, t.id),
   ],
 );
 
