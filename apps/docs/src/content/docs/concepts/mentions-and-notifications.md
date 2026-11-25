@@ -161,8 +161,17 @@ An approval names its record only if you can open that record.
 How the lists behave:
 
 - **Finished work is dropped.** A record in a completed or canceled state is not returned by the
-  API, the MCP or the email. The My Work page itself asks for finished rows too and shows them
-  greyed out.
+  API, the MCP or the email. The My Work page itself asks for finished rows too and gathers them
+  under one **Done · N** group at the bottom of **Assigned** and **Created**, closed until you open it
+  (it is closed again each time you switch tab). When the server cut a list short, the group reads
+  **Done · 3+**, a lower bound, never a made-up total.
+- **A shared database name gets its space.** A row names its database (**#4 · Tasks**). When two
+  databases on the page share a name, both rows read **Team / Tasks** and **Client Work / Tasks**
+  instead, so you can tell them apart.
+- **Assigned by** says **Not recorded** when StoryOS has no record of who set you on a record, for
+  example because it was created or imported with you already in the field. Hover it for the reason.
+- **An approval says which rule asked.** A held automation action in **Waiting** names the rule, the
+  same way the Inbox does; see [how the Inbox names a rule's request](/concepts/approval-gates/#how-the-inbox-names-a-rules-request).
 - **Ordered by urgency.** Within each database: overdue first, then due within the next seven days,
   then In Progress, then the rest, newest change first in each group. The due date is the date
   field named *Due*, *Deadline*, *Due date* or *Target date*; a database without one has no due dates here.

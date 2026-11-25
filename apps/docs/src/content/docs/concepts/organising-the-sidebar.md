@@ -26,9 +26,15 @@ it shows or who owns it, and deleting a database still takes its views with it w
 The sidebar is two parts. A narrow fixed **rail** on the far left holds StoryOS's own places —
 the workspace switcher, **Home**, **Inbox**, **My Work**, **Runs** and **Settings** — as icons with
 tooltips. It never grows, however much you build. Beside it, a resizable **panel** holds *this
-workspace's* contents: a combined search-or-ask-Tyron box, a **Collections** row (Reviews, Business
-Packs, Personal), then **Groups → Spaces → databases and views**. Resize the panel to make room; it
-cuts long names off rather than ellipsising, and widening it is the way to read them.
+workspace's* contents: a combined search-or-ask-Tyron box, your **Favorites**, an **AI** section
+(**Skills**, **Agents**, **Automation runs**, **Business Packs**, and **Connect your AI** until an AI is
+connected), then **Spaces**, with their groups, databases and views. The panel opens at a width that
+shows most names in full. Resize it to make room; a width you drag to is kept. It cuts long names off
+rather than ellipsising, and widening it is the way to read them.
+
+An agent's runs and its triggers are no longer rows in the sidebar. Open the agent from **Agents**;
+its page links to them. The workspace's **Members** database is not in the sidebar either, because
+people are managed in **Settings**.
 
 **Group and space headers stay pinned as you scroll** — the group at the top, the space right below
 it — so in a large workspace you can always tell which group and space you're in.
@@ -39,7 +45,8 @@ A **group** collects spaces under a heading in the sidebar — "Clients", "Inter
 **presentational only**: putting a space in a group changes where it appears, never who can see it
 or what it contains.
 
-- **Make one** with **New group** at the top of the panel; **rename** or **delete** it from its menu.
+- **Make one** with the **+** beside **Spaces** (its tooltip says **Add to Spaces**): the menu offers
+  **New space**, **From template** and **New group**. **Rename** or **delete** a group from its menu.
   Deleting a group doesn't delete its spaces — they fall back to the ungrouped list.
 - **Put a space in a group** by dragging it onto the group's header, or with **Move to group** on the
   space's menu (the keyboard route); **Remove from group**, or drag it into the ungrouped area, to

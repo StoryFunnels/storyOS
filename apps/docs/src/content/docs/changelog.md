@@ -9,6 +9,14 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **15 Nov** — The record page's Activity, Comments and About sit under the fields on a window narrower than 900px, Activity reads as "set", "cleared" and "changed" sentences, and a half-typed comment is kept per record. [The record page](/concepts/databases-and-fields/#the-record-page)
+- **15 Nov** — My Work gathers finished rows under a closed **Done · N** group, writes the space on two databases that share a name, and says **Not recorded** when it has no record of who assigned you. [My Work: what is waiting on you](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you)
+- **13 Nov** — An approval that an automation rule asked for names the rule, in the approvals list and in My Work, and the API carries `rule_id`, `rule_name` and `rule_label`. [How the Inbox names a rule's request](/concepts/approval-gates/#how-the-inbox-names-a-rules-request)
+- **15 Nov** — Display holds the **Columns** list with **Show all** and **Hide all**, row height reads **Compact**, **Default** or **Tall**, and the title column is always on. [Hiding columns](/concepts/views/#hiding-columns)
+- **15 Nov** — Home always shows **Review** (approvals waiting), shows **Automation runs** once there is an agent, and opens with a greeting and today's date. [The workspace home](/concepts/workspaces-spaces-databases/#the-workspace-home)
+- **13 Nov** — **New space**, **From template** and **New group** are in one **+** menu beside **Spaces**; agent runs, triggers and Members leave the sidebar tree. [The rail and the panel](/concepts/organising-the-sidebar/#the-rail-and-the-panel)
+- **13 Nov** — An agent's page says what wakes it and where it works, for admins. [What the agent's page says](/guides/hiring-an-agent/#what-the-agents-page-says)
+- **15 Nov** — A provider the server operator must set up says **Set up by the server operator**, and API tokens and Webhooks keep their how-to text in a closed section at the bottom. [Settings: Connections](/settings/connections/)
 - **15 Nov** — The audit log names the person and says what happened in words, with the record's number, title and database; its filters sit under **Filter**, and each row can copy its record ID. [Data & security, and You](/settings/data-and-you/)
 - **15 Nov** — Agent rules leads with **Recent agent actions**, in the audit log's words, and keeps the read-only enforcement view in a closed **How agent rules are enforced** section. [AI](/settings/ai/)
 - **11 Nov** — The MCP tool list is lighter for clients that cap tools: long grammars moved out of tool descriptions into `get_started` sections, and maintainer tools are only on the internal profile. [MCP tools](/mcp/tools/#how-an-agent-reads-it)
