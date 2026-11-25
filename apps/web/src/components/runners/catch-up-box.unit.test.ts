@@ -94,10 +94,11 @@ describe('the click', () => {
     const keys = spy.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
     expect(keys).toContain(JSON.stringify(['agent-wakes-summary', 'ws1']));
     expect(keys).toContain(JSON.stringify(['agent-wakes', 'ws1']));
+    expect(keys).toContain(JSON.stringify(['agent-catch-up-list', 'ws1', 'agent1']));
     spy.mockClear();
     post.mockResolvedValueOnce({ error: { error: { message: 'This agent is switched off. Turn it on first.' } } });
     await expect(run(qc)).rejects.toBeTruthy();
-    expect(spy.mock.calls.length).toBe(2);
+    expect(spy.mock.calls.length).toBe(3);
   });
   it('a 422 reaches the caller as the API’s body, and apiErrorMessage turns it into the sentence', async () => {
     const body = { error: { message: 'Only an agent whose AI mode is "Your own AI" has a queue to catch up.' } };
