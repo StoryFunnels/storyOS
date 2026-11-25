@@ -7,6 +7,7 @@ import { DatabasesModule } from '../databases/databases.module';
 import { ValidationEnforcerModule } from '../validation-rules/validation-enforcer.module';
 import { MentionsModule } from '../mentions/mentions.module';
 import { UsersModule } from '../users/users.module';
+import { ViewerStateModule } from '../viewer-state/viewer-state.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { RecordsController } from './records.controller';
 import { RecordsService } from './records.service';
@@ -15,6 +16,7 @@ import { PositionRepairSubscriber } from './position-repair.subscriber';
 import { TitleLocalBackfillSubscriber } from './title-local-backfill.subscriber';
 import { WatcherEmailService } from './watcher-email.service';
 import { BulkRecordJobsService } from './bulk-record-jobs.service';
+import { ViewCreateContextService } from './view-create-context.service';
 
 @Module({
   // #31: BillingModule provides EntitlementsService, which RecordsService needs
@@ -32,10 +34,11 @@ import { BulkRecordJobsService } from './bulk-record-jobs.service';
     BillingModule,
     UsersModule,
     ActionGatesModule,
+    ViewerStateModule, // ticket #1333: ViewCreateContextService reads the caller's personal view filter
     forwardRef(() => AttachmentsModule),
   ],
   controllers: [RecordsController],
-  providers: [RecordsService, RollupInvalidationSubscriber, PositionRepairSubscriber, TitleLocalBackfillSubscriber, WatcherEmailService, BulkRecordJobsService],
+  providers: [RecordsService, RollupInvalidationSubscriber, PositionRepairSubscriber, TitleLocalBackfillSubscriber, WatcherEmailService, BulkRecordJobsService, ViewCreateContextService],
   exports: [RecordsService, BulkRecordJobsService],
 })
 export class RecordsModule {}

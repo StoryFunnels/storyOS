@@ -67,6 +67,24 @@ export const recordResponseSchema = z.object({
 });
 export type RecordResponse = z.infer<typeof recordResponseSchema>;
 
+/**
+ * Ticket #1333 — answered only when the create named a `view_id` the caller can read: did the new record land INSIDE that view?
+ * When `matches` is false the record exists but the view does not show it, and `unmet` names the fields behind the conditions it
+ * does not satisfy (their `api_name`, as in the view's filter), so a client can say "created, but it doesn't match this view".
+ * The verdict comes from the same evaluator every view and query uses, run on the record as it was just written.
+ */
+export const recordViewMatchSchema = z.object({
+  matches: z.boolean(),
+  unmet: z.array(z.string()).describe('api_names of the fields behind each filter condition the new record does not meet; empty when it matches'),
+});
+export type RecordViewMatch = z.infer<typeof recordViewMatchSchema>;
+
+/** The create response: the record, plus `view_match` when the create was made from a view. */
+export const createRecordResponseSchema = recordResponseSchema.extend({
+  view_match: recordViewMatchSchema.optional(),
+});
+export type CreateRecordResponse = z.infer<typeof createRecordResponseSchema>;
+
 export const queryRecordsResponseSchema = z.object({
   data: z.array(recordResponseSchema),
   next_cursor: z.string().nullable(),
