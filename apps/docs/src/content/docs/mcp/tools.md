@@ -111,7 +111,7 @@ personal view is only reachable from here today.
 | `list_linked_records` | The full link set of one relation field on a record, as records you can act on. (Not `get_links`, which builds web URLs.) |
 | `list_records` | Records in the hand-arranged (drag) order a person sees — the one thing `query_records` can't express. |
 | `count_records_grouped` | Count, or sum/average/min/max a numeric field, **per group** of another field, computed in the database — for "how many of each status" and board column counts. |
-| `get_field_usage` | What depends on a field before you delete it: records with a value, and the views, automations and formulas that reference it. Call before `delete_field`. |
+| `get_field_usage` | What depends on a field before you delete it: records with a value, and the views, automations and formulas that reference it. A relation field counts the records that hold links. `storage` says where the count came from, and `complete: false` means you cannot read the far side of a relation, so the count covers only what you can see and a 0 is not proof the field is empty. Call before `delete_field`. |
 | `get_view` | One view by id, whether it belongs to a database or a space. |
 | `list_space_views` | Views that belong to a **space** (dashboards over several databases), which `describe_database` never shows. |
 | `list_sources` / `list_youtube_channels` | The scheduled syncs feeding a database (provider, schedule, status, last sync); the channels a connected Google account owns, needed to configure a YouTube source. |
