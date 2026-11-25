@@ -51,6 +51,7 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 export function CalendarView({
   ws,
   db,
+  viewId,
   config,
   readOnly,
   onPatch,
@@ -58,6 +59,8 @@ export function CalendarView({
 }: {
   ws: string;
   db: string;
+  /** Ticket #1339 — the saved view this is drawing; creates from it send it as `view_id`. Absent = none sent. */
+  viewId?: string;
   config: ViewConfig;
   readOnly: boolean;
   /** #470 — persists the day/week/month mode choice per view (AC2). Optional
@@ -128,7 +131,7 @@ export function CalendarView({
     ...sortsBodyFromConfig(config),
     limit: 200,
   });
-  const { updateRecord, createRecord } = useRecordMutations(ws, db);
+  const { updateRecord, createRecord } = useRecordMutations(ws, db, viewId);
   const memberQuery = useMembers(ws, !readOnly);
   const memberNames = useMemo(
     () => new Map((memberQuery.data ?? []).map((m) => [m.user.id, m.user.name])),

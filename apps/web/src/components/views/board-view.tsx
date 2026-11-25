@@ -142,7 +142,7 @@ export function BoardView({
   );
   const records = useRecordsInfinite(ws, db, queryBody);
   useAllPages(records, Boolean(config.group_by_field_id));
-  const { createRecord } = useRecordMutations(ws, db);
+  const { createRecord } = useRecordMutations(ws, db, viewId);
 
   const memberQuery = useMembers(ws, !readOnly);
   const memberNames = useMemo(

@@ -553,7 +553,7 @@ export function ViewToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {drawsNew && ws && db && <NewRecordButton ws={ws} db={db} />}
+        {drawsNew && ws && db && <NewRecordButton ws={ws} db={db} viewId={viewId} />}
       </div>
       {view && onRenameView && (
         <RenameViewDialog open={renaming} onOpenChange={setRenaming} name={view.name} onRename={onRenameView} />
