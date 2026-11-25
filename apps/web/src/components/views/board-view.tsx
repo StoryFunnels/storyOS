@@ -39,7 +39,7 @@ import { API_URL } from '@/lib/api';
 import { coverImageUrl, isUrlCoverField } from './cover-fields';
 import { Avatar } from '@/components/ui/avatar';
 import { HEADER_ADD_BUTTON, HEADER_MENU_TRIGGER } from '@/components/ui/header-action';
-import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue, formatNumberValue } from '../table-view/cells';
+import { CellDisplay, OPTION_COLORS, OptionIcon, fieldValue, formatNumberValue, formatRollupNumber } from '../table-view/cells';
 import { isPercentField } from '../table-view/cell-text';
 import {
   bucketColumnsFor,
@@ -1150,7 +1150,7 @@ export function CardFieldChip({
         <span className="inline-flex items-center gap-1.5 tabular-nums text-body text-ink-secondary">
           {percent && <StateGlyph category={status?.category ?? null} color={status?.color} percent={n} size={15} />}
           {/* A percent keeps a fixed slot after its glyph, so glyphs line up down a column instead of drifting with the digits. */}
-          <span className={percent ? 'inline-block w-10 text-left' : undefined}>{formatNumberValue(field, value)}</span>
+          <span className={percent ? 'inline-block w-10 text-left' : undefined}>{field.type === 'rollup' ? formatRollupNumber(field, n) : formatNumberValue(field, value)}</span>
         </span>
       );
     }
