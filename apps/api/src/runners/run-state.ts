@@ -1,6 +1,7 @@
 import { offlineSince, runnerConnection } from './runner-present';
 import type { RunnerRow } from './runner-present';
 import { holdsFor } from './runner-sharing';
+import { MASKED_RUNNER_NAME } from './runner-identity';
 import type { WakeStatus } from './wake.constants';
 
 /**
@@ -54,7 +55,7 @@ export interface RunStateInput {
  * which machine and tool (`canSeeRunnerDetails`), and the API now says the same: "a Runner", with no id, machine name or tool. Every
  * other field keeps its meaning, so "Waiting to start" (a Runner is assigned) still reads differently from "Waiting for a Runner".
  */
-export const MASKED_RUNNER_NAME = 'a Runner';
+export { MASKED_RUNNER_NAME };
 
 export function maskRunState(s: RunState): RunState {
   const out: RunState = { ...s };

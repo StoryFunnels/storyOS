@@ -9,7 +9,7 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, lt, or, sql, SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql, SQL } from 'drizzle-orm';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 import {
   activeFilter,
@@ -78,6 +78,7 @@ import type { Membership } from '../workspaces/workspace-access.guard';
 import { memoizeForRequest } from '../access/request-memo';
 import { ValidationEnforcer } from '../validation-rules/validation-enforcer';
 import { RUNTIME_OWNED_RUN_FIELDS, isAgentRuntimeWrite } from './runtime-owned-fields';
+import { RUNNER_IDENTITY_RUN_FIELDS, maskRunValues, maskRunnerStamp, redactRunnerInText, seesRunnerIdentity } from '../runners/runner-identity';
 import { assertDatabaseInWorkspace } from './database-scope';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 import { AgentWriteGatesService, type AgentWriteOperation } from '../action-gates/agent-write-gates.service';
@@ -446,8 +447,36 @@ export class RecordsService implements OnModuleInit {
         }
       }
       await this.narrowTitles(membership, items);
+      await this.maskRunnerIdentity(out, defs, membership); // ticket #1227
     }
     return out;
+  }
+
+  /**
+   * ticket #1227 — the Agent runs database's Runner-identity fields, as THIS caller may see them: for a guest, the fields that name
+   * the machine and tool (`runner`, `tool`, `tool_version`) and the Steps field that repeats them in its log lines. `hidden` is empty
+   * for everyone else and for any other database, so the ordinary path costs nothing. Identity of the Runs database is the
+   * `is_system` flag plus its system key (#1063), never its name. One lookup, memoised for the request.
+   */
+  async runnerIdentityGuard(membership: Membership | undefined, databaseId: string, defsIn?: FieldDef[]): Promise<{ hidden: FieldDef[]; steps: FieldDef | null }> {
+    const none = { hidden: [] as FieldDef[], steps: null };
+    if (seesRunnerIdentity(membership)) return none;
+    return memoizeForRequest(`runner-identity:${databaseId}`, async () => {
+      const [database] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+      if (!database?.isSystem || database.systemKey !== 'agent_runs') return none;
+      const defs = defsIn ?? (await this.fieldDefs(databaseId));
+      return { hidden: defs.filter((d) => RUNNER_IDENTITY_RUN_FIELDS.includes(d.api_name)), steps: defs.find((d) => d.api_name === 'steps') ?? null };
+    });
+  }
+
+  /** ticket #1227 — applies `runnerIdentityGuard` to a page of projected records (one database), in place. */
+  private async maskRunnerIdentity(projected: ProjectedRecord[], defs: FieldDef[], membership: Membership | undefined): Promise<void> {
+    if (projected.length === 0 || !defs.some((d) => RUNNER_IDENTITY_RUN_FIELDS.includes(d.api_name))) return; // every projected record shares one database
+    const [row] = await this.db.select({ databaseId: records.databaseId }).from(records).where(eq(records.id, projected[0]!.id)).limit(1);
+    if (!row) return;
+    const guard = await this.runnerIdentityGuard(membership, row.databaseId, defs);
+    if (guard.hidden.length === 0) return;
+    for (const rec of projected) rec.values = maskRunValues(rec.values);
   }
 
   private async attachLinksUnnarrowed(
@@ -4086,7 +4115,7 @@ export class RecordsService implements OnModuleInit {
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
     return {
-      data: page.map((v) => ({
+      data: page.map((v) => maskRunnerStamp({
         id: v.id,
         title: redact ? '—' : v.title,
         actor_id: v.actorId,
@@ -4100,7 +4129,7 @@ export class RecordsService implements OnModuleInit {
         runner_id: v.runnerId,
         runner_name: v.runnerName,
         created_at: v.createdAt,
-      })),
+      }, viewer?.membership)), // ticket #1227: a guest reads "a Runner", never the id or machine name
       next_cursor:
         hasMore && page.length > 0
           ? encodeKeysetCursor({ t: page[page.length - 1]!.cursorTs, id: page[page.length - 1]!.id })
@@ -4135,7 +4164,12 @@ export class RecordsService implements OnModuleInit {
     );
 
     const ctx = await buildRenderContext(this.db, databaseId);
-    const preview = Object.entries(diff).map(([fieldId, { from, to }]) => {
+    const identity = await this.runnerIdentityGuard(membership, databaseId, defs); // ticket #1227
+    const hiddenIds = new Set(identity.hidden.map((d) => d.id));
+    const preview = Object.entries(diff).filter(([fieldId]) => !hiddenIds.has(fieldId)).map(([fieldId, { from: rawFrom, to: rawTo }]) => {
+      const redactSteps = identity.steps?.id === fieldId;
+      const from = redactSteps ? redactRunnerInText(rawFrom, null, null) : rawFrom;
+      const to = redactSteps ? redactRunnerInText(rawTo, null, null) : rawTo;
       const isTitle = fieldId === 'title';
       const fieldType = isTitle ? 'title' : (ctx.fieldType.get(fieldId) ?? null);
       return {
@@ -4174,6 +4208,12 @@ export class RecordsService implements OnModuleInit {
   async listFieldChanges(databaseId: string, recordId: string, limit: number, cursor?: string, membership?: Membership) {
     const redact = await this.titleHistoryRedacted(membership, databaseId); // #884
     const conditions = [eq(recordFieldChanges.recordId, recordId)];
+    // ticket #1227 — the changes to the Runner's machine and tool never leave the history of a Run for a guest (excluded IN the
+    // query, so a page stays full and `has_more` stays honest); the Steps field's lines that name them are redacted below.
+    const identity = await this.runnerIdentityGuard(membership, databaseId);
+    if (identity.hidden.length > 0) conditions.push(or(isNull(recordFieldChanges.fieldId), notInArray(recordFieldChanges.fieldId, identity.hidden.map((d) => d.id)))!);
+    const stepsId = identity.steps?.id ?? null;
+    const maybeRedactSteps = <T,>(fieldId: string | null, v: T): T => (fieldId !== null && fieldId === stepsId ? (redactRunnerInText(v, null, null) as T) : v);
     if (cursor) {
       const created = new Date(Buffer.from(cursor, 'base64url').toString());
       if (!Number.isNaN(created.getTime()))
@@ -4217,15 +4257,15 @@ export class RecordsService implements OnModuleInit {
         agent_id: c.source === 'agent' ? c.agentId : null, // #1226
         agent_name: c.source === 'agent' ? c.agentName : null,
         // #884 — a change to the computed TITLE (field_id null) carries the full title, hidden inputs included.
-        old_value: redact && !c.fieldId ? '—' : c.oldValue,
-        new_value: redact && !c.fieldId ? '—' : c.newValue,
+        old_value: redact && !c.fieldId ? '—' : maybeRedactSteps(c.fieldId, c.oldValue),
+        new_value: redact && !c.fieldId ? '—' : maybeRedactSteps(c.fieldId, c.newValue),
         old_display: redact && !c.fieldId ? '—' : renderTypedValue(
-          c.oldValue,
+          maybeRedactSteps(c.fieldId, c.oldValue),
           c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
           ctx,
         ),
         new_display: redact && !c.fieldId ? '—' : renderTypedValue(
-          c.newValue,
+          maybeRedactSteps(c.fieldId, c.newValue),
           c.fieldId ? ctx.fieldType.get(c.fieldId) : 'title',
           ctx,
         ),
@@ -5014,7 +5054,7 @@ export class RecordsService implements OnModuleInit {
     if (!surface) {
       const byApiName = new Map(defs.map((d) => [d.api_name, d]));
       for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
-      surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
+      surface = await this.narrowedQuerySurface(membership, defs, byApiName, databaseId); // #881
     }
     const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
 
@@ -5097,7 +5137,7 @@ export class RecordsService implements OnModuleInit {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
-    const surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
+    const surface = await this.narrowedQuerySurface(membership, defs, byApiName, databaseId); // #881
     const where = await this.aggregateWhere(databaseId, { filter: input.filter, q: input.q }, currentUserId, membership, defs, surface);
 
     if (input.op === 'count') {
@@ -5200,7 +5240,7 @@ export class RecordsService implements OnModuleInit {
     const defs = await this.fieldDefs(databaseId);
     const byApiName = new Map(defs.map((d) => [d.api_name, d]));
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
-    const surface = await this.narrowedQuerySurface(membership, defs, byApiName); // #881
+    const surface = await this.narrowedQuerySurface(membership, defs, byApiName, databaseId); // #881
     const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
 
     const groupDef = surface.strictDefs.get(input.group_by);
@@ -5464,7 +5504,7 @@ export class RecordsService implements OnModuleInit {
       const defs = await this.fieldDefs(databaseId);
       const titleDef = this.computedTitleDef(defs);
       if (!titleDef || !this.titleReferencesCrossRecord(titleDef, defs)) return false;
-      const surface = await this.narrowedQuerySurface(membership, defs, new Map(defs.map((d) => [d.api_name, d])));
+      const surface = await this.narrowedQuerySurface(membership, defs, new Map(defs.map((d) => [d.api_name, d])), databaseId);
       const refs = new Set(formulaRefs(titleDef.config['ast'] as FormulaNode));
       return [...surface.hiddenDerived].some((name) => refs.has(name));
     });
@@ -5666,6 +5706,7 @@ export class RecordsService implements OnModuleInit {
     membership: Membership | undefined,
     defs: FieldDef[],
     byApiName: Map<string, FieldDef>,
+    databaseId: string,
   ): Promise<{
     filterDefs: Map<string, FieldDef>;
     strictDefs: Map<string, FieldDef>;
@@ -5683,6 +5724,13 @@ export class RecordsService implements OnModuleInit {
 
     const filterDefs = new Map(byApiName);
     const strictDefs = new Map(byApiName);
+    // ticket #1227 — a field the caller may not read is not one they may filter, sort or group by either: the machine name is
+    // recoverable one letter at a time through `contains`. Removed from the set, so the refusal is the same "unknown field" as for
+    // a field that does not exist.
+    for (const def of (await this.runnerIdentityGuard(membership, databaseId, defs)).hidden) {
+      filterDefs.delete(def.api_name);
+      strictDefs.delete(def.api_name);
+    }
     for (const def of defs) {
       if (def.type === 'relation') {
         if (!isFull(def.id)) strictDefs.delete(def.api_name);
@@ -5711,7 +5759,7 @@ export class RecordsService implements OnModuleInit {
     // api_names — ADDITIVELY, so a real user/stored field of the same name (e.g. a
     // database with its own `number` field) always wins and is never shadowed.
     for (const def of systemFieldDefsFor(byApiName.keys())) byApiName.set(def.api_name, def);
-    const surface = await this.narrowedQuerySurface(membership, defs, byApiName);
+    const surface = await this.narrowedQuerySurface(membership, defs, byApiName, databaseId);
     const titleExpr = await this.titleSqlFor(membership, databaseId); // #884
     const nullsFirst = input.nulls === 'first';
     const sorts: SortSpec[] = validateSorts(input.sorts, surface.strictDefs);
