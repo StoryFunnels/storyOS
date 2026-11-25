@@ -636,6 +636,48 @@ describe('#1324 follow-up: the Do Not Contact trigger condition', () => {
     expect((await wakesFor(id)).woke, 'cleared on purpose: the trigger wakes for everyone, as triggers did before').toHaveLength(1);
   }, 60_000);
 
+  it("a stored condition of the JSON text 'null' (or any non-filter value) is INVALID and fails closed, while an absent or empty one is no condition", async () => {
+    const { rows: fieldRows } = await pool.query(`select id from fields where database_id = $1 and api_name = 'condition'`, [triggersDbId]);
+    const conditionFieldId = fieldRows[0].id as string;
+    const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
+    const target = bindings.find((b) => String(b.title).endsWith('= Contacted'))!;
+    const original = target.values['condition'] as string;
+    const setStored = (v: string) => pool.query(`update records set values = jsonb_set(values, ARRAY[$2::text], to_jsonb($3::text)) where id = $1`, [target.id, conditionFieldId, v]);
+    try {
+      for (const stored of ['null', '[]', '0', '"x"', 'true', ' null ']) {
+        await setStored(stored);
+        const id = await mkLead(`Stored ${stored.trim()}`, { stage: optId(leads, 'Stage', 'Contacted'), ...dnc(true) });
+        const w = await wakesFor(id);
+        expect(w.woke, `stored ${stored} must not run the agent`).toHaveLength(0);
+        expect(w.skipped, stored).toHaveLength(1);
+        expect(w.skipped[0]!.skipped, stored).toBe('condition_invalid');
+      }
+      // absent (the key is gone) and empty both mean no condition: the trigger is unguarded, as triggers were before
+      await pool.query(`update records set values = values - $2::text where id = $1`, [target.id, conditionFieldId]);
+      const absent = await mkLead('Absent condition', { stage: optId(leads, 'Stage', 'Contacted'), ...dnc(true) });
+      expect((await wakesFor(absent)).woke).toHaveLength(1);
+      await setStored('');
+      const empty = await mkLead('Empty condition', { stage: optId(leads, 'Stage', 'Contacted'), ...dnc(true) });
+      expect((await wakesFor(empty)).woke).toHaveLength(1);
+    } finally {
+      await setStored(original);
+    }
+  }, 90_000);
+
+  it("records API: the text 'null' and other JSON that is not a filter object are refused with a 422, and clearing is still allowed", async () => {
+    const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
+    const target = bindings.find((b) => String(b.title).endsWith('= Not now'))!;
+    const before = target.values['condition'];
+    for (const bad of ['null', '[]', '0', '"x"', 'true']) {
+      const res = await as('PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`, { values: { condition: bad } });
+      expect(res.statusCode, `${bad}: ${res.body}`).toBe(422);
+    }
+    const stored = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`)).json();
+    expect(stored.values['condition'], 'a refused edit changed nothing').toBe(before);
+    const cleared = await as('PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`, { values: { condition: '' } });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+  }, 60_000);
+
   it('records API: a condition that is not a filter, or does not compile on the bound database, is refused with a 422', async () => {
     const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
     const target = bindings.find((b) => String(b.title).endsWith('= Lost'))!;

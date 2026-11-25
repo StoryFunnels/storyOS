@@ -25,7 +25,8 @@ export function readTriggerCondition(raw: unknown): TriggerCondition {
       return { kind: 'invalid', reason: 'the condition is not valid JSON' };
     }
   }
-  if (value === null) return { kind: 'none' };
+  // A field that is absent, null or empty text is NO condition. The JSON text `null` (or an array, number, string or boolean) is a
+  // value somebody wrote that is not a filter: INVALID, which fails closed. Reading it as "none" would turn a broken guard into no guard.
   const parsed = filterSchema.safeParse(value);
   if (!parsed.success) return { kind: 'invalid', reason: `the condition is not a valid filter: ${parsed.error.issues[0]?.message ?? 'unreadable'}` };
   return { kind: 'filter', filter: parsed.data };

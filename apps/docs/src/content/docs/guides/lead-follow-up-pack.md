@@ -62,8 +62,11 @@ say it:
 
 The agent's instructions are text a model follows. Two things are enforced by StoryOS instead: its updates to
 Leads, Follow-ups and the Stage Guide wait in the Approvals inbox for a person, and a pack agent's trigger never
-starts without a person switching it on. A trigger cannot filter on Do Not Contact, so the drafter still wakes for
-such a lead and its first rule is to stop.
+starts without a person switching it on. The pack's eight stage triggers also carry the condition "Do Not Contact is
+unchecked", which StoryOS checks before waking the drafter: a lead marked Do Not Contact wakes nothing, and the skipped
+wake is listed with the wake queue. The first rule in the instructions (stop on such a lead) stays as the second line of
+defence, for example when a person starts the drafter by hand. Workspaces that installed the pack before this condition
+existed keep their triggers as they were; add the condition to each trigger there.
 
 **Approved is a field in your data.** A person sets Status from Ready for review to Approved. That is this pack's
 working rule, not a StoryOS permission. A connected assistant such as your own Claude or ChatGPT over MCP is not
