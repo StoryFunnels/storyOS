@@ -21,6 +21,9 @@ Two databases:
 Each Status option carries a category: To Do is unstarted, In Progress is started, Done is completed.
 See [Option categories](/guides/pack-manifest/#option-categories).
 
+A new task starts in **To Do**, the first Status option, whichever way it is created: a card added on the
+Board, **New**, a form, or an agent over MCP. Pass `null` for Status to leave it empty.
+
 ## The three views
 
 - **Board** on Tasks, grouped by Status, with Assignee, Due date and Labels on each card. It is the view
@@ -29,7 +32,7 @@ See [Option categories](/guides/pack-manifest/#option-categories).
   the person looking at it. It is one shared view: each teammate sees their own tasks in it.
 
 Both boards hide the **No value** column while it is empty, so a fresh install shows three columns. It comes
-back by itself when a task has no Status.
+back by itself when a task has no Status, for example one made before it started in To Do or one whose Status you cleared.
 - **All projects** on Projects, a table that shows Owner, Target date and Open tasks. It hides the
   Tasks link column, because the count says the same thing more briefly. It is not the view Projects
   opens on; Projects keeps its own **All records** list as its default.
