@@ -3140,18 +3140,28 @@ export class RecordsService implements OnModuleInit {
    * fixed system key 'agents' (#1063), never the name: a person's own database with a `tools` field is not touched by this.
    * `values` is absent for a restore, where the values come from an old version: for an agent source that is refused outright.
    */
-  private async assertAgentSettingsWritable(databaseId: string, keys: string[], source: ChangeSource, values?: Record<string, unknown>): Promise<void> {
+  private async assertAgentSettingsWritable(
+    databaseId: string,
+    keys: string[],
+    source: ChangeSource,
+    values?: Record<string, unknown>,
+    /** True for an update or a restore of a record that exists. See `scopeKeys` below: only then are target_databases and scopes guarded. */
+    existingRecord = false,
+  ): Promise<void> {
     // ticket #1138: the monthly budget is the same kind of setting. An agent that could raise its own budget would have no budget.
     const budgetKeys = BUDGET_FIELD_NAMES.filter((k) => keys.includes(k));
     // ticket #1195: the spaces an agent works in are the same kind of setting. An agent that could widen its own spaces would have no scope.
     // Only target_spaces: target_databases is the agent's brief and is written with source 'agent' by pack/architect builds, so guarding it
     // here refused every pack install that has an agent (the four test-api shard failures on PR #1442).
-    const scopeKeys = ['target_spaces'].filter((k) => keys.includes(k));
+    // ticket #1336: on an EXISTING agent record an agent may not rewrite target_databases or scopes either (an agent that can reach the Agents
+    // database could otherwise widen its own reach). A CREATE keeps target_databases open for a source 'agent' caller, because pack and architect
+    // builds create agents that way; the person-approved build is the only thing that mints an agent's scope, never an agent's own token write.
+    const scopeKeys = (existingRecord ? ['target_spaces', 'target_databases', 'scopes'] : ['target_spaces']).filter((k) => keys.includes(k));
     if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0 && scopeKeys.length === 0) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
     if (source === 'agent') {
-      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model, budget or target spaces: they are set by the person who manages the agent.');
+      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model, budget, scopes or target spaces and databases: they are set by the person who manages the agent.');
     }
     const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });
     if (problems.length > 0) throw new UnprocessableEntityException(problems.map((p) => p.message).join(' '));
@@ -3537,7 +3547,7 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
     await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
-    await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+    await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input, true);
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
@@ -4270,7 +4280,7 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'update', source, agentId, 'Restoring a version');
     // #1180: a restore writes old values by field id, so it cannot be key-checked; an agent restoring an agent record could re-set Tools/Model.
-    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools', ...BUDGET_FIELD_NAMES], source);
+    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools', 'target_databases', 'scopes', ...BUDGET_FIELD_NAMES], source, undefined, true);
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });
