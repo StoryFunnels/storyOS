@@ -212,13 +212,16 @@ export const LEAD_FOLLOW_UP_PACK: PackRegistryEntry = {
       },
     ],
     // One trigger per stage (a trigger binds one option of one field). Every one installs OFF (#1192): nothing is drafted until a person
-    // switches the drafter on. A trigger cannot filter on Do Not Contact, so the agent's instructions (rule 1) are what skip such a lead.
+    // switches the drafter on. Every one carries the condition "Do Not Contact is unchecked", which the CODE checks at wake time: a lead
+    // marked Do Not Contact never wakes the drafter, and the skipped wake is listed (list_agent_wakes). The agent's instructions (rule 1)
+    // still say the same thing, as the second line of defence for a run somebody starts by hand.
     triggers: STAGES.map((state_option) => ({
       agent: 'Lead Follow-up Drafter',
       database: 'Leads',
       state_field: 'Stage',
       state_option,
       human_gate: false,
+      condition: { field: 'do_not_contact', op: 'eq' as const, value: false },
     })),
     derived_fields: [],
     views: [

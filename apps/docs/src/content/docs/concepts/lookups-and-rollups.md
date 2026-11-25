@@ -61,6 +61,13 @@ rollup filter narrows which related records contribute, as for the other aggrega
 - **It can only be created over the API or MCP.** The add-field dialog doesn't offer `collect` yet.
 - **Only files are collected**, not documents: there is no field type for a document to target.
 
+### A rollup filter is checked when you save it
+
+A rollup filter is tried against the related database when you create or change the rollup. A filter
+the database cannot run is refused with a `422` that names the problem, so a broken filter is not
+saved. A rollup, lookup or formula that cannot be worked out for a record shows empty instead of
+stopping the rest of the table from loading.
+
 ## Feeding formulas
 
 Both lookups and rollups are ordinary fields that [formulas](/concepts/formulas/) can reference.

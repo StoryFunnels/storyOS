@@ -106,6 +106,8 @@ describe('#1324 the manifest', () => {
     expect(a.approval_policy).toEqual(['email', 'outward']);
     expect(m.triggers.map((t) => `${t.database}.${t.state_field}=${t.state_option}`)).toEqual(STAGES.map((s) => `Leads.Stage=${s}`));
     expect(m.triggers.every((t) => t.agent === AGENT && t.human_gate === false)).toBe(true);
+    // ticket #1324 follow-up: every stage trigger carries the Do Not Contact guard the CODE checks at wake time
+    expect(m.triggers.every((t) => JSON.stringify(t.condition) === JSON.stringify({ field: 'do_not_contact', op: 'eq', value: false }))).toBe(true);
     // StoryOS holds the agent's UPDATES to the three databases, so "never changes the lead" is not only the prompt's word
     expect(a.write_gates).toEqual([
       { operations: ['update'], database: 'Leads' },
@@ -471,11 +473,278 @@ describe('#1324 the automation and the agent triggers DO their job', () => {
     expect(await wakes(), 'moved to Negotiating').toBe(n + 1);
   }, 180_000);
 
-  it('a Do Not Contact lead still wakes the drafter (a trigger cannot filter): the refusal is the instructions\' first rule, and StoryOS holds anything the agent tries to change', () => {
+  it('the instructions keep rule 1 (Do Not Contact) as the second line of defence, and StoryOS still holds anything the agent tries to change', () => {
     const a = entry.manifest.agents[0]!;
     // rule 1 comes before any rule about drafting
     expect(a.instructions!.indexOf('If Do Not Contact is ticked, draft nothing at all')).toBeGreaterThan(-1);
     expect(a.instructions!.indexOf('1. If Do Not Contact is ticked')).toBeLessThan(a.instructions!.indexOf('2. You draft.'));
     expect(a.write_gates!.every((g) => g.operations.includes('update'))).toBe(true);
   });
+});
+
+/**
+ * ticket #1324 follow-up - "Do Not Contact" is a CODE guard, not only a sentence in the prompt. The pack's eight stage triggers carry
+ * the condition "Do Not Contact is unchecked"; the dispatcher checks it against the record at wake time, and a refusal is a finished wake
+ * (status canceled, `skipped`) so it is visible, never a silent drop.
+ */
+describe('#1324 follow-up: the Do Not Contact trigger condition', () => {
+  let ws: string;
+  let subscriber: AgentTriggerSubscriber;
+  let leads: Detail;
+  let agentId: string;
+  let triggersDbId: string;
+  const dnc = (v: boolean) => ({ do_not_contact: v });
+
+  beforeAll(async () => {
+    ws = await newWs('Dnc');
+    subscriber = app.get(AgentTriggerSubscriber);
+    const res = await install(ws, { enable_agent_triggers: STAGES.map(triggerLabel) });
+    expect(res.statusCode, res.body).toBe(201);
+    leads = await detail(ws, 'Leads');
+    const ensured = (await as('POST', `/workspaces/${ws}/agents/ensure`)).json();
+    triggersDbId = ensured.triggersDb.id;
+    const agents = (await as('GET', `/workspaces/${ws}/databases/${ensured.agentsDb.id}/records?limit=200`)).json().data as Row[];
+    agentId = agents.find((a) => a.title === AGENT)!.id;
+    for (const r of await rows(ws, leads.id)) await subscriber.settle(r.id);
+  }, 180_000);
+
+  const mkLead = async (name: string, values: Record<string, unknown> = {}) => {
+    const r = await as('POST', `/workspaces/${ws}/databases/${leads.id}/records`, { values: { name, ...values } });
+    expect(r.statusCode, r.body).toBe(201);
+    await subscriber.settle(r.json().id);
+    return r.json().id as string;
+  };
+  const patch = async (id: string, values: Record<string, unknown>) => {
+    const r = await as('PATCH', `/workspaces/${ws}/databases/${leads.id}/records/${id}`, { values });
+    expect(r.statusCode, r.body).toBe(200);
+    await subscriber.settle(id);
+  };
+  /** The wakes the agent has for ONE lead: real ones, and the ones recorded as skipped. */
+  const wakesFor = async (recordId: string) => {
+    const { rows: w } = await pool.query(
+      `select status, reasons->0->'detail'->>'skipped' as skipped from agent_wakes where workspace_id = $1 and agent_id = $2 and record_id = $3 order by created_at`,
+      [ws, agentId, recordId],
+    );
+    const all = w as Array<{ status: string; skipped: string | null }>;
+    return { woke: all.filter((r) => r.skipped === null), skipped: all.filter((r) => r.skipped !== null) };
+  };
+
+  for (const stage of STAGES) {
+    it(`${stage}: a Do Not Contact lead entering it does NOT wake the drafter and the skip is recorded; an ordinary lead still does`, async () => {
+      const blocked = await mkLead(`Blocked in ${stage}`, { stage: optId(leads, 'Stage', stage), ...dnc(true) });
+      const b = await wakesFor(blocked);
+      expect(b.woke, 'no wake for a Do Not Contact lead').toHaveLength(0);
+      expect(b.skipped).toHaveLength(1);
+      expect(b.skipped[0]).toMatchObject({ status: 'canceled', skipped: 'condition_not_met' });
+
+      const ordinary = await mkLead(`Ordinary in ${stage}`, { stage: optId(leads, 'Stage', stage), ...dnc(false) });
+      const o = await wakesFor(ordinary);
+      expect(o.woke, 'an ordinary lead wakes it').toHaveLength(1);
+      expect(o.skipped).toHaveLength(0);
+
+      const unset = await mkLead(`Unset in ${stage}`, { stage: optId(leads, 'Stage', stage) });
+      expect((await wakesFor(unset)).woke, 'a lead whose Do Not Contact was never set counts as unchecked and wakes it').toHaveLength(1);
+    }, 60_000);
+  }
+
+  it('toggling Do Not Contact on an existing lead, then moving its stage, is judged on the value AT THE MOVE', async () => {
+    const id = await mkLead('Toggled lead', { stage: null }); // explicitly null: a lead sent without a stage lands in the first one (ticket #1325)
+    await patch(id, { ...dnc(true) });
+    await patch(id, { stage: optId(leads, 'Stage', 'Contacted') });
+    let w = await wakesFor(id);
+    expect(w.woke).toHaveLength(0);
+    expect(w.skipped).toHaveLength(1);
+
+    await patch(id, { ...dnc(false) });
+    await patch(id, { stage: optId(leads, 'Stage', 'Call Booked') });
+    w = await wakesFor(id);
+    expect(w.woke, 'unticked, the next move wakes it').toHaveLength(1);
+    expect(w.skipped, 'and the earlier skip is still on the record').toHaveLength(1);
+
+    // the other way round: a lead that was ordinary and is later marked Do Not Contact (its earlier wake finished, so the slot is free)
+    await pool.query(`update agent_wakes set status = 'done', finished_at = now() where workspace_id = $1 and agent_id = $2 and record_id = $3 and status = 'queued'`, [ws, agentId, id]);
+    await patch(id, { ...dnc(true) });
+    await patch(id, { stage: optId(leads, 'Stage', 'Proposal Sent') });
+    w = await wakesFor(id);
+    expect(w.woke, 'ticked again, the move wakes nothing new').toHaveLength(1);
+    expect(w.skipped).toHaveLength(2);
+  }, 90_000);
+
+  it('the skip is VISIBLE through the wake list: status canceled and `skipped` says which rule refused', async () => {
+    const id = await mkLead('Visible skip', { stage: optId(leads, 'Stage', 'New'), ...dnc(true) });
+    const res = await as('GET', `/workspaces/${ws}/agent-wakes?agent=${agentId}&record=${id}`);
+    expect(res.statusCode, res.body).toBe(200);
+    const list = res.json().data as Array<{ status: string; skipped: { code: string; message: string; trigger_id: string | null } | null }>;
+    expect(list).toHaveLength(1);
+    expect(list[0]!.status).toBe('canceled');
+    expect(list[0]!.skipped?.code).toBe('condition_not_met');
+    expect(list[0]!.skipped?.message).toMatch(/does not match this trigger's condition/);
+    expect(list[0]!.skipped?.trigger_id).toBeTruthy();
+    // and a real wake carries no skip
+    const ok = await mkLead('Visible wake', { stage: optId(leads, 'Stage', 'New') });
+    const okList = (await as('GET', `/workspaces/${ws}/agent-wakes?agent=${agentId}&record=${ok}`)).json().data as Array<{ skipped: unknown; status: string }>;
+    expect(okList).toHaveLength(1);
+    expect(okList[0]!.skipped).toBeNull();
+    expect(okList[0]!.status).toBe('queued');
+  }, 60_000);
+
+  it('a skipped wake does not hold the open-wake slot: the same lead wakes the drafter the moment it is eligible', async () => {
+    const id = await mkLead('Slot lead', { stage: optId(leads, 'Stage', 'New'), ...dnc(true) });
+    expect((await wakesFor(id)).skipped).toHaveLength(1);
+    await patch(id, { ...dnc(false), stage: optId(leads, 'Stage', 'Contacted') });
+    const w = await wakesFor(id);
+    expect(w.woke).toHaveLength(1);
+    expect(w.woke[0]!.status).toBe('queued');
+  }, 60_000);
+
+  it('a malformed stored condition FAILS CLOSED: nothing wakes, the skip says condition_invalid, and it is logged once', async () => {
+    const { rows: fieldRows } = await pool.query(`select id from fields where database_id = $1 and api_name = 'condition'`, [triggersDbId]);
+    expect(fieldRows).toHaveLength(1);
+    const conditionFieldId = fieldRows[0].id as string;
+    const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
+    const target = bindings.find((b) => String(b.title).endsWith('= New'))!;
+    const original = target.values['condition'];
+    expect(typeof original).toBe('string');
+    const setStored = (v: string) => pool.query(`update records set values = jsonb_set(values, ARRAY[$2::text], to_jsonb($3::text)) where id = $1`, [target.id, conditionFieldId, v]);
+    const warn = vi.spyOn((subscriber as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
+    try {
+      for (const broken of ['{ this is not json', '{"field":"no_such_field","op":"eq","value":false}', '{"and":[]}', '"just a string"']) {
+        await setStored(broken);
+        const id = await mkLead(`Broken ${broken.slice(0, 8)}`, { stage: optId(leads, 'Stage', 'New'), ...dnc(false) });
+        const w = await wakesFor(id);
+        expect(w.woke, `broken condition ${broken}: it must not run the agent`).toHaveLength(0);
+        expect(w.skipped, broken).toHaveLength(1);
+      }
+      const { rows: reasons } = await pool.query(`select distinct reasons->0->'detail'->>'skipped' as s from agent_wakes where workspace_id = $1 and agent_id = $2 and status = 'canceled'`, [ws, agentId]);
+      expect((reasons as Array<{ s: string }>).map((r) => r.s)).toContain('condition_invalid');
+      const logged = warn.mock.calls.filter((c) => String(c[0]).includes(`agent trigger ${target.id}`) && String(c[0]).includes('failing closed'));
+      expect(logged, 'one warning for the binding, however many events').toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+      await setStored(original as string);
+    }
+    const back = await mkLead('Healed', { stage: optId(leads, 'Stage', 'New'), ...dnc(false) });
+    expect((await wakesFor(back)).woke, 'with the condition restored it wakes again').toHaveLength(1);
+  }, 120_000);
+
+  it('a trigger WITHOUT a condition is unchanged (what must be KEPT): every state change wakes, a Do Not Contact lead included', async () => {
+    const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
+    const target = bindings.find((b) => String(b.title).endsWith('= Won'))!;
+    const patched = await as('PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`, { values: { condition: '' } });
+    expect(patched.statusCode, patched.body).toBe(200);
+    const id = await mkLead('No guard on Won', { stage: optId(leads, 'Stage', 'Won'), ...dnc(true) });
+    expect((await wakesFor(id)).woke, 'cleared on purpose: the trigger wakes for everyone, as triggers did before').toHaveLength(1);
+  }, 60_000);
+
+  it("a stored condition of the JSON text 'null' (or any non-filter value) is INVALID and fails closed, while an absent or empty one is no condition", async () => {
+    const { rows: fieldRows } = await pool.query(`select id from fields where database_id = $1 and api_name = 'condition'`, [triggersDbId]);
+    const conditionFieldId = fieldRows[0].id as string;
+    const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
+    const target = bindings.find((b) => String(b.title).endsWith('= Contacted'))!;
+    const original = target.values['condition'] as string;
+    const setStored = (v: string) => pool.query(`update records set values = jsonb_set(values, ARRAY[$2::text], to_jsonb($3::text)) where id = $1`, [target.id, conditionFieldId, v]);
+    try {
+      for (const stored of ['null', '[]', '0', '"x"', 'true', ' null ']) {
+        await setStored(stored);
+        const id = await mkLead(`Stored ${stored.trim()}`, { stage: optId(leads, 'Stage', 'Contacted'), ...dnc(true) });
+        const w = await wakesFor(id);
+        expect(w.woke, `stored ${stored} must not run the agent`).toHaveLength(0);
+        expect(w.skipped, stored).toHaveLength(1);
+        expect(w.skipped[0]!.skipped, stored).toBe('condition_invalid');
+      }
+      // absent (the key is gone) and empty both mean no condition: the trigger is unguarded, as triggers were before
+      await pool.query(`update records set values = values - $2::text where id = $1`, [target.id, conditionFieldId]);
+      const absent = await mkLead('Absent condition', { stage: optId(leads, 'Stage', 'Contacted'), ...dnc(true) });
+      expect((await wakesFor(absent)).woke).toHaveLength(1);
+      await setStored('');
+      const empty = await mkLead('Empty condition', { stage: optId(leads, 'Stage', 'Contacted'), ...dnc(true) });
+      expect((await wakesFor(empty)).woke).toHaveLength(1);
+    } finally {
+      await setStored(original);
+    }
+  }, 90_000);
+
+  it("records API: the text 'null' and other JSON that is not a filter object are refused with a 422, and clearing is still allowed", async () => {
+    const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
+    const target = bindings.find((b) => String(b.title).endsWith('= Not now'))!;
+    const before = target.values['condition'];
+    for (const bad of ['null', '[]', '0', '"x"', 'true']) {
+      const res = await as('PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`, { values: { condition: bad } });
+      expect(res.statusCode, `${bad}: ${res.body}`).toBe(422);
+    }
+    const stored = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`)).json();
+    expect(stored.values['condition'], 'a refused edit changed nothing').toBe(before);
+    const cleared = await as('PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`, { values: { condition: '' } });
+    expect(cleared.statusCode, cleared.body).toBe(200);
+  }, 60_000);
+
+  it('records API: a condition that is not a filter, or does not compile on the bound database, is refused with a 422', async () => {
+    const bindings = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records?limit=200`)).json().data as Row[];
+    const target = bindings.find((b) => String(b.title).endsWith('= Lost'))!;
+    for (const bad of ['not json at all', '{"field":"no_such_field","op":"eq","value":false}', '{"field":"do_not_contact","op":"contains","value":"x"}', '{"field":"do_not_contact","op":"eq","value":"yes"}']) {
+      const res = await as('PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`, { values: { condition: bad } });
+      expect(res.statusCode, `${bad}: ${res.body}`).toBe(422);
+    }
+    const stored = (await as('GET', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`)).json();
+    expect(JSON.parse(stored.values['condition'] as string), 'a refused edit changed nothing').toEqual({ field: 'do_not_contact', op: 'eq', value: false });
+    const ok = await as('PATCH', `/workspaces/${ws}/databases/${triggersDbId}/records/${target.id}`, { values: { condition: JSON.stringify({ field: 'do_not_contact', op: 'eq', value: false }) } });
+    expect(ok.statusCode, ok.body).toBe(200);
+  }, 60_000);
+
+  it('POST /agents/triggers: a condition is stored and listed in the wake sources; a bad one is refused; permissions are what they were', async () => {
+    const w2 = await newWs('DncApi');
+    const inst = await install(w2);
+    expect(inst.statusCode, inst.body).toBe(201);
+    const d = await detail(w2, 'Leads');
+    const ensured = (await as('POST', `/workspaces/${w2}/agents/ensure`)).json();
+    const ag = ((await as('GET', `/workspaces/${w2}/databases/${ensured.agentsDb.id}/records?limit=200`)).json().data as Row[]).find((a) => a.title === AGENT)!;
+    const stageField = d.fields.find((f) => f.displayName === 'Stage')!;
+    const base = { agent: ag.id, database_id: d.id, state_field_id: stageField.id, state_option_id: optId(d, 'Stage', 'New') };
+    const cond = { and: [{ field: 'do_not_contact', op: 'eq', value: false }, { field: 'whatsapp_consent', op: 'eq', value: true }] };
+
+    const bad = await as('POST', `/workspaces/${w2}/agents/triggers`, { ...base, condition: { field: 'nope', op: 'eq', value: false } });
+    expect(bad.statusCode, bad.body).toBe(422);
+    const malformed = await as('POST', `/workspaces/${w2}/agents/triggers`, { ...base, condition: { field: 'do_not_contact', op: 'not_an_op' } });
+    expect(malformed.statusCode, malformed.body).toBe(422);
+
+    const created = await as('POST', `/workspaces/${w2}/agents/triggers`, { ...base, condition: cond, enabled: false });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(JSON.parse(created.json().values.condition)).toEqual(cond);
+
+    const src = (await as('GET', `/workspaces/${w2}/agents/${ag.id}/wake-sources`)).json().sources as Array<{ kind: string; id: string; condition?: unknown }>;
+    const mine = src.find((s) => s.kind === 'agent_trigger' && s.id === created.json().id)!;
+    expect(mine.condition).toEqual(cond);
+    const pack = src.filter((s) => s.kind === 'agent_trigger' && s.id !== created.json().id);
+    expect(pack, 'the pack triggers list the guard').toHaveLength(8);
+    expect(pack.every((s) => JSON.stringify(s.condition) === JSON.stringify({ field: 'do_not_contact', op: 'eq', value: false }))).toBe(true);
+
+    // permissions: a plain member could not create a trigger before and still cannot, with or without a condition
+    const member = await joinAs(app, owner.token, w2, 'Dnc Member', 'member');
+    const asMember = (body: unknown) => call(app, member.token, 'POST', `/workspaces/${w2}/agents/triggers`, body);
+    const without = await asMember(base);
+    const withCond = await asMember({ ...base, condition: cond });
+    expect(withCond.statusCode, withCond.body).toBe(without.statusCode);
+    expect(without.statusCode).not.toBe(201);
+  }, 120_000);
+
+  it('catch-up does not offer a Do Not Contact lead (that would wake the agent past its own guard)', async () => {
+    const w3 = await newWs('DncCatchUp');
+    expect((await install(w3)).statusCode).toBe(201); // triggers installed OFF: no event wakes anything
+    const d = await detail(w3, 'Leads');
+    const ensured = (await as('POST', `/workspaces/${w3}/agents/ensure`)).json();
+    const ag = ((await as('GET', `/workspaces/${w3}/databases/${ensured.agentsDb.id}/records?limit=200`)).json().data as Row[]).find((a) => a.title === AGENT)!;
+    const mk = async (name: string, v: boolean) => (await as('POST', `/workspaces/${w3}/databases/${d.id}/records`, { values: { name, stage: optId(d, 'Stage', 'Lost'), do_not_contact: v } })).json().id as string;
+    const blocked = await mk('Catch-up blocked', true);
+    const fine = await mk('Catch-up fine', false);
+    // now switch the Lost trigger on: both leads are already in the state with no wake
+    const bindings = (await as('GET', `/workspaces/${w3}/databases/${ensured.triggersDb.id}/records?limit=200`)).json().data as Row[];
+    const lost = bindings.find((b) => String(b.title).endsWith('= Lost'))!;
+    expect((await as('PATCH', `/workspaces/${w3}/databases/${ensured.triggersDb.id}/records/${lost.id}`, { values: { enabled: true } })).statusCode).toBe(200);
+    const res = await as('GET', `/workspaces/${w3}/agents/${ag.id}/catch-up?limit=100`);
+    expect(res.statusCode, res.body).toBe(200);
+    const items = res.json().items as Array<{ id: string }>;
+    expect(items.map((i) => i.id)).toContain(fine);
+    expect(items.map((i) => i.id), 'the Do Not Contact lead is not offered').not.toContain(blocked);
+    expect(res.json().total).toBe(items.length);
+  }, 120_000);
 });

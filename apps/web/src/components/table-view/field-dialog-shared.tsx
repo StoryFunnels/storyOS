@@ -48,6 +48,7 @@ import { EntityIcon, IconColorPicker } from '@/components/ui/icon-picker';
 import { FormulaEditor } from './formula-editor';
 import type { Field } from './use-table-data';
 import { Button } from '@/components/ui/button';
+import { fieldDeleteMessage, parseFieldUsage } from '@/lib/field-delete-message';
 
 export const FIELD_TYPES: Array<{
   value: string;
@@ -783,11 +784,22 @@ export function useDeleteField({
       // relations API, which drops BOTH fields + every link (the field-delete API
       // refuses relations). Warn about the blast radius before doing it.
       if (field.type === 'relation' && field.relation) {
-        const other = field.relation.target_database_name ?? 'the other database';
+        // A failed usage call must not read as zero links: parseFieldUsage turns anything unreadable into null (say nothing).
+        const usage = parseFieldUsage(
+          (
+            await api.GET('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/usage', {
+              params: { path: { ws, db, field: field.id } },
+            })
+          ).data,
+        );
         if (
           !(await confirm({
             title: `Delete the "${field.displayName}" relation?`,
-            message: `This removes the relation, BOTH paired fields (this one and its inverse on ${other}), and every link between records. This can't be undone.`,
+            message: fieldDeleteMessage({
+              kind: 'relation',
+              usage,
+              otherDatabaseName: field.relation.target_database_name ?? undefined,
+            }),
             confirmLabel: 'Delete relation',
             danger: true,
           }))
@@ -806,14 +818,11 @@ export function useDeleteField({
         '/api/v1/workspaces/{ws}/databases/{db}/fields/{field}/usage',
         { params: { path: { ws, db, field: field.id } } },
       );
-      const count = (usage.data as { records_with_value: number } | undefined)?.records_with_value ?? 0;
+      const message = fieldDeleteMessage({ kind: 'field', usage: parseFieldUsage(usage.data) });
       if (
         !(await confirm({
           title: `Delete "${field.displayName}"?`,
-          message:
-            count > 0
-              ? `This field has values on ${count} record(s). They'll be lost. Delete anyway?`
-              : undefined,
+          message,
           confirmLabel: 'Delete',
           danger: true,
         }))
