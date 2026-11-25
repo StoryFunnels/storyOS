@@ -58,7 +58,8 @@ a name, a job, a weekday-morning schedule and every "Asks before" box ticked.
    names (for example Europe/Madrid (UTC+1)), so "09:00" is your 09:00 and not the server's.
 4. **Works in.** The databases the agent works in. Search and add them; a field or new-record rule
    can only watch a database listed here, and removing a database moves or drops the rules that
-   watched it. The picker lists databases only: it cannot add a whole space. An agent can work in a
+   watched it. The databases you list are also where the agent can work: its access is limited to
+   exactly those, never another database in the same space or in another space. The picker lists databases only: it cannot add a whole space. An agent can work in a
    whole space, but you set that after hiring, in the **Target spaces** field on the agent's record; see
    [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces). A whole space
    covers its user databases only, never a system database such as Members, which an agent reaches only when you name it. A schedule does not need one: with none chosen it is

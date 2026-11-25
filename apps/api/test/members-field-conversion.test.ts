@@ -111,10 +111,14 @@ describe('#597 dry run (the default) changes nothing and tells the truth', () =>
     expect(plan.after).toMatchObject({ retained_field_name: 'Assignee (user)', relation_field_name: 'Assignee', inverse_field_name: 'Tasks / Assignee', inverse_field_hidden_by_default: true });
     // permission neutrality: both guests evaluated, nobody gains
     expect(plan.permission_neutrality.neutral).toBe(true);
-    const byBlind = plan.permission_neutrality.roles.find((r: { can_read_members_database: boolean }) => !r.can_read_members_database);
-    const bySighted = plan.permission_neutrality.roles.find((r: { can_read_members_database: boolean }) => r.can_read_members_database);
-    expect(byBlind.sees_chips_after).toBe(false);
-    expect(bySighted.sees_chips_after).toBe(true);
+    // ticket #1331: a guest never reads the Members database, whatever space they hold, so NO guest is "sighted" any more and none sees a chip
+    // (before it, a guest with a grant on Members' space did: that was the directory leaking, not a feature to keep neutral).
+    const guestRoles = plan.permission_neutrality.roles as Array<{ role: string; can_read_members_database: boolean; sees_chips_after: boolean }>;
+    expect(guestRoles.filter((r) => r.role === 'guest').length).toBeGreaterThanOrEqual(2);
+    for (const r of guestRoles.filter((x) => x.role === 'guest')) {
+      expect(r.can_read_members_database).toBe(false);
+      expect(r.sees_chips_after).toBe(false);
+    }
     expect(plan.permission_neutrality.chip_exposes.join(' ')).not.toMatch(/email|avatar|role/);
     // and nothing was written
     expect(await linkCount()).toBe(before);
@@ -204,14 +208,13 @@ describe('#597 permission neutrality, proven per role on the response BODY after
     expect(d.body).not.toContain(members);
   });
 
-  it('a guest WITH access to Members sees the chip (the name and number) and no other Members column', async () => {
+  it('a guest holding a grant on the space Members lives in gets no chip either: a guest never reads Members (ticket #1331)', async () => {
+    // This test used to assert the opposite ("a guest WITH access to Members sees the chip"). That access was the leak the ticket closes.
     const res = await listTasks(sighted.token);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toContain('Alice Conv');
-    const rel = await fieldByName(sighted.token, tasks, 'Assignee');
-    const one = JSON.stringify((res.json().data as Array<{ id: string; values: Record<string, unknown> }>).find((r) => r.id === t1)!.values[rel.apiName]);
-    expect(Object.keys(JSON.parse(one)[0]).sort()).toEqual(['id', 'number', 'title']);
-    expect(one).not.toContain(alice.email);
+    for (const needle of ['Alice Conv', 'Carol Conv', aliceMemberRow, alice.email]) {
+      expect(res.body, needle).not.toContain(needle);
+    }
   });
 
   it('admin and member see the chips, as everyone with workspace access always could', async () => {

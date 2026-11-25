@@ -69,6 +69,15 @@ export interface GrantInput {
   role: GrantRole;
 }
 
+/**
+ * Ticket #1331 — is the caller a GUEST for the purpose of system databases: a real guest, or a credential bound by a guest. A bound
+ * credential is DOWNGRADED to role `guest` by the request guard whoever owns it, so `role` alone cannot tell the two apart; the
+ * owner's real role is on `bound`.
+ */
+function isGuestCaller(membership: Membership): boolean {
+  return membership.bound ? membership.bound.realRole === 'guest' : membership.role === 'guest';
+}
+
 @Injectable()
 export class AccessService {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -81,12 +90,17 @@ export class AccessService {
    * Only read for a non-admin: an admin sees everything, so it never asks.
    */
   private closedResources(membership: Membership) {
-    // Tickets #1296 / #1328 — a BOUND credential (an agent's, or a token a person bound to spaces) also has every system database closed
-    // to it unless its binding NAMES it, because a whole-space binding covers user databases only. That makes the closed set differ
-    // per binding, so the memo key says which. An unbound credential is not narrowed by this.
+    // Tickets #1296 / #1328 / #1331 — SYSTEM databases (Members, the Agents pack) are closed here, in the one place every read and write
+    // asks, for the callers a space does not entitle to them:
+    //  - a BOUND credential (an agent's, or a token a person bound to spaces/databases): closed unless its binding NAMES the database,
+    //    because a whole-space binding covers user databases only;
+    //  - a GUEST (a real one, or a credential a guest owns): closed whatever grant they hold, named or not. Guests are outsiders; the
+    //    member directory is not theirs to read.
+    // That makes the closed set differ per caller, so the memo key says which. An unbound member or admin is not narrowed by this.
     const bound = membership.bound ?? null;
-    const key = bound ? `closed:${membership.workspaceId}:bound:${[...bound.databaseIds].sort().join(',')}` : `closed:${membership.workspaceId}`;
-    return memoizeForRequest(key, async () => {
+    const guestCaller = isGuestCaller(membership);
+    const variant = guestCaller ? 'guest' : bound ? `bound:${[...bound.databaseIds].sort().join(',')}` : 'open';
+    return memoizeForRequest(`closed:${membership.workspaceId}:${variant}`, async () => {
       // Internal callers act with a role-less `{ workspaceId }` membership (members-db provisioning): they are neither a member
       // nor a guest and have always seen everything, so nothing is closed to them.
       if (membership.role !== 'member' && membership.role !== 'guest') return null;
@@ -97,15 +111,11 @@ export class AccessService {
         rows?: Array<{ kind: 's' | 'd'; id: string }>;
       };
       const rows = res.rows ?? [];
-      if (bound) {
-        // SQL mirror of `!coveredByWholeSpaceGrant` (common/system-databases.ts): the flag, never the name. A database the binding NAMES
-        // is not closed: naming it is the one way in, and `boundTokenGrants` gives it its own database-level grant.
-        const named = new Set(bound.databaseIds);
-        const system = await this.db.query.databases.findMany({
-          where: and(eq(databases.workspaceId, membership.workspaceId), eq(databases.isSystem, true), notDeleted(databases.deletedAt)),
-          columns: { id: true },
-        });
-        for (const d of system) if (!named.has(d.id)) rows.push({ kind: 'd', id: d.id });
+      if (guestCaller || bound) {
+        // SQL mirror of `!coveredByWholeSpaceGrant` (common/system-databases.ts): the flag, never the name. A database a non-guest
+        // binding NAMES is not closed: naming it is the one way in, and `boundTokenGrants` gives it its own database-level grant.
+        const named = guestCaller ? new Set<string>() : new Set(bound!.databaseIds);
+        for (const id of await this.systemDatabaseIds(membership.workspaceId)) if (!named.has(id)) rows.push({ kind: 'd', id });
       }
       if (rows.length === 0) return null;
       return {
@@ -113,6 +123,18 @@ export class AccessService {
         databases: new Set(rows.filter((r) => r.kind === 'd').map((r) => r.id)),
       };
     });
+  }
+
+  /** The workspace's live SYSTEM databases (the `is_system` flag, never the name), once per request. */
+  private systemDatabaseIds(workspaceId: string): Promise<string[]> {
+    return memoizeForRequest(`sysdb:${workspaceId}`, async () =>
+      (
+        await this.db.query.databases.findMany({
+          where: and(eq(databases.workspaceId, workspaceId), eq(databases.isSystem, true), notDeleted(databases.deletedAt)),
+          columns: { id: true },
+        })
+      ).map((d) => d.id),
+    );
   }
 
   /**
@@ -182,13 +204,32 @@ export class AccessService {
     );
   }
 
-  private realGuestGrants(membership: Membership) {
-    return this.db.query.accessGrants.findMany({
+  /**
+   * A guest's own grants, MINUS any placed on a system database or on one of its records (ticket #1331): a guest never reaches the
+   * member directory or the agent pack, so a grant that names one has no effect. Space grants stay: `closedResources` keeps a system
+   * database closed to a space grant, exactly as a restricted database is (sticky).
+   */
+  private async realGuestGrants(membership: Membership) {
+    const grants = await this.db.query.accessGrants.findMany({
       where: and(
         eq(accessGrants.workspaceId, membership.workspaceId),
         eq(accessGrants.userId, membership.userId),
       ),
     });
+    const system = new Set(await this.systemDatabaseIds(membership.workspaceId));
+    if (system.size === 0) return grants;
+    const recordIds = grants.map((g) => g.recordId).filter((id): id is string => Boolean(id));
+    const inSystem = recordIds.length
+      ? new Set(
+          (
+            await this.db.query.records.findMany({
+              where: and(inArray(records.id, recordIds), inArray(records.databaseId, [...system])),
+              columns: { id: true },
+            })
+          ).map((r) => r.id),
+        )
+      : new Set<string>();
+    return grants.filter((g) => !(g.databaseId && system.has(g.databaseId)) && !(g.recordId && inSystem.has(g.recordId)));
   }
 
   /**
@@ -271,6 +312,9 @@ export class AccessService {
     // token's reach there is the owner's real reach, capped at creator, exactly as for a database named in the binding: a member
     // with a direct grant gets that grant's role, one without gets nothing, an admin gets creator. Without this a token bound to a
     // space could never see a restricted database its owner is entitled to, whatever the owner was granted.
+    // Ticket #1331 — a binding a GUEST owns never reaches a system database, named or not (`closedResources` says the same for the
+    // closed set; this stops a named one being given a database-level grant out of the owner's space grant).
+    const bindable = (d: { isSystem: boolean | null }) => ceiling.realRole !== 'guest' || !d.isSystem;
     const covered = new Set(databaseRows.map((d) => d.id));
     const restrictedInside = visibleSpaces.length
       ? await this.db.query.databases.findMany({
@@ -281,7 +325,7 @@ export class AccessService {
           ),
         })
       : [];
-    for (const database of restrictedInside) {
+    for (const database of restrictedInside.filter(bindable)) {
       if (covered.has(database.id)) continue;
       const role =
         ceiling.realRole === 'guest'
@@ -291,7 +335,7 @@ export class AccessService {
             : cap(await this.resolveDatabaseRole(realMember, database));
       if (role) out.push(grant({ databaseId: database.id }, role));
     }
-    for (const database of databaseRows) {
+    for (const database of databaseRows.filter(bindable)) {
       const role =
         ceiling.realRole === 'guest'
           ? bestOf((g) => g.databaseId === database.id || g.spaceId === database.spaceId)

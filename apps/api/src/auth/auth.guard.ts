@@ -210,9 +210,9 @@ export class AuthGuard implements CanActivate {
         effectiveUserId = identity.ownerId;
       }
 
-      // #1195 — an agent that targets a SPACE is bound to it, resolved live on every request (a database added to the space
-      // later is in scope on the next call; the manager's own reach and personal spaces are applied by the #543 binding itself).
-      // A token that already carries its own minted binding keeps it. A database-only agent resolves to `enforced: false`: unchanged.
+      // #1195 / #1330 — an agent that names a SPACE or DATABASES is bound to them, resolved live on every request (a database added to a
+      // targeted space later is in scope on the next call; the manager's own reach and personal spaces are applied by the #543 binding
+      // itself). A token that already carries its own minted binding keeps it. Only an agent that names nothing is unbound.
       let resourceScope = resolved.resourceScope;
       if (resolved.agentId && !resourceScope) {
         const live = await resolveAgentScope(this.db, resolved.workspaceId, resolved.agentId);
