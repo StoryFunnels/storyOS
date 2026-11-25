@@ -169,6 +169,14 @@ describe('what a filter requires, and what it cannot', () => {
     const same = await makeView(t.db, { or: [{ field: 'state', op: 'has', value: [t.ids('Done')] }, { field: 'state', op: 'has', value: [t.ids('In progress')] }] });
     expect(labelOf(t.state, (await made(admin.token, t.db, { values: { name: 'a' }, view_id: same })).values['state'])).toBe('In progress');
 
+    // two fields of the SAME type: a value from one branch must not be written into the other branch's field
+    await fx(admin.token, 'POST', `/workspaces/${ws}/databases/${t.db}/fields`, { display_name: 'Source', type: 'text', config: {} });
+    const twoText = await makeView(t.db, { or: [{ field: 'notes', op: 'eq', value: 'x' }, { field: 'source', op: 'eq', value: 'y' }] });
+    const tt = await made(admin.token, t.db, { values: { name: 't' }, view_id: twoText });
+    expect(tt.values['notes'] ?? null, 'an OR across different fields derives nothing').toBeNull();
+    expect(tt.values['source'] ?? null).toBeNull();
+    expect(tt.view_match?.matches).toBe(false);
+
     const mixed = await makeView(t.db, { or: [{ field: 'state', op: 'has', value: [t.ids('Done')] }, { field: 'priority', op: 'has', value: [optionId(t.priority, 'High')] }] });
     const r = await made(admin.token, t.db, { values: { name: 'b' }, view_id: mixed });
     expect(labelOf(t.state, r.values['state']), 'the usual first-state default, not a guess between the branches').toBe('Triage');
@@ -230,6 +238,19 @@ describe('what a filter requires, and what it cannot', () => {
   });
 });
 
+describe('a derived value must never make a create fail', () => {
+  it('a filter that names a UNIQUE field is not applied: the second New would have been a 409', async () => {
+    const t = await newDb('Unique');
+    await fx(admin.token, 'POST', `/workspaces/${ws}/databases/${t.db}/fields`, { display_name: 'Code', type: 'text', config: { unique: true } });
+    const v = await makeView(t.db, { field: 'code', op: 'eq', value: 'ABC' });
+    const first = await made(admin.token, t.db, { values: { name: 'one' }, view_id: v });
+    const second = await made(admin.token, t.db, { values: { name: 'two' }, view_id: v });
+    expect(first.values['code'] ?? null).toBeNull();
+    expect(second.values['code'] ?? null).toBeNull();
+    expect(second.view_match).toEqual({ matches: false, unmet: ['code'] });
+  });
+});
+
 describe('explicit values always win', () => {
   it('a supplied value beats the view, and so does an explicit null', async () => {
     const t = await newDb('Explicit');
@@ -260,9 +281,10 @@ describe('a view the caller cannot read adds nothing and says nothing', () => {
   it('a view of a DIFFERENT database, and a trashed view, are no context', async () => {
     const a = await newDb('Other A');
     const b = await newDb('Other B');
-    const inA = await makeView(a.db, { field: 'state', op: 'has', value: [a.ids('Done')] });
+    const inA = await makeView(a.db, { and: [{ field: 'state', op: 'has', value: [a.ids('Done')] }, { field: 'notes', op: 'eq', value: 'from-A' }] });
     const r = await made(admin.token, b.db, { values: { name: 'x' }, view_id: inA });
     expect(labelOf(b.state, r.values['state'])).toBe('Triage');
+    expect(r.values['notes'] ?? null, "database B has a Notes field too, and A's view must not reach it").toBeNull();
     expect('view_match' in r).toBe(false);
 
     await fx(admin.token, 'DELETE', `/workspaces/${ws}/databases/${a.db}/views/${inA}`);

@@ -5765,3 +5765,74 @@ describe('preview_formula (#1263)', () => {
     expect(MCP_TOOL_NAMES).toContain('preview_formula');
   });
 });
+
+/**
+ * ticket #1333 — create_record's optional `view`: a record made "from a view" is filled in by that view's filter, and the result says whether
+ * it landed inside. The rule lives in the API (a `view_id` on the create); this pins what the tool sends and what it reports back.
+ */
+describe('create_record from a view (#1333)', () => {
+  const detail = {
+    id: 'db-1',
+    name: 'Issues',
+    qualifiedSlug: 'eng/issues',
+    fields: [
+      { id: 'f-title', apiName: 'name', displayName: 'Name', type: 'title' },
+      { id: 'f-state', apiName: 'state', displayName: 'State', type: 'workflow', options: [{ id: 'opt-triage', label: 'Triage' }, { id: 'opt-todo', label: 'To Do' }] },
+    ],
+    views: [{ id: '11111111-1111-4111-8111-111111111111', name: 'Active', type: 'board' }],
+  };
+  function ctxFor(created: Record<string, unknown>, posts: Array<Record<string, unknown>>): Ctx {
+    const row = { id: 'rec-1', number: 1, title: 'x', values: { name: 'x', state: 'opt-todo' }, ...created };
+    const client = {
+      GET: async (path: string) => {
+        if (path === '/api/v1/workspaces') return { data: [{ id: 'ws-1', name: 'Eng' }] };
+        if (path === '/api/v1/workspaces/{ws}/databases') return { data: [detail] };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: detail };
+        if (path === '/api/v1/workspaces/{ws}/databases/{db}/records/{rec}') return { data: row };
+        throw new Error(`unexpected GET ${path}`);
+      },
+      POST: async (path: string, init: { body: Record<string, unknown> }) => {
+        if (path !== '/api/v1/workspaces/{ws}/databases/{db}/records') throw new Error(`unexpected POST ${path}`);
+        posts.push(init.body);
+        return { data: row };
+      },
+    };
+    return { client: client as never, baseUrl: 'http://test', token: 'tok' };
+  }
+  async function call(args: Record<string, unknown>, ctx: Ctx) {
+    const handlers = new Map<string, (a: unknown) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>>();
+    registerTools({ registerTool: (n: string, _c: unknown, h: never) => handlers.set(n, h as never) } as never, ctx);
+    const result = await handlers.get('create_record')!(args);
+    if (result.isError) throw new Error(result.content[0]!.text);
+    return JSON.parse(result.content[0]!.text);
+  }
+
+  it('sends the view as view_id (resolved by name) and reports a match without a note', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    const out = await call({ workspace: 'Eng', database: 'Issues', values: { name: 'x' }, view: 'active' }, ctxFor({ view_match: { matches: true, unmet: [] } }, posts));
+    expect(posts[0]!['view_id']).toBe('11111111-1111-4111-8111-111111111111');
+    expect(out.view_match).toEqual({ matches: true, unmet: [] });
+    expect(out.note ?? '').not.toMatch(/does not match/);
+  });
+
+  it('says plainly when the record is created but is not in the view', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    const out = await call({ workspace: 'Eng', database: 'Issues', values: { name: 'x' }, view: 'Active' }, ctxFor({ view_match: { matches: false, unmet: ['state'] } }, posts));
+    expect(out.view_match).toEqual({ matches: false, unmet: ['state'] });
+    expect(out.note).toMatch(/does not match the view "Active"/);
+    expect(out.note).toMatch(/state/);
+  });
+
+  it('without a view it sends no view_id and the result has no view_match (unchanged)', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    const out = await call({ workspace: 'Eng', database: 'Issues', values: { name: 'x' } }, ctxFor({}, posts));
+    expect('view_id' in posts[0]!).toBe(false);
+    expect(JSON.stringify(out)).not.toMatch(/view_match/);
+  });
+
+  it('an unknown view name is an error the model can fix, never a silent plain create', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    await expect(call({ workspace: 'Eng', database: 'Issues', values: { name: 'x' }, view: 'Nope' }, ctxFor({}, posts))).rejects.toThrow(/No view matches "Nope"/);
+    expect(posts).toHaveLength(0);
+  });
+});
