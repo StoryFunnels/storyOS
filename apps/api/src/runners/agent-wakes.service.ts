@@ -79,6 +79,32 @@ export type SkipCode =
   | 'record_not_visible'
   | 'owner_cannot_read';
 
+/**
+ * ticket #1324 follow-up - why a trigger did NOT wake its agent although the record reached the bound state: the trigger's condition
+ * refused it. Recorded as a finished wake (see `recordSkip`) so the skip is on the record, never a silent drop.
+ */
+export type ConditionSkipCode = 'condition_not_met' | 'condition_invalid';
+
+const CONDITION_SKIP_MESSAGES: Record<ConditionSkipCode, string> = {
+  condition_not_met: "Not woken: the record does not match this trigger's condition.",
+  condition_invalid: "Not woken: this trigger's condition could not be read or evaluated, so it failed closed.",
+};
+
+export interface RecordSkipInput {
+  workspaceId: string;
+  agentId: string;
+  recordId: string;
+  databaseId: string;
+  requestedBy: string | null;
+  depth: number;
+  /** The Agent Triggers record whose condition refused. */
+  triggerId: string;
+  code: ConditionSkipCode;
+  /** Why, in words (no record text: it names the rule, never the data). */
+  detail: string;
+  reason: 'state_change' | 'assigned';
+}
+
 export type EnqueueResult =
   | { outcome: 'created'; wake: WakeRow }
   | { outcome: 'coalesced'; wake: WakeRow }
@@ -282,6 +308,35 @@ export class AgentWakesService {
     const facts = this.agentFacts(info, agent.values as Record<string, unknown>);
     const owner = agent.createdBy ? await this.activeMembership(workspaceId, agent.createdBy) : null;
     return { ...facts, owner: owner ?? null };
+  }
+
+  // ---------------------------------------------------------------- a refused wake, kept visible
+
+  /**
+   * ticket #1324 follow-up: a trigger's condition refused this record, so no wake was queued. That is recorded as a wake that is ALREADY
+   * finished (`canceled`, with `reasons[0].detail.skipped` = the code), so `list_agent_wakes` shows "this record reached the state, the
+   * agent was NOT woken, and why" instead of a silence a person can only explain by reading the trigger. It never takes the open-wake slot
+   * (that index covers queued and claimed only), is never claimed, and is swept with other finished wakes. It carries ids and a rule's
+   * name, never record text (ADR-0021 section 7).
+   */
+  async recordSkip(input: RecordSkipInput, now = new Date()): Promise<WakeRow> {
+    const detail = { skipped: input.code, trigger_id: input.triggerId, why: input.detail };
+    const [row] = await this.db
+      .insert(agentWakes)
+      .values({
+        workspaceId: input.workspaceId,
+        agentId: input.agentId,
+        recordId: input.recordId,
+        databaseId: input.databaseId,
+        reason: input.reason,
+        requestedBy: input.requestedBy,
+        depth: input.depth,
+        status: 'canceled',
+        finishedAt: now,
+        reasons: [{ reason: input.reason, count: 1, last_at: now.toISOString(), detail }],
+      })
+      .returning();
+    return row!;
   }
 
   // ---------------------------------------------------------------- enqueue (the ONE entry every wake source calls)
@@ -1155,6 +1210,8 @@ export class AgentWakesService {
         record: w.recordId ? { id: w.recordId, database_id: w.databaseId, title: rec?.title ?? null, number: rec?.number ?? null } : null,
         reason: w.reason,
         reasons: w.reasons as WakeReasonEntry[],
+        // ticket #1324 follow-up: set when the trigger's condition refused this record (the wake never ran); null for every other wake.
+        skipped: skippedOf(w),
         coalesced_count: w.coalescedCount,
         status: w.status,
         run_id: w.runId,
@@ -1230,6 +1287,14 @@ export class AgentWakesService {
   describeConnection(runner: RunnerRow, now = new Date()) {
     return { connection: runnerConnection(runner, now), offline_since: offlineSince(runner, now) };
   }
+}
+
+/** The skip a finished wake records (a trigger's condition refused it), or null: read from `reasons[0].detail`, which `recordSkip` wrote. */
+function skippedOf(w: WakeRow): { code: ConditionSkipCode; message: string; trigger_id: string | null } | null {
+  const detail = (w.reasons as WakeReasonEntry[] | null)?.[0]?.detail;
+  const code = detail?.['skipped'];
+  if (code !== 'condition_not_met' && code !== 'condition_invalid') return null;
+  return { code, message: CONDITION_SKIP_MESSAGES[code], trigger_id: typeof detail?.['trigger_id'] === 'string' ? (detail['trigger_id'] as string) : null };
 }
 
 /** ticket #1228: 'full' = everything the queue holds; 'limited' = only what this viewer may read (an omitted wake is never counted). */

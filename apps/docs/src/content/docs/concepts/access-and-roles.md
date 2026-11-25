@@ -103,7 +103,8 @@ A guest is narrowed the same way (see [Guest scoping](#guest-scoping)).
   checked on every call, so revoking a person's grant takes effect on the token's next request.
 - A token [bound to specific spaces or databases](/api/authentication/#binding-a-token-to-specific-spaces-or-databases)
   never reaches more than its owner does. Bound to a space, it opens a restricted database inside
-  that space only if its owner holds a grant directly on that database.
+  that space only if its owner holds a grant directly on that database. A space covers its user
+  databases only: a system database such as Members is covered when the token's `database_ids` lists it.
 - An [MCP](/mcp/overview/) agent connected with a token has exactly that token's reach.
 - **Removing a member deletes their grants**, so re-inviting them later does not bring old access
   back. **Inviting someone as a member can carry grants** (space or database); the invite is

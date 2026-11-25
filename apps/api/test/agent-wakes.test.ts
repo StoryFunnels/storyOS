@@ -226,6 +226,27 @@ describe('each wake source creates exactly one queued wake, and a repeat coalesc
     expect((await wakeRows(agent)).length + (await wakeRows(bystander)).length).toBe(before);
   });
 
+  it('ticket #1324 follow-up: a relation binding with a condition wakes only for a matching record, and records the skip for the rest', async () => {
+    const agent = await mkAgent(owner, 'Guarded assigned bot');
+    expect((await bindRelation(agent, { condition: { field: stateApi, op: 'eq', value: reviewId } })).statusCode).toBe(201);
+    const todo = await mkTicket('Not in review');
+    const inReview = await mkTicket('In review', { [stateApi]: reviewId });
+    for (const t of [todo, inReview]) {
+      await as(admin.token, 'PATCH', `/workspaces/${ws}/databases/${ticketsDbId}/records/${t}`, { values: { [nextApi]: [agent] } });
+      await settle(t);
+    }
+    const rows = await wakeRows(agent);
+    const forTodo = rows.filter((w: { record_id: string }) => w.record_id === todo);
+    const forReview = rows.filter((w: { record_id: string }) => w.record_id === inReview);
+    expect(forTodo).toHaveLength(1);
+    expect(forTodo[0]).toMatchObject({ status: 'canceled', reason: 'assigned' });
+    expect(forTodo[0].reasons[0].detail.skipped).toBe('condition_not_met');
+    expect(forReview).toHaveLength(1);
+    expect(forReview[0]).toMatchObject({ status: 'queued', reason: 'assigned' });
+    // a condition that cannot be compiled against the database is refused up front
+    expect((await bindRelation(agent, { condition: { field: 'no_such_field', op: 'eq', value: reviewId } })).statusCode).toBe(422);
+  });
+
   it('a relation binding is validated: not a relation, not pointing at Agents, and not mixed with a state', async () => {
     const agent = await mkAgent(owner, 'Validated relation bot');
     expect((await bindRelation(agent, { relation_field_id: stateFieldId })).statusCode).toBe(422);

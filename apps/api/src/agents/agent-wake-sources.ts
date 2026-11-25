@@ -89,6 +89,7 @@ export class AgentWakeSourcesService {
               state_option: stateOption ? { id: stateOption, name: labels.option(stateOption) } : null,
               relation_field: relationField ? { id: relationField, name: labels.field(relationField) } : null,
               human_gate: b.values['human_gate'] === true,
+              condition: conditionOut(b.values['condition']),
               enabled: b.values['enabled'] === true,
             }),
           });
@@ -242,6 +243,17 @@ export class AgentWakeSourcesService {
 interface Labels {
   field: (id: string) => string | null;
   option: (id: string) => string | null;
+}
+
+/** ticket #1324 follow-up: a trigger's stored condition for the response: the filter, null when there is none, or what is stored when it is unreadable. */
+function conditionOut(v: unknown): unknown {
+  if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) return null;
+  if (typeof v !== 'string') return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
+  }
 }
 
 function strOrNull(v: unknown): string | null {

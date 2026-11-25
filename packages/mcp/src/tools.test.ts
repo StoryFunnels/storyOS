@@ -3490,6 +3490,17 @@ describe('#447 — agents, runs, and the gate that stays human', () => {
     });
   });
 
+  it('create_agent_trigger passes a condition through (ticket #1324 follow-up), and sends none when it is not given', async () => {
+    const { call, sent } = harness();
+    const condition = { field: 'name', op: 'contains', value: 'Acme' };
+    await call('create_agent_trigger', { workspace: 'Eng', agent: '3', database: 'Leads', state_field: 'state', state: 'New', condition });
+    const withCondition = sent.filter((s) => s.path.endsWith('/agents/triggers'))[0]!;
+    expect(withCondition.body).toMatchObject({ condition: { field: 'name', op: 'contains', value: 'Acme' } });
+    await call('create_agent_trigger', { workspace: 'Eng', agent: '3', database: 'Leads', state_field: 'state', state: 'New' });
+    const without = sent.filter((s) => s.path.endsWith('/agents/triggers'))[1]!;
+    expect(Object.keys(without.body!)).not.toContain('condition');
+  });
+
   it('names the real options when given a state that does not exist', async () => {
     const { call } = harness();
     await expect(
