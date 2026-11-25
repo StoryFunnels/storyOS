@@ -9,6 +9,7 @@ import { agentSystemDatabases } from '@/lib/system-databases';
 import type { EffectiveRole } from '@/lib/access';
 import { databaseQuery, useDatabase } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
+import { readRunnerCounts } from './connected-count';
 import { toAgentView } from './agents';
 import type { AgentRecordLike, AgentView } from './agents';
 import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, RunnerSharingPatch, WakeDto, WakeSummary } from './types';
@@ -49,6 +50,23 @@ export function useRunners(ws: string, enabled = true) {
     select: (body) => (Array.isArray(body) ? body : body.data),
     enabled: enabled && allowed,
     // The status line says "checked a minute ago": poll so it moves while the page is open.
+    refetchInterval: 20_000,
+  });
+}
+
+/**
+ * Ticket #1321 — the connected count for the Settings menu: the SAME query as `useRunners` (same key, so the Runners page and the
+ * menu share one request and one poll), read through `readRunnerCounts`. `enabled` is the caller's AND the role gate; a refused or
+ * failed request leaves `data` undefined, which draws nothing.
+ */
+export function useRunnerCounts(ws: string, enabled = true) {
+  const allowed = canUseRunners(useWorkspace(ws).data?.role);
+  return useQuery({
+    queryKey: runnerKeys.runners(ws),
+    queryFn: async () =>
+      unwrap<RunnerDto[] | { data: RunnerDto[] }>(await api.GET('/api/v1/workspaces/{ws}/runners', { params: { path: { ws } } } as never)),
+    select: readRunnerCounts,
+    enabled: enabled && allowed,
     refetchInterval: 20_000,
   });
 }
