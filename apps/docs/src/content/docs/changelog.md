@@ -9,6 +9,10 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **23 Nov** — A new record starts at the first option of a state field when that field is a select whose every option has a state category, as the built-in packs declare theirs, so a pack's tasks, pages, deals, leads and issues no longer start with an empty State or Status. [Default values](/concepts/databases-and-fields/#default-values)
+- **23 Nov** — Adding a card, a row or a record from a view makes a record with no title and puts the cursor in it, instead of saving the word "Untitled" as the title. [The record page](/concepts/databases-and-fields/#the-record-page)
+- **11 Nov** — **New** on a database gets an arrow that lists its record templates; choosing one makes the record from it, a record's menu has **Save as template**, and **Manage templates...** renames or deletes them. [Record templates](/concepts/databases-and-fields/#record-templates)
+- **16 Nov** — A long field name wraps in full on the record page, and where it is still shortened, in table headers, menus and pickers, pointing at it shows the whole name. [The record page](/concepts/databases-and-fields/#the-record-page)
 - **15 Nov** — The audit log names the person and says what happened in words, with the record's number, title and database; its filters sit under **Filter**, and each row can copy its record ID. [Data & security, and You](/settings/data-and-you/)
 - **15 Nov** — Agent rules leads with **Recent agent actions**, in the audit log's words, and keeps the read-only enforcement view in a closed **How agent rules are enforced** section. [AI](/settings/ai/)
 - **11 Nov** — The MCP tool list is lighter for clients that cap tools: long grammars moved out of tool descriptions into `get_started` sections, and maintainer tools are only on the internal profile. [MCP tools](/mcp/tools/#how-an-agent-reads-it)

@@ -24,7 +24,8 @@ Three databases, linked as shown:
 
 A lead's **Stage** has eight options: **New** (backlog), **Contacted** (unstarted), **Call Booked**, **Proposal Sent**
 and **Negotiating** (started), **Won** (completed), and **Lost** and **Not now** (canceled). See
-[Option categories](/guides/pack-manifest/#option-categories). The Stage Guide is read by stage name, so it has no
+[Option categories](/guides/pack-manifest/#option-categories). A new lead starts at **New**, and a new Follow-up
+at **Drafted**, the first option of each. The Stage Guide is read by stage name, so it has no
 link to Leads.
 
 **Days Since Contact** is the whole days from **Last Contact** to today. It is recalculated when the lead is
@@ -47,7 +48,8 @@ the cue to run the drafter or to review its draft. It counts as one automation r
 
 **Lead Follow-up Drafter** runs on your own AI and installs switched off: its eight wake switches, one for each
 stage, are off until you turn them on in the install review or on the Agent Triggers database. Nothing is drafted
-until you do.
+until you do. A lead created without a Stage starts in New, which counts as entering New, so it wakes the drafter if
+that switch is on. A lead created with Stage set to `null` stays empty and wakes nothing.
 
 It reads the lead, the Stage Guide record for the stage the lead entered, and the lead's earlier Follow-ups. It
 writes one new Follow-up linked to the lead, with Status **Ready for review**, and nothing else. Its instructions
