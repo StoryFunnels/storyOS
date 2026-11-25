@@ -6,6 +6,7 @@ import { useSession } from '@/lib/auth-client';
 import { useAiConnections } from '@/lib/ai-connections';
 import { useInstalledPacks } from '@/components/pack-install-dialog';
 import { currentWorkspaceId, splitTokens, type ScopedToken, type WorkspaceRef } from '@/app/w/[ws]/settings/api/token-scope';
+import { useRunnerCounts } from '@/lib/runners/queries';
 import type { SettingsSignals } from '@/lib/settings-home';
 import { deriveSettingsSignals } from '@/lib/settings-signals';
 import { canConnectAi, canOpenAdminSettings } from '@/lib/settings-nav';
@@ -59,6 +60,8 @@ export function useSettingsSignals(ws: string, role: string | undefined): Settin
     },
     enabled: editor,
   });
+  // Ticket #1321: gated by `canUseRunners` inside the hook, so a guest's browser never asks the endpoint that would refuse it.
+  const runners = useRunnerCounts(ws, editor);
   const workspaces = useQuery({
     queryKey: ['workspaces'],
     queryFn: async () => {
@@ -82,6 +85,7 @@ export function useSettingsSignals(ws: string, role: string | undefined): Settin
       packs: admin ? packs.data : undefined,
       aiConnections: editor ? ai.data : undefined,
       tokens: editor ? tokensHere : undefined,
+      runners: editor ? runners.data : undefined,
     },
     Date.now(),
   );
