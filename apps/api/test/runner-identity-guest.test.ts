@@ -191,6 +191,21 @@ describe('a guest never reads which machine or tool a Runner is (ticket #1227)',
     expect(JSON.stringify(memberActivity)).toContain(SECRET);
   });
 
+  it('the preview of restoring an old version of a Run names no machine or tool (the diff against the current record)', async () => {
+    const { RecordsService } = await import('../src/records/records.service');
+    const records = app.get(RecordsService);
+    const memberships = (await pool.query("select * from memberships where user_id = $1 and workspace_id = $2", [guest.id, ws])).rows[0];
+    const guestMembership = { id: memberships.id, userId: guest.id, workspaceId: ws, role: 'guest', bound: false } as never;
+    const version = (await pool.query("insert into record_versions (workspace_id, record_id, actor_id, source, values, title) values ($1, $2, $3, 'human', '{}'::jsonb, 'older') returning id", [ws, runId, owner.id])).rows[0];
+    const seen = await records.getVersion(runsDbId, runId, version.id, guestMembership);
+    expect(JSON.stringify(seen)).not.toContain(SECRET);
+    expect(JSON.stringify(seen)).not.toContain(SECRET_TOOL);
+    // KEPT: the preview still lists the other fields that differ (it is not emptied), and a member sees the machine in it.
+    expect(seen.preview.some((p) => p.field_name === 'Summary')).toBe(true);
+    const asMember = await records.getVersion(runsDbId, runId, version.id, { ...guestMembership, role: 'member' });
+    expect(JSON.stringify(asMember)).toContain(SECRET);
+  });
+
   it('a comment a run wrote on a ticket the guest can read carries no Runner id or machine name; agent and run stay', async () => {
     const res = await as(guest.token, 'GET', `/workspaces/${ws}/databases/${ticketsDbId}/records/${ticket}/comments`);
     expect(res.statusCode, res.body).toBe(200);
