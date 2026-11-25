@@ -3157,10 +3157,15 @@ export class RecordsService implements OnModuleInit {
     // database could otherwise widen its own reach). A CREATE keeps target_databases open for a source 'agent' caller, because pack and architect
     // builds create agents that way; the person-approved build is the only thing that mints an agent's scope, never an agent's own token write.
     const scopeKeys = (existingRecord ? ['target_spaces', 'target_databases', 'scopes'] : ['target_spaces']).filter((k) => keys.includes(k));
+    // A write a PERSON just approved (the approvals executor's one-shot marker, set only after it re-validated the staged write, and approving is
+    // person-only, #859) is replayed with source 'agent' for provenance. It may carry target_databases/scopes: the rule is "an agent must not
+    // widen its own scope", not "no scope change ever happens through an agent-sourced write". Every other guarded key keeps refusing it.
+    const approvableKeys = ['target_databases', 'scopes'];
+    const approvedByPerson = existingRecord && isApprovedAgentWrite() && scopeKeys.every((k) => approvableKeys.includes(k)) && !keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0;
     if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0 && scopeKeys.length === 0) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
-    if (source === 'agent') {
+    if (source === 'agent' && !approvedByPerson) {
       throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model, budget, scopes or target spaces and databases: they are set by the person who manages the agent.');
     }
     const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });

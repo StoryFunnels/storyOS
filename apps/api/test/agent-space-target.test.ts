@@ -5,6 +5,8 @@ import { authed, signUpUser } from './helpers/users';
 import { call, grant, joinAs, setRestricted } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
+import { RecordsService } from '../src/records/records.service';
+import { asApprovedAgentWrite } from '../src/records/agent-write-context';
 
 /**
  * ticket #1195 — an agent's scope is its databases PLUS its spaces; a space resolves to its databases AT CALL TIME.
@@ -209,7 +211,7 @@ describe('#1336 an agent that can reach the Agents database cannot rewrite agent
   let token = '';
 
   beforeAll(async () => {
-    agent = await mkAgent('Scope probe', { target_databases: 'Ledger, Agents' });
+    agent = await mkAgent('Scope probe', { target_databases: `${ledger}, ${agentsDbId}` }) // the Agents database by ID: a name never binds a system database;
     await assign(agent);
     token = (await claimFor(agent)).credential.token;
     // The premise of the probe: this credential really does reach the Agents database.
@@ -218,7 +220,7 @@ describe('#1336 an agent that can reach the Agents database cannot rewrite agent
 
   it('refuses its own target_databases (403) and the stored value is unchanged', async () => {
     const before = (await agentRow(agent))[await fieldId('target_databases')];
-    const res = await as(token, 'PATCH', `${agentsRecords()}/${agent}`, { values: { target_databases: 'Ledger, Agents, Members' } });
+    const res = await as(token, 'PATCH', `${agentsRecords()}/${agent}`, { values: { target_databases: `${ledger}, ${agentsDbId}, ${otherDb}` } });
     expect(res.statusCode, res.body).toBe(403);
     expect((await agentRow(agent))[await fieldId('target_databases')]).toEqual(before);
   });
@@ -238,11 +240,25 @@ describe('#1336 an agent that can reach the Agents database cannot rewrite agent
   });
 
   it('MUST KEEP: a person who manages agents can still change them', async () => {
-    const res = await as(manager.token, 'PATCH', `${agentsRecords()}/${agent}`, { values: { target_databases: 'Ledger, Agents, Elsewhere', scopes: [scopeIds['read']] } });
+    const res = await as(manager.token, 'PATCH', `${agentsRecords()}/${agent}`, { values: { target_databases: `${ledger}, ${agentsDbId}, ${otherDb}`, scopes: [scopeIds['read']] } });
     expect(res.statusCode, res.body).toBe(200);
     const row = await agentRow(agent);
-    expect(row[await fieldId('target_databases')]).toBe('Ledger, Agents, Elsewhere');
+    expect(row[await fieldId('target_databases')]).toBe(`${ledger}, ${agentsDbId}, ${otherDb}`);
     expect(row[await fieldId('scopes')]).toEqual([scopeIds['read']]);
+  });
+
+  it('MUST KEEP: a write a person APPROVED is applied (replayed with source agent inside the approval marker); the same write unapproved is refused', async () => {
+    const records = app.get(RecordsService);
+    const target = await mkAgent('Approved scope target', { target_databases: 'Ledger' });
+    const widen = { target_databases: `${ledger}, ${otherDb}` };
+    // Unapproved, agent-origin: refused, nothing stored.
+    await expect(records.update(ws, agentsDbId, target, widen, manager.id, 0, 'agent', agent, 'Scope probe')).rejects.toThrow(/cannot change/);
+    expect((await agentRow(target))[await fieldId('target_databases')]).toBe('Ledger');
+    // Inside the approvals executor's marker: applied. Approving is person-only (approval-requires-human.test.ts).
+    await asApprovedAgentWrite(() => records.update(ws, agentsDbId, target, widen, manager.id, 0, 'agent', agent, 'Scope probe'));
+    expect((await agentRow(target))[await fieldId('target_databases')]).toBe(widen.target_databases);
+    // The marker does not widen what it covers: Tools/Model/budget in the same write still refuse.
+    await expect(asApprovedAgentWrite(() => records.update(ws, agentsDbId, target, { ...widen, tools: 'x' }, manager.id, 0, 'agent', agent, 'Scope probe'))).rejects.toThrow(/cannot change/);
   });
 
   it('MUST KEEP: an agent can still write the fields that are not scope', async () => {
