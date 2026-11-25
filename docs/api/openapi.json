@@ -2523,7 +2523,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRecordResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2531,7 +2538,7 @@
             "bearer": []
           }
         ],
-        "summary": "Create a record ({values} keyed by field api_name)",
+        "summary": "Create a record ({values} keyed by field api_name). Optional view_id: the view it is created from; the values that view's filter requires are filled in under yours and the response carries view_match",
         "tags": [
           "records"
         ]
@@ -14114,8 +14121,87 @@
             "default": {},
             "type": "object",
             "additionalProperties": {}
+          },
+          "view_id": {
+            "description": "The view this record is created from. Fields the view filters on are pre-filled so the record lands inside the view (state: the first allowed state, in workflow order); explicit values always win. The response carries `view_match`.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         }
+      },
+      "CreateRecordResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "position": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "computed_values": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell \"computing\" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand."
+          },
+          "view_match": {
+            "type": "object",
+            "properties": {
+              "matches": {
+                "type": "boolean"
+              },
+              "unmet": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "api_names of the fields behind each filter condition the new record does not meet; empty when it matches"
+              }
+            },
+            "required": [
+              "matches",
+              "unmet"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "title",
+          "values",
+          "position",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "computed_values"
+        ]
       },
       "UpsertRecordDto": {
         "type": "object",

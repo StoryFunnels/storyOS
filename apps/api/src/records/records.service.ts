@@ -2789,6 +2789,39 @@ export class RecordsService implements OnModuleInit {
     return last?.position ?? null;
   }
 
+  /**
+   * ticket #1333 — keeps only the view-derived defaults that the SAME checks a caller's own values go through would accept.
+   *
+   * A default the server filled in must never turn a create the caller could make into a failure: a filter can name a member who
+   * has since left, a record the caller cannot read, an option that was deleted, or a field marked unique. Each derived key is run
+   * through user resolution, the value validator and (for a relation) the link planner with the caller's access, and is simply
+   * dropped when any of them refuses it. The field then stays at its usual default and the match check reports it as unmet.
+   */
+  async creatableViewDefaults(
+    workspaceId: string,
+    databaseId: string,
+    defs: FieldDef[],
+    derived: Record<string, unknown>,
+    actorId: string | null,
+    membership?: Membership,
+  ): Promise<Record<string, unknown>> {
+    const kept: Record<string, unknown> = {};
+    for (const [apiName, value] of Object.entries(derived)) {
+      const def = defs.find((d) => d.api_name === apiName);
+      if (!def || (def.config as Record<string, unknown>)['unique']) continue; // a second "New" would 409 on a unique value
+      try {
+        const resolved = await this.resolveUserInputs(workspaceId, defs, { [apiName]: value }, actorId);
+        const checked = validateRecordValues(defs, resolved, { relations: 'collect' });
+        if (checked.issues.length > 0) continue;
+        if (checked.links) await this.planLinks(databaseId, defs, checked.links, membership);
+        kept[apiName] = value;
+      } catch {
+        // refused: leave this field to its usual default
+      }
+    }
+    return kept;
+  }
+
   async create(
     workspaceId: string,
     databaseId: string,

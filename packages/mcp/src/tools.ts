@@ -1845,7 +1845,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create record',
       description:
-        'Create a record. values are keyed by api_name (field names as listed by describe_database); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Returns the created record.',
+        'Create a record. values are keyed by api_name (field names as listed by describe_database); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Optional `view` (a view name or id of this database): create it as "New" on that view does, so the values the view\'s filter requires are filled in under yours (a state filter: the first allowed state, in workflow order; your own values always win) and the result carries `view_match` {matches, unmet}: when matches is false the record exists but that view does not show it, and unmet names the fields behind the conditions it does not meet. A view you cannot see is ignored, not an error. create_records (batch) takes no view. Returns the created record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1854,16 +1854,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Field values by api_name; "name" sets the title. A relation field takes an array of target record numbers or ids, e.g. { project: [12] } — created atomically with the record.',
           ),
+        view: z
+          .string()
+          .optional()
+          .describe(
+            'A view of this database (name or id) to create the record from, as the New button on that view does: its filter\'s required values are pre-filled under yours and the result reports view_match. Omit for a plain create.',
+          ),
       },
     },
-    handle<{ workspace: string; database: string; values: Record<string, unknown> }>(async ({ workspace, database, values }) => {
+    handle<{ workspace: string; database: string; values: Record<string, unknown>; view?: string }>(async ({ workspace, database, values, view }) => {
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const detail = await getDetail(ws.id, db.id);
-      const row = await unwrap<RecordRow>(
+      // ticket #1333 — a view named here is resolved against the views THIS caller is shown; an unknown one is an error the model can
+      // fix (the API itself treats an unreadable view as no context, so nothing about another member's view can be probed).
+      const viewId = view ? resolveView(detail, view).id : undefined;
+      const row = await unwrap<RecordRow & { view_match?: { matches: boolean; unmet: string[] } }>(
         client.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
           params: { path: { ws: ws.id, db: db.id } },
-          body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
+          body: {
+            values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>),
+            ...(viewId ? { view_id: viewId } : {}),
+          } as never,
         }),
       );
       const heldCreate = heldWrite(row);
@@ -1871,7 +1883,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // Read back rather than echoing the write response — that is what carries the
       // relation chips, so a record created WITH links shows them (#343).
       const record = await readRecord(detail, ws.id, db.id, row.id);
-      const unset = unsetFields(detail, values);
+      // With a view, some fields were filled in by the view's filter: those are not "left empty".
+      const unset = unsetFields(detail, viewId ? { ...(row.values as Record<string, unknown>), ...values } : values);
+      const viewMatch = row.view_match;
       // A record with no title is a real outcome worth naming: it is unfindable by
       // search and reads as blank in every list. Silence here is what let #343
       // itself be filed nameless.
@@ -1883,10 +1897,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         unset.length
           ? `Left empty — if relevant to this record, fill them: ${unset.join(', ')}. Call describe_database to see each field.`
           : null,
+        viewMatch && !viewMatch.matches
+          ? `Created, but it does not match the view "${view}": the conditions on ${viewMatch.unmet.join(', ') || 'its filter'} are not met, so that view will not show it.`
+          : null,
       ].filter(Boolean);
       return text(
-        notes.length
-          ? { record, ...(unset.length ? { unset_fields: unset } : {}), note: notes.join(' ') }
+        notes.length || viewMatch
+          ? { record, ...(viewMatch ? { view_match: viewMatch } : {}), ...(unset.length ? { unset_fields: unset } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) }
           : record,
       );
     }),

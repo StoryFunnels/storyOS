@@ -1039,7 +1039,7 @@ export interface paths {
         /** List records (manual order, optional q= title search, cursor) */
         get: operations["RecordsController_list"];
         put?: never;
-        /** Create a record ({values} keyed by field api_name) */
+        /** Create a record ({values} keyed by field api_name). Optional view_id: the view it is created from; the values that view's filter requires are filled in under yours and the response carries view_match */
         post: operations["RecordsController_create"];
         delete?: never;
         options?: never;
@@ -5630,6 +5630,35 @@ export interface components {
             values: {
                 [key: string]: unknown;
             };
+            /**
+             * Format: uuid
+             * @description The view this record is created from. Fields the view filters on are pre-filled so the record lands inside the view (state: the first allowed state, in workflow order); explicit values always win. The response carries `view_match`.
+             */
+            view_id?: string;
+        };
+        CreateRecordResponseDto: {
+            /** Format: uuid */
+            id: string;
+            number: number | null;
+            title: string;
+            values: {
+                [key: string]: unknown;
+            };
+            position: string;
+            created_by: string | null;
+            /** @description ISO timestamp */
+            created_at: string;
+            /** @description ISO timestamp */
+            updated_at: string;
+            /** @description Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell "computing" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand. */
+            computed_values: {
+                [key: string]: unknown;
+            };
+            view_match?: {
+                matches: boolean;
+                /** @description api_names of the fields behind each filter condition the new record does not meet; empty when it matches */
+                unmet: string[];
+            };
         };
         UpsertRecordDto: {
             key_field: string;
@@ -9477,7 +9506,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["CreateRecordResponseDto"];
+                };
             };
         };
     };
