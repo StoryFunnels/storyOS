@@ -665,10 +665,10 @@ describe('who may hire (premise check, run against the real app)', () => {
     const create = async (token: string) => (await as(token, 'POST', `/workspaces/${wsHire}/databases/${agentsDb}/records`, { values: { name: 'Hired', enabled: true } })).statusCode;
     expect(await create(admin.token)).toBe(201);
     expect(await create(m.token)).toBe(201);
-    expect(await create(gViewer.token)).toBe(403); // a clean refusal, not a 500
-    // NOT enforced by the records route: a guest an admin explicitly granted contributor on the Agents database can create one.
-    // The Runner side is what stops such an agent running: a guest cannot pair a Runner, and an agent only runs on its OWNER's own Runner.
-    expect(await create(gContrib.token)).toBe(201);
+    // Ticket #1331: a system database is closed to every guest, so a grant on the Agents database has no effect. Before it the viewer got
+    // 403 and a guest granted contributor could create an agent (201); both are now the same clean 404 (a guest cannot see the database).
+    expect(await create(gViewer.token)).toBe(404);
+    expect(await create(gContrib.token)).toBe(404);
     expect((await as(gContrib.token, 'POST', `/workspaces/${wsHire}/runners/pairing-codes`)).statusCode).toBe(403);
     // Provisioning is admin-only.
     expect((await as(m.token, 'POST', `/workspaces/${wsHire}/agents/ensure`)).statusCode).toBe(403);

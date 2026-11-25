@@ -146,6 +146,10 @@ Guests are invited to one or more specific [spaces](/getting-started/concepts/):
 - Everything outside their spaces returns **404** — not 403 — so the product never leaks the
   existence of resources they can't see.
 - Cross-space relation chips on records they *can* see render **name-only and non-navigable**.
+- **A guest never reaches a system database**: Members, Agents, Runs and Agent Triggers stay closed to
+  them whatever space, database or record they hold access to. The databases a space holds that people
+  created are unaffected. A guest is shown the people already named on the records they can see, never the
+  member directory.
 - Guests can read and comment, but aren't `@`-mentionable in v1.
 - **A guest sees "a Runner", not a machine.** A Runner is a colleague's own computer, so where a
   member sees which machine and tool an agent run is waiting on, a guest who can read the agent sees
