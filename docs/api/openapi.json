@@ -20887,6 +20887,90 @@
           "start_field_id"
         ]
       },
+      "CreateAgentTriggerDto__schema0": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "eq",
+                  "neq",
+                  "contains",
+                  "not_contains",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte",
+                  "before",
+                  "after",
+                  "within",
+                  "has",
+                  "has_none",
+                  "category_is",
+                  "category_is_not",
+                  "is_empty",
+                  "not_empty"
+                ]
+              },
+              "value": {},
+              "disabled": {
+                "type": "boolean"
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "icon": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "field",
+              "op"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "and": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateAgentTriggerDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "and"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "or": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateAgentTriggerDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "or"
+            ]
+          }
+        ]
+      },
       "CreateAgentTriggerDto": {
         "type": "object",
         "properties": {
@@ -20919,6 +21003,9 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "condition": {
+            "$ref": "#/components/schemas/CreateAgentTriggerDto__schema0"
           }
         },
         "required": [
@@ -21147,6 +21234,9 @@
                     "human_gate": {
                       "type": "boolean"
                     },
+                    "condition": {
+                      "nullable": true
+                    },
                     "enabled": {
                       "type": "boolean"
                     }
@@ -21160,6 +21250,7 @@
                     "state_option",
                     "relation_field",
                     "human_gate",
+                    "condition",
                     "enabled"
                   ]
                 },

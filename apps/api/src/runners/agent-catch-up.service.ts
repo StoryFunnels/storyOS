@@ -8,6 +8,7 @@ import { databases, records, spaces } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import { RecordsService } from '../records/records.service';
 import { resolveAgentIdentity } from '../agents/agent-identity';
+import { readTriggerCondition } from '../agents/trigger-condition';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { AgentWakesService } from './agent-wakes.service';
 import { AgentBudgetService } from './agent-budget.service';
@@ -94,6 +95,14 @@ export class AgentCatchUpService {
       } else if (typeof relationFieldId === 'string' && relationFieldId !== '') {
         const def = defs.find((d) => d.id === relationFieldId);
         if (def && def.type === 'relation') filter = { field: def.api_name, op: 'has', value: [agentId] };
+      }
+      // ticket #1324 follow-up: the binding's condition narrows what is WAITING, exactly as it narrows what wakes. A record the trigger would
+      // refuse is not offered a catch-up (that would wake the agent past its own guard), and an unreadable condition fails closed: the
+      // binding contributes nothing.
+      if (filter) {
+        const condition = readTriggerCondition(b.values['condition']);
+        if (condition.kind === 'invalid') filter = null;
+        else if (condition.kind === 'filter') filter = { and: [filter, condition.filter] };
       }
       if (filter) byDb.set(databaseId, [...(byDb.get(databaseId) ?? []), filter]);
     }

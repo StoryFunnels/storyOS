@@ -73,6 +73,7 @@ import {
 import { spaceCanHoldDatabases } from '../access/access.service';
 import { redactSecrets } from '../common/redact-secrets';
 import { AgentsService } from '../agents/agents.service';
+import { readTriggerCondition } from '../agents/trigger-condition';
 import { ArchitectService, type ArchitectBuildProgress } from '../agents/architect.service';
 import { decideField, decideRelation, decideState, fieldKeptReason, isSystemDatabase } from '../agents/plan-decisions';
 import { AutomationsService } from '../automations/automations.service';
@@ -1033,12 +1034,16 @@ export class PacksService {
       if (!field || !option) continue;
 
       wantedAgentIds.add(agent.id);
+      const triggerCondition = readTriggerCondition(binding.values['condition']);
       triggers.push({
         agent: agent.title,
         database: db.name,
         state_field: field.displayName,
         state_option: option.label,
         human_gate: binding.values['human_gate'] === true,
+        // ticket #1324 follow-up: a readable condition travels with the trigger. Option and user ids inside it are this workspace's, so an
+        // exported filter that names one will match nothing elsewhere: the safe direction (the trigger wakes nothing, never everything).
+        ...(triggerCondition.kind === 'filter' ? { condition: triggerCondition.filter } : {}),
       });
     }
 

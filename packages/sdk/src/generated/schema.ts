@@ -7373,6 +7373,20 @@ export interface components {
              */
             direction: "push" | "pull" | "two_way";
         };
+        CreateAgentTriggerDto__schema0: {
+            field: string;
+            /** @enum {string} */
+            op: "eq" | "neq" | "contains" | "not_contains" | "gt" | "gte" | "lt" | "lte" | "before" | "after" | "within" | "has" | "has_none" | "category_is" | "category_is_not" | "is_empty" | "not_empty";
+            value?: unknown;
+            disabled?: boolean;
+            pinned?: boolean;
+            label?: string;
+            icon?: string;
+        } | {
+            and: components["schemas"]["CreateAgentTriggerDto__schema0"][];
+        } | {
+            or: components["schemas"]["CreateAgentTriggerDto__schema0"][];
+        };
         CreateAgentTriggerDto: {
             agent: string;
             /** Format: uuid */
@@ -7385,6 +7399,7 @@ export interface components {
             relation_field_id?: string;
             human_gate?: boolean;
             enabled?: boolean;
+            condition?: components["schemas"]["CreateAgentTriggerDto__schema0"];
         };
         DelegateToAgentDto: {
             /** Format: uuid */
@@ -7444,6 +7459,7 @@ export interface components {
                     name: string | null;
                 } | null;
                 human_gate: boolean;
+                condition: unknown;
                 enabled: boolean;
             } | {
                 /** @enum {string} */
