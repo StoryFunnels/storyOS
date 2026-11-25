@@ -15,6 +15,8 @@ import { resolveAgentIdentity } from './agent-identity';
  * expanded at hire: the stored value is the manager's own text ("Works in"), and a database created in a targeted space tomorrow
  * is in scope on the very next call, because the space is read again on every call.
  *
+ * A NAME in "Target databases" never binds a system database and never fans out across spaces (ticket #1335, `matchDatabaseTargets`).
+ *
  * A whole-space target covers the space's USER databases only (ticket #1296): `coveredByWholeSpaceGrant`, the same predicate the access
  * layer applies to the credential, so the list below and the reach of the credential agree. A system database is in scope only when named.
  *
@@ -63,7 +65,7 @@ export interface ResolvedAgentScope {
   enforced: boolean;
   spaces: ScopeSpace[];
   databases: ScopeDatabase[];
-  /** Entries that matched nothing, or matched a personal space: listed so the manager can see why, never silently dropped. */
+  /** Entries that matched nothing, matched a personal space, or (ticket #1335) are a name several databases carry: listed so the manager can see why, never silently dropped. */
   unresolved: string[];
 }
 
@@ -109,6 +111,41 @@ export function matchEntries<T extends { id: string; name: string }>(entries: st
   return { hits, missed };
 }
 
+/**
+ * Ticket #1335 — resolve the entries of "Target databases" against live rows. Pure, so the rule is testable and identical on every surface.
+ *
+ * An ID names one database and always binds it, a system database included: naming Members by id is the deliberate act that ticket #1296
+ * keeps as the only way into one. A NAME is a coincidence of spelling, so it is held to a stricter rule:
+ *   - it never binds a system database (a person's own database called "Members" is a user database, and is what the name meant);
+ *   - it resolves inside the agent's own target spaces first, so "Tasks" means the Tasks database of the space the agent works in;
+ *   - with no hit there it binds only when exactly ONE database carries the name. Several do: it binds NONE and is reported as missed
+ *     (the manager names the one they mean by id). The failure direction is a smaller scope, never a larger one, and a database created
+ *     tomorrow with the same name can narrow the scope but never widen it.
+ * Rows are pre-filtered to non-personal spaces by the caller.
+ */
+export function matchDatabaseTargets<T extends { id: string; name: string; spaceId: string; isSystem: boolean | null }>(
+  entries: string[],
+  rows: T[],
+  targetSpaceIds: ReadonlySet<string>,
+): { hits: T[]; missed: string[] } {
+  const hits: T[] = [];
+  const missed: string[] = [];
+  for (const entry of entries) {
+    const lower = entry.toLowerCase();
+    let found: T[];
+    if (UUID_RE.test(entry)) {
+      found = rows.filter((r) => r.id === lower);
+    } else {
+      const candidates = rows.filter((r) => !r.isSystem && r.name.toLowerCase() === lower);
+      const inOwnSpaces = candidates.filter((r) => targetSpaceIds.has(r.spaceId));
+      found = inOwnSpaces.length > 0 ? inOwnSpaces : candidates.length === 1 ? candidates : [];
+    }
+    if (found.length === 0) missed.push(entry);
+    for (const f of found) if (!hits.some((h) => h.id === f.id)) hits.push(f);
+  }
+  return { hits, missed };
+}
+
 export async function resolveAgentScope(db: Db, workspaceId: string, agentId: string): Promise<ResolvedAgentScope | null> {
   const targets = await readAgentTargets(db, workspaceId, agentId);
   if (!targets) return null;
@@ -133,11 +170,12 @@ export async function resolveAgentScope(db: Db, workspaceId: string, agentId: st
   let missedDbs: string[] = [];
   if (targets.databases.length) {
     const named = await db
-      .select({ id: databases.id, name: databases.name, spaceId: databases.spaceId, personal: spaces.personal })
+      .select({ id: databases.id, name: databases.name, spaceId: databases.spaceId, isSystem: databases.isSystem, personal: spaces.personal })
       .from(databases)
       .innerJoin(spaces, eq(spaces.id, databases.spaceId))
       .where(and(eq(databases.workspaceId, workspaceId), isNull(databases.deletedAt)));
-    const m = matchEntries(targets.databases, named.filter((d) => !d.personal));
+    // Ticket #1335: names never bind a system database and never fan out across spaces (see `matchDatabaseTargets`).
+    const m = matchDatabaseTargets(targets.databases, named.filter((d) => !d.personal), new Set(spaceMatch.hits.map((s) => s.id)));
     missedDbs = m.missed;
     for (const d of m.hits) out.set(d.id, { id: d.id, name: d.name, space_id: d.spaceId, via: 'database' });
   }
