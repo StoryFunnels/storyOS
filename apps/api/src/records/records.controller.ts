@@ -497,6 +497,7 @@ export class RecordsController {
       req.user.id,
       req.auth?.source ?? 'human',
       req.auth?.agentId, // #1104
+      req.membership, // #1334
       ),
     );
   }

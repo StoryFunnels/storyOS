@@ -2887,6 +2887,9 @@ export class RecordsService implements OnModuleInit {
     source: ChangeSource = 'human',
     /** #1104 — see refuseIfAgentGated. */
     agentId?: string,
+    /** #1334 — the caller's effective membership, passed on to create() so an unresolvable person copied from the source
+     *  record is reported under the same candidate-list rule as a direct write. Omitted = an internal writer. */
+    membership?: Membership,
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'create', source, agentId, 'Duplicating a record');
     const src = await this.get(databaseId, recordId);
@@ -2911,7 +2914,7 @@ export class RecordsService implements OnModuleInit {
       const v = src.values[def.api_name];
       if (v !== undefined && v !== null) input[def.api_name] = v;
     }
-    const created = await this.create(workspaceId, databaseId, input, actorId, 0, source);
+    const created = await this.create(workspaceId, databaseId, input, actorId, 0, source, undefined, undefined, membership);
 
     // Copy links: single references (one_to_many side a) and many-to-many; skip owned collections.
     for (const def of defs.filter((d) => d.type === 'relation')) {
