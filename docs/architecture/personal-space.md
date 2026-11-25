@@ -18,6 +18,10 @@ private notes in one.
 admins cannot list, read, or search it. It is **excluded from workspace export**
 and from backup-restore's user-facing output.
 
+**Trash is a surface too.** A deleted personal space is as private as a live one: the admin-only space
+trash lists shared spaces plus the caller's *own* personal space, and restoring someone else's answers
+404 exactly like an id that is not in the trash (ticket #1220). Views are the same (ticket #1051).
+
 **Why.** "Personal" that an admin can read is not personal, and a feature people
 don't trust is worse than no feature — they keep the private notes in another tool
 and the workspace loses them anyway.

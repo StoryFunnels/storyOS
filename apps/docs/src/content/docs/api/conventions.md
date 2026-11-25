@@ -23,7 +23,7 @@ POST             /.../fields/:field/options      PATCH|DELETE per option
 POST             /.../databases/:db/fields/formula-preview   ← dry-run a formula, saves nothing
 POST             /workspaces/:ws/relations        DELETE /relations/:rel
 GET|POST         /.../databases/:db/records       (POST supports batch ≤100)
-GET|PATCH|DELETE /.../records/:rec                 (:rec is a uuid — see below for a public number)
+GET|PATCH|DELETE /.../records/:rec                 (:rec is a uuid or a public number)
 GET              /.../records/by-number/:number     ← resolve a public number to its record
 POST             /.../databases/:db/records/query          ← the workhorse
 POST             /.../records/:rec/move           { before_record_id? | after_record_id?, values? }
@@ -37,12 +37,15 @@ POST             /workspaces/:ws/templates/:slug/apply
 GET|POST         /me/tokens                        DELETE /me/tokens/:id
 ```
 
-**A record's public number only resolves through `by-number/:number`.** Every write and read tool
-in the [MCP surface](/mcp/tools/) accepts "a uuid or public number" for `record` because it does
-this resolution for you — `get_record` given a plain number calls `by-number` first, then reads the
-result the same way it would a uuid. Calling `GET .../records/:rec` directly with a bare number
-instead of a uuid is not the same path and doesn't work; resolve the number to its uuid via
-`by-number` first if you're calling the raw API without the MCP layer in between.
+**`:rec` is a record's uuid or its public number.** Every route under `records/:rec/...` accepts
+either one: reading, editing, deleting, restoring, comments, links, versions, attachments, watchers and
+the rest. The number is looked up inside the database named by `:db` in the same path, so it never
+reaches a record in another database. A number answers exactly as that record's uuid would. A number
+for a record you cannot read gets the same 404 as a number that matches nothing. Only plain whole
+numbers count (`17`, not `017`, `1.5` or `-1`); anything else that is not a uuid is a 404.
+
+`GET .../records/by-number/:number` still works when you only want to turn a number into the record.
+The MCP tools that take a `record` accept a uuid or a public number, as before.
 
 The complete, always-current list with schemas is the [API Reference](/api/reference/).
 
