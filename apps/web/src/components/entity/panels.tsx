@@ -19,6 +19,8 @@ import { commentDraftKey, createFocusTracker, type CommentDraftStore } from './c
 import { SourceBadge } from './source-badge';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
+import { editorNonceOptions, useStyleNonce } from '@/lib/style-nonce';
+import { EditorMantine } from './editor-mantine';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { BlockChange } from '@storyos/schemas/block-diff';
@@ -161,8 +163,9 @@ export function CommentComposer({
   const [resetKey, setResetKey] = useState(0);
 
   const draftKey = commentDraftKey(ws, db, rec);
+  const nonce = useStyleNonce();
   const editor = useCreateBlockNote(
-    { schema: mentionSchema, initialContent: drafts?.get(draftKey) as never },
+    { ...editorNonceOptions(nonce), schema: mentionSchema, initialContent: drafts?.get(draftKey) as never },
     [resetKey],
   );
   // A restored draft counts as content, so the compact composer's Send stays visible and the blur handler keeps it open.
@@ -255,6 +258,7 @@ export function CommentComposer({
         }}
       >
         <MentionScope ws={ws}>
+          <EditorMantine>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and
                it wins over ours — so the reordered menu in MentionSuggestionMenus
@@ -272,6 +276,7 @@ export function CommentComposer({
           >
             <MentionSuggestionMenus editor={editor as never} ws={ws} agents />
           </BlockNoteView>
+          </EditorMantine>
         </MentionScope>
       </div>
       {toolbarShown && (
@@ -295,14 +300,16 @@ export function CommentComposer({
  */
 function CommentBlockNoteBody({ ws, doc }: { ws: string; doc: unknown[] }) {
   const { resolved: theme } = useTheme();
+  const nonce = useStyleNonce();
   const editor = useCreateBlockNote({
+    ...editorNonceOptions(nonce),
     schema: mentionSchema,
     initialContent: doc.length > 0 ? (doc as never) : undefined,
   });
   return (
     <div className="text-reading text-ink-secondary [&_.bn-editor]:bg-transparent [&_.bn-editor]:px-0 [&_.bn-editor]:py-0">
       <MentionScope ws={ws}>
-        <BlockNoteView editor={editor} editable={false} theme={theme} />
+        <EditorMantine><BlockNoteView editor={editor} editable={false} theme={theme} /></EditorMantine>
       </MentionScope>
     </div>
   );

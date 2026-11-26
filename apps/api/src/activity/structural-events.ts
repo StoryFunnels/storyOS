@@ -78,3 +78,76 @@ export async function recordPortalRecipientEvent(
     agentName: actor?.agentName ?? null,
   });
 }
+
+/**
+ * Ticket #1361 — an automation rule handed to a new owner. Same table, same query and same attribution as the events above (actor = the
+ * member who took it over, `source` as the call came), typed `automation.taken_over` with the rule in `payload.object`, so the audit log's
+ * `entity` filter on the rule's id IS the rule's history. `from` and `to` are the two owners' user ids (`from` null when the rule had none).
+ * Not in STRUCTURAL_KINDS: that list is crossed with its actions, and `automation.deleted` is not an event that happens.
+ *
+ * The payload carries the rule's NAME (the audit log is read by admins, who can read every rule) and the database id; never its actions,
+ * which can hold webhook headers, and never a record value.
+ */
+export async function recordAutomationTakenOver(
+  db: Db | Tx,
+  event: { workspaceId: string; id: string; name: string; databaseId: string; from: string | null; to: string },
+): Promise<void> {
+  const actor = currentActor();
+  await db.insert(activityEvents).values({
+    workspaceId: event.workspaceId,
+    recordId: null,
+    actorId: actor?.userId ?? null,
+    // A literal, not a template: apps/web's audit-events test derives every emitted code from `type: '...'` literals and wants a sentence for each.
+    type: 'automation.taken_over',
+    payload: { object: { kind: 'automation', id: event.id, name: event.name }, database_id: event.databaseId, from: event.from, to: event.to },
+    source: actor?.source ?? null,
+    agentId: actor?.agentId ?? null,
+    agentName: actor?.agentName ?? null,
+  });
+}
+
+/**
+ * Ticket #456 - publishing turned on or paused for a database's social rules. Same table, same query, same attribution as the events above
+ * (actor = the member, `source` as the call came), typed `publishing.<action>` with the rule in the payload. Not in STRUCTURAL_KINDS for
+ * the reason the portal events are not: that vocabulary is crossed with its actions.
+ *
+ * The payload names WHICH connection and account the rule posts from, because that is the fact an audit needs ("who let this post as that
+ * page"). It never carries a credential: ids and the rule's own name only.
+ */
+export const PUBLISHING_ACTIONS = ['enabled', 'disabled'] as const;
+export type PublishingAction = (typeof PUBLISHING_ACTIONS)[number];
+export const PUBLISHING_EVENT_TYPES: string[] = PUBLISHING_ACTIONS.map((a) => `publishing.${a}`);
+
+export async function recordPublishingEvent(
+  db: Db | Tx,
+  event: {
+    workspaceId: string;
+    action: PublishingAction;
+    ruleId: string;
+    ruleName: string;
+    databaseId: string;
+    target: string;
+    connectionId: string;
+    accountId: string | null;
+    requireApproval: boolean;
+  },
+): Promise<void> {
+  const actor = currentActor();
+  await db.insert(activityEvents).values({
+    workspaceId: event.workspaceId,
+    recordId: null,
+    actorId: actor?.userId ?? null,
+    type: `publishing.${event.action}`,
+    payload: {
+      object: { kind: 'publishing', id: event.ruleId, name: event.ruleName },
+      database_id: event.databaseId,
+      target: event.target,
+      connection_id: event.connectionId,
+      account_id: event.accountId,
+      require_approval: event.requireApproval,
+    },
+    source: actor?.source ?? null,
+    agentId: actor?.agentId ?? null,
+    agentName: actor?.agentName ?? null,
+  });
+}

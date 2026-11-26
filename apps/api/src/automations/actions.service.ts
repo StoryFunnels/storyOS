@@ -26,9 +26,11 @@ import { stringHeadersOnly } from '../common/webhook-headers';
 import { getJsonPath } from '../common/json-path';
 import { JobRunnerService, buildIdempotencyKey } from './job-runner.service';
 import { ApprovalsService } from './approvals.service';
+import { ActionAccessGuardService } from './action-access-guard.service';
 import { heldWhenUnset, LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN, namesAccount, SOCIAL_TARGETS, targetEnabled } from './social-targets';
 import { AttachPdfActionService } from './attach-pdf.action';
 import { DEFAULT_FILENAME_TEMPLATE, withDateToken } from './attach-pdf-model';
+import { isRichTextBlocks, richTextBlocksToPlain } from '../common/rich-text-plain';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
@@ -207,6 +209,7 @@ export class AutomationActionsService implements OnModuleInit {
     private readonly jobs: JobRunnerService,
     private readonly approvals: ApprovalsService,
     private readonly attachPdf: AttachPdfActionService,
+    private readonly accessGuard: ActionAccessGuardService,
   ) {}
 
   /**
@@ -284,6 +287,11 @@ export class AutomationActionsService implements OnModuleInit {
     }
     out.delete(databaseId);
     return [...out];
+  }
+
+  /** Ticket #1361 — the database an update_linked action writes into, or null when its relation field is gone (the run skips it then too). */
+  async linkedTargetDatabase(databaseId: string, relationFieldId: string): Promise<string | null> {
+    return (await this.relationTarget(databaseId, relationFieldId))?.targetDbId ?? null;
   }
 
   /** The database on the far side of a live relation field on `databaseId`, or null. */
@@ -823,6 +831,7 @@ export class AutomationActionsService implements OnModuleInit {
         if (!ctx.linkedRecords?.length) return escape('—');
         const value = this.linkedFieldValue(ctx, trimmed.slice('linked.'.length));
         if (value === undefined || value === null) return escape('—');
+        if (isRichTextBlocks(value)) return escape(richTextBlocksToPlain(value));
         if (Array.isArray(value))
           return escape(
             value
@@ -849,6 +858,8 @@ export class AutomationActionsService implements OnModuleInit {
       }
       const value = ctx.record.values[apiName];
       if (value === undefined || value === null) return escape('—');
+      // Ticket #456: a rich_text value is blocks, which have no `title`, so it rendered as '' (see common/rich-text-plain.ts).
+      if (isRichTextBlocks(value)) return escape(richTextBlocksToPlain(value));
       if (Array.isArray(value))
         return escape(
           value
@@ -1131,6 +1142,14 @@ export class AutomationActionsService implements OnModuleInit {
           continue;
         }
       }
+      // Ticket #1353 — the actor's access, re-read NOW, before this action does anything (writes, enqueues a job, or raises an
+      // approval). A refusal throws: the run fails with a message naming the person and the kind of record, and the actions after
+      // this one do not run. Placed after the per-action condition so an action that is skipped is never refused.
+      await this.accessGuard.check(
+        action,
+        { workspaceId: ctx.workspaceId, databaseId: ctx.databaseId, record: ctx.record, actorId: ctx.actorId, ruleId: ctx.ruleId ?? null },
+        action.type === 'update_linked' && ctx.record ? () => this.resolveLinked(ctx.databaseId, action.relation_field_id, ctx.record!) : undefined,
+      );
       // MN-256: send_email defaults to gated UNLESS every rendered recipient
       // resolves to a workspace member's email — that can only be known at
       // RUN time (the addresses come from {Field}/{payload} tokens), unlike

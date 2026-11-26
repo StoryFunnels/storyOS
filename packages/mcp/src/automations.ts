@@ -324,6 +324,10 @@ export interface AutomationRow {
   failureStreak?: number;
   nextDueAt?: string | null;
   createdBy?: string | null;
+  /** #1353 — true when the owner (`createdBy`) is null or no longer an active member; the rule is refused at run time until an admin takes it over. */
+  ownerMissing?: boolean;
+  needsNewOwner?: boolean;
+  needsNewOwnerReason?: 'missing' | 'left' | 'lacks_access' | null;
   hookToken?: string | null;
   /** #392 — schedule-only top-N selection; null on every rule that doesn't use it. */
   sort?: Array<{ field: string; direction: 'asc' | 'desc' }> | null;
@@ -361,6 +365,11 @@ export function readableAutomation(
     failure_streak: row.failureStreak ?? 0,
     next_due_at: row.nextDueAt ?? null,
     created_by: row.createdBy ?? null,
+    // #1353 — the rule runs as its owner and is refused at run time when that person is gone; true here means an admin has to take it over.
+    owner_missing: row.ownerMissing === true,
+    // #1353 / #1361 — read from the owner's access NOW: gone (missing, left) or would be refused if the rule ran (lacks_access). Cleared by take_over_automation.
+    needs_new_owner: row.needsNewOwner === true,
+    needs_new_owner_reason: row.needsNewOwnerReason ?? null,
     // #392 — a schedule-only top-N selection; both null on every other rule.
     sort: row.sort ?? null,
     limit: row.topNLimit ?? null,

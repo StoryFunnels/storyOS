@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error -- Next's vendored path-to-regexp (the one it compiles `headers()` sources with) ships no types.
 import { pathToRegexp as untyped } from 'next/dist/compiled/path-to-regexp';
@@ -9,7 +12,9 @@ import {
   contentSecurityPolicy,
   generateNonce,
   isEmbeddablePath,
+  EMPTY_STYLE_HASH,
   securityHeaders,
+  SONNER_STYLE_HASH,
 } from './security-headers.mjs';
 
 /** Ticket #1042: which static headers each kind of page gets, matched the way Next matches a `headers()` source. */
@@ -85,9 +90,43 @@ describe('#1238 the enforced Content-Security-Policy', () => {
     expect(directive(contentSecurityPolicy(ENV, { embeddable: false, nonce: 'n', dev: false }), 'script-src')).not.toContain("'unsafe-eval'");
   });
 
-  it('styles are same-origin or inline, and carry no nonce or hash (either would make browsers ignore unsafe-inline)', () => {
+  it('ticket #1340: style ELEMENTS need the request nonce and never get unsafe-inline', () => {
+    const elem = directive(csp, 'style-src-elem');
+    expect(elem).toBe(`style-src-elem 'self' 'nonce-abc123' ${SONNER_STYLE_HASH} ${EMPTY_STYLE_HASH}`);
+    expect(elem).toContain("'self'");
+    expect(elem).not.toContain("'unsafe-inline'");
+  });
+
+  it('ticket #1340: style ATTRIBUTES keep unsafe-inline on their own, with no nonce or hash (either would make browsers ignore it)', () => {
+    // React renders every style={{…}} prop as an attribute, which cannot carry a nonce: this must stay allowed.
+    expect(directive(csp, 'style-src-attr')).toBe("style-src-attr 'unsafe-inline'");
+  });
+
+  it('ticket #1340: the base style-src is only the legacy fallback and still allows same-origin and inline', () => {
     expect(directive(csp, 'style-src')).toBe("style-src 'self' 'unsafe-inline'");
-    expect(csp).not.toMatch(/style-src[^;]*(nonce-|sha256-)/);
+  });
+
+  it('ticket #1340: with no nonce the style policy stays well-formed and elements fall back to unsafe-inline, like scripts', () => {
+    const bare = contentSecurityPolicy(ENV, { embeddable: false });
+    expect(directive(bare, 'style-src-elem')).toBe("style-src-elem 'self' 'unsafe-inline'");
+    expect(directive(bare, 'style-src-attr')).toBe("style-src-attr 'unsafe-inline'");
+    expect(bare).not.toMatch(/nonce-|undefined|null/);
+    // Still one directive each: a duplicate would make browsers ignore the second.
+    for (const d of ['style-src', 'style-src-elem', 'style-src-attr']) {
+      expect(bare.split('; ').filter((x) => x.startsWith(`${d} `))).toHaveLength(1);
+    }
+  });
+
+  it('ticket #1340: the empty-element hash really is the sha256 of the empty string', () => {
+    expect(`'sha256-${createHash('sha256').update('').digest('base64')}'`).toBe(EMPTY_STYLE_HASH);
+  });
+
+  it('ticket #1340: the sonner hash is the sha256 of the sheet the installed sonner really inserts', () => {
+    const src = readFileSync(createRequire(import.meta.url).resolve('sonner').replace(/index\.js$/, 'index.mjs'), 'utf8');
+    const m = src.match(/^__insertCSS\(("(?:[^"\\]|\\.)*")\);?\s*$/m);
+    expect(m, 'sonner no longer inserts its sheet with a single __insertCSS("...") call: re-derive SONNER_STYLE_HASH').not.toBeNull();
+    const sheet = JSON.parse(m![1]!) as string;
+    expect(`'sha256-${createHash('sha256').update(sheet).digest('base64')}'`).toBe(SONNER_STYLE_HASH);
   });
 
   it('locks down objects, base URI and form targets, and sends reports to the same-origin sink', () => {

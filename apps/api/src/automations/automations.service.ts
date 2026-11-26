@@ -46,6 +46,12 @@ import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 import { redactSecrets } from '../common/redact-secrets';
 import { MAX_FAILURES } from './constants';
+import { NotificationsService } from '../notifications/notifications.service';
+import { isAccessRefusal, isFirstRefusal, notifyAdmins, ownerFlags } from './owner-refusal';
+import type { NeedsNewOwnerReason } from './owner-refusal';
+import { ActionAccessGuardService, OWNER_MISSING_CODE, OWNER_NO_ACCESS_CODE, SYSTEM_DATABASE_CODE } from './action-access-guard.service';
+import { recordAutomationTakenOver } from '../activity/structural-events';
+import { codedException } from '../common/coded-exception';
 
 interface Trigger {
   type: string;
@@ -144,6 +150,8 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     private readonly entitlements: EntitlementsService,
     private readonly approvalsService: ApprovalsService,
     private readonly httpRequestAction: HttpRequestActionService,
+    private readonly notifications: NotificationsService,
+    private readonly accessGuard: ActionAccessGuardService,
   ) {}
 
   onModuleInit() {
@@ -165,7 +173,37 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       orderBy: [desc(automations.createdAt)],
     });
     // Never surface a stored secret webhook header value in the rules list (#249).
-    return { data: rules.map((r) => this.present(r)) };
+    return { data: await this.presentAll(databaseId, rules) };
+  }
+
+  /**
+   * Ticket #1353 — the owner flags on every rule the API returns: `needsNewOwner` (boolean) with `needsNewOwnerReason`
+   * (`missing` | `left` | `lacks_access` | null), and `ownerMissing`, kept for the first two reasons. Derived on each read, never stored;
+   * see owner-refusal.ts. Ticket #1361: `lacks_access` is read from the owner's access NOW (the run-time guard, asked once per rule),
+   * not from the latest run.
+   */
+  private async presentAll<R extends { id: string; actions: unknown; createdBy: string | null }>(databaseId: string, rules: R[]) {
+    const [db] = await this.db.select({ workspaceId: databases.workspaceId }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+    const reasons = db
+      ? await ownerFlags(this.db, db.workspaceId, rules, (rule, ownerId) =>
+          this.accessGuard.ownerLacksAccess(
+            { id: rule.id, databaseId, actions: rule.actions as AutomationAction[] },
+            db.workspaceId,
+            ownerId,
+            (action) => this.actions.linkedTargetDatabase(databaseId, action.relation_field_id),
+          ),
+        )
+      : new Map<string, NeedsNewOwnerReason | null>();
+    return rules.map((r) => {
+      const reason = reasons.get(r.id) ?? null;
+      return { ...this.present(r), ownerMissing: reason === 'missing' || reason === 'left', needsNewOwner: reason !== null, needsNewOwnerReason: reason };
+    });
+  }
+
+  /** One rule, with the same shape and flags the list carries. */
+  async get(databaseId: string, ruleId: string) {
+    const rule = await this.getRule(databaseId, ruleId);
+    return (await this.presentAll(databaseId, [rule]))[0]!;
   }
 
   /** Read shape: secret send_webhook header values become the presence flag (#249). */
@@ -237,7 +275,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         ...(input.trigger.type === 'webhook_received' ? this.mintHook() : {}),
       })
       .returning();
-    return this.present(rule!);
+    return (await this.presentAll(databaseId, [rule!]))[0]!;
   }
 
   /**
@@ -346,7 +384,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       })
       .where(eq(automations.id, ruleId))
       .returning();
-    return this.present(updated!);
+    return (await this.presentAll(databaseId, [updated!]))[0]!;
   }
 
   /** Rotate a rule's hook token + secret (MN-254) — the old URL 404s immediately. */
@@ -362,7 +400,66 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       .set(this.mintHook())
       .where(eq(automations.id, ruleId))
       .returning();
-    return this.present(updated!);
+    return (await this.presentAll(databaseId, [updated!]))[0]!;
+  }
+
+  /** A rule's stored actions, for a caller that must check them (the take-over route's write-target check). 404 when the rule is not on this database. */
+  async actionsOf(databaseId: string, ruleId: string): Promise<AutomationAction[]> {
+    return (await this.getRule(databaseId, ruleId)).actions as AutomationAction[];
+  }
+
+  /**
+   * Ticket #1361 — hand a rule to the CALLER: `created_by` becomes them, which is who every later run acts as. It asks what creating
+   * this rule would ask, and one thing more:
+   *
+   *  - the same save-time validation (`actions.validate`, with the caller's role and source): every reference still resolves, and a
+   *    send_email / post_social action with approval switched off stays a human admin's decision, so a member cannot become the owner of
+   *    one by taking it over;
+   *  - every action must pass the run-time guard AS THE CALLER (`assertCanOwn`): the controller has already asked creator on the
+   *    database and contributor on the databases it writes into; this asks the rest (no system database, the rung each action needs), so
+   *    the next run does not refuse the new owner and re-raise the flag the take-over just cleared.
+   *
+   * Nothing else about the rule moves: a rule that switched itself off STAYS off with its failure streak (re-enabling is the new owner's
+   * decision, and does reset the streak), the trigger and actions are untouched, and nobody is notified. A rule the caller already owns
+   * is returned as is and records nothing. The change and its audit event are one transaction.
+   */
+  async takeOver(workspaceId: string, databaseId: string, ruleId: string, actorId: string, actorRole?: string, source?: ChangeSource) {
+    const rule = await this.getRule(databaseId, ruleId);
+    if (rule.createdBy === actorId) return (await this.presentAll(databaseId, [rule]))[0]!;
+    const actions = rule.actions as AutomationAction[];
+    await this.actions.validate(databaseId, workspaceId, actions, (rule.trigger as Trigger).type, actorRole, source);
+    try {
+      await this.accessGuard.assertCanOwn({ id: rule.id, databaseId, actions }, workspaceId, actorId, (action) =>
+        this.actions.linkedTargetDatabase(databaseId, action.relation_field_id),
+      );
+    } catch (error) {
+      throw this.takeOverRefusal(error);
+    }
+    const updated = await this.db.transaction(async (tx) => {
+      const [row] = await tx.update(automations).set({ createdBy: actorId }).where(eq(automations.id, ruleId)).returning();
+      await recordAutomationTakenOver(tx, { workspaceId, id: ruleId, name: rule.name, databaseId, from: rule.createdBy, to: actorId });
+      return row!;
+    });
+    return (await this.presentAll(databaseId, [updated]))[0]!;
+  }
+
+  /** The guard's sentence is about "the rule owner can no longer ..."; the caller asked to BECOME one, so say it to them, naming the kind of action and never a title. */
+  private takeOverRefusal(error: unknown): unknown {
+    if (!(error instanceof HttpException)) return error;
+    const body = error.getResponse() as { code?: string; meta?: { action_type?: string } };
+    if (body.code === SYSTEM_DATABASE_CODE) {
+      return codedException(403, SYSTEM_DATABASE_CODE, 'This rule runs on, or writes into, a system database (such as Members or the Agents pack), and no rule can do that, so it cannot be taken over.', body.meta);
+    }
+    if (body.code === OWNER_NO_ACCESS_CODE || body.code === OWNER_MISSING_CODE) {
+      const kind = body.meta?.action_type ? `its ${body.meta.action_type} action` : 'one of its actions';
+      return codedException(
+        403,
+        'automation_takeover_no_access',
+        `You cannot take this rule over: ${kind} needs access you do not have. Whoever owns a rule needs the access it would take to create it.`,
+        body.meta,
+      );
+    }
+    return error;
   }
 
   /** The RuleEditor's "last received payload" inspector (MN-254). */
@@ -740,7 +837,29 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
           .where(eq(automations.id, rule.id));
         if (streak >= MAX_FAILURES)
           this.logger.warn(`automation ${rule.id} auto-disabled after ${streak} failures`);
+        await this.noticeAfterFailure(current, workspaceId, runId, message, streak);
       }
+    }
+  }
+
+  /**
+   * Ticket #1353 — no silent failure. The FIRST access refusal in a row tells the workspace's admins the rule needs attention
+   * (person and kind of record, never a title); a rule that switches itself off tells them too, not only the server log.
+   */
+  private async noticeAfterFailure(
+    rule: { id: string; name: string; databaseId: string; createdBy: string | null },
+    workspaceId: string,
+    runId: string,
+    message: string,
+    streak: number,
+  ): Promise<void> {
+    try {
+      if (isAccessRefusal(message) && (await isFirstRefusal(this.db, rule.id, runId))) {
+        await notifyAdmins(this.db, this.notifications, rule, workspaceId, 'refused', message);
+      }
+      if (streak >= MAX_FAILURES) await notifyAdmins(this.db, this.notifications, rule, workspaceId, 'disabled', message);
+    } catch (error) {
+      this.logger.warn(`could not notify admins about rule ${rule.id}: ${String(error)}`);
     }
   }
 
@@ -1027,6 +1146,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         .where(eq(automations.id, ruleId));
       if (streak >= MAX_FAILURES)
         this.logger.warn(`automation ${ruleId} auto-disabled after ${streak} failures`);
+      await this.noticeAfterFailure({ id: ruleId, name: rule.name, databaseId, createdBy: rule.createdBy }, workspaceId, runId, message, streak);
     }
   }
 
@@ -1045,6 +1165,10 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   private describeActionError(error: unknown): string {
     if (error instanceof HttpException) {
       const response = error.getResponse();
+      // Ticket #1353 — a run-time access refusal reads "<code>: <sentence>", so the run row carries the code a person can search and the
+      // sentence that says who and what KIND of record (never a title).
+      const refusalCode = typeof response === 'object' && response !== null ? (response as { code?: unknown }).code : undefined;
+      if (typeof refusalCode === 'string' && refusalCode.startsWith('automation_owner_')) return `${refusalCode}: ${error.message}`.slice(0, 500);
       if (typeof response === 'object' && response !== null && 'details' in response) {
         const details = (response as { details?: unknown }).details;
         if (Array.isArray(details) && details.length > 0) {

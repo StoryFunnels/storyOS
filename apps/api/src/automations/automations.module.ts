@@ -12,6 +12,7 @@ import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { SkillsModule } from '../skills/skills.module';
 import { SkillPublishGateService } from './skill-publish-gate.service';
+import { ActionAccessGuardService } from './action-access-guard.service';
 import { AutomationActionsService } from './actions.service';
 import { AttachPdfActionService } from './attach-pdf.action';
 import { ApprovalsController } from './approvals.controller';
@@ -24,6 +25,8 @@ import { HookRateLimiterService } from './hook-rate-limiter.service';
 import { HttpRequestActionService } from './http-request-action.service';
 import { JobRunnerService } from './job-runner.service';
 import { PostSocialActionService } from './post-social.action';
+import { PublishingController } from './publishing.controller';
+import { PublishingService } from './publishing.service';
 import { SendEmailActionService } from './send-email.action';
 import { SocialPublishesController } from './social-publishes.controller';
 import { SocialPublishesService } from './social-publishes.service';
@@ -46,8 +49,9 @@ import { SocialPublishesService } from './social-publishes.service';
     DocumentsModule,
     AttachmentsModule,
   ],
-  controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController, SocialPublishesController],
+  controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController, SocialPublishesController, PublishingController],
   providers: [
+    ActionAccessGuardService,
     AutomationActionsService,
     AutomationsService,
     HookRateLimiterService,
@@ -66,6 +70,8 @@ import { SocialPublishesService } from './social-publishes.service';
     AttachPdfActionService,
     // Ticket #42: the per-record publish state and the retry of a failed publish.
     SocialPublishesService,
+    // Ticket #456: the guided Turn on publishing flow, a readiness read plus enable and pause calls.
+    PublishingService,
   ],
   exports: [AutomationActionsService, AutomationsService, JobRunnerService, ApprovalsService, HttpRequestActionService],
 })

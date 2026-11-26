@@ -88,6 +88,66 @@ A rule's approver must be an active member of the workspace (a `422` otherwise).
 create records in, or update linked records in, another database needs at least `contributor` access on
 that database to be saved. See [access and roles](/concepts/access-and-roles/) for the exact wording.
 
+**A rule runs as its owner, and checks that person's access every time it runs.** The owner is the person
+who created the rule. Before each action StoryOS looks the owner up again, so a change to their access
+takes effect on the next run, not only when the rule is next edited. What each action needs from the owner:
+
+| Action | The owner must still be able to |
+|---|---|
+| Set fields on this record | edit the record that fired the rule |
+| Add a comment | comment on that record |
+| Notify someone | read that record |
+| Create a record, Create many records | add records to the database the action writes into |
+| Update linked records | edit each linked record |
+| Send email, Call an API, Slack message, Webhook, Post to social, Run an agent | manage automations on the rule's database (the access that saved the rule) |
+| Attach a PDF | read the record it draws and edit the record the file goes onto |
+
+If the owner can no longer do that, the action is **refused**: nothing is written or sent, the actions
+after it do not run, and the run is marked **Failed**. Its message starts with a code and names the
+person and the kind of record, never a title, for example `automation_owner_no_access: Maya Chen can no
+longer edit this record, so set_values did not run.` `automation_owner_missing` means the owner has left
+the workspace or the rule has no owner. A refusal counts as a failure, so a rule that can never succeed
+switches itself off after ten in a row. An email, API call or post that was already queued is checked again
+when it is sent, and is not retried if the owner has lost access.
+
+**No action runs on a system database** (Members, the Agents pack), whichever action it is, whether the rule runs
+on one or an action writes into one. It is refused with `automation_system_database`.
+
+**A rule that needs a new owner says so as soon as its owner loses access.** Its settings show **Needs a new owner** with
+the reason: **no owner**, **left the workspace**, or **no longer has access** (still a member, but demoted or
+removed from the database). The flag is read from the owner's access right now, not from the last run, so it shows
+on a rule that has not fired since the change and on a rule that is switched off, and it clears by itself if the
+owner's access comes back. The workspace's admins also get an in-app notice at the first refused run, naming the
+person and the kind of record, never a title, and another if the rule then switches itself off. In the API every
+rule carries `needsNewOwner` (true or false) and `needsNewOwnerReason` (`missing`, `left`, `lacks_access` or null);
+`ownerMissing` stays true for the first two reasons, and `GET .../automations/{id}` returns one rule with the same
+fields. In `get_automation` and `list_automations` they read `needs_new_owner`, `needs_new_owner_reason` and
+`owner_missing`. This is a change for rules that were saved before it existed: a rule whose creator was since
+demoted or removed used to keep running with that person's old access, and is now refused.
+
+## Taking a rule over
+
+**Taking a rule over makes you its owner**, so every action runs with your access from the next run. It is the
+fix for a rule that needs a new owner, and it works on any rule you are allowed to build. In the API it is
+`POST /workspaces/{ws}/databases/{db}/automations/{id}/take-over` (no body), and the MCP tool is
+`take_over_automation`; both return the rule, with `createdBy` set to you and the flag cleared.
+
+You need what **creating** that rule would need: build automations on the rule's database (creator or admin), add
+records to every other database it writes into, and pass the run-time check for each of its actions as yourself.
+A guest, or a member with less access than the rule needs, is refused with `403` and the owner stays as it was. A
+rule that runs on or writes into a system database cannot be taken over, because no rule can run there. A rule
+that sends email or posts publicly with approval switched off can only be taken over by a workspace admin typing
+it themselves, not by an agent acting for one. An agent run credential cannot take a rule over at all.
+
+Taking over changes nothing else. **A rule that switched itself off stays off**, with its failure count, and you
+turn it back on once you are happy to own it, which also resets the count. Nobody is notified. The change is
+recorded in the audit log as `automation.taken_over`, with who took it over and from whom; filter the log by the
+rule's id to see its history. Taking over a rule you already own does nothing.
+
+A **button** runs as the person who pressed it, with the access they have at that moment; pressing never
+needed the access to build automations.
+
+
 ## Computing a number
 
 Setting a **number** field, a token expression is **evaluated, not substituted**. So
@@ -299,7 +359,7 @@ rendered." The sentence names the person and the kind of record, never its conte
 owner has left the workspace, or has no owner, makes nothing. Records in a system database (Members,
 Agents) are never drawn. A button press uses whoever pressed it.
 
-This is stricter than the other actions, which check access when the rule is saved and not on each run.
+Every other action now checks its owner the same way on each run, see [Who a rule runs for](#who-a-rule-runs-for-and-where-it-may-write); attaching a PDF also needs the record it draws to be readable.
 
 **When it fails, the rest of the rule stops.** The failed action is recorded on the run and the
 actions after it do not run, so an email that was meant to carry the PDF is never sent without it.

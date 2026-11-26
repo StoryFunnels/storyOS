@@ -8,7 +8,7 @@ import {
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automationJobs, automations, connections } from '../db/schema';
+import { approvals, automationJobs, automations, connections, databases } from '../db/schema';
 import { env } from '../config/env';
 import { redactSecrets } from '../common/redact-secrets';
 import { parseEventOrigin, runWithEventOrigin } from '../common/credential-context';
@@ -21,6 +21,7 @@ import { PROVIDER_REGISTRY } from '../connections/providers';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommentsService } from '../comments/comments.service';
 import { MAX_FAILURES } from './constants';
+import { isAccessRefusal, notifyAdmins } from './owner-refusal';
 
 type AutomationJobRow = typeof automationJobs.$inferSelect;
 
@@ -138,6 +139,8 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(JobRunnerService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
   private executors = new Map<string, ExecutorEntry>();
+  /** Ticket #1353 — the one run-time access guard, set at boot by ActionAccessGuardService. Absent in a unit test that builds this class alone. */
+  private preflight: ((job: AutomationJobRow) => Promise<void>) | null = null;
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -165,6 +168,14 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
     opts?: { timeoutClass?: TimeoutClass; timeoutClassFor?: (payload: Record<string, unknown>) => TimeoutClass | undefined },
   ): void {
     this.executors.set(kind, { fn, timeoutClass: opts?.timeoutClass ?? 'short', timeoutClassFor: opts?.timeoutClassFor });
+  }
+
+  /**
+   * Ticket #1353 — a check run on a claimed job BEFORE its executor and before any attempt is counted. A throw is final: the job is
+   * failed with the error's own (safe) sentence and never retried, because retrying cannot give a person back their access.
+   */
+  setPreflight(fn: (job: AutomationJobRow) => Promise<void>): void {
+    this.preflight = fn;
   }
 
   /** actions.service.ts's execute() routes a kind through the queue instead of
@@ -295,6 +306,15 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
       // not retryable, retrying can't make an executor appear.
       await this.finalizeNonRetryable(job, `no executor registered for kind "${job.kind}"`);
       return;
+    }
+
+    if (this.preflight) {
+      try {
+        await this.preflight(job);
+      } catch (error) {
+        await this.finalizeNonRetryable(job, error instanceof Error ? error.message : String(error));
+        return;
+      }
     }
 
     const attempts = job.attempts + 1;
@@ -456,6 +476,19 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
       .update(automations)
       .set({ failureStreak: streak, enabled: streak >= MAX_FAILURES ? false : undefined })
       .where(eq(automations.id, job.ruleId));
+    // Ticket #1353 — the first access refusal of a queued action tells the admins; so does a rule that switches itself off.
+    const [owner] = await this.db.select({ workspaceId: databases.workspaceId }).from(databases).where(eq(databases.id, rule.databaseId)).limit(1);
+    if (owner) {
+      if (isAccessRefusal(lastError)) {
+        const earlier = await this.db
+          .select({ id: automationJobs.id })
+          .from(automationJobs)
+          .where(and(eq(automationJobs.ruleId, job.ruleId), eq(automationJobs.status, 'failed'), sql`${automationJobs.lastError} LIKE 'automation_%'`, sql`${automationJobs.id} <> ${job.id}`))
+          .limit(1);
+        if (earlier.length === 0) await notifyAdmins(this.db, this.notifications, rule, owner.workspaceId, 'refused', lastError);
+      }
+      if (streak >= MAX_FAILURES) await notifyAdmins(this.db, this.notifications, rule, owner.workspaceId, 'disabled', lastError);
+    }
     if (streak < MAX_FAILURES) return;
     this.logger.warn(`automation ${job.ruleId} auto-disabled after ${streak} failures (job ${job.id})`);
     if (!rule.createdBy) return;

@@ -34,6 +34,11 @@ export interface CoverageRule {
  */
 export const EXCLUDED: CoverageRule[] = [
   {
+    match: 'POST /api/v1/workspaces/{ws}/databases/{db}/publishing/enable',
+    reason:
+      "ticket #456 - this decides which account the company posts from, and the route refuses any credential that is not a signed-in person (a token, a connected AI or a Runner run credential, even one acting for an admin), so a tool for it could only ever be refused. Reading the setup (get_publishing_setup) and pausing it (pause_publishing, the safe direction) are tools; turning it ON stays a person's click in the app. Same reasoning as approving an approval, which MCP also exposes no tool for.",
+  },
+  {
     match: 'POST /api/v1/workspaces/{ws}/databases/{db}/views/{view}/seen',
     reason:
       "ticket #1204 - this records that a PERSON opened a view, so the web can show 'changed by an agent since you last looked'. The route refuses any credential whose stored provenance is not human (403): an agent marking a view seen would clear the very gold its own writes cause. A tool could never succeed, so it would only invite an agent to try. What an agent CAN read is the other half: last_ai_change_at on every record it lists.",
@@ -278,8 +283,13 @@ export const EXCLUDED: CoverageRule[] = [
  * this file avoids becoming a list of things that used to be true.
  */
 export const DEFERRED: CoverageRule[] = [
+  {
+    match: 'POST /api/v1/workspaces/{ws}/databases/{db}/publishing/disable',
+    reason:
+      "ticket #1355 (a real gap, not a decision: pausing is the safe direction and an agent SHOULD be able to do it) - the tool was written and tested, then taken out because tool-description-budget.test.ts caps the listed descriptions at 60,000 characters and the registry is within ~100 characters of it. The cap is not raised to fit it; #1355 frees the headroom or ships the tool when the cap is reworked.",
+  },
   /*
-   * Every entry cites #406, and that is deliberate rather than lazy.
+   * Every entry below this one cites #406, and that is deliberate rather than lazy.
    *
    * The first draft of this file invented fourteen ticket numbers, one per
    * area — none of which existed. That is exactly the defect #390 documents: a
@@ -327,6 +337,12 @@ export const DEFERRED: CoverageRule[] = [
        * reachable through create_automation.
        */
       "#443 — creating a subscription returns its live signing secret in the response body (shown once, never listed again), and a tool result is transcript. Redacting it is not an option: no read path can return it afterwards. Make the subscription in-app; list_webhooks / update_webhook / delete_webhook / list_webhook_deliveries manage and debug it. Outbound calls in general are reachable via create_automation's send_webhook action.",
+  },
+  {
+    // Ticket #1353 — the single-rule read.
+    match: /^GET \/api\/v1\/workspaces\/\{ws\}\/databases\/\{db\}\/automations\/\{id\}$/,
+    reason:
+      "#1353 — get_automation already reads one rule: it takes it from the same database's rule list, which carries the identical fields (including needs_new_owner and its reason), so the single-rule GET adds nothing an agent cannot already reach.",
   },
   {
     // #684 — narrowed from `(test|last-payload|regenerate-hook)`. Otto's

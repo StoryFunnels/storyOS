@@ -176,6 +176,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'POST /workspaces/:ws/documents/:doc/move': { verdict: 'gated', why: FANOUT_WHY },
   'POST /workspaces/:ws/documents/:doc/copy-to-personal': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
   'GET /workspaces/:ws/databases/:db/records/:rec/social-publishes': { verdict: 'internal', why: 'read: what the record\'s own posts did, returned to the caller only; errors are a code and a sentence, never the network\'s response (social-publishes.service.ts)' },
+  'GET /workspaces/:ws/databases/:db/publishing': { verdict: 'internal', why: 'read: the Posts database\'s publish setup, returned to the caller only; connections are listed by id and name, never a credential, and a caller who cannot manage rules gets none of it' },
   'GET /workspaces/:ws/connections': { verdict: 'internal', why: 'connections list never returns auth material (connections.service.ts present)' },
   'GET /workspaces/:ws/connections/providers': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /connections/oauth/callback': { verdict: 'public', why: 'OAuth callback, bound to a signed state' },

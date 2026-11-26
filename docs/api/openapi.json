@@ -4854,6 +4854,36 @@
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}": {
+      "get": {
+        "operationId": "AutomationsController_getOne",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "One rule, with the same shape and owner flags as the list",
+        "tags": [
+          "automations"
+        ]
+      },
       "patch": {
         "operationId": "AutomationsController_update",
         "parameters": [
@@ -4920,6 +4950,38 @@
           }
         },
         "summary": "Delete a rule",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/take-over": {
+      "post": {
+        "operationId": "AutomationsController_takeOver",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Take a rule over: you become its owner, and every action runs with your access. Needs what creating the rule needs",
         "tags": [
           "automations"
         ]
@@ -5314,6 +5376,113 @@
         "summary": "Try a failed post again with its ORIGINAL account and approved text (no re-pick, no second approval). 409 when the post already went out, is in flight, was superseded, or hit the retry cap; 422 when it names no account.",
         "tags": [
           "social-publishes"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing": {
+      "get": {
+        "operationId": "PublishingController_setup",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publishing setup for the Social Command Center's Posts database: whether a publish rule exists and is on, which connections and networks are available, what blocks turning it on (coded), the pack's field ids and the rule to create. Someone who cannot manage rules gets only `can_manage: false`.",
+        "tags": [
+          "publishing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/enable": {
+      "post": {
+        "operationId": "PublishingController_enable",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnablePublishingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Turn on publishing for ONE network: saves the publish rule (Status becomes Scheduled -> post Text and Media, save Post URL) with the named connection and account, switched on. Idempotent. 422 with every unmet prerequisite as `unmet[].code`. A person only (never a run credential, token or connected AI). Posts nothing itself.",
+        "tags": [
+          "publishing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/disable": {
+      "post": {
+        "operationId": "PublishingController_disable",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisablePublishingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pause publishing: switches off the Posts database's publish rules (one network, or all). Idempotent; nothing is deleted, so turning it back on is one call.",
+        "tags": [
+          "publishing"
         ]
       }
     },
@@ -17499,6 +17668,49 @@
         "properties": {
           "account_id": {},
           "connection_id": {}
+        }
+      },
+      "EnablePublishingDto": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "linkedin_org",
+              "linkedin_member",
+              "x"
+            ]
+          },
+          "account_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "require_approval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connection_id",
+          "target"
+        ]
+      },
+      "DisablePublishingDto": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "linkedin_org",
+              "linkedin_member",
+              "x"
+            ]
+          }
         }
       },
       "CreateWebhookDto": {

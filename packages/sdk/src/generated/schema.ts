@@ -1869,7 +1869,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** One rule, with the same shape and owner flags as the list */
+        get: operations["AutomationsController_getOne"];
         put?: never;
         post?: never;
         /** Delete a rule */
@@ -1878,6 +1879,23 @@ export interface paths {
         head?: never;
         /** Update / enable / disable a rule */
         patch: operations["AutomationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/take-over": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take a rule over: you become its owner, and every action runs with your access. Needs what creating the rule needs */
+        post: operations["AutomationsController_takeOver"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
@@ -2061,6 +2079,57 @@ export interface paths {
         put?: never;
         /** Try a failed post again with its ORIGINAL account and approved text (no re-pick, no second approval). 409 when the post already went out, is in flight, was superseded, or hit the retry cap; 422 when it names no account. */
         post: operations["SocialPublishesController_retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Publishing setup for the Social Command Center's Posts database: whether a publish rule exists and is on, which connections and networks are available, what blocks turning it on (coded), the pack's field ids and the rule to create. Someone who cannot manage rules gets only `can_manage: false`. */
+        get: operations["PublishingController_setup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn on publishing for ONE network: saves the publish rule (Status becomes Scheduled -> post Text and Media, save Post URL) with the named connection and account, switched on. Idempotent. 422 with every unmet prerequisite as `unmet[].code`. A person only (never a run credential, token or connected AI). Posts nothing itself. */
+        post: operations["PublishingController_enable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause publishing: switches off the Posts database's publish rules (one network, or all). Idempotent; nothing is deleted, so turning it back on is one call. */
+        post: operations["PublishingController_disable"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6537,6 +6606,18 @@ export interface components {
             account_id?: unknown;
             connection_id?: unknown;
         };
+        EnablePublishingDto: {
+            /** Format: uuid */
+            connection_id: string;
+            /** @enum {string} */
+            target: "linkedin_org" | "linkedin_member" | "x";
+            account_id?: string;
+            require_approval?: boolean;
+        };
+        DisablePublishingDto: {
+            /** @enum {string} */
+            target?: "linkedin_org" | "linkedin_member" | "x";
+        };
         CreateWebhookDto: {
             /** Format: uri */
             url: string;
@@ -10983,6 +11064,26 @@ export interface operations {
             };
         };
     };
+    AutomationsController_getOne: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     AutomationsController_remove: {
         parameters: {
             query?: never;
@@ -11018,6 +11119,26 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateAutomationDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_takeOver: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -11253,6 +11374,71 @@ export interface operations {
         };
         responses: {
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublishingController_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublishingController_enable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnablePublishingDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublishingController_disable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisablePublishingDto"];
+            };
+        };
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
