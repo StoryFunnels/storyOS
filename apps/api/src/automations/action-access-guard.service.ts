@@ -78,7 +78,7 @@ export class ActionAccessGuardService implements OnModuleInit {
         // The same "<code>: <sentence>" the run row shows, so the job's last error reads like the run's.
         if (error instanceof HttpException) {
           const body = error.getResponse() as { code?: string };
-          throw new Error(`${body.code ?? 'automation_owner_no_access'}: ${error.message}`);
+          throw new Error(`${body.code ?? 'automation_owner_no_access'}: ${error.message}`, { cause: error });
         }
         throw error;
       }
