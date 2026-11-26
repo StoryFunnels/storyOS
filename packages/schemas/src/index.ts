@@ -51,6 +51,7 @@ export * from './markdown';
 export * from './token-scopes';
 export * from './architect';
 export * from './packs';
+export * from './publishing';
 export * from './icons';
 export * from './connections';
 export * from './sources';

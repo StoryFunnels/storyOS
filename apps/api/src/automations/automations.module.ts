@@ -21,6 +21,8 @@ import { HookRateLimiterService } from './hook-rate-limiter.service';
 import { HttpRequestActionService } from './http-request-action.service';
 import { JobRunnerService } from './job-runner.service';
 import { PostSocialActionService } from './post-social.action';
+import { PublishingController } from './publishing.controller';
+import { PublishingService } from './publishing.service';
 import { SendEmailActionService } from './send-email.action';
 import { SocialPublishesController } from './social-publishes.controller';
 import { SocialPublishesService } from './social-publishes.service';
@@ -40,7 +42,7 @@ import { SocialPublishesService } from './social-publishes.service';
     // public-approval path at boot.
     SkillsModule,
   ],
-  controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController, SocialPublishesController],
+  controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController, SocialPublishesController, PublishingController],
   providers: [
     AutomationActionsService,
     AutomationsService,
@@ -58,6 +60,8 @@ import { SocialPublishesService } from './social-publishes.service';
     PostSocialActionService,
     // Ticket #42: the per-record publish state and the retry of a failed publish.
     SocialPublishesService,
+    // Ticket #456: the guided Turn on publishing flow, a readiness read plus enable and pause calls.
+    PublishingService,
   ],
   exports: [AutomationActionsService, AutomationsService, JobRunnerService, ApprovalsService, HttpRequestActionService],
 })
