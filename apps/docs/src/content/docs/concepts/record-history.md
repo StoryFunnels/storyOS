@@ -174,6 +174,32 @@ or mcp), and by date range (default: the last 30 days).
 - **A removed member still appears by name** on their historical rows, the same no-FK design this
   whole page is built on.
 
+### How long the audit log keeps record events
+
+The audit log shows only what your plan keeps. Events about a record, and an agent's outward log,
+are deleted by an hourly job once they are older than the window for the workspace's plan:
+
+| Plan | Record events kept |
+|---|---|
+| Free | 7 days |
+| Pro | 30 days |
+| Business | 30 days |
+| Enterprise | 90 days |
+
+A self-hosted instance has no plans. It keeps everything unless the operator sets
+`ACTIVITY_EVENTS_RETENTION_DAYS` ([self-hosting configuration](/self-hosting/configuration/)); `0`
+or `never` also keeps everything.
+
+- **Never deleted:** events not about one record (a space, database or view deleted or restricted,
+  a portal link created or revoked, a Runner paired or revoked) and a change to a person field,
+  because My Work's "assigned by" reads it.
+- **Kept past the window:** an agent's outward log for the current calendar month, which agent
+  budgets add up, and any event not yet delivered to a webhook.
+- `GET /workspaces/{ws}/audit-log` and the MCP `list_audit_log` return `retention_days`, the window
+  for this workspace in days, or `null` when everything is kept.
+- **Not the version history above.** Versions and field changes are a separate table with their own
+  plan limit ([How long it's kept](#how-long-its-kept)); this job does not touch them.
+
 ### When the agent ran on a Runner
 
 An [agent that runs on a Runner](/concepts/agent-runs/#agents-on-your-own-ai) writes with a

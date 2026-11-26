@@ -40,6 +40,23 @@ A type that can't work yet — **Board** with no select/user/relation field to g
 or **Timeline** with no date field — shows disabled with the specific reason, rather than being
 hidden or silently creating a broken view.
 
+### New on a filtered view
+
+**New** on a view with a filter makes a record that belongs in that view. The fields the filter
+requires are filled in under anything you supply. Take a Dev Tracker view whose State is **In
+Progress** or **In Review**: a new issue starts in **In Progress**, the first allowed state in the
+workflow's order, instead of in Triage where the view would hide it.
+
+- **Only unambiguous conditions are filled.** A choice, a person (**Me** is you), a relation, a
+  checkbox, a number and a text condition that says *is*. A date range, *contains*, *greater than*,
+  a condition on a computed field, and an *or* across different fields give no single value.
+- **If the record still lands outside the view**, a toast says **Created #12 — not shown in this
+  view** with an **Open** link, so the record does not seem to vanish. If the app cannot tell, it
+  shows nothing.
+- The check uses your own view, including a personal filter you have set on a shared view. A view
+  you cannot see is ignored.
+- The same works over the [API and MCP](/api/conventions/#creating-a-record-from-a-view).
+
 ## Filters & sorts
 
 Each view stores a **filter tree** and a list of **sorts**. The filter model is shared verbatim
