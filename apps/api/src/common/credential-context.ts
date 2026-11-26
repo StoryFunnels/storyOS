@@ -20,6 +20,13 @@ export interface RequestActor {
   source: 'human' | 'agent' | 'automation' | 'mcp' | null;
   agentId: string | null;
   agentName: string | null;
+  /**
+   * ticket #1338 — what the credential at the door can REACH, so a write that mints another agent can be held to "no wider than the
+   * creator" below the controller. `tokenScope` is the token's ceiling; `resourceScope` is the #543 binding the guard resolved live for
+   * this request (an agent's own scope included), null for an unbound credential. Absent for a context that never set them.
+   */
+  tokenScope?: 'read' | 'write' | 'admin' | null;
+  resourceScope?: { space_ids: string[]; database_ids: string[] } | null;
 }
 
 /**

@@ -66,6 +66,17 @@ run wakes nothing.
 no Runner yet, so a count of "N waiting" is real. A wake that nobody picks up for **7 days** is
 canceled, and its Run with it. Canceling a Queued or Running Run cancels its wake too.
 
+### Trigger conditions
+
+A state trigger can carry a **condition**: a record filter, in the same shape as a saved view's filter, such as
+"Do Not Contact is unchecked". StoryOS checks it when the record reaches the state. A record that does not match
+wakes nothing, and the skip is kept as a finished wake with the code `condition_not_met`, listed with the wake
+queue. A condition that cannot be read, or cannot run on the database, fails closed: it wakes nothing
+(`condition_invalid`). A condition the database cannot use is refused when you save the trigger. With no
+condition the trigger wakes for every record that reaches the state. The [Lead Follow-up pack](/guides/lead-follow-up-pack/)
+uses one on each stage trigger. Set it with `condition` on `create_agent_trigger`; a trigger's `condition` shows in
+`get_agent_wake_sources`.
+
 ### Where a wake stands
 
 The API (`GET /workspaces/{ws}/agent-wakes`) and the MCP tool `list_agent_wakes` report one derived

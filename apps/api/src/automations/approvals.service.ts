@@ -4,7 +4,7 @@ import type { AutomationAction } from '@storyos/schemas';
 import { AgentWakesService } from '../runners/agent-wakes.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automations, databases, linearCommentPushes, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
+import { approvals, automations, connections, databases, linearCommentPushes, memberships, sourceRuns, tyronMessages, type ChangeSource } from '../db/schema';
 import type { EventOrigin } from '../common/credential-context';
 import { CommentsService } from '../comments/comments.service';
 import { NotificationsService, type NotificationType } from '../notifications/notifications.service';
@@ -449,6 +449,16 @@ export class ApprovalsService implements OnModuleInit {
     });
   }
 
+  /** The connection an action names, when it still exists in this workspace (the job's FK would otherwise fail the approval itself). */
+  private async liveConnectionId(workspaceId: string, value: unknown): Promise<string | null> {
+    if (typeof value !== 'string') return null;
+    const row = await this.db.query.connections.findFirst({
+      where: and(eq(connections.id, value), eq(connections.workspaceId, workspaceId)),
+      columns: { id: true },
+    });
+    return row ? row.id : null;
+  }
+
   /** Rule owner by default, `automations.approver_id` as a per-rule override
    * (Step 2) — falls back to the requesting actor when there's no rule at
    * all (a one-off button press has no "rule owner" to default to). */
@@ -775,6 +785,10 @@ export class ApprovalsService implements OnModuleInit {
         workspaceId,
         ruleId: updated.ruleId,
         runId: updated.runId,
+        // Ticket #42 — the connection the approved action names, set on the job exactly as actions.service.ts does for an
+        // ungated one. It was left null here, so an APPROVED post (the default path for post_social) ran without the
+        // per-connection circuit breaker and rate limit, and nothing on the job said which connection it went out through.
+        connectionId: await this.liveConnectionId(workspaceId, (snapshot.action as Record<string, unknown>).connection_id),
         actionIndex: updated.actionIndex,
         kind: snapshot.action.type,
         payload: {

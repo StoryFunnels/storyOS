@@ -10,6 +10,13 @@ day the change reached the product.
 ## Week of 9 November 2026
 
 - **26 Nov** — An automation rule can **Attach a PDF**: it makes a PDF of the record, or of the one record it links to, using the rule owner's access checked on every run, and attaches it to a file field. Without a PDF renderer the rule cannot be switched on. [Attaching a PDF](/concepts/automations/#attaching-a-pdf)
+- **25 Nov** — An agent's **Target databases** entry binds a user database by name only when exactly one database carries it (the agent's own target spaces first); a system database such as Members needs its id, and an ambiguous name shows as unresolved. [How a database name is read](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
+- **25 Nov** — An agent trigger can carry a condition, so a record that does not match wakes nothing and the skip is listed; the Lead Follow-up pack uses it for Do Not Contact. [Trigger conditions](/concepts/agent-runs/#trigger-conditions)
+- **25 Nov** — An agent can no longer change an existing agent's Target databases or scopes, as it already could not change Target spaces, Tools, Model or budget. [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
+- **25 Nov** — An admin no longer sees or restores a member's deleted personal space in Settings → Trash. [Deleting a database, view or space](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space)
+- **25 Nov** — A guest who asks the API for a personal access token is refused with a 403, matching the app. [Authentication](/api/authentication/)
+- **25 Nov** — The API container runs as the `node` user and fixes the ownership of an older attachments volume on first start. [Attachments](/self-hosting/attachments/)
+
 - **25 Nov** — Settings shows **N connected** beside **Runners**, in the warning colour when a Runner is offline or at its limit. [See your Runners](/guides/adding-and-removing-a-runner/#see-your-runners)
 - **25 Nov** — The catch-up confirmation names the first five waiting records, and the agent's **Runs** list shows each waiting record as a **Not started** row. [Starting an agent on records already waiting](/guides/runner/#starting-an-agent-on-records-already-waiting)
 - **25 Nov** — The delete-field confirmation counts a relation by its links, says nothing is lost for a formula, lookup or rollup, and says "at least" when some records are hidden from you. [Field lifecycle](/concepts/databases-and-fields/#field-lifecycle)
