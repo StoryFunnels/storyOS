@@ -24,6 +24,17 @@ export interface ProviderOAuthConfig {
   /** Extra static query params merged into the authorize URL — e.g. Google's
    * `access_type=offline&prompt=consent`, needed to actually get a refresh token. */
   extraAuthParams?: Record<string, string>;
+  /** How the authorize URL joins `scopes`. OAuth2's default is a space; Facebook's dialog documents a comma. */
+  scopeSeparator?: ' ' | ',';
+}
+
+/** What the generic OAuth code exchange hands a provider that needs more than one token round-trip. */
+export interface OAuthExchange {
+  access_token: string;
+  refresh_token?: string;
+  token_type?: string;
+  scope?: string;
+  expires_in?: number;
 }
 
 /**
@@ -84,4 +95,16 @@ export interface ProviderDescriptor {
    * before MN-256.
    */
   resolveScopes?(auth: unknown, fetcher?: ConnectionFetcher): Promise<string[]>;
+  /**
+   * Ticket #51 — an OAuth2 provider whose code exchange is not the whole story (Meta: swap the short-lived user token for a
+   * long-lived one, then list the pages that were granted and keep each page's own token). Runs right after the generic code
+   * exchange; whatever it returns is what gets sealed as the connection's auth, and `scopes` is what is mirrored into the
+   * (non-secret) `connections.scopes` column. Throw an UnprocessableEntityException with a sentence that is safe to show.
+   * Absent means the exchange's own token response is sealed, exactly as before.
+   */
+  finishOAuth?(
+    exchange: OAuthExchange,
+    ctx: { clientId: string; clientSecret: string },
+    fetcher: ConnectionFetcher,
+  ): Promise<{ auth: unknown; scopes: string[] }>;
 }

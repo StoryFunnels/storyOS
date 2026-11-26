@@ -3,6 +3,7 @@ import { RecordsModule } from '../records/records.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
+import { SignedAttachmentController } from './signed-attachment.controller';
 
 @Module({
   // #599: RecordsModule now imports AttachmentsModule back (RecordsService
@@ -12,7 +13,7 @@ import { AttachmentsService } from './attachments.service';
   // already resolves through AccessService rather than a direct DatabasesService
   // dependency.
   imports: [WorkspacesModule, forwardRef(() => RecordsModule)],
-  controllers: [AttachmentsController],
+  controllers: [AttachmentsController, SignedAttachmentController],
   providers: [AttachmentsService],
   exports: [AttachmentsService],
 })

@@ -401,7 +401,7 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
       client_id: clientId,
       redirect_uri: this.callbackUrl(),
       response_type: 'code',
-      scope: descriptor.oauth!.scopes.join(' '),
+      scope: descriptor.oauth!.scopes.join(descriptor.oauth!.scopeSeparator ?? ' '),
       state,
       ...(descriptor.oauth!.extraAuthParams ?? {}),
     });
@@ -481,7 +481,7 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
       throw new UnprocessableEntityException(`${descriptor.label} token exchange returned no access token`);
     }
     const now = Date.now();
-    const auth = {
+    let auth: unknown = {
       access_token: body.access_token,
       refresh_token: body.refresh_token,
       token_type: body.token_type,
@@ -489,6 +489,17 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
       obtained_at: now,
       expires_at: body.expires_in ? now + body.expires_in * 1000 : undefined,
     };
+    let scopes: string[] = descriptor.oauth!.scopes;
+    if (descriptor.finishOAuth) {
+      // Ticket #51 — a provider with more than one round-trip (Meta) builds its own sealed blob and its own non-secret scopes.
+      const finished = await descriptor.finishOAuth(
+        { access_token: body.access_token, refresh_token: body.refresh_token, token_type: body.token_type, scope: body.scope, expires_in: body.expires_in },
+        { clientId, clientSecret },
+        this.fetcher,
+      );
+      auth = finished.auth;
+      scopes = finished.scopes;
+    }
     const sealed = seal(JSON.stringify(auth));
     const [row] = await this.db
       .insert(connections)
@@ -497,7 +508,7 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
         provider: descriptor.id,
         name: descriptor.label,
         authSealed: sealed,
-        scopes: descriptor.oauth!.scopes,
+        scopes,
         status: 'active',
         lastOkAt: new Date(),
         createdBy: verified.uid,
@@ -589,6 +600,19 @@ export class ConnectionsService implements OnModuleInit, OnModuleDestroy {
       .set({ quotaState: { date: today, used: usedToday + units } })
       .where(eq(connections.id, connectionId));
     return true;
+  }
+
+  /**
+   * Ticket #51 — a provider told us mid-publish that the credential is no longer valid (Meta error 190: the page was
+   * de-authorized, the password changed, the token was invalidated). Flips the connection to `expired` and tells whoever
+   * connected it, the same as a failed refresh does. Idempotent and never throws: it is called from inside a failing job.
+   */
+  async flagReconnectRequired(workspaceId: string, connectionId: string): Promise<void> {
+    const row = await this.db.query.connections.findFirst({
+      where: and(eq(connections.id, connectionId), eq(connections.workspaceId, workspaceId)),
+    });
+    if (!row || row.status === 'expired') return;
+    await this.flagExpired(row).catch((error) => this.logger.warn(`connection ${connectionId}: could not flag reconnect: ${String(error)}`));
   }
 
   private async flagExpired(row: ConnectionRow): Promise<void> {

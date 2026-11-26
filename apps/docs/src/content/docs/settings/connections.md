@@ -67,6 +67,10 @@ all other HTTP connections on **Custom API**, so each connection appears once. L
 **Connect LinkedIn** sign-in button beside the token option. X's page lists a connection created
 through the API for posting, but does not offer a connect form for it.
 
+## Facebook and Instagram publishing
+
+Posting to a Facebook Page or an Instagram business account uses its own **Facebook & Instagram** connection, separate from the Meta Custom API preset above, which only reads comments. **Connect** opens Meta's sign-in and its Page selection; the Pages you choose there, and the Instagram business account linked to each, are what a post can go out as. A post names the Page or Instagram account it goes out as, and nothing posts from an account that is not named. If Meta stops accepting the connection (a Page was removed or its access ended), the connection shows **Expired** and the person who connected it is told to reconnect. On a self-managed install the operator registers the Meta app first; see the [self-hosting guide](/self-hosting/configuration/).
+
 ## API tokens
 
 **Settings → API tokens** lists your personal tokens for this workspace, with **Create API token**.
