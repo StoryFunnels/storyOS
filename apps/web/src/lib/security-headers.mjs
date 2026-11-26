@@ -69,6 +69,21 @@ export function cspHeaderName(mode) {
 export const CSP_REPORT_PATH = '/csp-report';
 
 /**
+ * The CSP hash of the one `<style>` sheet sonner (the toast library) inserts when its module loads, before any component runs, so
+ * it cannot be given a nonce. It is the sha256 of that sheet's text, taken from the installed package; `security-headers.unit.test.ts`
+ * recomputes it from `node_modules/sonner`, so a sonner upgrade that changes the sheet fails that test instead of silently
+ * un-styling every toast.
+ */
+export const SONNER_STYLE_HASH = "'sha256-CIxDM5jnsGiKqXs2v7NKCY5MzdR9gu6TtiMJrDw29AY='";
+
+/**
+ * The CSP hash of an EMPTY `<style>` element (the sha256 of ''). Sonner appends its `<style>` to `<head>` first and fills it a moment
+ * later, and browsers check the element when it is inserted, so without this each page that loads sonner logs one violation for a
+ * sheet with nothing in it. An empty style element applies no rules, so allowing it widens nothing.
+ */
+export const EMPTY_STYLE_HASH = "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='";
+
+/**
  * The Content-Security-Policy for one response (ticket #1238; baseline from ticket #1042).
  *
  * - Scripts: `'self'` plus a per-request nonce and `'strict-dynamic'`. No `'unsafe-inline'` and no `'unsafe-eval'` (eval only in
@@ -76,11 +91,16 @@ export const CSP_REPORT_PATH = '/csp-report';
  *   by the static `headers()` in next.config. With `'strict-dynamic'` browsers ignore host allow-lists, so only nonce'd scripts
  *   (and what they load) run: an injected `<script>` or an `onclick=` attribute does not. Called with no nonce it falls back to
  *   `'unsafe-inline'`, which exists only so a caller that has no request (a bare unit test) still gets a well-formed policy.
- * - Styles stay `'self' 'unsafe-inline'`. Two things need it and neither can carry a nonce: React renders every `style={{…}}`
- *   prop as a style ATTRIBUTE, and the editor stack (ProseMirror, Mantine, sonner) creates `<style>` elements from script at
- *   runtime. Inline CSS cannot run script, which is what this policy exists to stop; tightening it (nonce Mantine and tiptap,
- *   hash sonner) is a separate, tracked job. NB a nonce or hash in a style directive makes browsers IGNORE `'unsafe-inline'`
- *   there, so none may be added to it without removing it.
+ * - Styles are split (ticket #1340). `style-src-elem` (`<style>` elements and stylesheets) is `'self'` plus the same per-request
+ *   nonce and no `'unsafe-inline'`, so an injected `<style>` block does not apply. The libraries that create `<style>` elements at
+ *   runtime are given the nonce (the editor's `injectNonce`); sonner injects its sheet at import time
+ *   and cannot take one, so that one fixed sheet is allowed by its hash (`SONNER_STYLE_HASH`, checked against the installed
+ *   package by a unit test), plus the hash of an empty element (`EMPTY_STYLE_HASH`) because it inserts the element before filling it.
+ *   `style-src-attr` (style ATTRIBUTES) stays `'unsafe-inline'` on its own: React renders every `style={{…}}` prop as an attribute and an attribute cannot carry a nonce. The base `style-src` is only the fallback for a
+ *   browser that predates the split directives; those browsers ignore it as soon as they know the split ones. Called with no
+ *   nonce, `style-src-elem` falls back to `'unsafe-inline'`, as the script directive does. NB a nonce or hash in a style
+ *   directive makes browsers IGNORE `'unsafe-inline'` in that same directive, so a directive is all-or-nothing: never add a nonce
+ *   to `style-src-attr`.
  * - `connect-src` adds the API origin (NEXT_PUBLIC_API_URL) and PostHog (NEXT_PUBLIC_POSTHOG_HOST) when set as absolute URLs; the
  *   default same-origin `/api` and `/ingest` paths are covered by `'self'`. BOTH are BUILD-time values (ticket #1343): Next
  *   inlines a `NEXT_PUBLIC_*` that is set at build into the proxy bundle as it does into the client bundle. Set them when the
@@ -100,10 +120,13 @@ export function contentSecurityPolicy(env, { embeddable, nonce, dev = false }) {
   const https = isHttps(env.webUrl);
   const n = nonce ? [`'nonce-${nonce}'`] : [];
   const script = ["'self'", ...n, ...(nonce ? ["'strict-dynamic'"] : ["'unsafe-inline'"]), ...(dev ? ["'unsafe-eval'"] : [])];
+  const styleElem = ["'self'", ...(nonce ? [...n, SONNER_STYLE_HASH, EMPTY_STYLE_HASH] : ["'unsafe-inline'"])];
   const directives = [
     "default-src 'self'",
     `script-src ${script.join(' ')}`,
     "style-src 'self' 'unsafe-inline'",
+    `style-src-elem ${styleElem.join(' ')}`,
+    "style-src-attr 'unsafe-inline'",
     `img-src 'self' data: blob: https:${https ? '' : ' http:'}`,
     "font-src 'self' data:",
     `connect-src ${[...new Set(connect)].join(' ')}`,
