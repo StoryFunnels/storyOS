@@ -10,6 +10,7 @@ export const REGISTRY_VERTICALS: Record<string, string> = {
   'agency-os': 'agency',
   'client-portal': 'agency',
   'consulting-os': 'agency',
+  'lead-follow-up': 'sales',
   'content-engine': 'marketing',
   'social-command-center': 'marketing',
   'dev-project-os': 'engineering',
@@ -19,6 +20,7 @@ export const REGISTRY_VERTICALS: Record<string, string> = {
   'team-board': 'ops',
   'book-launch': 'other',
   'team-wiki': 'other',
+  'shop-os': 'sales',
 };
 
 /** A pack not in the record (a community or future pack) is 'other' — the one place that fallback lives. */

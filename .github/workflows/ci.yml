@@ -98,6 +98,12 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # #1247 — type-checks test files (apps/api/test/**), which `typecheck` does
+      # not cover. Through turbo, so the `^build` dependency builds the workspace
+      # packages the tests import (@storyos/sdk, @storyos/schemas resolve to dist).
+      - name: Typecheck (tests)
+        run: pnpm typecheck:test
+
       - name: Docs links
         run: pnpm docs:check
 

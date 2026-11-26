@@ -54,6 +54,7 @@ import type { ChangeSource } from '../db/schema';
 import { isAgencySource } from './agency-source';
 import type { LabelledField } from '@storyos/schemas';
 import type { QueryRecordsInput } from '@storyos/schemas';
+import { readTriggerCondition, TRIGGER_CONDITION_MAX_CHARS } from '../agents/trigger-condition';
 import { compileFilter, cursorCondition, filterReferencedFields, optionRank, sortExpr } from './query-compiler';
 import type { CompilerContext, SortSpec } from './query-compiler';
 import { keyBetween, keysAfter, keysBetween } from './rank';
@@ -2377,12 +2378,18 @@ export class RecordsService implements OnModuleInit {
    * An anonymous write (`actorId` null: a public form submit, its inline create, a portal recipient's edit) gets
    * the error without it — otherwise any visitor read every member's name and email out of one bad submit, where
    * the form definition deliberately hands out id + name only.
+   *
+   * #1334 — the same holds for a caller with partial access: a guest, or a credential bound to specific spaces or
+   * databases (the access guard runs that as role 'guest', see WorkspaceAccessGuard). It is told the person was not
+   * found, without the list. The list stays for a full member (admin/member session, unbound token) and for internal
+   * writers that pass no membership. What a write ACCEPTS is unchanged for everyone.
    */
   private async resolveUserInputs(
     workspaceId: string,
     defs: FieldDef[],
     input: Record<string, unknown>,
     actorId: string | null,
+    membership?: Membership,
   ): Promise<Record<string, unknown>> {
     const userKeys = Object.keys(input).filter(
       (k) => defs.find((d) => d.api_name === k)?.type === 'user',
@@ -2413,9 +2420,10 @@ export class RecordsService implements OnModuleInit {
       const named = byName.get(value.toLowerCase()) ?? [];
       if (named.length === 1) return named[0]!.id;
 
-      // Name the candidates: the agent's next turn should be able to fix itself. Never to an anonymous caller (#1069).
-      const who =
-        actorId === null ? '' : ` Members: ${directory.map((u) => `${u.name} <${u.email}>`).join(', ')}`;
+      // Name the candidates: the agent's next turn should be able to fix itself. Only to a full member: never to an
+      // anonymous caller (#1069), a guest or a bound credential (#1334).
+      const listCandidates = actorId !== null && membership?.role !== 'guest';
+      const who = listCandidates ? ` Members: ${directory.map((u) => `${u.name} <${u.email}>`).join(', ')}` : '';
       throw new UnprocessableEntityException({
         message: 'Record values validation failed',
         details: [
@@ -2781,6 +2789,39 @@ export class RecordsService implements OnModuleInit {
     return last?.position ?? null;
   }
 
+  /**
+   * ticket #1333 — keeps only the view-derived defaults that the SAME checks a caller's own values go through would accept.
+   *
+   * A default the server filled in must never turn a create the caller could make into a failure: a filter can name a member who
+   * has since left, a record the caller cannot read, an option that was deleted, or a field marked unique. Each derived key is run
+   * through user resolution, the value validator and (for a relation) the link planner with the caller's access, and is simply
+   * dropped when any of them refuses it. The field then stays at its usual default and the match check reports it as unmet.
+   */
+  async creatableViewDefaults(
+    workspaceId: string,
+    databaseId: string,
+    defs: FieldDef[],
+    derived: Record<string, unknown>,
+    actorId: string | null,
+    membership?: Membership,
+  ): Promise<Record<string, unknown>> {
+    const kept: Record<string, unknown> = {};
+    for (const [apiName, value] of Object.entries(derived)) {
+      const def = defs.find((d) => d.api_name === apiName);
+      if (!def || (def.config as Record<string, unknown>)['unique']) continue; // a second "New" would 409 on a unique value
+      try {
+        const resolved = await this.resolveUserInputs(workspaceId, defs, { [apiName]: value }, actorId);
+        const checked = validateRecordValues(defs, resolved, { relations: 'collect' });
+        if (checked.issues.length > 0) continue;
+        if (checked.links) await this.planLinks(databaseId, defs, checked.links, membership);
+        kept[apiName] = value;
+      } catch {
+        // refused: leave this field to its usual default
+      }
+    }
+    return kept;
+  }
+
   async create(
     workspaceId: string,
     databaseId: string,
@@ -2880,6 +2921,9 @@ export class RecordsService implements OnModuleInit {
     source: ChangeSource = 'human',
     /** #1104 — see refuseIfAgentGated. */
     agentId?: string,
+    /** #1334 — the caller's effective membership, passed on to create() so an unresolvable person copied from the source
+     *  record is reported under the same candidate-list rule as a direct write. Omitted = an internal writer. */
+    membership?: Membership,
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'create', source, agentId, 'Duplicating a record');
     const src = await this.get(databaseId, recordId);
@@ -2904,7 +2948,7 @@ export class RecordsService implements OnModuleInit {
       const v = src.values[def.api_name];
       if (v !== undefined && v !== null) input[def.api_name] = v;
     }
-    const created = await this.create(workspaceId, databaseId, input, actorId, 0, source);
+    const created = await this.create(workspaceId, databaseId, input, actorId, 0, source, undefined, undefined, membership);
 
     // Copy links: single references (one_to_many side a) and many-to-many; skip owned collections.
     for (const def of defs.filter((d) => d.type === 'relation')) {
@@ -3140,24 +3184,66 @@ export class RecordsService implements OnModuleInit {
    * fixed system key 'agents' (#1063), never the name: a person's own database with a `tools` field is not touched by this.
    * `values` is absent for a restore, where the values come from an old version: for an agent source that is refused outright.
    */
-  private async assertAgentSettingsWritable(databaseId: string, keys: string[], source: ChangeSource, values?: Record<string, unknown>): Promise<void> {
+  private async assertAgentSettingsWritable(
+    databaseId: string,
+    keys: string[],
+    source: ChangeSource,
+    values?: Record<string, unknown>,
+    /** True for an update or a restore of a record that exists. See `scopeKeys` below: only then are target_databases and scopes guarded. */
+    existingRecord = false,
+  ): Promise<void> {
     // ticket #1138: the monthly budget is the same kind of setting. An agent that could raise its own budget would have no budget.
     const budgetKeys = BUDGET_FIELD_NAMES.filter((k) => keys.includes(k));
     // ticket #1195: the spaces an agent works in are the same kind of setting. An agent that could widen its own spaces would have no scope.
     // Only target_spaces: target_databases is the agent's brief and is written with source 'agent' by pack/architect builds, so guarding it
     // here refused every pack install that has an agent (the four test-api shard failures on PR #1442).
-    const scopeKeys = ['target_spaces'].filter((k) => keys.includes(k));
+    // ticket #1336: on an EXISTING agent record an agent may not rewrite target_databases or scopes either (an agent that can reach the Agents
+    // database could otherwise widen its own reach). A CREATE keeps target_databases open for a source 'agent' caller, because pack and architect
+    // builds create agents that way; the person-approved build is the only thing that mints an agent's scope, never an agent's own token write.
+    const scopeKeys = (existingRecord ? ['target_spaces', 'target_databases', 'scopes'] : ['target_spaces']).filter((k) => keys.includes(k));
+    // A write a PERSON just approved (the approvals executor's one-shot marker, set only after it re-validated the staged write, and approving is
+    // person-only, #859) is replayed with source 'agent' for provenance. It may carry target_databases/scopes: the rule is "an agent must not
+    // widen its own scope", not "no scope change ever happens through an agent-sourced write". Every other guarded key keeps refusing it.
+    const approvableKeys = ['target_databases', 'scopes'];
+    const approvedByPerson = existingRecord && isApprovedAgentWrite() && scopeKeys.every((k) => approvableKeys.includes(k)) && !keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0;
     if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0 && scopeKeys.length === 0) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
-    if (source === 'agent') {
-      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model, budget or target spaces: they are set by the person who manages the agent.');
+    if (source === 'agent' && !approvedByPerson) {
+      throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model, budget, scopes or target spaces and databases: they are set by the person who manages the agent.');
     }
     const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });
     if (problems.length > 0) throw new UnprocessableEntityException(problems.map((p) => p.message).join(' '));
     for (const k of budgetKeys) {
       const problem = budgetWriteProblem(values?.[k]);
       if (problem) throw new UnprocessableEntityException(problem);
+    }
+  }
+
+  /**
+   * ticket #1324 follow-up - a trigger's `condition` written through the records API (the edit a person makes on the Agent Triggers database)
+   * goes through the same gate as one created through `POST /agents/triggers`: it must be a valid filter, and it must COMPILE against the
+   * binding's database. A write that cannot is a 422 here, not a trigger that silently fails closed later. Identity is the is_system flag
+   * plus the fixed key 'agent_triggers' (#1063), never the name. Clearing it (empty) is allowed: that is removing the guard on purpose.
+   * `bindingDatabaseId` is the database the binding watches: the record's own `database` value, or the stored one on an update.
+   */
+  private async assertTriggerConditionWritable(databaseId: string, input: Record<string, unknown>, actorId: string | null, storedBindingDatabase?: () => Promise<string | undefined>): Promise<void> {
+    if (!('condition' in input)) return;
+    const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+    if (!db?.isSystem || db.systemKey !== 'agent_triggers') return;
+    const condition = readTriggerCondition(input['condition']);
+    if (condition.kind === 'none') return;
+    if (condition.kind === 'invalid') throw new UnprocessableEntityException(`The trigger's condition is not usable: ${condition.reason}.`);
+    if (typeof input['condition'] === 'string' && input['condition'].length > TRIGGER_CONDITION_MAX_CHARS) {
+      throw new UnprocessableEntityException(`The trigger's condition is longer than ${TRIGGER_CONDITION_MAX_CHARS} characters.`);
+    }
+    const bound = typeof input['database'] === 'string' ? (input['database'] as string) : await storedBindingDatabase?.();
+    if (!bound || !/^[0-9a-f-]{36}$/i.test(bound)) return; // nothing to compile against yet: the evaluator still fails closed
+    const defs = await this.fieldDefs(bound);
+    try {
+      compileFilter(condition.filter, { defs: new Map(defs.map((d) => [d.api_name, d])), currentUserId: actorId ?? '' });
+    } catch (error) {
+      throw new UnprocessableEntityException(`The trigger's condition cannot be used on that database: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -3189,6 +3275,7 @@ export class RecordsService implements OnModuleInit {
     for (const input of inputs) {
       await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
       await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+      await this.assertTriggerConditionWritable(databaseId, input, actorId);
     }
     const defs = await this.fieldDefs(databaseId);
     /*
@@ -3205,7 +3292,7 @@ export class RecordsService implements OnModuleInit {
     // MN-118: people resolve to real ids before validation, so a name can never be
     // stored verbatim and reported as success.
     const resolved = await Promise.all(
-      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input, actorId)),
+      withDefaults.map((input) => this.resolveUserInputs(workspaceId, defs, input, actorId, options.membership)),
     );
     const validated = resolved.map((input) => this.validateOrThrow(defs, input));
     // #1104 — a gated agent's create is staged, never written. After validation (an invalid write is a 422 now, not an
@@ -3537,12 +3624,16 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await assertDatabaseInWorkspace(this.db, workspaceId, databaseId); // #1029
     await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
-    await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+    await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input, true);
+    await this.assertTriggerConditionWritable(databaseId, input, actorId, async () => {
+      const stored = await this.get(databaseId, recordId).catch(() => null);
+      return typeof stored?.values['database'] === 'string' ? (stored.values['database'] as string) : undefined;
+    });
     const defs = await this.fieldDefs(databaseId);
     const row = await this.getRow(databaseId, recordId);
     const validated = this.validateOrThrow(
       defs,
-      await this.resolveUserInputs(workspaceId, defs, input, actorId),
+      await this.resolveUserInputs(workspaceId, defs, input, actorId, membership),
     );
     // #1104 — a gated agent's update is staged, never written (see holdIfAgentGated). The RAW patch is staged, so an
     // approval re-runs this whole path: validation, links, rules and history all apply at approval time as they would now.
@@ -4270,7 +4361,7 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'update', source, agentId, 'Restoring a version');
     // #1180: a restore writes old values by field id, so it cannot be key-checked; an agent restoring an agent record could re-set Tools/Model.
-    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools', ...BUDGET_FIELD_NAMES], source);
+    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools', 'target_databases', 'scopes', ...BUDGET_FIELD_NAMES], source, undefined, true);
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });
@@ -4715,7 +4806,7 @@ export class RecordsService implements OnModuleInit {
     const defs = await this.fieldDefs(databaseId);
     const validated = this.validateOrThrow(
       defs,
-      await this.resolveUserInputs(membership.workspaceId, defs, values, membership.userId),
+      await this.resolveUserInputs(membership.workspaceId, defs, values, membership.userId, membership),
     );
     if (validated.links) await this.planLinks(databaseId, defs, validated.links, membership);
   }

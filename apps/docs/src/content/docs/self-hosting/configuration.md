@@ -6,7 +6,8 @@ sidebar:
 ---
 
 StoryOS is configured with environment variables in a `.env` file next to `docker-compose.yml`
-(Compose reads it automatically). Only `BETTER_AUTH_SECRET` is required.
+(Compose reads it automatically). Two values are required, `BETTER_AUTH_SECRET` and
+`CONNECTIONS_MASTER_KEY`: `docker compose up` stops and names the one that is missing.
 
 :::caution
 Never commit your real `.env` — it holds secrets. The repo ships an `.env.example` to copy from.

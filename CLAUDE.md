@@ -269,7 +269,7 @@ Never claim an image was verified locally when it was not.
 Run the full local CI — CI failures after push waste a queue slot:
 
 ```sh
-pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:check \
+pnpm lint && pnpm typecheck && pnpm typecheck:test && pnpm test && pnpm build && pnpm docs:check \
   && pnpm install --frozen-lockfile
 ```
 

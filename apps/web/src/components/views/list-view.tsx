@@ -32,6 +32,7 @@ import { queryBodyFromConfig } from './use-view-state';
 import { useViewSearch } from './view-search';
 import { ViewQueryError } from './query-error';
 import { StateGlyph } from './state-glyph';
+import { newRecordHref } from '@/components/entity/new-record';
 
 /* #1115 — the row's fixed slots, shared by the header and every row so the columns line up:
    a trailing value that is a set of chips (labels, linked records) needs room for two or three,
@@ -205,7 +206,6 @@ export function ListView({
     const viaLink = groupField?.type === 'relation' && groupId !== NO_VALUE;
     createRecord.mutate(
       {
-        name: 'Untitled',
         ...(groupField && groupId !== NO_VALUE && !viaLink ? { [groupField.apiName]: groupId } : {}),
       },
       {
@@ -217,7 +217,7 @@ export function ListView({
             });
             if (error) toast.error(`Created, but could not set ${groupField.displayName}`);
           }
-          router.push(`/w/${ws}/d/${db}/r/${created.id}`);
+          router.push(newRecordHref(ws, db, created.id));
         },
       },
     );

@@ -1,4 +1,12 @@
 {
+  "shop-os": {
+    "why": "You sell products to customers and want every order, and whether it has been paid, in one place.",
+    "can": [
+      "See every order by status, from new to delivered",
+      "Spot the orders that have not been paid yet",
+      "Get a shipping or delivery message drafted for you to send yourself"
+    ]
+  },
   "agency-os": {
     "why": "You run client work and need to see every client, what you are doing for them, and what is slipping.",
     "can": [
@@ -101,6 +109,14 @@
       "Drop in a bug and it lands in Triage for someone to sort",
       "Put issues into projects and sprints, the way Linear does",
       "Ship a release, and its page becomes the changelog"
+    ]
+  },
+  "lead-follow-up": {
+    "why": "You have leads to follow up and want the right next message drafted for you to approve and send yourself.",
+    "can": [
+      "See every lead by stage and spot the ones going quiet",
+      "Get a draft of the next message, written from the lead’s own record and your Stage Guide",
+      "Approve the draft, then send it yourself from your own email or WhatsApp"
     ]
   }
 }

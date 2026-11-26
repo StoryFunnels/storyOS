@@ -2523,7 +2523,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRecordResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2531,7 +2538,7 @@
             "bearer": []
           }
         ],
-        "summary": "Create a record ({values} keyed by field api_name)",
+        "summary": "Create a record ({values} keyed by field api_name). Optional view_id: the view it is created from; the values that view's filter requires are filled in under yours and the response carries view_match",
         "tags": [
           "records"
         ]
@@ -10537,7 +10544,7 @@
             }
           }
         },
-        "summary": "Where this agent works, resolved NOW: its named databases plus every user database in its target spaces (a system database such as Members is covered only when named, never by its space; a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent targets a space: its credential is then bound to exactly this list.",
+        "summary": "Where this agent works, resolved NOW: its named databases plus every user database in its target spaces (a system database such as Members is covered only when named, never by its space; a database added to a target space later is included on the next call), narrowed to what its manager can open. A personal space is never included. `enforced` is true when the agent names a space or a database: its credential is then bound to exactly this list.",
         "tags": [
           "agents"
         ],
@@ -14114,8 +14121,87 @@
             "default": {},
             "type": "object",
             "additionalProperties": {}
+          },
+          "view_id": {
+            "description": "The view this record is created from. Fields the view filters on are pre-filled so the record lands inside the view (state: the first allowed state, in workflow order); explicit values always win. The response carries `view_match`.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         }
+      },
+      "CreateRecordResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "position": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "computed_values": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell \"computing\" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand."
+          },
+          "view_match": {
+            "type": "object",
+            "properties": {
+              "matches": {
+                "type": "boolean"
+              },
+              "unmet": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "api_names of the fields behind each filter condition the new record does not meet; empty when it matches"
+              }
+            },
+            "required": [
+              "matches",
+              "unmet"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "title",
+          "values",
+          "position",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "computed_values"
+        ]
       },
       "UpsertRecordDto": {
         "type": "object",
@@ -20887,6 +20973,90 @@
           "start_field_id"
         ]
       },
+      "CreateAgentTriggerDto__schema0": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "eq",
+                  "neq",
+                  "contains",
+                  "not_contains",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte",
+                  "before",
+                  "after",
+                  "within",
+                  "has",
+                  "has_none",
+                  "category_is",
+                  "category_is_not",
+                  "is_empty",
+                  "not_empty"
+                ]
+              },
+              "value": {},
+              "disabled": {
+                "type": "boolean"
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "icon": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "field",
+              "op"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "and": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateAgentTriggerDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "and"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "or": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CreateAgentTriggerDto__schema0"
+                }
+              }
+            },
+            "required": [
+              "or"
+            ]
+          }
+        ]
+      },
       "CreateAgentTriggerDto": {
         "type": "object",
         "properties": {
@@ -20919,6 +21089,9 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "condition": {
+            "$ref": "#/components/schemas/CreateAgentTriggerDto__schema0"
           }
         },
         "required": [
@@ -21147,6 +21320,9 @@
                     "human_gate": {
                       "type": "boolean"
                     },
+                    "condition": {
+                      "nullable": true
+                    },
                     "enabled": {
                       "type": "boolean"
                     }
@@ -21160,6 +21336,7 @@
                     "state_option",
                     "relation_field",
                     "human_gate",
+                    "condition",
                     "enabled"
                   ]
                 },

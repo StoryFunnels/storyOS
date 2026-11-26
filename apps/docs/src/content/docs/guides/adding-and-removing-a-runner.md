@@ -28,6 +28,11 @@ your workspace's data go.
 
 ## Add a Runner
 
+:::caution[Not on npm yet]
+The `@storyos/runner` package was not yet on the npm registry when this was written, so
+`npx @storyos/runner` cannot find it until it is published.
+:::
+
 On the screen, press **Add a Runner** (or **Add a Runner…** in an agent's **Runs on** menu, or on the
 hire card). It shows three steps: run `npx @storyos/runner` in Terminal on the computer where Claude
 Code is signed in; type the 6-character code when it asks (the code is shown as one block, with a **Copy** button next to it and next to the command); then, when the card says the computer is
@@ -102,6 +107,22 @@ These come from the `run_state` the API reports for each wake; see
 Through the API, `GET /api/v1/workspaces/{ws}/runners` lists your own Runners: status, whether it is connected, the
 tools it found, the chosen tool, versions, when it went offline and the agents on each. Removed
 Runners are not listed. The MCP tool `list_runners` returns the same, read only.
+
+Next to `data`, the answer carries counts of your own Runners, worked out on the server in one
+query:
+
+| Field | Counts |
+|---|---|
+| `total_count` | Your listed Runners: pending and active. |
+| `connected_count` | Active Runners heard from in the last two minutes. |
+| `offline_count` | Active Runners not heard from in that time. A pending Runner is in neither. |
+| `at_limit_count` | Active Runners whose tool's limit is still in force. A Runner can be at its limit and connected, or at its limit and offline. |
+| `needs_attention` | `true` when any Runner is offline or at its limit. |
+
+Each Runner also has `connected`, true by the same rule, so a row and the counts never disagree.
+A Runner at its limit or outside its working hours is still connected, because it still reports in.
+The counts cover your own Runners only, as the list does. This is the number a screen can show as
+"N connected"; the Settings screen does not show it yet.
 
 `PATCH /api/v1/workspaces/{ws}/runners/{id}` with `{ "tool": "..." }` changes which detected tool
 your agents use on that Runner. The same call takes `working_hours` and `reserve_percent`.

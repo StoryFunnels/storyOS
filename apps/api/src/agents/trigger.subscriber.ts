@@ -41,6 +41,9 @@ export class AgentTriggerSubscriber implements OnModuleInit {
   /** `${agentId}:${recordId}` → epoch ms until which that pair may not re-fire. */
   private readonly cooldowns = new Map<string, number>();
 
+  /** Bindings whose unreadable condition has already been logged: one warning per binding, not one per event. */
+  private readonly warnedInvalid = new Set<string>();
+
   /** Serializes handling per record, so runs for one record never interleave. */
   private readonly chains = new Map<string, Promise<void>>();
 
@@ -74,6 +77,48 @@ export class AgentTriggerSubscriber implements OnModuleInit {
   /** Test hook: awaits the record's chain so assertions see dispatch effects. */
   async settle(recordId: string): Promise<void> {
     await (this.chains.get(recordId) ?? Promise.resolve());
+  }
+
+  /**
+   * ticket #1324 follow-up - the binding's CONDITION, decided at wake time against the record as it is NOW. True = go on and wake.
+   * False = the record does not match, or the condition cannot be read or evaluated: the wake is NOT made (fail closed), and the skip is
+   * recorded as a finished wake so `list_agent_wakes` says so. An unreadable condition is logged once per binding.
+   *
+   * It runs only for a binding that would otherwise have woken the agent (after the state, gate, enabled and owner checks), so a skip
+   * is always "this one would have run".
+   */
+  private async conditionAllows(
+    event: DomainEvent,
+    binding: { id: string; values: Record<string, unknown> },
+    agentId: string,
+    reason: 'state_change' | 'assigned',
+  ): Promise<boolean> {
+    const condition = this.agents.triggerConditionOf(binding);
+    if (condition.kind === 'none') return true;
+    const verdict = await this.agents.conditionVerdict(event.databaseId, event.recordId, condition, event.actorId);
+    if (verdict.wake) return true;
+    if (verdict.code === 'condition_invalid' && !this.warnedInvalid.has(binding.id)) {
+      this.warnedInvalid.add(binding.id);
+      this.logger.warn(`agent trigger ${binding.id}: ${verdict.detail}: failing closed, waking nothing until it is fixed`);
+    }
+    try {
+      await this.agents.recordConditionSkip({
+        workspaceId: event.workspaceId,
+        agentId,
+        recordId: event.recordId,
+        databaseId: event.databaseId,
+        requestedBy: event.actorId,
+        depth: event.depth,
+        triggerId: binding.id,
+        code: verdict.code,
+        detail: verdict.detail,
+        reason,
+      });
+    } catch (error) {
+      // The skip stands even when it could not be written down; say so rather than let it vanish.
+      this.logger.warn(`agent trigger ${binding.id}: skipped (${verdict.code}) but the skip could not be recorded: ${String(error)}`);
+    }
+    return false;
   }
 
   /**
@@ -118,6 +163,7 @@ export class AgentTriggerSubscriber implements OnModuleInit {
         this.logger.warn(`agent ${agentRecord.id}: owner is not a member of this workspace — not dispatching`);
         continue;
       }
+      if (!(await this.conditionAllows(event, binding, agentRecord.id, 'assigned'))) continue;
       try {
         await this.agents.dispatchRun({
           workspaceId: event.workspaceId,
@@ -220,6 +266,10 @@ export class AgentTriggerSubscriber implements OnModuleInit {
         );
         continue;
       }
+
+      // ── The binding's own condition (ticket #1324 follow-up) ────────────────
+      // Before the cooldown is claimed, so a skipped record never burns the window.
+      if (!(await this.conditionAllows(event, binding, agentRecord.id, 'state_change'))) continue;
 
       // ── Loop guard (b): per-record, per-agent cooldown ──────────────────────
       // Claimed last, and only for a dispatch we are actually about to make, so

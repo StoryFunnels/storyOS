@@ -154,17 +154,17 @@ describe('the relation editor (PUT links) wakes an agent exactly once, and only 
     expect(await wakeRows(a)).toHaveLength(1);
   });
 
-  it('access: a guest who cannot see the Agents database wakes nothing; a guest who can see both wakes it, authored by them', async () => {
+  it('access: a guest never wakes an agent by linking it, even one holding a grant on the Agents database (a system database is closed to a guest, ticket #1331)', async () => {
+    // Until #1331 a guest with a viewer grant on Agents could link an agent and wake it, authored by them. A guest never reaches a system
+    // database whatever grant they hold, so that grant has no effect and the link is refused for both guests.
     const a = await mkAgent('Editor A7');
     const ticket = await mkTicket('Editor ticket 7');
     const denied = await put(guestPartial.token, ticket, [a]);
     expect(denied.statusCode, denied.body).not.toBe(200);
     expect(await wakeRows(a)).toHaveLength(0);
-    const allowed = await put(guestFull.token, ticket, [a]);
-    expect(allowed.statusCode, allowed.body).toBe(200);
-    const rows = await wakeRows(a);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].requested_by).toBe(guestFull.id);
+    const alsoDenied = await put(guestFull.token, ticket, [a]);
+    expect(alsoDenied.statusCode, alsoDenied.body).not.toBe(200);
+    expect(await wakeRows(a)).toHaveLength(0);
   });
 
   it('duplicating a record that has an agent linked is a pure link on the copy: it carries a direction, so the copy is woken once', async () => {

@@ -1845,7 +1845,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create record',
       description:
-        'Create a record. values are keyed by api_name (field names as listed by describe_database); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Returns the created record.',
+        'Create a record. values are keyed by api_name (field names as listed by describe_database); select/person values accept the human label, rich_text accepts Markdown, and relation fields accept an array of target record numbers or ids — linked in the same write, so no follow-up link_records. Fields marked read_only in describe_database cannot be written (on an agent run: pending_action, run_class, cost — the agent runtime owns them). Optional `view` (a view name or id of this database): create it as "New" on that view does, so the values the view\'s filter requires are filled in under yours (a state filter: the first allowed state, in workflow order; your own values always win) and the result carries `view_match` {matches, unmet}: when matches is false the record exists but that view does not show it, and unmet names the fields behind the conditions it does not meet. A view you cannot see is ignored, not an error. create_records (batch) takes no view. Returns the created record.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -1854,16 +1854,28 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(
             'Field values by api_name; "name" sets the title. A relation field takes an array of target record numbers or ids, e.g. { project: [12] } — created atomically with the record.',
           ),
+        view: z
+          .string()
+          .optional()
+          .describe(
+            'A view of this database (name or id) to create the record from, as the New button on that view does: its filter\'s required values are pre-filled under yours and the result reports view_match. Omit for a plain create.',
+          ),
       },
     },
-    handle<{ workspace: string; database: string; values: Record<string, unknown> }>(async ({ workspace, database, values }) => {
+    handle<{ workspace: string; database: string; values: Record<string, unknown>; view?: string }>(async ({ workspace, database, values, view }) => {
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const detail = await getDetail(ws.id, db.id);
-      const row = await unwrap<RecordRow>(
+      // ticket #1333 — a view named here is resolved against the views THIS caller is shown; an unknown one is an error the model can
+      // fix (the API itself treats an unreadable view as no context, so nothing about another member's view can be probed).
+      const viewId = view ? resolveView(detail, view).id : undefined;
+      const row = await unwrap<RecordRow & { view_match?: { matches: boolean; unmet: string[] } }>(
         client.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
           params: { path: { ws: ws.id, db: db.id } },
-          body: { values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>) } as never,
+          body: {
+            values: mapWriteValues(detail, parseStructuredParam(values, 'values') as Record<string, unknown>),
+            ...(viewId ? { view_id: viewId } : {}),
+          } as never,
         }),
       );
       const heldCreate = heldWrite(row);
@@ -1871,7 +1883,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       // Read back rather than echoing the write response — that is what carries the
       // relation chips, so a record created WITH links shows them (#343).
       const record = await readRecord(detail, ws.id, db.id, row.id);
-      const unset = unsetFields(detail, values);
+      // With a view, some fields were filled in by the view's filter: those are not "left empty".
+      const unset = unsetFields(detail, viewId ? { ...(row.values as Record<string, unknown>), ...values } : values);
+      const viewMatch = row.view_match;
       // A record with no title is a real outcome worth naming: it is unfindable by
       // search and reads as blank in every list. Silence here is what let #343
       // itself be filed nameless.
@@ -1883,10 +1897,13 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         unset.length
           ? `Left empty — if relevant to this record, fill them: ${unset.join(', ')}. Call describe_database to see each field.`
           : null,
+        viewMatch && !viewMatch.matches
+          ? `Created, but it does not match the view "${view}": the conditions on ${viewMatch.unmet.join(', ') || 'its filter'} are not met, so that view will not show it.`
+          : null,
       ].filter(Boolean);
       return text(
-        notes.length
-          ? { record, ...(unset.length ? { unset_fields: unset } : {}), note: notes.join(' ') }
+        notes.length || viewMatch
+          ? { record, ...(viewMatch ? { view_match: viewMatch } : {}), ...(unset.length ? { unset_fields: unset } : {}), ...(notes.length ? { note: notes.join(' ') } : {}) }
           : record,
       );
     }),
@@ -6659,7 +6676,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Where an agent works',
       description:
-        "Ticket #1195 — the databases an agent can work in, resolved NOW: the databases named in its `target_databases` plus every USER database in the spaces named in its `target_spaces` (a system database such as Members is never covered by a space, only by being named; a database added to a target space later is included on the next call, nothing is expanded at hire), narrowed to what the agent's manager can open. `databases[].via` says whether each came from a named database or a space. `enforced` is true when the agent targets at least one space: its Runner credential is then bound to exactly this set and a call outside it is refused (a database-only agent's `target_databases` stays its brief, not a boundary). A personal space is never included; entries that matched nothing (or a personal space) come back in `unresolved`, and `withheld_count` is how many databases the manager's access removed (their names are not listed).",
+        "Ticket #1195 — the databases an agent can work in, resolved NOW: the databases named in its `target_databases` plus every USER database in the spaces named in its `target_spaces` (a system database such as Members is never covered by a space and never matched by NAME, only by its id; a database added to a target space later is included on the next call, nothing is expanded at hire), narrowed to what the agent's manager can open. `databases[].via` says whether each came from a named database or a space. `enforced` is true when the agent names at least one space or database: its credential is then bound to exactly this set and a call outside it is refused (an agent that names nothing is not bound). A personal space is never included; a name resolves inside the agent's own target spaces first, then binds only when exactly one database carries it; entries that matched nothing, a personal space, or a name several databases carry come back in `unresolved` (name the one you mean by id), and `withheld_count` is how many databases the manager's access removed (their names are not listed).",
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
@@ -6679,7 +6696,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'What can start an agent',
       description:
-        "Everything that can start an agent, from one call (ticket #1289). `sources[]` holds four kinds: its agent triggers (`kind: agent_trigger`), every automation rule that has a run_agent action for it (`kind: automation`), every BUTTON field with a run_agent action for it (`kind: button`: `id` is the field's id, `name` its label, plus its `database`; pressing it starts the agent), and the BUILT-IN ways (`kind: built_in`, one entry per `reason`: mention, manual, approval_decided, must_comment, retry, catch_up) that apply to every agent with nothing to set up, so the list really is everything that can start it. The built-in entries are the same for every reader and come last. A trigger is a record entering a state, or a relation field linking to the agent: `binding` says which, `enabled` is its on/off (an installed trigger that is off is listed, not hidden), and `human_gate: true` means a person must start each run. A rule carries its `name`, `enabled`, its `database` and its `trigger`: record_created, record_updated (with the watched `field`, null = any), record_linked (with `relation_field` and `direction`) or schedule (with the cadence in `schedule`). Field, option and database labels come back by name; a deleted one has `name: null` (a deleted database `exists: false`) instead of an id standing in for a name. A source on a database the CALLER cannot open is counted in `withheld_count` and never named. A system database (such as Members) is named, but nothing inside it is described. A rule is named only for someone who may read that database's automations (the same check as list_automations, creator on it): anyone else gets the entry with `label: \"A rule in <database>\"` and `id`, `name`, `enabled` and `trigger` all null, so read `label` to display a rule. A button on a database the caller cannot open is counted in `withheld_count` like any other source; inside a system database its `name` is null. A rule's or button's condition, prompt and other actions are never part of this. A re-run of a rule's run_agent action is that rule firing again, not a separate source. Only the agent's manager (the person who owns its record) and workspace admins may read it: anyone else gets the same 'Agent not found' as for an agent that does not exist. It does not say whether a source would fire right now, or whether the agent itself is enabled.",
+        "Everything that can start an agent, from one call (ticket #1289). `sources[]` holds four kinds: its agent triggers (`kind: agent_trigger`), every automation rule that has a run_agent action for it (`kind: automation`), every BUTTON field with a run_agent action for it (`kind: button`: `id` is the field's id, `name` its label, plus its `database`; pressing it starts the agent), and the BUILT-IN ways (`kind: built_in`, one entry per `reason`: mention, manual, approval_decided, must_comment, retry, catch_up) that apply to every agent with nothing to set up, so the list really is everything that can start it. The built-in entries are the same for every reader and come last. A trigger is a record entering a state, or a relation field linking to the agent: `binding` says which, `enabled` is its on/off (an installed trigger that is off is listed, not hidden), `condition` is the record filter that must match for it to wake the agent (null = none; one that cannot be read comes back as stored and wakes nothing), and `human_gate: true` means a person must start each run. A rule carries its `name`, `enabled`, its `database` and its `trigger`: record_created, record_updated (with the watched `field`, null = any), record_linked (with `relation_field` and `direction`) or schedule (with the cadence in `schedule`). Field, option and database labels come back by name; a deleted one has `name: null` (a deleted database `exists: false`) instead of an id standing in for a name. A source on a database the CALLER cannot open is counted in `withheld_count` and never named. A system database (such as Members) is named, but nothing inside it is described. A rule is named only for someone who may read that database's automations (the same check as list_automations, creator on it): anyone else gets the entry with `label: \"A rule in <database>\"` and `id`, `name`, `enabled` and `trigger` all null, so read `label` to display a rule. A button on a database the caller cannot open is counted in `withheld_count` like any other source; inside a system database its `name` is null. A rule's or button's condition, prompt and other actions are never part of this. A re-run of a rule's run_agent action is that rule firing again, not a separate source. Only the agent's manager (the person who owns its record) and workspace admins may read it: anyone else gets the same 'Agent not found' as for an agent that does not exist. It does not say whether a source would fire right now, or whether the agent itself is enabled.",
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number (from get_agents/query_records)."),
@@ -6794,9 +6811,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create agent trigger',
       short:
-        "Fire an agent whenever a record reaches a given state (or, with relation_field instead of a state, whenever a record's relation field is linked to the agent). By default it starts the agent by itself, so it fits an agent meant to run on its own. A run is not held for approval as a whole: outward actions its writes set off (email, Slack, webhook, HTTP, social post) are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email. human_gate:true means it NEVER fires by itself (a person starts each run). The state field must be a select/workflow and the option one of its own (describe_database shows them). [Full notes: get_started section \"TOOL NOTES create_agent_trigger\"]",
+        "Fire an agent whenever a record reaches a given state (or, with relation_field instead of a state, whenever a record's relation field is linked to the agent). By default it starts the agent by itself, so it fits an agent meant to run on its own. A run is not held for approval as a whole: outward actions its writes set off (email, Slack, webhook, HTTP, social post) are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent's approval_policy lists email. human_gate:true means it NEVER fires by itself (a person starts each run). condition (a record filter) wakes it only for records that match, such as those whose Do Not Contact box is unchecked; a skipped wake is listed. The state field must be a select/workflow and the option one of its own (describe_database shows them). [Full notes: get_started section \"TOOL NOTES create_agent_trigger\"]",
       description:
-        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. By default the trigger starts the agent by itself the moment a record reaches the state, so only create one for an agent you want to run on its own (a run is not held for approval as a whole: outward automation actions its record writes set off — email, Slack, webhook, HTTP, social post — are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent\'s approval_policy lists email, and its deletes and own outward steps are held only when its approval_policy or an action gate says so). With human_gate:true the trigger NEVER fires by itself: it is \'ask me before each run\', a person has to start each run, and it is stored enabled but starts nothing on its own. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) A pack\'s own triggers are created for you by install_pack, switched OFF until a person turns one on in the install review. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
+        'Fire an agent whenever a record reaches a given state — e.g. run the triage agent when a lead moves to "New". Or, with relation_field instead of a state, whenever a record\'s relation field (like Next) is linked to the agent. By default the trigger starts the agent by itself the moment a record reaches the state, so only create one for an agent you want to run on its own (a run is not held for approval as a whole: outward automation actions its record writes set off — email, Slack, webhook, HTTP, social post — are staged for a person, with one exception: a send_email whose recipients (to and cc) are all active workspace members runs as configured unless the agent\'s approval_policy lists email, and its deletes and own outward steps are held only when its approval_policy or an action gate says so). With human_gate:true the trigger NEVER fires by itself: it is \'ask me before each run\', a person has to start each run, and it is stored enabled but starts nothing on its own. (To have an agent\'s WRITES held for approval while it still starts by itself, use an agent write gate, not human_gate.) A pack\'s own triggers are created for you by install_pack, switched OFF until a person turns one on in the install review. condition is an optional record filter (the query_records filter shape: field api_name, op, value; and/or groups) that must MATCH the record when it reaches the state, checked by the server at wake time: a record that does not match wakes nothing, and the skip is kept as a finished wake you can read in list_agent_wakes (status canceled, skipped.code condition_not_met). A condition that cannot be used on the database is refused when you create it; one that breaks later fails closed (condition_invalid: it wakes nothing). Example, never wake for a contact who opted out: {"field":"do_not_contact","op":"eq","value":false}. Read the database with describe_database first: the state field must be a select/workflow and the option must be one of its own.',
       inputSchema: {
         workspace: z.string(),
         agent: z.string().describe("The agent record's uuid or public number."),
@@ -6809,6 +6826,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .optional()
           .describe('true = "ask me before each run": this trigger never starts a run by itself; a person starts each run (ADR-0010). The default is false: the agent wakes by itself. Not the same as holding the agent\'s writes for approval.'),
         enabled: z.boolean().optional().describe('Default true.'),
+        condition: z.any().optional().describe('A record filter the record must match for the trigger to wake the agent (same filter AST as query_records, fields by api_name, e.g. {"field":"do_not_contact","op":"eq","value":false}). A record that does not match wakes nothing and the skip is listed in list_agent_wakes. Omit for no condition.'),
       },
     },
     handle<{
@@ -6820,17 +6838,19 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       relation_field?: string;
       human_gate?: boolean;
       enabled?: boolean;
-    }>(async ({ workspace, agent, database, state_field, state, relation_field, human_gate, enabled }) => {
+      condition?: unknown;
+    }>(async ({ workspace, agent, database, state_field, state, relation_field, human_gate, enabled, condition }) => {
       const ws = await resolveWorkspace(client, workspace);
       const db = await resolveDatabase(client, ws.id, database);
       const detail = await getDetail(ws.id, db.id);
+      const conditionBody = condition ? { condition: mapFilterValues(detail, condition as never) } : {};
       if (relation_field) {
         if (state_field || state) throw new Error('Give either relation_field (a relation binding) or state_field + state (a state binding), not both.');
         const relationId = resolveFieldId(detail, relation_field, ['relation'], 'relation');
         const bound = await unwrap<unknown>(
           client.POST('/api/v1/workspaces/{ws}/agents/triggers', {
             params: { path: { ws: ws.id } } as never,
-            body: { agent, database_id: db.id, relation_field_id: relationId, ...(enabled === undefined ? {} : { enabled }) } as never,
+            body: { agent, database_id: db.id, relation_field_id: relationId, ...(enabled === undefined ? {} : { enabled }), ...conditionBody } as never,
           }),
         );
         return text(bound);
@@ -6860,6 +6880,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             state_option_id: option.id,
             ...(human_gate === undefined ? {} : { human_gate }),
             ...(enabled === undefined ? {} : { enabled }),
+            ...conditionBody,
           } as never,
         }),
       );
@@ -8040,7 +8061,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         "The queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason), how many events merged into it (coalesced_count) and ONE derived run_state, computed by the server and not meant to be recomputed (needs_approval, running, done, failed, canceled, waiting_for_runner, runner_offline, waiting_for_limit, waiting_for_hours, waiting_for_reserve, waiting_for_budget, waiting_for_turn). Filter with agent and record. Only wakes whose record and agent you can read are listed. Waking, claiming and finishing a wake are not tools. [Full notes: get_started section \"TOOL NOTES list_agent_wakes\"]",
       description:
         "#1130: the queue behind agents that run on your own AI through a Runner: which agent was woken about which record, why (reason: state_change, assigned, mention, automation, manual, approval_decided), how many events merged into it (coalesced_count: five comments in a minute are ONE wake), and ONE derived run_state you should read and never recompute: needs_approval, running, done, failed, canceled, waiting_for_runner (no Runner assigned, or it is not turned on), runner_offline (since when), waiting_for_limit (until when, and which tool), waiting_for_hours (until the Runner's working hours open), waiting_for_reserve (the person's reserve, where the tool reports it), waiting_for_budget (the agent used its monthly token budget or run cap, ticket #1138: `until` is when the UTC month resets and `budget_metric` says tokens or runs; raising the budget resumes it sooner), waiting_for_turn (one job at a time). " +
-        "Newest first. Filter with agent (the Agents-database record's uuid) and record (a record uuid, or its number together with `database`). Only wakes whose record and agent YOU can read are listed; a hidden one is neither shown nor counted. The answer carries `visibility` (ticket #1228): 'full' means this is everything the queue holds; 'limited' means at least one wake (or the whole Agents database) is not yours to read, so an EMPTY or short list does not mean nothing woke the agent: say you cannot see all of it, never \"nothing has woken it\". It is a yes/no, never a count of what you cannot see. Use it to answer \"is the agent working on this?\" after setting an agent in a record's agent field or @-mentioning it. Waking, claiming and finishing a wake are not tools: they happen when something changes in the workspace, or are done by a Runner.",
+        "A wake a trigger's condition refused (ticket #1324 follow-up: e.g. the record is marked Do Not Contact) is listed too, as status canceled with `skipped` {code: condition_not_met or condition_invalid, message}: the record reached the state and the agent was NOT woken. Newest first. Filter with agent (the Agents-database record's uuid) and record (a record uuid, or its number together with `database`). Only wakes whose record and agent YOU can read are listed; a hidden one is neither shown nor counted. The answer carries `visibility` (ticket #1228): 'full' means this is everything the queue holds; 'limited' means at least one wake (or the whole Agents database) is not yours to read, so an EMPTY or short list does not mean nothing woke the agent: say you cannot see all of it, never \"nothing has woken it\". It is a yes/no, never a count of what you cannot see. Use it to answer \"is the agent working on this?\" after setting an agent in a record's agent field or @-mentioning it. Waking, claiming and finishing a wake are not tools: they happen when something changes in the workspace, or are done by a Runner.",
       inputSchema: {
         workspace: z.string(),
         agent: z.string().optional().describe("The agent record's uuid (from the Agents database)."),
