@@ -1,6 +1,12 @@
 import posthog from 'posthog-js';
+import { config as zodConfig } from 'zod';
 import { withSurface } from '@/lib/funnel';
 import { scrubTokensFromEvent } from '@/lib/invite-join';
+
+// Ticket #1238 — the enforced Content-Security-Policy has no 'unsafe-eval'. Zod 4 probes `new Function('')` to decide whether it may
+// compile fast-path parsers; under the policy the probe is caught and zod falls back, but the browser still logs a violation and
+// sends a report on every page load. `jitless` skips the probe (and the compiled path) outright.
+zodConfig({ jitless: true });
 
 const token = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
 const host = process.env.NEXT_PUBLIC_POSTHOG_HOST;

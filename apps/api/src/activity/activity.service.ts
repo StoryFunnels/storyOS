@@ -8,6 +8,7 @@ import { cursorTimestampSql, decodeKeysetCursor, encodeKeysetCursor, keysetBefor
 import { extractText } from '../documents/documents.service';
 import { AccessService } from '../access/access.service';
 import { RecordsService } from '../records/records.service';
+import { redactRunnerInText } from '../runners/runner-identity';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import type { BlockChange } from '@storyos/schemas/block-diff';
 
@@ -152,6 +153,9 @@ export class ActivityService {
     // of a past title was never stored); the stored rows are NOT rewritten. A relation event's frozen `other.title` is
     // swapped for that record's live local title when ITS database is narrowed for the caller.
     const redactTitles = await this.recordsService.titleHistoryRedacted(membership, databaseId);
+    // ticket #1227 — a change to the Runner's machine or tool is not in a guest's feed, and the Steps lines that name them are redacted.
+    const identity = await this.recordsService.runnerIdentityGuard(membership, databaseId);
+    const hiddenFieldIds = new Set(identity.hidden.map((d) => d.id));
     const others: Array<{ id: string; title: string }> = [];
     const safePayload = (event: (typeof page)[number]): Record<string, unknown> => {
       const original = event.payload as Record<string, unknown>;
@@ -161,6 +165,14 @@ export class ActivityService {
         if (typeof payload.title === 'string') payload.title = '—';
         const diff = payload.diff as Record<string, { from: unknown; to: unknown }> | undefined;
         if (diff?.title) diff.title = { from: '—', to: '—' };
+      }
+      if (hiddenFieldIds.size > 0) {
+        const diff = payload.diff as Record<string, { from: unknown; to: unknown; blocks?: unknown }> | undefined;
+        if (diff) {
+          for (const id of hiddenFieldIds) delete diff[id];
+          const steps = identity.steps ? diff[identity.steps.id] : undefined;
+          if (steps) diff[identity.steps!.id] = redactRunnerInText(steps, null, null) as typeof steps;
+        }
       }
       const other = payload.other as { id?: string; title?: string } | undefined;
       if (other && typeof other.id === 'string' && typeof other.title === 'string') others.push(other as { id: string; title: string });

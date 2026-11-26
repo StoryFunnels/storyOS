@@ -80,7 +80,7 @@ export class CommentsController {
     @Param('rec') recordId: string,
   ) {
     await this.assertRecord(req, databaseId, recordId);
-    return this.commentsService.list(recordId);
+    return this.commentsService.list(recordId, undefined, req.membership);
   }
 
   @Post()
