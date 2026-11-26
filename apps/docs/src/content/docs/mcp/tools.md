@@ -49,7 +49,7 @@ Each write returns the resulting record; each `422` is surfaced verbatim.
 
 | Tool | What it does |
 |---|---|
-| `create_record` | Create a record; `values` by `api_name`, selects accept the **label**. |
+| `create_record` | Create a record; `values` by `api_name`, selects accept the **label**. An optional `view` (a view's name or id in this database) creates it as **New** on that view does, and the result carries `view_match` `{ matches, unmet }`; see [creating a record from a view](/api/conventions/#creating-a-record-from-a-view). `create_records` takes no `view`. |
 | `upsert_record` | Match-or-create on a [unique field](/concepts/databases-and-fields/#preventing-duplicate-values) — a matching value updates that record, no match creates one. Returns `{ record, created }` so a caller can tell which branch it took; idempotent on repeat. An [automation rule's own "Create a record" action](/concepts/automations/#creating-or-upserting-a-record) can do the same thing via `upsert`. |
 | `update_record` | Merge-update (null clears); record by uuid or public number. |
 | `delete_record` | Trash a record (restorable 30 days). |

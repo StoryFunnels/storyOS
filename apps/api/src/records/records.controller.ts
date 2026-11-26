@@ -6,6 +6,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -312,6 +313,12 @@ export class RecordsController {
         req.auth?.agentId,
         'A bulk update job',
       );
+    }
+    // ticket #1352 — the worker writes later and every record it refuses would come back as one failure line inside a job that "succeeded":
+    // an agent credential changing an agent's settings is refused here, the way the same patch is refused as a PATCH.
+    if (body.op === 'update' && body.values) {
+      const refusal = await this.recordsService.agentUpdateRefusal(databaseId, Object.keys(body.values), req.auth?.source ?? 'human');
+      if (refusal) throw new ForbiddenException(refusal);
     }
     // #1070 — the worker writes later, without the caller; check link targets now.
     if (body.op === 'update' && body.values) {

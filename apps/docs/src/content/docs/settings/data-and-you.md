@@ -31,7 +31,9 @@ may not read shows as "a record". A deleted record says "(in Trash)". Press the 
 to take its record ID for the filter. If the log cannot load, the page says so and offers **Try again**.
 The filters are under **Filter**, a closed section that says how many are applied: an actor, a type,
 a record or object ID, and a From and To date (typed as `2026-10-27`, `jul 15` or `yesterday`). See
-[record history](/concepts/record-history/) for what the log records.
+[record history](/concepts/record-history/) for what the log records. The log shows only what your
+plan keeps: record events older than 7 days on Free, 30 on Pro and Business, 90 on Enterprise are
+deleted ([how long it keeps events](/concepts/record-history/#how-long-the-audit-log-keeps-record-events)).
 
 ## You
 
