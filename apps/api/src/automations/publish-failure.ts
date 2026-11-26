@@ -1,4 +1,32 @@
-import type { PublishFailureCode } from './post-social.action';
+import { ProviderError } from '../common/provider-error';
+
+/**
+ * Ticket #42/#51 — every reason a post_social job can end up failed, as a stable code. The job's `last_error` stores
+ * `[code] a sentence we wrote`; this file is where the codes live so the executors (LinkedIn/X in post-social.action.ts,
+ * Meta in post-social-meta.ts) and the publish-state read share one list.
+ */
+export type PublishFailureCode =
+  | 'no_account'
+  | 'account_mismatch'
+  | 'already_posted'
+  | 'too_long'
+  | 'no_token'
+  | 'wrong_connection'
+  | 'auth_refused'
+  | 'forbidden'
+  | 'not_found'
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'rejected'
+  | 'bad_response'
+  // Ticket #51
+  | 'reconnect_required'
+  | 'media_required'
+  | 'media_unsupported';
+
+export function publishFailure(code: PublishFailureCode, message: string, retryable: boolean): ProviderError {
+  return new ProviderError(`[${code}] ${message}`, { retryable });
+}
 
 export interface PublishFailure {
   code: PublishFailureCode | 'connection_removed' | 'unknown';
@@ -8,6 +36,7 @@ export interface PublishFailure {
 const KNOWN_CODES = new Set<string>([
   'no_account', 'account_mismatch', 'already_posted', 'too_long', 'no_token', 'wrong_connection', 'auth_refused', 'forbidden',
   'not_found', 'rate_limited', 'provider_unavailable', 'rejected', 'bad_response',
+  'reconnect_required', 'media_required', 'media_unsupported',
 ]);
 
 /**

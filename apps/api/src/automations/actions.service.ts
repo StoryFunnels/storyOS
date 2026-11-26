@@ -7,7 +7,6 @@ import type { AutomationAction, FormulaFieldInfo } from '@storyos/schemas';
 import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { env } from '../config/env';
 import { agentOriginHoldsAction, classRulesFor } from '../action-gates/action-classes';
 import { loadAgentApprovalPolicy } from '../agents/agent-approval-policy';
 import type { EventOrigin } from '../common/credential-context';
@@ -27,7 +26,9 @@ import { stringHeadersOnly } from '../common/webhook-headers';
 import { getJsonPath } from '../common/json-path';
 import { JobRunnerService, buildIdempotencyKey } from './job-runner.service';
 import { ApprovalsService } from './approvals.service';
-import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN } from './post-social.action';
+import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN, namesAccount, SOCIAL_TARGETS, targetEnabled } from './social-targets';
+import { AttachPdfActionService } from './attach-pdf.action';
+import { DEFAULT_FILENAME_TEMPLATE, withDateToken } from './attach-pdf-model';
 import { isRichTextBlocks, richTextBlocksToPlain } from '../common/rich-text-plain';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
@@ -206,6 +207,7 @@ export class AutomationActionsService implements OnModuleInit {
     private readonly webhooksService: WebhooksService,
     private readonly jobs: JobRunnerService,
     private readonly approvals: ApprovalsService,
+    private readonly attachPdf: AttachPdfActionService,
   ) {}
 
   /**
@@ -260,6 +262,11 @@ export class AutomationActionsService implements OnModuleInit {
     if (!target) return null;
     const chips = (record.values[target.field.apiName] as Array<{ id: string }> | undefined) ?? [];
     return { targetDbId: target.targetDbId, linkedIds: chips.map((c) => c.id) };
+  }
+
+  /** Ticket #877: refuse to switch ON a rule that makes PDFs while the renderer is unusable. See AttachPdfActionService. */
+  assertRendererForEnabled(actions: ReadonlyArray<{ type?: unknown }>): Promise<void> {
+    return this.attachPdf.assertRendererForEnabled(actions);
   }
 
   /**
@@ -503,26 +510,21 @@ export class AutomationActionsService implements OnModuleInit {
         if (!connection) {
           throw new UnprocessableEntityException('post_social references an unknown connection');
         }
-        const expectedProvider = action.target === 'x' ? 'x' : 'linkedin';
+        const expectedProvider = SOCIAL_TARGETS[action.target].provider;
         if (connection.provider !== expectedProvider) {
           throw new UnprocessableEntityException(
             `post_social's connection must be a '${expectedProvider}' connection for target "${action.target}" (got "${connection.provider}")`,
           );
         }
-        // Ticket #42 — LinkedIn needs its own app-review clearance (restricted
-        // w_organization_social/r_organization_social scopes) before a
-        // linkedin_org/linkedin_member post_social can actually run; reuses
-        // MN-261's LINKEDIN_ACTIONS_ENABLED kill-switch (env.ts) rather than a
-        // second flag. `x` carries no such gate — it is bring-your-own-tier
+        // Ticket #42/#51 — each network needs its own app-review clearance before a post can actually run, so each has
+        // its own deployment kill-switch (LINKEDIN_ACTIONS_ENABLED, META_ACTIONS_ENABLED); `x` is bring-your-own-tier
         // and always available once connected.
-        if (action.target !== 'x' && !env().LINKEDIN_ACTIONS_ENABLED) {
-          throw new UnprocessableEntityException(
-            'LinkedIn post_social actions are not enabled on this deployment — the LinkedIn provider is not enabled yet.',
-          );
+        if (!targetEnabled(action.target)) {
+          throw new UnprocessableEntityException(SOCIAL_TARGETS[action.target].gateMessage);
         }
-        // Ticket #42 — NOTHING POSTS FROM AN UNNAMED ACCOUNT. A company-page post must say which page (chosen from
-        // GET /connections/{id}/social-accounts); there is no default to guess, and the executor used to publish a
-        // "page" post from the member's own profile. A member post may pin the member; X has no sub-account to name.
+        // Ticket #42/#51 — NOTHING POSTS FROM AN UNNAMED ACCOUNT. A company page, a Facebook Page and an Instagram
+        // business account must say which one (chosen from GET /connections/{id}/social-accounts); there is no default
+        // to guess. A member post may pin the member; X has no sub-account to name.
         if (action.target === 'linkedin_org' && !(action.account_id && LINKEDIN_ORG_URN.test(action.account_id))) {
           throw new UnprocessableEntityException(
             "post_social to a LinkedIn page must name the page: set account_id to the organization URN (urn:li:organization:<id>) from the connection's social accounts",
@@ -533,6 +535,17 @@ export class AutomationActionsService implements OnModuleInit {
         }
         if (action.target === 'x' && action.account_id) {
           throw new UnprocessableEntityException('post_social to X goes out as the connected X account; account_id is not used for x');
+        }
+        if ((action.target === 'facebook_page' || action.target === 'instagram_business') && !namesAccount(action)) {
+          throw new UnprocessableEntityException(
+            action.target === 'facebook_page'
+              ? "post_social to a Facebook Page must name the Page: set account_id to the Page's numeric id from the connection's social accounts"
+              : "post_social to Instagram must name the account: set account_id to the Instagram business account's numeric id from the connection's social accounts",
+          );
+        }
+        // Instagram has no text-only post: say so when the rule is saved, not when the first post fails.
+        if (action.target === 'instagram_business' && !action.media_field_id) {
+          throw new UnprocessableEntityException('post_social to Instagram needs an image: set media_field_id to an attachment field holding a JPEG');
         }
         if (action.media_field_id) {
           const mediaField = live.find((f) => f.id === action.media_field_id);
@@ -546,6 +559,10 @@ export class AutomationActionsService implements OnModuleInit {
             throw new UnprocessableEntityException('post_social result_field_id must be a field on this database');
           }
         }
+      }
+
+      if (action.type === 'attach_pdf') {
+        await this.attachPdf.validate(workspaceId, databaseId, action);
       }
 
       // #781 — a class's save-time rule, declared once in action-classes.ts rather than
@@ -955,6 +972,10 @@ export class AutomationActionsService implements OnModuleInit {
         const snapshot = { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) };
         return { snapshot, previewText: `${action.method} ${snapshot.url}` };
       }
+      case 'attach_pdf':
+        // Ticket #877 — validate() refuses require_approval on it, so this is never reached by a saved rule; present only so the
+        // switch stays exhaustive and a hand-built action cannot fall through to an undefined snapshot.
+        return { snapshot: action, previewText: 'Attach a PDF' };
       case 'post_social': {
         // Ticket #42 — rendered here (once) the same way send_email's body is,
         // whether or not this ends up gated; the executor (post-social.action
@@ -1474,6 +1495,16 @@ export class AutomationActionsService implements OnModuleInit {
             summary: `Slack message failed: ${err instanceof Error ? err.message : 'unknown error'}`,
           });
         }
+      } else if (action.type === 'attach_pdf') {
+        // Ticket #877 — INLINE, and a failure THROWS: the run fails and the actions after this one do not run, so an email that
+        // was meant to carry the PDF is never sent without it. validate() already kept this off a rule with no triggering record.
+        const template = withDateToken(action.filename_template ?? DEFAULT_FILENAME_TEMPLATE);
+        const effect = await this.attachPdf.run(
+          action,
+          { workspaceId: ctx.workspaceId, databaseId: ctx.databaseId, record: ctx.record!, actorId: ctx.actorId, source: ctx.source ?? 'automation', depth: ctx.depth ?? 0 },
+          this.interpolate(template, ctx, displayToApi),
+        );
+        effects.push(effect);
       }
     }
     return effects;

@@ -4053,6 +4053,30 @@
         ]
       }
     },
+    "/api/v1/attachments/signed/{id}": {
+      "get": {
+        "operationId": "SignedAttachmentController_read",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read one attachment image through a signed, expiring URL (used to hand an image to a network that publishes by fetching it)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/relations": {
       "post": {
         "operationId": "RelationsController_create",
@@ -16507,7 +16531,9 @@
                       "enum": [
                         "linkedin_org",
                         "linkedin_member",
-                        "x"
+                        "x",
+                        "facebook_page",
+                        "instagram_business"
                       ]
                     },
                     "text": {
@@ -16540,6 +16566,82 @@
                     "connection_id",
                     "target",
                     "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "attach_pdf"
+                      ]
+                    },
+                    "source": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "record"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "linked_record"
+                              ]
+                            },
+                            "relation_field_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "relation_field_id"
+                          ]
+                        }
+                      ]
+                    },
+                    "target_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "filename_template": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "if_exists": {
+                      "type": "string",
+                      "enum": [
+                        "skip",
+                        "replace",
+                        "add"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "source",
+                    "target_field_id"
                   ]
                 }
               ]
@@ -17270,7 +17372,9 @@
                       "enum": [
                         "linkedin_org",
                         "linkedin_member",
-                        "x"
+                        "x",
+                        "facebook_page",
+                        "instagram_business"
                       ]
                     },
                     "text": {
@@ -17303,6 +17407,82 @@
                     "connection_id",
                     "target",
                     "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "attach_pdf"
+                      ]
+                    },
+                    "source": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "record"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "linked_record"
+                              ]
+                            },
+                            "relation_field_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "relation_field_id"
+                          ]
+                        }
+                      ]
+                    },
+                    "target_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "filename_template": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "if_exists": {
+                      "type": "string",
+                      "enum": [
+                        "skip",
+                        "replace",
+                        "add"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "source",
+                    "target_field_id"
                   ]
                 }
               ]

@@ -227,6 +227,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'POST /workspaces/:ws/files/:id/download-url': { verdict: 'internal', why: 'mints a signed, expiring URL for the caller; it leaves StoryOS only if another outward route carries it' },
   'GET /files/:id': { verdict: 'public', why: 'capability-URL file serve (read)' },
   'GET /files/:id/download': { verdict: 'public', why: 'signed download URL (read)' },
+  'GET /attachments/signed/:id': { verdict: 'public', why: 'signed, expiring attachment image read (the URL is minted server-side and only leaves StoryOS inside a publish to a network that fetches images)' },
   'GET /workspaces/:ws/search': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/my-work': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/recent': { verdict: 'internal', why: 'read: returns data to the caller only' },

@@ -39,6 +39,15 @@ export interface PdfExportStatus {
   checked_at: string | null;
 }
 
+/**
+ * Ticket #877 — a caller that renders on behalf of a rule instead of a person. `key` is the unit that is bounded (the
+ * workspace), `limit` how many of its renders may be running or waiting at once.
+ */
+export interface PdfQueue {
+  key: string;
+  limit: number;
+}
+
 const PROBE_TIMEOUT_MS = 2000;
 const DEFAULT_STATUS_TTL_MS = 15_000;
 
@@ -57,6 +66,8 @@ export class PdfRenderer {
   /** The tail of the render chain: each render starts when the previous settles. */
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
+  /** #877: renders waiting or running per queue key (a workspace id), for the automation path only. */
+  private readonly pendingByKey = new Map<string, number>();
   private probed: { status: PdfExportStatus; at: number } | undefined;
   private probing: Promise<PdfExportStatus> | undefined;
 
@@ -113,7 +124,7 @@ export class PdfRenderer {
    * tabs. Past `maxPending` the request is refused with a Retry-After instead of
    * queuing without bound.
    */
-  async render(html: string): Promise<Buffer> {
+  async render(html: string, queue?: PdfQueue): Promise<Buffer> {
     if (!this.options.url) {
       throw codedException(
         503,
@@ -121,7 +132,21 @@ export class PdfRenderer {
         'PDF export is not configured on this server. An operator must run the PDF renderer and set PDF_RENDERER_URL.',
       );
     }
-    if (this.pending >= this.options.maxPending) {
+    if (queue) {
+      // Ticket #877 — an automation's renders queue PER WORKSPACE (a bulk update may raise hundreds), bounded by `limit`
+      // instead of the interactive `maxPending`, and past it the render is REFUSED with a coded error rather than left to
+      // time out. They still count toward `pending`, so a person asking for a PDF while the queue is deep is told "busy".
+      const waiting = this.pendingByKey.get(queue.key) ?? 0;
+      if (waiting >= queue.limit) {
+        throw codedException(
+          503,
+          'pdf_queue_full',
+          `Too many PDFs are waiting (${queue.limit}); this one was not made.`,
+          { limit: queue.limit },
+        );
+      }
+      this.pendingByKey.set(queue.key, waiting + 1);
+    } else if (this.pending >= this.options.maxPending) {
       throw codedException(503, 'pdf_export_busy', 'PDF export is busy; try again in a few seconds.', {
         retry_after_seconds: 10,
       });
@@ -136,6 +161,11 @@ export class PdfRenderer {
       return await run;
     } finally {
       this.pending -= 1;
+      if (queue) {
+        const left = (this.pendingByKey.get(queue.key) ?? 1) - 1;
+        if (left <= 0) this.pendingByKey.delete(queue.key);
+        else this.pendingByKey.set(queue.key, left);
+      }
     }
   }
 

@@ -1,4 +1,4 @@
-import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -317,6 +317,19 @@ export class ImportService {
     const onNoMatch = upsert?.on_no_match ?? 'create';
 
     /**
+     * ticket #1352 — an UPDATE through an import is the same write as a PATCH, so it is refused the same way when an agent credential is
+     * behind it and the columns touch an agent's settings (scopes, tools, model, budget, target databases/spaces). Asked once up front: the
+     * guard keys on field names and the credential, not on the row. The dry run reports it per row; the commit refuses before it writes
+     * anything (a refusal part-way would leave earlier rows updated, and updates are not compensated).
+     */
+    const mappedApiNames = mapping.flatMap((m) => {
+      const fieldId = m.to.kind === 'existing' || m.to.kind === 'relation' ? m.to.field_id : undefined;
+      const f = fieldId ? fieldById.get(fieldId) : undefined;
+      return f ? [f.apiName] : [];
+    });
+    const updateRefusal = upsert && onMatch === 'update' && mappedApiNames.length > 0 ? await this.records.agentUpdateRefusal(databaseId, mappedApiNames) : null;
+
+    /**
      * Which existing record this row is, if any. `undefined` = no match,
      * `null` = the key is duplicated and must not be guessed at.
      */
@@ -335,6 +348,7 @@ export class ImportService {
       let unmatchedCells = 0;
       let updated = 0;
       let skipped = 0;
+      let refused = 0;
       // Relations this import would CREATE — previously impossible, so the
       // preview never had to mention them.
       const newRelations = [...relationPlans.entries()]
@@ -360,8 +374,14 @@ export class ImportService {
         }
         if (match) {
           if (onMatch === 'skip') { skipped++; return; }
-          if (onMatch === 'update') updated++;
-          else report.willCreate++;
+          if (onMatch === 'update') {
+            if (updateRefusal) {
+              report.addWarning({ row: rowIndex + 2, column: '', message: `refused: ${updateRefusal}` });
+              refused++;
+              return;
+            }
+            updated++;
+          } else report.willCreate++;
         } else if (upsert && onNoMatch === 'skip') {
           skipped++;
           return;
@@ -449,6 +469,8 @@ export class ImportService {
         // #378 — the three numbers a key-matched import turns on.
         will_update: updated,
         will_skip: skipped,
+        // ticket #1352 — rows an update would have changed that the credential behind this import may not change.
+        will_refuse: refused,
       };
     }
 
@@ -465,6 +487,8 @@ export class ImportService {
         .split(/[,;]/)
         .map((part) => part.trim())
         .filter(Boolean);
+
+    if (updateRefusal && rows.some((r) => typeof matchFor(r) === 'string')) throw new ForbiddenException(updateRefusal);
 
     // Commit: create new fields, then records in chunks, then links.
     const warnings: Warning[] = [];

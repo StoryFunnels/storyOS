@@ -1649,6 +1649,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/attachments/signed/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one attachment image through a signed, expiring URL (used to hand an image to a network that publishes by fetching it) */
+        get: operations["SignedAttachmentController_read"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/relations": {
         parameters: {
             query?: never;
@@ -6286,7 +6303,7 @@ export interface components {
                 /** Format: uuid */
                 connection_id: string;
                 /** @enum {string} */
-                target: "linkedin_org" | "linkedin_member" | "x";
+                target: "linkedin_org" | "linkedin_member" | "x" | "facebook_page" | "instagram_business";
                 text: string;
                 /** Format: uuid */
                 media_field_id?: string;
@@ -6294,6 +6311,25 @@ export interface components {
                 /** Format: uuid */
                 result_field_id?: string;
                 account_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "attach_pdf";
+                source: {
+                    /** @enum {string} */
+                    kind: "record";
+                } | {
+                    /** @enum {string} */
+                    kind: "linked_record";
+                    /** Format: uuid */
+                    relation_field_id: string;
+                };
+                /** Format: uuid */
+                target_field_id: string;
+                filename_template?: string;
+                /** @enum {string} */
+                if_exists?: "skip" | "replace" | "add";
             })[];
             /** @default true */
             enabled: boolean;
@@ -6488,7 +6524,7 @@ export interface components {
                 /** Format: uuid */
                 connection_id: string;
                 /** @enum {string} */
-                target: "linkedin_org" | "linkedin_member" | "x";
+                target: "linkedin_org" | "linkedin_member" | "x" | "facebook_page" | "instagram_business";
                 text: string;
                 /** Format: uuid */
                 media_field_id?: string;
@@ -6496,6 +6532,25 @@ export interface components {
                 /** Format: uuid */
                 result_field_id?: string;
                 account_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "attach_pdf";
+                source: {
+                    /** @enum {string} */
+                    kind: "record";
+                } | {
+                    /** @enum {string} */
+                    kind: "linked_record";
+                    /** Format: uuid */
+                    relation_field_id: string;
+                };
+                /** Format: uuid */
+                target_field_id: string;
+                filename_template?: string;
+                /** @enum {string} */
+                if_exists?: "skip" | "replace" | "add";
             })[];
             enabled?: boolean;
             approverId?: string | null;
@@ -10506,6 +10561,25 @@ export interface operations {
                 db: string;
                 rec: string;
                 att: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SignedAttachmentController_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
             };
             cookie?: never;
         };

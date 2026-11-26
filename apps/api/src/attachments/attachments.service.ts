@@ -1,7 +1,9 @@
 import {
+  GoneException,
   Inject,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -16,6 +18,7 @@ import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { DomainEventsService } from '../events/domain-events.service';
 import { getStorage } from './storage';
+import { verifyAttachmentSignature } from './signed-attachment';
 import { guardedFetch, SsrfBlockedError } from '../common/net-guard';
 
 const THUMB_WIDTH = 320;
@@ -42,6 +45,27 @@ export class AttachmentsService implements OnModuleInit {
     /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's attachment delete. */
     private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  /**
+   * Ticket #51 — the signed-URL read (`GET /attachments/signed/:id?expires&sig`). The signature proves the URL was minted
+   * by this server for THIS attachment and has not expired; nothing else is trusted. A missing attachment and a trashed
+   * record's attachment are the same 404, so the URL never confirms what it no longer serves.
+   */
+  async streamForSignedUrl(id: string, expiresRaw: string | undefined, sig: string | undefined) {
+    if (!expiresRaw || !sig || !verifyAttachmentSignature(id, expiresRaw, sig)) {
+      throw new UnauthorizedException('Invalid or missing signature');
+    }
+    const expires = Number(expiresRaw);
+    if (!Number.isFinite(expires) || expires < Date.now() / 1000) throw new GoneException('This link has expired');
+    const [row] = await this.db
+      .select({ storageKey: attachments.storageKey, mime: attachments.mime })
+      .from(attachments)
+      .innerJoin(records, eq(records.id, attachments.recordId))
+      .where(and(eq(attachments.id, id), isNull(records.deletedAt)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Not found');
+    return { stream: await getStorage().getStream(row.storageKey), mime: row.mime };
+  }
 
   onModuleInit(): void {
     // #1178 — an approved attachment delete runs as the acting member (record access re-checked first), through the same remove().
@@ -139,6 +163,9 @@ export class AttachmentsService implements OnModuleInit {
     actorId: string | null,
     fieldId?: string,
     source: ChangeSource = 'human',
+    /** Ticket #877 — the loop-guard depth of the automation run that is writing this file (0 for a person). It rides on the
+     *  record_updated event the write emits, so a rule that attaches a PDF cannot re-trigger itself without limit. */
+    depth = 0,
   ) {
     if (fieldId) await this.assertAttachmentField(recordId, fieldId);
     if (file.data.length > env().ATTACHMENT_MAX_BYTES) {
@@ -161,27 +188,35 @@ export class AttachmentsService implements OnModuleInit {
       })
       .returning();
 
-    const key = `${recordId}/${row!.id}/original`;
-    await storage.put(key, file.data, file.mime);
-
+    // A failure between the row insert and the finished write must not leave a 'pending' row behind: it would be an
+    // attachment that exists, has no bytes, and is hidden from every read (ticket #877: "no partial attachment").
+    let updated: typeof row;
     let thumbKey: string | null = null;
-    if (file.mime.startsWith('image/') && file.mime !== 'image/svg+xml') {
-      try {
-        const thumb = await sharp(file.data).resize({ width: THUMB_WIDTH }).jpeg({ quality: 75 }).toBuffer();
-        thumbKey = `${recordId}/${row!.id}/thumb`;
-        await storage.put(thumbKey, thumb, 'image/jpeg');
-      } catch {
-        thumbKey = null; // corrupt/exotic image — the original still uploads fine
+    try {
+      const key = `${recordId}/${row!.id}/original`;
+      await storage.put(key, file.data, file.mime);
+
+      if (file.mime.startsWith('image/') && file.mime !== 'image/svg+xml') {
+        try {
+          const thumb = await sharp(file.data).resize({ width: THUMB_WIDTH }).jpeg({ quality: 75 }).toBuffer();
+          thumbKey = `${recordId}/${row!.id}/thumb`;
+          await storage.put(thumbKey, thumb, 'image/jpeg');
+        } catch {
+          thumbKey = null; // corrupt/exotic image — the original still uploads fine
+        }
       }
+
+      [updated] = await this.db
+        .update(attachments)
+        .set({ storageKey: key, thumbKey })
+        .where(eq(attachments.id, row!.id))
+        .returning();
+    } catch (error) {
+      await this.db.delete(attachments).where(eq(attachments.id, row!.id)).catch(() => undefined);
+      throw error;
     }
 
-    const [updated] = await this.db
-      .update(attachments)
-      .set({ storageKey: key, thumbKey })
-      .where(eq(attachments.id, row!.id))
-      .returning();
-
-    if (fieldId) await this.appendToField(workspaceId, recordId, fieldId, updated!.id, actorId);
+    if (fieldId) await this.appendToField(workspaceId, recordId, fieldId, updated!.id, actorId, depth);
 
     await this.db.insert(activityEvents).values({
       workspaceId,
@@ -232,6 +267,7 @@ export class AttachmentsService implements OnModuleInit {
     fieldId: string,
     attachmentId: string,
     actorId: string | null,
+    depth = 0,
   ) {
     const record = await this.db.query.records.findFirst({ where: eq(records.id, recordId) });
     if (!record) return;
@@ -255,7 +291,7 @@ export class AttachmentsService implements OnModuleInit {
       changedFieldIds: [fieldId],
       changedValues: { [fieldId]: { from: current, to: next } },
       actorId,
-      depth: 0,
+      depth,
     });
   }
 
