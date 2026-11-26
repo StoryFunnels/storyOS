@@ -58,9 +58,11 @@ export const CSP_REPORT_PATH = '/csp-report';
  *   by the static `headers()` in next.config. With `'strict-dynamic'` browsers ignore host allow-lists, so only nonce'd scripts
  *   (and what they load) run: an injected `<script>` or an `onclick=` attribute does not. Called with no nonce it falls back to
  *   `'unsafe-inline'`, which exists only so a caller that has no request (a bare unit test) still gets a well-formed policy.
- * - Styles: nonce'd or same-origin `<style>` and stylesheets (`style-src-elem`), but style ATTRIBUTES stay `'unsafe-inline'`
- *   (`style-src-attr`): React renders every `style={{…}}` prop as one, and an attribute cannot carry a nonce. Inline style cannot
- *   run script; this is the narrowest rule the app works under.
+ * - Styles stay `'self' 'unsafe-inline'`. Two things need it and neither can carry a nonce: React renders every `style={{…}}`
+ *   prop as a style ATTRIBUTE, and the editor stack (ProseMirror, Mantine, sonner) creates `<style>` elements from script at
+ *   runtime. Inline CSS cannot run script, which is what this policy exists to stop; tightening it (nonce Mantine and tiptap,
+ *   hash sonner) is a separate, tracked job. NB a nonce or hash in a style directive makes browsers IGNORE `'unsafe-inline'`
+ *   there, so none may be added to it without removing it.
  * - `connect-src` adds the API origin (NEXT_PUBLIC_API_URL, inlined at build time) and PostHog when set as absolute URLs; the
  *   default same-origin `/api` and `/ingest` paths are covered by `'self'`.
  * - `img-src https:` (plus `http:` on a plain-HTTP deployment): avatars and link previews come from arbitrary hosts.
@@ -80,9 +82,7 @@ export function contentSecurityPolicy(env, { embeddable, nonce, dev = false }) {
   const directives = [
     "default-src 'self'",
     `script-src ${script.join(' ')}`,
-    `style-src ${["'self'", ...n].join(' ')}`,
-    `style-src-elem ${["'self'", ...n].join(' ')}`,
-    "style-src-attr 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: https:${https ? '' : ' http:'}`,
     "font-src 'self' data:",
     `connect-src ${[...new Set(connect)].join(' ')}`,

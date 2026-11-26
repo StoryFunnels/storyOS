@@ -71,10 +71,9 @@ describe('#1238 the enforced Content-Security-Policy', () => {
     expect(directive(contentSecurityPolicy(ENV, { embeddable: false, nonce: 'n', dev: false }), 'script-src')).not.toContain("'unsafe-eval'");
   });
 
-  it('style elements need the nonce or same origin; only style ATTRIBUTES may be inline', () => {
-    expect(directive(csp, 'style-src')).toBe("style-src 'self' 'nonce-abc123'");
-    expect(directive(csp, 'style-src-elem')).toBe("style-src-elem 'self' 'nonce-abc123'");
-    expect(directive(csp, 'style-src-attr')).toBe("style-src-attr 'unsafe-inline'");
+  it('styles are same-origin or inline, and carry no nonce or hash (either would make browsers ignore unsafe-inline)', () => {
+    expect(directive(csp, 'style-src')).toBe("style-src 'self' 'unsafe-inline'");
+    expect(csp).not.toMatch(/style-src[^;]*(nonce-|sha256-)/);
   });
 
   it('locks down objects, base URI and form targets, and sends reports to the same-origin sink', () => {

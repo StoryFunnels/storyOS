@@ -40,7 +40,8 @@
     "recharts": "^3.10.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
-    "twitter-text": "^3.1.0"
+    "twitter-text": "^3.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@storyos/config": "workspace:*",
