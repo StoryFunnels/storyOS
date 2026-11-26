@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { ProviderError } from '../src/common/provider-error';
@@ -212,7 +211,6 @@ describe('resume: an interrupted upload continues, it never starts again', () =>
     const bytes = bytesOf(CHUNK * 2);
     const first = args(fake, video(bytes));
     // die AFTER the final chunk was accepted: the 200 never reached us
-    fake.hook = (call, i) => (call.method === 'PUT' && /^bytes \d+-/.test(call.headers['content-range'] ?? '') && call.headers['content-range']!.startsWith(`bytes ${CHUNK}-`) ? undefined : undefined);
     let final = false;
     const real = fake.fetch;
     const dying = (async (url: string, init: never) => {
@@ -415,12 +413,10 @@ describe('the video is streamed, never held whole', () => {
     let produced = 0;
     let maxAhead = 0;
     let received = 0;
-    const digest = createHash('sha256');
     function source(offset: number): Readable {
       async function* gen() {
         for (let at = 0; at < TOTAL; at += PIECE) {
           const piece = Buffer.alloc(PIECE, (at / PIECE) & 0xff);
-          if (at === 0 && offset === 0) digest.update(Buffer.alloc(0));
           produced += PIECE;
           yield piece;
         }
@@ -478,6 +474,5 @@ describe('what the id has to look like', () => {
     fake.hook = (call) => (call.method === 'PUT' && /^bytes \d+-/.test(call.headers['content-range'] ?? '') ? { status: 200, json: { id: '../../x' } } : undefined);
     const err = await failure(uploadToYoutube(args(fake, video(bytesOf(10)))));
     expect(err.message).toMatch(/^\[bad_response\]/);
-    expect(createHash('sha256').update('').digest('hex')).toBeTruthy();
   });
 });
