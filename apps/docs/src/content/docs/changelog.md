@@ -17,6 +17,7 @@ day the change reached the product.
 - **25 Nov** — An admin no longer sees or restores a member's deleted personal space in Settings → Trash. [Deleting a database, view or space](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space)
 - **25 Nov** — A guest who asks the API for a personal access token is refused with a 403, matching the app. [Authentication](/api/authentication/)
 - **25 Nov** — The API container runs as the `node` user and fixes the ownership of an older attachments volume on first start. [Attachments](/self-hosting/attachments/)
+
 - **25 Nov** — Settings shows **N connected** beside **Runners**, in the warning colour when a Runner is offline or at its limit. [See your Runners](/guides/adding-and-removing-a-runner/#see-your-runners)
 - **25 Nov** — The catch-up confirmation names the first five waiting records, and the agent's **Runs** list shows each waiting record as a **Not started** row. [Starting an agent on records already waiting](/guides/runner/#starting-an-agent-on-records-already-waiting)
 - **25 Nov** — The delete-field confirmation counts a relation by its links, says nothing is lost for a formula, lookup or rollup, and says "at least" when some records are hidden from you. [Field lifecycle](/concepts/databases-and-fields/#field-lifecycle)
