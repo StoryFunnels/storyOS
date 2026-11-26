@@ -10915,7 +10915,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BuildDto"
+                "$ref": "#/components/schemas/TyronBuildDto"
               }
             }
           }
@@ -13618,6 +13618,11 @@
               "ai"
             ]
           },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
           "config": {
             "type": "object",
             "additionalProperties": {}
@@ -13789,6 +13794,11 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
           },
           "config": {
             "type": "object",
@@ -21790,15 +21800,8 @@
       "BuildDto": {
         "type": "object",
         "properties": {
-          "description": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 2000
-          }
-        },
-        "required": [
-          "description"
-        ]
+          "plan": {}
+        }
       },
       "CreateThreadDto": {
         "type": "object",
@@ -21844,6 +21847,19 @@
         },
         "required": [
           "approve"
+        ]
+      },
+      "TyronBuildDto": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "description"
         ]
       },
       "RunnerToolChoiceDto": {

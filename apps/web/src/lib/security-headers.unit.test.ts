@@ -5,6 +5,7 @@ import {
   cspForRequest,
   cspHeaderName,
   cspMode,
+  cspModeProblem,
   contentSecurityPolicy,
   generateNonce,
   isEmbeddablePath,
@@ -49,11 +50,24 @@ describe('#1042 web static security headers', () => {
     expect(h['Referrer-Policy']).toBe('strict-origin-when-cross-origin');
   });
 
-  it('carries no CSP statically: the policy has a per-request nonce, so only the proxy may set it', () => {
+  it('carries no script/style policy statically: it has a per-request nonce, so only the proxy may set it', () => {
     for (const rule of rules) {
-      expect(rule.headers.map((h: { key: string }) => h.key.toLowerCase())).not.toContain('content-security-policy');
       expect(rule.headers.map((h: { key: string }) => h.key.toLowerCase())).not.toContain('content-security-policy-report-only');
+      for (const h of rule.headers) {
+        if (h.key.toLowerCase() === 'content-security-policy') expect(h.value).toBe("frame-ancestors 'none'");
+      }
     }
+  });
+
+  it.each(['/', '/w/abc/settings', '/invite/xyz', '/oauth/consent'])(
+    'app page %s carries an ENFORCED frame-ancestors none statically, so it survives CSP_MODE=report-only (ticket #1343)',
+    (path) => {
+      expect(headersFor(path)['Content-Security-Policy']).toBe("frame-ancestors 'none'");
+    },
+  );
+
+  it.each(['/f/token', '/v/token', '/v/token/'])('embeddable page %s gets no static CSP at all', (path) => {
+    expect(headersFor(path)['Content-Security-Policy']).toBeUndefined();
   });
 });
 
@@ -122,8 +136,36 @@ describe('#1238 enforce vs report-only', () => {
     for (const v of [undefined, '', 'enforce', 'enforced', 'report_only', 'off', 'false']) expect(cspMode(v), String(v)).toBe('enforce');
   });
 
-  it('report-only is the one switch back, case and whitespace tolerant', () => {
-    for (const v of ['report-only', 'Report-Only', ' report-only ']) expect(cspMode(v)).toBe('report-only');
+  it('report-only is the one switch back, and it is matched EXACTLY (ticket #1343: no case folding, no trimming)', () => {
+    expect(cspMode('report-only')).toBe('report-only');
+    for (const v of ['Report-Only', 'REPORT-ONLY', ' report-only', 'report-only ', 'report-only\n', 'report-only,x'])
+      expect(cspMode(v), JSON.stringify(v)).toBe('enforce');
+  });
+
+  it('warns about a CSP_MODE that is set but unrecognised, and about nothing else (ticket #1343)', () => {
+    for (const v of [undefined, '', 'report-only']) expect(cspModeProblem(v), String(v)).toBeNull();
+    for (const v of ['Report-Only', ' report-only', 'enforced', 'off']) {
+      const msg = cspModeProblem(v);
+      expect(msg, JSON.stringify(v)).toContain('is not recognised');
+      expect(msg).toContain('ENFORCED');
+      expect(msg).toContain(JSON.stringify(v));
+    }
+  });
+
+  it('the warning does not echo an unbounded value', () => {
+    expect(cspModeProblem('x'.repeat(5000))?.length).toBeLessThan(300);
+  });
+
+  it('report-only reports against the SAME nonce policy, so a rollback stays a useful signal (ticket #1343)', () => {
+    for (const path of ['/w/abc', '/f/tok']) {
+      const r = cspForRequest({ ...ENV, mode: 'report-only' }, { pathname: path, nonce: 'n1' });
+      expect(r.name).toBe('Content-Security-Policy-Report-Only');
+      const script = directive(r.value, 'script-src') ?? '';
+      expect(script).toContain("'nonce-n1'");
+      expect(script).toContain("'strict-dynamic'");
+      expect(script).not.toContain("'unsafe-inline'");
+      expect(r.value).toBe(cspForRequest(ENV, { pathname: path, nonce: 'n1' }).value);
+    }
   });
 
   it('the header name follows the mode', () => {
@@ -135,18 +177,19 @@ describe('#1238 enforce vs report-only', () => {
     const r = cspForRequest(ENV, { pathname: '/w/abc', nonce: 'n1' });
     expect(r.name).toBe('Content-Security-Policy');
     expect(r.value).toContain("'nonce-n1'");
-    expect(r.framing).toBeNull();
+    expect(Object.keys(r).sort()).toEqual(['name', 'nonce', 'value']);
   });
 
-  it('report-only keeps frame-ancestors enforced on app pages and adds nothing on the embeddable routes', () => {
-    const app = cspForRequest({ ...ENV, mode: 'report-only' }, { pathname: '/w/abc', nonce: 'n1' });
-    expect(app.name).toBe('Content-Security-Policy-Report-Only');
-    expect(app.framing).toEqual({ name: 'Content-Security-Policy', value: "frame-ancestors 'none'" });
-    for (const path of ['/f/tok', '/v/tok/']) {
-      const share = cspForRequest({ ...ENV, mode: 'report-only' }, { pathname: path, nonce: 'n1' });
-      expect(share.framing).toBeNull();
-      expect(directive(share.value, 'frame-ancestors')).toBe('frame-ancestors *');
+  it('report-only sends ONE header and no framing-only twin from the proxy (ticket #1343)', () => {
+    // Next copies every header a proxy sets on the response back onto the request and reads `content-security-policy` before
+    // `-report-only`; a framing-only twin has no script-src, so the nonce was not found and no script got one.
+    for (const path of ['/w/abc', '/f/tok', '/v/tok/']) {
+      const r = cspForRequest({ ...ENV, mode: 'report-only' }, { pathname: path, nonce: 'n1' });
+      expect(r.name).toBe('Content-Security-Policy-Report-Only');
+      expect(Object.keys(r).sort()).toEqual(['name', 'nonce', 'value']);
     }
+    const share = cspForRequest({ ...ENV, mode: 'report-only' }, { pathname: '/f/tok', nonce: 'n1' });
+    expect(directive(share.value, 'frame-ancestors')).toBe('frame-ancestors *');
   });
 
   it('the embeddable routes are enforced too, keeping frame-ancestors *', () => {

@@ -10,7 +10,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { invites, memberships, user, workspaces } from '../db/schema';
@@ -21,6 +21,7 @@ import { EmailService } from '../mail/email.service';
 import type { AuthedUser } from '../auth/auth.guard';
 import type { InviteDetailsResponse, InviteDetailsStatus, MembershipRole } from '@storyos/schemas';
 import { codedException } from '../common/coded-exception';
+import { hashInviteToken } from './invite-token';
 import { BillingService } from '../billing/billing.service';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { SalesSignalService } from '../billing/sales-signal.service';
@@ -41,7 +42,7 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 export const REVOKED_INVITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 
-const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+const sha256 = hashInviteToken;
 
 /** Ticket #1302 — the ONE body for every token that names no live-or-spent invite. Frozen so no code path can decorate it. */
 const INVITE_NOT_FOUND: InviteDetailsResponse = Object.freeze({
@@ -315,6 +316,20 @@ export class InvitesService implements OnModuleInit, OnModuleDestroy {
     if (invite.expiresAt.getTime() < Date.now()) throw codedException(404, 'invite_expired', 'Invite expired');
     if (invite.email !== user.email.toLowerCase()) {
       throw codedException(403, 'invite_email_mismatch', 'This invite was issued for a different email address');
+    }
+    // Ticket #1347 — the address matches, but matching is only a string comparison, and an account that already existed at this
+    // address may never have proven the mailbox (someone else may have registered it). Joining needs an address the account has
+    // VERIFIED: an account created through this link is verified at creation (auth.ts), anyone else uses the emailed link first.
+    // This does NOT stop someone who holds the link and knows the address from signing up through the link and joining: that is
+    // the accepted magic-link risk, controlled by expiry and revoke. Checked AFTER the address so the answer for someone else's
+    // invite never depends on the caller's verification state, and BEFORE anything is written, so a refusal creates no
+    // membership and does not burn the token: once verified, the same link works.
+    if (!user.emailVerified) {
+      throw codedException(
+        403,
+        'invite_email_unverified',
+        'Verify your email address to join. Send a verification email, open the link in it, then accept this invite again.',
+      );
     }
 
     const existing = await this.db.query.memberships.findFirst({

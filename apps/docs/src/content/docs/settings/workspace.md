@@ -51,7 +51,10 @@ invitation was sent to that address.
   usable.
 - **An account already exists for that email.** The screen asks for that account's password instead
   of a new one, with a **Forgot password** link; after the reset the person signs in again on the Join screen.
-- **Already signed in as the invited address.** One button, **Join *Workspace***.
+- **Already signed in as the invited address.** One button, **Join *Workspace***. If that account never
+  verified its email address, joining is refused until it does: the screen offers **Send verification
+  email**, and once the person has opened the link in it, the same invitation works. An account created
+  from the invitation itself is verified already, so it joins straight away.
 - **Signed in as a different address.** The screen says the invitation was sent to the invited
   address and that the person is signed in as another, and offers **Switch account**. It signs them
   out and shows the Join screen again so they can continue as the invited address. It does not join
@@ -79,7 +82,12 @@ For developers: `GET /api/v1/public/invites/details?token=…` needs no sign-in 
 inviter's name, the workspace name and logo, the invited email and a `status` of `valid`, `expired`,
 `used`, `revoked` or `not_found`. For `not_found` every other field is null. It is limited to 20 requests a
 minute per client address. `POST /api/v1/workspaces` with an `invite_token` accepts the invitation
-and creates no workspace; a token that cannot be accepted is refused and creates nothing.
+and creates no workspace; a token that cannot be accepted is refused and creates nothing. To have a new account
+verified at creation, send the invitation's token as `invite_token` in the body of `POST /api/v1/auth/sign-up/email`;
+it counts only when it names a pending invitation for exactly the address being signed up, and anything else
+leaves the account unverified with the same response as any sign-up. Accepting with an unverified address is a
+`403` `invite_email_unverified` (see [API conventions](/api/conventions/#joining-by-invite-link)); the
+verification email is sent by `POST /api/v1/auth/send-verification-email` with `{ "email", "callbackURL" }` while signed in.
 
 ## Packs
 

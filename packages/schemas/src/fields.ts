@@ -750,10 +750,32 @@ export function validateFieldConfig(type: CreatableFieldType, config: unknown) {
   return fieldConfigSchemas[type].safeParse(config ?? {});
 }
 
+/**
+ * Ticket #704 - a field's help text: ONE plain-text string per field (not per view, not markdown), at most 200 characters AFTER trimming.
+ * It is part of what the field IS, so it lives on the field and not in view config. Nullable and absent by default: a field with no
+ * description costs nothing, and an empty or whitespace-only string means "none" (the service stores null), exactly like null does.
+ */
+export const FIELD_DESCRIPTION_MAX = 200;
+export const fieldDescriptionSchema = z
+  .string()
+  .trim()
+  .max(FIELD_DESCRIPTION_MAX, `A field description is at most ${FIELD_DESCRIPTION_MAX} characters`);
+/** Create/update input: a string, or null to clear (an empty string clears too; see `normalizeFieldDescription`). */
+export const fieldDescriptionInputSchema = fieldDescriptionSchema.nullish();
+
+/** The stored form of a description input: trimmed text, or null when there is none (empty, whitespace, null) and undefined when absent. */
+export function normalizeFieldDescription(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value === null ? '' : value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 export const createFieldSchema = z
   .object({
     display_name: z.string().trim().min(1).max(100),
     type: creatableFieldTypeSchema,
+    /** #704 - optional help text (max 200 chars, plain text); null/empty = none. */
+    description: fieldDescriptionInputSchema,
     config: z.record(z.string(), z.unknown()).optional(),
     /** Initial options for select/multi_select fields. */
     options: z
@@ -780,6 +802,8 @@ export const createFieldSchema = z
 
 export const updateFieldSchema = atLeastOneField(z.object({
   display_name: z.string().trim().min(1).max(100).optional(),
+  /** #704 - help text; null or an empty string clears it, absent leaves it as it is. */
+  description: fieldDescriptionInputSchema,
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.number().int().optional(),
 }));

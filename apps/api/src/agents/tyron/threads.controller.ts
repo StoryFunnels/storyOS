@@ -30,8 +30,8 @@ class TakeTurnDto extends createZodDto(
  */
 class ConfirmDto extends createZodDto(z.object({ approve: z.boolean() })) {}
 
-/** #363 — one sentence about the business. */
-class BuildDto extends createZodDto(
+/** #363 — one sentence about the business. Named for Tyron: a bare `BuildDto` also exists on the Architect, and two schemas under one name made the OpenAPI document keep only one of them (#1341). */
+class TyronBuildDto extends createZodDto(
   z.object({ description: z.string().trim().min(3).max(2_000) }),
 ) {}
 
@@ -140,7 +140,7 @@ export class TyronThreadsController {
   build(
     @Req() req: WorkspaceRequest,
     @Param('thread') thread: string,
-    @Body() body: BuildDto,
+    @Body() body: TyronBuildDto,
   ) {
     return this.tyron.buildWorkspace(req.membership, thread, body.description);
   }
