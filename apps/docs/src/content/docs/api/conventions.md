@@ -255,6 +255,27 @@ the first time), so "changed since you last looked" can compare it with `last_ai
   clear what it caused.
 - **Another member's personal view** is a 404.
 
+## Creating a record from a view
+
+`POST /workspaces/{ws}/databases/{db}/records` takes an optional `view_id`, the view a person would
+press **New** on. The values that view's filter requires are filled in under yours, and your own
+values always win, even an explicit `null`. See
+[New on a filtered view](/concepts/views/#new-on-a-filtered-view) for what is filled.
+
+The response is the record plus `view_match`:
+
+```json
+{ "id": "…", "number": 12, "view_match": { "matches": false, "unmet": ["due_date"] } }
+```
+
+- `matches` says whether the new record is inside the view, asked of the same evaluator the view
+  uses. When it is `false` the record exists anyway.
+- `unmet` lists the `api_name` of each field behind a condition the record does not meet. It is
+  empty when `matches` is `true`.
+- `view_match` is absent when you send no `view_id`, when the view is not one you may read (another
+  member's personal view, a view of another database, a deleted view), or when the filter cannot be
+  evaluated for you. Absent means unknown, not "in the view".
+
 ## Rate limiting
 
 Keyed per PAT / per session. Default 300 req/min, configurable via `RATE_LIMIT_PER_MINUTE`. Over

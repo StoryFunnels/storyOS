@@ -9,6 +9,10 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **26 Nov** — The audit log keeps record events for a time set by the plan (Free 7 days, Pro 30, Business 30, Enterprise 90); a self-hosted instance keeps everything unless `ACTIVITY_EVENTS_RETENTION_DAYS` is set, and the audit log list returns `retention_days`. [How long the audit log keeps record events](/concepts/record-history/#how-long-the-audit-log-keeps-record-events)
+- **26 Nov** — The web app serves an enforced Content-Security-Policy with a fresh script nonce on every page; `CSP_MODE=report-only` turns it back into reporting, and violations go to `/csp-report`. [Security headers](/self-hosting/configuration/#security-headers)
+- **26 Nov** — **New** on a filtered view fills in what the filter requires so the record lands inside it, the API create takes `view_id` and returns `view_match`, MCP `create_record` takes `view`, and the web app shows a toast when the record still lands outside. [New on a filtered view](/concepts/views/#new-on-a-filtered-view)
+- **26 Nov** — A sum, average, minimum or maximum rollup draws its number in the format of the field it aggregates, such as currency or percent, unless the rollup sets its own. [A rollup shows the format of the field it sums](/concepts/lookups-and-rollups/#a-rollup-shows-the-format-of-the-field-it-sums)
 - **25 Nov** — A built-in Shop OS pack: customers, products, orders and order lines, an order board by status, an Unpaid Orders view, and a drafter agent that installs switched off. [The Shop OS pack](/guides/shop-os-pack/)
 - **15 Nov** — The record page's Activity, Comments and About sit under the fields on a window narrower than 900px, Activity reads as "set", "cleared" and "changed" sentences, and a half-typed comment is kept per record. [The record page](/concepts/databases-and-fields/#the-record-page)
 - **15 Nov** — My Work gathers finished rows under a closed **Done · N** group, writes the space on two databases that share a name, and says **Not recorded** when it has no record of who assigned you. [My Work: what is waiting on you](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you)
