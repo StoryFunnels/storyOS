@@ -113,6 +113,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'GET /api/v1/workspaces/:ws/databases/:db': scoped('assertAccess + visibleRecordIds + effectiveForDatabase', 'databases/databases.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/activity/comments': scoped('assertAccess + guestScopeIds + visibleRecordIds', 'activity/database-activity.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/automations': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
+  'GET /api/v1/workspaces/:ws/databases/:db/automations/:id': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/automations/:id/last-payload': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/automations/:id/runs': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/export/csv': scoped('assertAccess', 'export/export.controller.ts'),

@@ -276,7 +276,10 @@ describe('5. who is NOT held: a person, a server-run agent, an ordinary token', 
 
   it('a server-run agent applies through the shared executor with NO origin: it is not staged a second time; a person\'s event has origin null', async () => {
     const wd = await world(() => []);
-    const effects = await app.get(AutomationActionsService).execute([emailAction(wd.conn, 'outsider@external.example') as never], { workspaceId: w.ws, databaseId: wd.dbId, record: null, actorId: w.admin.email, source: 'agent', ruleId: null, runId: randomUUID() });
+    // Ticket #1353: the executor now re-reads its actor's membership before every action, so the actor is the REAL admin user id (the agent's owner,
+    // as AgentsService passes it); this test used to pass the admin's email address, which only worked because nothing looked the actor up.
+    const adminId = (await w.as(w.admin.token, 'GET', '/me')).json().id as string;
+    const effects = await app.get(AutomationActionsService).execute([emailAction(wd.conn, 'outsider@external.example') as never], { workspaceId: w.ws, databaseId: wd.dbId, record: null, actorId: adminId, source: 'agent', ruleId: null, runId: randomUUID() });
     expect(effects.map((e) => e.type), 'queued, not held: agents.service already staged it by approval_policy').toEqual(['queued_job']);
     let seen: unknown = 'unset';
     app.get(DomainEventsService).subscribe((e) => { if (e.recordId === wd.rec) seen = e.origin; });

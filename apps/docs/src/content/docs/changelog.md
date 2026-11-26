@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **26 Nov** — Every automation action now checks its rule owner's access each time it runs, not only when the rule is saved. If the owner left, was demoted or lost the database, the action is refused with a message naming the person (never a record title), and a rule that needs a new owner is flagged with the reason from its first refused run, with a notice to the workspace's admins. No automation action runs on a system database. [Who a rule runs for](/concepts/automations/#who-a-rule-runs-for-and-where-it-may-write)
 - **26 Nov** — The audit log keeps record events for a time set by the plan (Free 7 days, Pro 30, Business 30, Enterprise 90); a self-hosted instance keeps everything unless `ACTIVITY_EVENTS_RETENTION_DAYS` is set, and the audit log list returns `retention_days`. [How long the audit log keeps record events](/concepts/record-history/#how-long-the-audit-log-keeps-record-events)
 - **26 Nov** — The web app serves an enforced Content-Security-Policy with a fresh script nonce on every page; `CSP_MODE=report-only` turns it back into reporting, and violations go to `/csp-report`. [Security headers](/self-hosting/configuration/#security-headers)
 - **26 Nov** — **New** on a filtered view fills in what the filter requires so the record lands inside it, the API create takes `view_id` and returns `view_match`, MCP `create_record` takes `view`, and the web app shows a toast when the record still lands outside. [New on a filtered view](/concepts/views/#new-on-a-filtered-view)

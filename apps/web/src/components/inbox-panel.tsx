@@ -36,6 +36,7 @@ export type NotificationType =
   | 'auto_reload_failed'
   // MN-253: also bare — a disabled automation rule has no record behind it either.
   | 'automation_disabled'
+  | 'automation_owner_refused'
   // MN-255: a require_approval automation action waiting on a human. Distinct
   // from approval_requested (#210's agent-run gate, above) — that type's
   // record IS the thing being approved; here the record (if any) is just the
