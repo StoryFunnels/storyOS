@@ -52,6 +52,8 @@ export interface DatabaseSummary {
   qualifiedSlug?: string;
   /** #400 — the one-line purpose. Null/absent is the normal state. */
   description?: string | null;
+  /** Ticket #1363/#1381 — `ISSUE` makes its records read `ISSUE-123`; null/absent = plain `#123`. On the list and update payloads (the row is spread). */
+  identifierPrefix?: string | null;
   /** #562/#611 — the caller's own effective role on this database, batched
    * server-side. Present on the LIST endpoint only (`DatabasesService.list`,
    * where a write-access-only picker like #433's Copy-to dialog needs it) —
@@ -294,6 +296,8 @@ export function useSidebarMutations(ws: string) {
         /** #457 — the purpose line. `null` clears it; omitting it leaves it alone,
          *  which is `descriptionPatchSchema`'s contract, not this hook's. */
         description?: string | null;
+        /** Ticket #1381 — admin only (the API refuses anyone else). `null` returns the database to plain numbers. */
+        identifier_prefix?: string | null;
       }) =>
         unwrap<DatabaseSummary>(
           await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
@@ -301,7 +305,15 @@ export function useSidebarMutations(ws: string) {
             body,
           }),
         ),
-      onSuccess: invalidate,
+      onSuccess: (_result, vars) => {
+        invalidate();
+        // Ticket #1381 — a record's handle (`ISSUE-5` / `#5`) is derived from the prefix and carried on every record payload, so an open
+        // record page and any list showing handles would keep the old one until a reload. Only a prefix change pays for this.
+        if ('identifier_prefix' in vars) {
+          void qc.invalidateQueries({ queryKey: ['records', ws] });
+          void qc.invalidateQueries({ queryKey: ['record', ws] });
+        }
+      },
     }),
     deleteDatabase: useMutation({
       mutationFn: async ({ id, confirm }: { id: string; confirm: string }) =>

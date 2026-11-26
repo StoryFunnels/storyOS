@@ -40,6 +40,7 @@ import { Button } from '@/components/ui/button';
 import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
 import { DescriptionDialogContent } from '@/components/description-dialog';
+import { IdentifierPrefixDialogContent } from '@/components/identifier-prefix-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2819,6 +2820,8 @@ function DatabaseRow({
   const [iconing, setIconing] = useState(false);
   // #457 — see the note on the space row: a separate item, not folded into Rename.
   const [describing, setDescribing] = useState(false);
+  // Ticket #1381 — admin only; see the menu item.
+  const [prefixing, setPrefixing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [automating, setAutomating] = useState(false);
@@ -2992,6 +2995,13 @@ function DatabaseRow({
               onSelect: () => setDescribing(true),
             },
             { label: 'Icon & color', onSelect: () => setIconing(true), hidden: !schemaEditable },
+            // Ticket #1381 — the identifier prefix (`ISSUE` → `ISSUE-123`). A WORKSPACE admin's call, not a database creator's: it names every
+            // record and is unique across the workspace, and the API refuses anyone else (403). Not offered on a system database (422 there).
+            {
+              label: db.identifierPrefix ? 'Identifier prefix…' : 'Set identifier prefix…',
+              onSelect: () => setPrefixing(true),
+              hidden: !isAdmin || Boolean(db.isSystem),
+            },
             { label: 'Import CSV…', onSelect: () => setImporting(true), hidden: !schemaEditable },
             { label: 'Sync from…', onSelect: () => setSyncing(true), hidden: !schemaEditable },
             { label: 'Buttons & automations', onSelect: () => setAutomating(true), hidden: !schemaEditable },
@@ -3058,6 +3068,18 @@ function DatabaseRow({
             onSave={(description) => {
               mutations.updateDatabase.mutate({ id: db.id, description });
               setDescribing(false);
+            }}
+          />
+        )}
+      </Dialog>
+      <Dialog open={prefixing} onOpenChange={setPrefixing}>
+        {prefixing && (
+          <IdentifierPrefixDialogContent
+            name={db.name}
+            initial={db.identifierPrefix}
+            onSave={async (identifier_prefix) => {
+              await mutations.updateDatabase.mutateAsync({ id: db.id, identifier_prefix });
+              setPrefixing(false);
             }}
           />
         )}
