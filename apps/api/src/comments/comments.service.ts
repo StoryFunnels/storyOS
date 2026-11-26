@@ -20,6 +20,8 @@ import { EmailService } from '../mail/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { MentionsService, collectMentions } from '../mentions/mentions.service';
 import { AgentWakesService } from '../runners/agent-wakes.service';
+import { maskRunnerStamp } from '../runners/runner-identity';
+import type { Membership } from '../workspaces/workspace-access.guard';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService, escapeSlackText } from '../integrations/slack.service';
 import { AccessService } from '../access/access.service';
@@ -159,7 +161,8 @@ export class CommentsService implements OnModuleInit {
       .catch(() => undefined);
   }
 
-  async list(recordId: string, limit = 100) {
+  /** `membership` is the CALLER, omitted by internal use. A guest reads the Runner stamp as "a Runner" with no id (ticket #1227). */
+  async list(recordId: string, limit = 100, membership?: Membership) {
     const rows = await this.db.query.comments.findMany({
       where: and(eq(comments.recordId, recordId), isNull(comments.deletedAt)),
       // #771 — createdAt alone leaves two same-millisecond comments in
@@ -174,7 +177,7 @@ export class CommentsService implements OnModuleInit {
       : [];
     const byId = new Map(authors.map((a) => [a.id, a]));
     return {
-      data: rows.map((c) => ({
+      data: rows.map((c) => maskRunnerStamp({
         id: c.id,
         body: c.body,
         author: {
@@ -193,7 +196,7 @@ export class CommentsService implements OnModuleInit {
         runner_name: c.runnerName,
         edited_at: c.editedAt,
         created_at: c.createdAt,
-      })),
+      }, membership)),
     };
   }
 
