@@ -88,6 +88,8 @@ import { currentActor } from '../common/credential-context';
 import { BUDGET_FIELD_NAMES, budgetWriteProblem } from '../runners/agent-budget';
 import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
 import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context';
+import { assertAgentCreateWithinReach } from '../agents/agent-create-reach';
+import type { AgentCreator } from '../agents/agent-create-reach';
 // #434 — type only (erased at compile time): RecordsService does not take a
 // runtime dependency on CommentsService, so this can't create the module
 // cycle a value import would (comments.module.ts already imports records).
@@ -3228,7 +3230,7 @@ export class RecordsService implements OnModuleInit {
     // here refused every pack install that has an agent (the four test-api shard failures on PR #1442).
     // ticket #1336: on an EXISTING agent record an agent may not rewrite target_databases or scopes either (an agent that can reach the Agents
     // database could otherwise widen its own reach). A CREATE keeps target_databases open for a source 'agent' caller, because pack and architect
-    // builds create agents that way; the person-approved build is the only thing that mints an agent's scope, never an agent's own token write.
+    // builds create agents that way. An agent CREDENTIAL's create is held to "no wider than the creator" by assertAgentCreateWithinReach (ticket #1338).
     const scopeKeys = (existingRecord ? ['target_spaces', 'target_databases', 'scopes'] : ['target_spaces']).filter((k) => keys.includes(k));
     // A write a PERSON just approved (the approvals executor's one-shot marker, set only after it re-validated the staged write, and approving is
     // person-only, #859) is replayed with source 'agent' for provenance. It may carry target_databases/scopes: the rule is "an agent must not
@@ -3247,6 +3249,29 @@ export class RecordsService implements OnModuleInit {
       const problem = budgetWriteProblem(values?.[k]);
       if (problem) throw new UnprocessableEntityException(problem);
     }
+  }
+
+  /**
+   * ticket #1338 — a CREATE of an agent record by an AGENT credential may not mint an agent wider than the creator (see `agent-create-reach.ts`
+   * for the rule). Who the creator is comes from the credential at the door, not from a parameter a caller could leave off:
+   *  1. a run executor acting as an agent (`asActingAgent`), else
+   *  2. the request's own credential when it is an agent's (run credential, agent-bound token, agent-origin token), else
+   *  3. the agent id a direct caller passed.
+   * None of those = a person's session or an internal build (a pack install or an architect build run as the signed-in member and write
+   * with source 'agent' for provenance): untouched, as before. The write a person approved (the approvals marker) is untouched too.
+   */
+  private async assertAgentCreateWithinReach(workspaceId: string, databaseId: string, input: Record<string, unknown>, source: ChangeSource, agentIdParam: string | undefined): Promise<void> {
+    if (source !== 'agent' || isApprovedAgentWrite()) return;
+    const acting = currentActingAgent();
+    const ambient = currentActor();
+    let creator: AgentCreator | null = null;
+    if (acting) creator = { agentId: acting.agentId, tokenScope: null, resourceScope: undefined };
+    else if (ambient?.source === 'agent') creator = { agentId: ambient.agentId, tokenScope: ambient.tokenScope ?? 'read', resourceScope: ambient.resourceScope ?? null };
+    else if (agentIdParam) creator = { agentId: agentIdParam, tokenScope: null, resourceScope: undefined };
+    if (!creator) return;
+    const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+    if (!db?.isSystem || db.systemKey !== 'agents') return;
+    await assertAgentCreateWithinReach(this.db, { workspaceId, agentsDatabaseId: databaseId, input, creator }, (message) => new ForbiddenException(message));
   }
 
   /**
@@ -3304,6 +3329,7 @@ export class RecordsService implements OnModuleInit {
     for (const input of inputs) {
       await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
       await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+      await this.assertAgentCreateWithinReach(workspaceId, databaseId, input, source, agentId); // ticket #1338
       await this.assertTriggerConditionWritable(databaseId, input, actorId);
     }
     const defs = await this.fieldDefs(databaseId);
