@@ -15,6 +15,8 @@ import { Switch } from '@/components/ui/switch';
 import { SetupDisclosure } from '@/components/settings/setup-disclosure';
 import { AdvancedSection, SettingsBox, SettingsRow } from '@/components/settings/settings-chrome';
 import { GithubUntracked } from '@/components/settings/github-untracked';
+import { GithubLinkDatabases } from '@/components/settings/github-link-databases';
+import { linkSaveBody, type LinkDatabaseOption } from '@/lib/github-link-databases';
 import { trackRequestBody } from '@/lib/github-untracked';
 import { ProviderConnectionCard, ProviderPageHeader } from '@/components/settings/provider-card';
 
@@ -23,6 +25,9 @@ interface GithubConfig {
   has_token: boolean;
   connected: boolean;
   installation_id: number | null;
+  /** Ticket #1368: null while the old workspace-wide `link_database_id` is in force; an object (repo -> database) once per repo. */
+  link_database_id?: string | null;
+  link_databases?: Record<string, string> | null;
   /** #828: deliveries received for repos that are not selected, and so discarded. */
   ignored_deliveries?: {
     repos: Array<{ repo: string; count: number; last_seen_at: string; last_event?: string }>;
@@ -74,6 +79,33 @@ export default function GitHubIntegrationPage() {
       if (error) throw error;
       return data as unknown as { repos: InstallRepo[]; selected: string[] };
     },
+  });
+
+  // Ticket #1368: the databases a repo can link into (only for admins, who are the only people on this page).
+  const databases = useQuery({
+    queryKey: ['github-link-databases', ws],
+    enabled: hasCredential,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/workspaces/{ws}/databases', { params: { path: { ws } } });
+      if (error) throw error;
+      // a system database (Members, agents) cannot carry an identifier prefix and is not somewhere tickets live
+      return (data as unknown as Array<LinkDatabaseOption & { isSystem?: boolean }>).filter((d) => !d.isSystem);
+    },
+  });
+
+  const saveLink = useMutation({
+    mutationFn: async ({ repo, databaseId }: { repo: string; databaseId: string }) => {
+      const { error } = await api.POST('/api/v1/workspaces/{ws}/integrations/github', {
+        params: { path: { ws } },
+        body: linkSaveBody(repo, databaseId) as never,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Link database saved');
+      void qc.invalidateQueries({ queryKey: ['github-config', ws] });
+    },
+    onError: () => toast.error('Could not save the link database'),
   });
 
   const save = useMutation({
@@ -182,8 +214,9 @@ export default function GitHubIntegrationPage() {
       <div className="mb-5 flex flex-col gap-[18px]">
         <ProviderPageHeader ws={ws} id="github">
           Imports Issues and Pull Requests into a GitHub space and keeps them fresh on every sync.
-          PRs auto-link to issues referenced by <code className="text-ink">#number</code> in the
-          title or the branch name.
+          PRs auto-link to the issue named by a branch such as <code className="text-ink">feat/issue-5201</code>, an
+          identifier such as <code className="text-ink">ISSUE-5201</code> in the title or description, or{' '}
+          <code className="text-ink">ticket #number</code>, in the link database you choose for each repository.
         </ProviderPageHeader>
         <ProviderConnectionCard ws={ws} id="github" />
       </div>
@@ -234,6 +267,17 @@ export default function GitHubIntegrationPage() {
             </p>
           )}
         </SettingsBox>
+        </div>
+      )}
+
+      {hasCredential && config.data && (config.data.repos.length ?? 0) > 0 && (
+        <div className="mb-5">
+          <GithubLinkDatabases
+            config={config.data}
+            databases={databases.data}
+            saving={saveLink.isPending}
+            onChange={(repo, databaseId) => saveLink.mutate({ repo, databaseId })}
+          />
         </div>
       )}
 

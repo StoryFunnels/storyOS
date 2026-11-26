@@ -309,6 +309,7 @@ const PINS: Record<string, Counts> = {
   "components/runners/sharing-section.tsx": { button: 1, choice: 3, switch: 2 },
   "components/settings/ai-connections-list.tsx": { button: 2, confirm: 1 },
   "components/settings/copy-box.tsx": { button: 1 },
+  "components/settings/github-link-databases.tsx": { choice: 1 }, // ticket #1368: one MenuSelect per watched repository (the control is drawn once, in a map)
   "components/settings/github-untracked.tsx": { button: 2 },
   "components/settings/provider-card.tsx": { button: 7, link: 1, disclosure: 1, confirm: 1 },
   "components/settings/settings-chrome.tsx": { disclosure: 1 },

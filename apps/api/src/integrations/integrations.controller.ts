@@ -145,7 +145,13 @@ class GithubConfigDto extends createZodDto(
       .optional(),
     /** Write-only (AC 6): accepted here, never returned by any response. */
     webhook_secret: z.string().min(16).max(255).optional(),
+    /** The legacy workspace-wide link database. Refused once the connection links per repository (link_databases). */
     link_database_id: z.string().uuid().optional(),
+    /** Ticket #1368: the link database per repo (`owner/name` -> database id; null removes that repo's entry). */
+    link_databases: z
+      .record(z.string().regex(/^[\w.-]+\/[\w.-]+$/), z.string().uuid().nullable())
+      .refine((m) => Object.keys(m).length <= 20, { message: 'at most 20 repositories' })
+      .optional(),
     state_automation: z
       .object({
         opened: stateLabel,
