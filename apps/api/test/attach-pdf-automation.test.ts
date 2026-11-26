@@ -159,7 +159,7 @@ const runCount = async (recordId: string) => (await db.select({ id: automationRu
  * Touch the record so a record_updated rule fires, then wait until that firing's run row exists and has left 'running'. A run is
  * dispatched off the event bus, so `settle` alone can return before it has finished; reading the artefacts then would race it.
  */
-async function fire(f: Fixture, recordId: string, text = randomUUID()) {
+async function fire(f: Fixture, recordId: string, text: string = randomUUID()) {
   const before = await runCount(recordId);
   const res = await asOwner('PATCH', `/workspaces/${wsId}/databases/${f.quotes}/records/${recordId}`, { values: { [f.notesApi]: text } });
   expect(res.statusCode, res.body).toBeLessThan(300);
