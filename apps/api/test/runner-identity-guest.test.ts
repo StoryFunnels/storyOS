@@ -41,6 +41,11 @@ const as = (token: string | null, method: string, url: string, payload?: unknown
 const asRunner = (token: string, method: string, url: string, payload?: unknown) =>
   app.inject({ method: method as never, url: `/api/v1${url}`, headers: authed(token), payload: payload as never });
 const body = (res: { body: string }) => res.body;
+/** A membership of the guest fixture's workspace with the given role (the shape RecordsService reads), for the service-seam assertions. */
+async function membershipAs(role: 'guest' | 'member'): Promise<never> {
+  const row = (await pool.query('select id from memberships where user_id = $1 and workspace_id = $2', [guest.id, ws])).rows[0];
+  return { id: row.id, userId: guest.id, workspaceId: ws, role, bound: false } as never;
+}
 
 beforeAll(async () => {
   app = await createTestApp();
@@ -146,8 +151,8 @@ describe('a guest never reads which machine or tool a Runner is (ticket #1227)',
     // the access door (#1331) sits in front of, so the rule holds even where a grant on a system database is ever honoured again.
     const { RecordsService } = await import('../src/records/records.service');
     const records = app.get(RecordsService);
-    const memberships = (await pool.query("select * from memberships where user_id = $1 and workspace_id = $2", [guest.id, ws])).rows[0];
-    const guestMembership = { id: memberships.id, userId: guest.id, workspaceId: ws, role: 'guest', bound: false } as never;
+    const guestMembership = await membershipAs('guest');
+    const memberMembership = await membershipAs('member');
     const seen = await records.get(runsDbId, runId, guestMembership);
     expect(seen.values['runner']).toBe('a Runner');
     expect(seen.values['tool']).toBeUndefined();
@@ -156,7 +161,7 @@ describe('a guest never reads which machine or tool a Runner is (ticket #1227)',
     expect(JSON.stringify(seen)).not.toContain(SECRET_TOOL);
     // What must be KEPT: the fields that do not identify the Runner are untouched, and a non-guest membership sees everything.
     expect(seen.values['summary']).toBe('Triaged it');
-    const asMember = await records.get(runsDbId, runId, { ...guestMembership, role: 'member' });
+    const asMember = await records.get(runsDbId, runId, memberMembership);
     expect(asMember.values).toMatchObject({ runner: SECRET, tool: SECRET_TOOL });
     // A query that names the hidden field is refused as an unknown field, the same as a field that does not exist (no oracle).
     await expect(
@@ -164,9 +169,9 @@ describe('a guest never reads which machine or tool a Runner is (ticket #1227)',
     ).rejects.toThrow(/runner/);
     await expect(records.query(runsDbId, { limit: 10, sorts: [{ field: 'tool', direction: 'asc' }] } as never, guest.id, guestMembership)).rejects.toThrow(/tool/);
     // KEPT: a member's identical filter and grouping work, so the refusal above is the mask and not a broken field.
-    const hit = await records.query(runsDbId, { limit: 10, sorts: [], filter: { and: [{ field: 'runner', op: 'contains', value: 'SECRET' }] } } as never, guest.id, { ...guestMembership, role: 'member' });
+    const hit = await records.query(runsDbId, { limit: 10, sorts: [], filter: { and: [{ field: 'runner', op: 'contains', value: 'SECRET' }] } } as never, guest.id, memberMembership);
     expect(hit.data).toHaveLength(1);
-    const grouped = await records.groupedAggregate(runsDbId, { group_by: 'runner', op: 'count' }, guest.id, { ...guestMembership, role: 'member' });
+    const grouped = await records.groupedAggregate(runsDbId, { group_by: 'runner', op: 'count' }, guest.id, memberMembership);
     expect(JSON.stringify(grouped)).toContain(SECRET);
     // Counting by the field is refused too (one group per distinct machine would list them).
     await expect(records.groupedAggregate(runsDbId, { group_by: 'runner', op: 'count' } as never, guest.id, guestMembership)).rejects.toThrow(/runner/);
@@ -175,34 +180,34 @@ describe('a guest never reads which machine or tool a Runner is (ticket #1227)',
   it("the Run record's history and activity name no machine or tool either (field changes, versions, the activity feed)", async () => {
     const { RecordsService } = await import('../src/records/records.service');
     const records = app.get(RecordsService);
-    const memberships = (await pool.query("select * from memberships where user_id = $1 and workspace_id = $2", [guest.id, ws])).rows[0];
-    const guestMembership = { id: memberships.id, userId: guest.id, workspaceId: ws, role: 'guest', bound: false } as never;
+    const guestMembership = await membershipAs('guest');
+    const memberMembership = await membershipAs('member');
     const changes = await records.listFieldChanges(runsDbId, runId, 100, undefined, guestMembership);
     expect(JSON.stringify(changes)).not.toContain(SECRET);
     expect(JSON.stringify(changes)).not.toContain(SECRET_TOOL);
     // KEPT: the same read by a member does carry the change to the Runner field (the guard is not "no history").
-    const asMember = await records.listFieldChanges(runsDbId, runId, 100, undefined, { ...guestMembership, role: 'member' });
+    const asMember = await records.listFieldChanges(runsDbId, runId, 100, undefined, memberMembership);
     expect(JSON.stringify(asMember)).toContain(SECRET);
     const { ActivityService } = await import('../src/activity/activity.service');
     const activity = await app.get(ActivityService).listForRecord(guestMembership, runsDbId, runId, 100);
     expect(JSON.stringify(activity)).not.toContain(SECRET);
     expect(JSON.stringify(activity)).not.toContain(SECRET_TOOL);
-    const memberActivity = await app.get(ActivityService).listForRecord({ ...(guestMembership as object), role: 'member' } as never, runsDbId, runId, 100);
+    const memberActivity = await app.get(ActivityService).listForRecord(memberMembership, runsDbId, runId, 100);
     expect(JSON.stringify(memberActivity)).toContain(SECRET);
   });
 
   it('the preview of restoring an old version of a Run names no machine or tool (the diff against the current record)', async () => {
     const { RecordsService } = await import('../src/records/records.service');
     const records = app.get(RecordsService);
-    const memberships = (await pool.query("select * from memberships where user_id = $1 and workspace_id = $2", [guest.id, ws])).rows[0];
-    const guestMembership = { id: memberships.id, userId: guest.id, workspaceId: ws, role: 'guest', bound: false } as never;
+    const guestMembership = await membershipAs('guest');
+    const memberMembership = await membershipAs('member');
     const version = (await pool.query("insert into record_versions (workspace_id, record_id, actor_id, source, values, title) values ($1, $2, $3, 'human', '{}'::jsonb, 'older') returning id", [ws, runId, owner.id])).rows[0];
     const seen = await records.getVersion(runsDbId, runId, version.id, guestMembership);
     expect(JSON.stringify(seen)).not.toContain(SECRET);
     expect(JSON.stringify(seen)).not.toContain(SECRET_TOOL);
     // KEPT: the preview still lists the other fields that differ (it is not emptied), and a member sees the machine in it.
     expect(seen.preview.some((p) => p.field_name === 'Summary')).toBe(true);
-    const asMember = await records.getVersion(runsDbId, runId, version.id, { ...guestMembership, role: 'member' });
+    const asMember = await records.getVersion(runsDbId, runId, version.id, memberMembership);
     expect(JSON.stringify(asMember)).toContain(SECRET);
   });
 
