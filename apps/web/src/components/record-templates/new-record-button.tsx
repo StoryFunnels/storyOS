@@ -24,6 +24,7 @@ import {
   useRecordTemplates,
 } from './record-templates';
 import { newRecordHref } from '@/components/entity/new-record';
+import { announceViewMatch, type CreatedWithViewMatch } from '@/lib/view-match';
 
 const PRIMARY =
   'border border-primary bg-primary text-label font-semibold text-[var(--text-on-dark)] hover:bg-primary-hover disabled:opacity-60';
@@ -35,7 +36,7 @@ const PRIMARY =
  * ticket #1240 - when the database has record templates the button grows a chevron that lists them; choosing one makes the record
  * from it and opens it. Plain New and the N shortcut are unchanged and never wait on the template list.
  */
-export function NewRecordButton({ ws, db }: { ws: string; db: string }) {
+export function NewRecordButton({ ws, db, viewId }: { ws: string; db: string; viewId?: string }) {
   const router = useRouter();
   const templates = useRecordTemplates(ws, db);
   const apply = useApplyTemplate(ws, db);
@@ -44,12 +45,17 @@ export function NewRecordButton({ ws, db }: { ws: string; db: string }) {
     mutationFn: async () => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
         params: { path: { ws, db } },
-        body: { values: {} },
+        // Ticket #1339 — the view this New was pressed in; `view_id` is on the API since PR 1612, not yet in the SDK types.
+        body: { values: {}, ...(viewId ? { view_id: viewId } : {}) } as never,
       });
       if (error) throw error;
-      return data as unknown as { id: string };
+      return data as unknown as { id: string; title?: string | null } & CreatedWithViewMatch;
     },
-    onSuccess: (created) => router.push(newRecordHref(ws, db, created.id)),
+    onSuccess: (created) => {
+      // Before navigating: a toast outlives the route change.
+      if (viewId) announceViewMatch(created, { ws, db, push: (href) => router.push(href) });
+      router.push(newRecordHref(ws, db, created.id));
+    },
     onError: () => toast.error('Could not create the record'),
   });
   useEffect(() => {

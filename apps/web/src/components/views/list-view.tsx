@@ -47,6 +47,7 @@ const STATE_GLYPH_SIZE = 15;
 export function ListView({
   ws,
   db,
+  viewId,
   config,
   readOnly,
   personalFilter,
@@ -54,6 +55,8 @@ export function ListView({
 }: {
   ws: string;
   db: string;
+  /** Ticket #1339 — the saved view this is drawing; creates from it send it as `view_id`. Absent = none sent. */
+  viewId?: string;
   config: ViewConfig;
   readOnly: boolean;
   /** #259 — narrows this view's results for the current viewer only. */
@@ -65,7 +68,7 @@ export function ListView({
   const router = useRouter();
   // #199 — the shared split/navigate decision, identical on every surface.
   const openRecord = useOpenRecord('swap');
-  const { createRecord } = useRecordMutations(ws, db);
+  const { createRecord } = useRecordMutations(ws, db, viewId);
   const search = useViewSearch(db);
   // #1115 — a grouped list loads every page; the API's largest page halves the round trips.
   const queryBody = useMemo<Record<string, unknown>>(

@@ -14,6 +14,8 @@ import { useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { api, apiErrorMessage } from '@/lib/api';
 import { announceTrashed, requestTrash } from '@/lib/trash-record';
+import { announceViewMatch, type CreatedWithViewMatch } from '@/lib/view-match';
+import { useRouter } from 'next/navigation';
 
 export interface SelectOption {
   id: string;
@@ -482,7 +484,13 @@ export function isRecordsPageCache(data: unknown): data is { pages: RecordsPage[
   return Boolean(data) && Array.isArray((data as { pages?: unknown }).pages);
 }
 
-export function useRecordMutations(ws: string, db: string) {
+/**
+ * `viewId` is the view the person is looking at when the create STARTS FROM a view (ticket #1339): it is sent as `view_id`
+ * so the server pre-fills what that view's filter needs, and the response's `view_match` drives the "not shown in this view"
+ * toast. Omit it for a surface that is not a view (form submission, anything with no saved view id).
+ */
+export function useRecordMutations(ws: string, db: string, viewId?: string) {
+  const router = useRouter();
   const qc = useQueryClient();
   const key = recordsKey(ws, db);
   const countKey = recordCountKey(ws, db);
@@ -557,12 +565,15 @@ export function useRecordMutations(ws: string, db: string) {
     mutationFn: async (values: Record<string, unknown>) => {
       const { data, error } = await api.POST('/api/v1/workspaces/{ws}/databases/{db}/records', {
         params: { path: { ws, db } },
-        body: { values },
+        // `view_id` is on the API since PR 1612 and not yet in the generated SDK types (same cast as board-view's moves).
+        body: { values, ...(viewId ? { view_id: viewId } : {}) } as never,
       });
       if (error) throw error;
-      return data as unknown as RecordRow;
+      return data as unknown as RecordRow & CreatedWithViewMatch;
     },
     onSuccess: (created) => {
+      // Before the caller's own onSuccess navigates: a toast outlives the route change.
+      if (viewId) announceViewMatch(created, { ws, db, push: (href) => router.push(href) });
       setAll((old) => {
         if (old.pages.length === 0) return old;
         const pages = [...old.pages];

@@ -19,12 +19,15 @@ import { newRecordHref } from '@/components/entity/new-record';
 export function GalleryView({
   ws,
   db,
+  viewId,
   config,
   readOnly,
   personalFilter,
 }: {
   ws: string;
   db: string;
+  /** Ticket #1339 — the saved view this is drawing; creates from it send it as `view_id`. Absent = none sent. */
+  viewId?: string;
   config: ViewConfig;
   readOnly: boolean;
   /** #259 — narrows this view's results for the current viewer only. */
@@ -34,7 +37,7 @@ export function GalleryView({
   const router = useRouter();
   // #199 — the shared split/navigate decision, identical on every surface.
   const openRecord = useOpenRecord('swap');
-  const { createRecord } = useRecordMutations(ws, db);
+  const { createRecord } = useRecordMutations(ws, db, viewId);
   const search = useViewSearch(db);
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   const records = useRecordsInfinite(ws, db, queryBody);
