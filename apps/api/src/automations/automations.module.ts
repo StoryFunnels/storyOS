@@ -26,6 +26,8 @@ import { HttpRequestActionService } from './http-request-action.service';
 import { JobRunnerService } from './job-runner.service';
 import { PostSocialActionService } from './post-social.action';
 import { SendEmailActionService } from './send-email.action';
+import { SocialPublishesController } from './social-publishes.controller';
+import { SocialPublishesService } from './social-publishes.service';
 
 @Module({
   imports: [
@@ -45,7 +47,7 @@ import { SendEmailActionService } from './send-email.action';
     DocumentsModule,
     AttachmentsModule,
   ],
-  controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController],
+  controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController, SocialPublishesController],
   providers: [
     ActionAccessGuardService,
     AutomationActionsService,
@@ -64,6 +66,8 @@ import { SendEmailActionService } from './send-email.action';
     PostSocialActionService,
     // Ticket #877: the inline attach_pdf action (not a queued job: a failure must stop the rule's later actions).
     AttachPdfActionService,
+    // Ticket #42: the per-record publish state and the retry of a failed publish.
+    SocialPublishesService,
   ],
   exports: [AutomationActionsService, AutomationsService, JobRunnerService, ApprovalsService, HttpRequestActionService],
 })

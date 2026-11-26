@@ -30,6 +30,7 @@ import { ApprovalsService } from './approvals.service';
 import { ActionAccessGuardService } from './action-access-guard.service';
 import { AttachPdfActionService } from './attach-pdf.action';
 import { DEFAULT_FILENAME_TEMPLATE, withDateToken } from './attach-pdf-model';
+import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN } from './post-social.action';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
@@ -528,6 +529,20 @@ export class AutomationActionsService implements OnModuleInit {
             'LinkedIn post_social actions are not enabled on this deployment — the LinkedIn provider is not enabled yet.',
           );
         }
+        // Ticket #42 — NOTHING POSTS FROM AN UNNAMED ACCOUNT. A company-page post must say which page (chosen from
+        // GET /connections/{id}/social-accounts); there is no default to guess, and the executor used to publish a
+        // "page" post from the member's own profile. A member post may pin the member; X has no sub-account to name.
+        if (action.target === 'linkedin_org' && !(action.account_id && LINKEDIN_ORG_URN.test(action.account_id))) {
+          throw new UnprocessableEntityException(
+            "post_social to a LinkedIn page must name the page: set account_id to the organization URN (urn:li:organization:<id>) from the connection's social accounts",
+          );
+        }
+        if (action.target === 'linkedin_member' && action.account_id && !LINKEDIN_PERSON_URN.test(action.account_id)) {
+          throw new UnprocessableEntityException('post_social account_id for a LinkedIn profile must be a member URN (urn:li:person:<id>)');
+        }
+        if (action.target === 'x' && action.account_id) {
+          throw new UnprocessableEntityException('post_social to X goes out as the connected X account; account_id is not used for x');
+        }
         if (action.media_field_id) {
           const mediaField = live.find((f) => f.id === action.media_field_id);
           if (!mediaField) {
@@ -962,7 +977,7 @@ export class AutomationActionsService implements OnModuleInit {
         const link = action.link ? this.interpolate(action.link, ctx, displayToApi) : action.link;
         return {
           snapshot: { ...action, text, link },
-          previewText: `Post to ${action.target}: ${text.slice(0, 200)}`,
+          previewText: `Post to ${action.target}${action.account_id ? ` as ${action.account_id}` : ''}: ${text.slice(0, 200)}`,
         };
       }
     }
