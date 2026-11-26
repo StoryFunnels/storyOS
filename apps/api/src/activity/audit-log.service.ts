@@ -1,3 +1,4 @@
+import { ActivityRetentionService } from './activity-retention.service';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, getTableColumns, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import type { ChangeSource } from '../db/schema';
@@ -21,8 +22,12 @@ import { cursorTimestampSql, encodeKeysetCursor, keysetCondition, newestFirst } 
  *
  * #1059 closed the gap this comment used to state: a space, database or view deleted, restored, restricted or unrestricted is now an
  * `activity_events` row too (`activity/structural-events.ts`, `record_id` null, the object in `payload.object`), read by the same
- * query. What is still NOT here: a PERMANENT purge (none exists; everything is a soft delete, #453) and anything in a PERSONAL space or
- * a personal view, which are private from admins and so never in a workspace-wide log.
+ * query. What is still NOT here: a PERMANENT purge of a space, database or view (none exists; everything is a soft delete, #453) and
+ * anything in a PERSONAL space or a personal view, which are private from admins and so never in a workspace-wide log.
+ *
+ * #1024: record-level events DO expire, by plan (activity/activity-retention.service.ts: Free 7 days, Pro 30, Business 30, Enterprise 90;
+ * self-hosted by ACTIVITY_EVENTS_RETENTION_DAYS, unset = forever). Never deleted: events with no record (the structural events above, portal
+ * links, runner pairing) and a record change that set a person field. The list says which window applies as `retention_days`.
  */
 @Injectable()
 export class AuditLogService {
@@ -30,6 +35,7 @@ export class AuditLogService {
     @Inject(DB) private readonly db: Db,
     private readonly members: MembersDbService,
     private readonly access: AccessService,
+    private readonly retention: ActivityRetentionService,
   ) {}
 
   async list(
@@ -233,6 +239,9 @@ export class AuditLogService {
       }),
       next_cursor: hasMore && last ? encodeKeysetCursor({ t: last.cursorTs, id: last.id }) : null,
       has_more: hasMore,
+      // Ticket #1024: how far back record-level history reaches for this workspace (its plan's retention), null = kept forever. Older
+      // record events have been deleted; structural events (space/database/view, portal links, runners) are never deleted.
+      retention_days: await this.retention.retentionDaysFor(membership.workspaceId),
     };
   }
 }

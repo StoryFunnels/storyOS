@@ -1,26 +1,42 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { env } from '../config/env';
+import { billingSubscriptions } from '../db/schema';
+import { EntitlementsService } from '../billing/entitlements.service';
+import type { PlanId } from '../billing/plans';
+import { budgetPeriod } from '../runners/agent-budget';
 
 /**
- * Ticket #1024 — `activity_events` had no retention at all: 1.3M rows / 590 MB of a 912 MB production database, and the backup dump
- * grew from 25 MB to 192 MB in nine days. This is the purge. It touches `activity_events` and NOTHING else: the plan-gated version
- * history (`record_versions`, `record_field_changes`, ADR version-history.md) is a different table with its own, much shorter, clock.
+ * Ticket #1024 — `activity_events` had no retention at all: 1.3M rows / 590 MB of a 912 MB production database, and the backup dump grew
+ * from 25 MB to 192 MB in nine days. This is the purge. It touches `activity_events` and NOTHING else: the plan-gated version history
+ * (`record_versions`, `record_field_changes`, ADR version-history.md) is a different table with its own, much shorter, clock.
  *
- * WHAT EXPIRES, and what does not (decided on the ticket; every line below is a reader that was found, not guessed):
- *   - EXPIRES: an event about a record (`record_id` set: record.created/updated/deleted, relation.*, reference.created, comment.created,
- *     document.edited, attachment.added, button.pressed) and the `outward.*` agent log (high volume, `record_id` null).
+ * HOW LONG (Ievgen's ruling, ticket #1024, 2026-11-26): PER PLAN, read from the workspace's plan (`billing_subscriptions.plan`, no row =
+ * Free: the same reading `BillingService.getStatus` does). The values are {@link ACTIVITY_RETENTION_DAYS_BY_PLAN}, the one place to
+ * change them. A deployment WITHOUT a plan notion (self-hosted, Stripe off) has no plan to read: it uses `ACTIVITY_EVENTS_RETENTION_DAYS`
+ * (`never` / `0` keeps everything), and with the variable unset it keeps everything: nobody asked this operator's data to be deleted. A
+ * plan the map does not know deletes NOTHING for that workspace (the CASE has no ELSE), so adding a plan without adding its row here
+ * keeps data instead of losing it. A no-card trial that has elapsed but was not yet lazily downgraded still reads as its trial plan,
+ * which keeps longer, never shorter.
+ *
+ * WHAT EXPIRES, and what does not (every line below is a reader that was found, not guessed):
+ *   - EXPIRES at the plan value: an event about a record (`record_id` set: record.created/updated/deleted, relation.*, reference.created,
+ *     comment.created, document.edited, attachment.added, button.pressed) and the `outward.*` agent log (`record_id` null).
  *   - KEPT FOREVER: an event with no `record_id` that is not `outward.*`: space/database/view deleted or restricted, portal links,
- *     runner pairing. They are low volume and they are what an audit log exists to answer. The rule is "no record", not a list of
- *     type names, so an audit type added next year is kept by default; a list would purge it the day nobody remembered to extend it.
- *   - KEPT: a `record.updated` whose diff touches a person field. My Work's "assigned by" / "assigned by me" reads the LAST such event
- *     (search/my-work.service.ts); purging it would drop an old, still-open record out of "Assigned by me". Person-field changes are a
- *     tiny share of the volume.
+ *     runner pairing. Low volume, and what an audit log exists to answer. The rule is "no record", not a list of type names, so an
+ *     audit type added next year is kept by default.
+ *   - KEPT: a `record.updated` whose diff touches a person field. My Work's "assigned by" reads the LAST such event
+ *     (search/my-work.service.ts); purging it would drop an old, still-open record out of "Assigned by me".
  *
- * WHY A FLOOR: the agent budget sums this calendar month's `outward.ai_field` rows, and the webhook dispatcher re-reads behind its
- * cursor. A retention under a month would make a budget quietly under-count. So no setting goes below {@link MIN_RETENTION_DAYS}.
+ * THE SYSTEM FLOOR sits BELOW the plan value: it can only keep a row LONGER than the plan says, never delete one earlier.
+ *   1. An `outward.*` row from the CURRENT CALENDAR MONTH (UTC) is kept: the agent budget sums exactly those (runners/agent-budget.service.ts).
+ *   2. A row the webhook dispatcher has not passed yet is kept: any row newer than `cursor_at - WEBHOOK_SCAN_LOOKBACK_SECONDS` of an ENABLED
+ *      subscription of its workspace. Deliberately not narrowed by the subscription's event types or database: keeping a little extra is
+ *      free, deleting an undelivered event is not. A DISABLED subscription is not counted (the dispatcher skips it, and one left off for
+ *      months must not pin a workspace's whole history forever).
  *
  * HOW IT DELETES: batches, never one giant DELETE. Each batch picks its rows `FOR UPDATE SKIP LOCKED`, so two nodes (or two
  * overlapping calls) take disjoint rows: nothing is deleted twice, nothing waits, nothing deadlocks. The walk also advances a
@@ -28,9 +44,8 @@ import { env } from '../config/env';
  * batch. That one is a cost measure only: with the pointer removed the results are identical (checked by mutation), so no test can
  * assert it. Logs counts, never row data.
  */
-export const DEFAULT_RETENTION_DAYS = 90;
-/** A month's budget plus the longest webhook lookback, with slack. Not configurable below this. */
-export const MIN_RETENTION_DAYS = 35;
+/** Days of record-level activity a hosted workspace keeps, by plan. Business is 30 until a 90-day tier exists; Enterprise is that tier. */
+export const ACTIVITY_RETENTION_DAYS_BY_PLAN: Record<PlanId, number> = { free: 7, pro: 30, business: 30, enterprise: 90 };
 export const PURGE_BATCH_SIZE = 5_000;
 /** One run stops here and the next tick continues: a first run over millions of rows must not hold a node for minutes. */
 export const MAX_BATCHES_PER_RUN = 400;
@@ -39,23 +54,22 @@ const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type RetentionSetting = { days: number | null; clamped: boolean };
-
-/** `undefined`/empty = the default; `never` or `0` = keep forever (null); a number below the floor is raised to it and flagged. */
-export function parseRetentionDays(raw: string | undefined): RetentionSetting {
+/** `undefined`/empty/`never`/`0` = keep everything (null); a whole number = that many days. Anything else throws. */
+export function parseRetentionDays(raw: string | undefined): number | null {
   const v = (raw ?? '').trim().toLowerCase();
-  if (v === '') return { days: DEFAULT_RETENTION_DAYS, clamped: false };
-  if (v === 'never' || /^0+$/.test(v)) return { days: null, clamped: false };
+  if (v === '' || v === 'never' || /^0+$/.test(v)) return null;
   const n = Number(v);
   if (!Number.isInteger(n) || n < 0) throw new Error(`ACTIVITY_EVENTS_RETENTION_DAYS must be a whole number of days, 0, or "never" (got "${raw}")`);
-  return n < MIN_RETENTION_DAYS ? { days: MIN_RETENTION_DAYS, clamped: true } : { days: n, clamped: false };
+  return n;
 }
 
 export type PurgeOptions = {
   /** The clock. Defaults to now; tests fix it. */
   now?: Date;
-  /** Overrides the environment. `null` = keep forever. Still subject to the floor. */
+  /** One value for EVERY workspace, overriding both the plan and the environment. `null` = keep everything. The floors still apply. */
   retentionDays?: number | null;
+  /** Force the per-plan (true) or the environment (false) path; by default hosted (Stripe on) is per plan and self-hosted reads the env. */
+  perPlan?: boolean;
   batchSize?: number;
   maxBatches?: number;
   pauseMs?: number;
@@ -69,17 +83,16 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    private readonly entitlements: EntitlementsService,
+  ) {}
 
   onModuleInit() {
     if (env().NODE_ENV === 'test') return;
-    const setting = parseRetentionDays(env().ACTIVITY_EVENTS_RETENTION_DAYS);
-    if (setting.days === null) {
-      this.logger.log('activity_events retention is off (ACTIVITY_EVENTS_RETENTION_DAYS=never): nothing is purged');
+    if (!this.entitlements.hostedPlans && parseRetentionDays(env().ACTIVITY_EVENTS_RETENTION_DAYS) === null) {
+      this.logger.log('activity_events retention is off (ACTIVITY_EVENTS_RETENTION_DAYS unset, 0 or never): nothing is purged');
       return;
-    }
-    if (setting.clamped) {
-      this.logger.warn(`ACTIVITY_EVENTS_RETENTION_DAYS is below the ${MIN_RETENTION_DAYS}-day floor (agent budgets read this month's events); using ${MIN_RETENTION_DAYS}`);
     }
     // Per node and per overlapping tick: skip a tick while the previous one is still walking. The purge itself is safe to run twice at once
     // (SKIP LOCKED), this only avoids a node competing with itself.
@@ -103,14 +116,38 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
+  /** The retention each row is judged by, as a SQL timestamp expression, and the newest cutoff in play (for the index range). */
+  private cutoffs(opts: PurgeOptions, now: Date): { expr: SQL; newest: string } | null {
+    const at = (days: number) => new Date(now.getTime() - days * DAY_MS).toISOString();
+    const flat = opts.retentionDays !== undefined ? opts.retentionDays : opts.perPlan === true || (opts.perPlan === undefined && this.entitlements.hostedPlans) ? undefined : parseRetentionDays(env().ACTIVITY_EVENTS_RETENTION_DAYS);
+    if (flat === null) return null;
+    if (flat !== undefined) return { expr: sql`${at(flat)}::timestamptz`, newest: at(flat) };
+    const whens = (Object.entries(ACTIVITY_RETENTION_DAYS_BY_PLAN) as Array<[PlanId, number]>).map(([plan, days]) => sql`WHEN ${plan} THEN ${at(days)}::timestamptz`);
+    return {
+      // No ELSE: a plan this map does not know yields NULL, `created_at < NULL` is never true, nothing of that workspace is deleted.
+      expr: sql`(CASE COALESCE(bs.plan::text, 'free') ${sql.join(whens, sql` `)} END)`,
+      newest: at(Math.min(...Object.values(ACTIVITY_RETENTION_DAYS_BY_PLAN))),
+    };
+  }
+
+  /**
+   * How many days of record-level activity this workspace keeps: its plan's value on a hosted deployment, the environment value
+   * elsewhere. `null` = kept forever. This is what the audit log reports as `retention_days`, so the number a reader is shown and the
+   * number the purge applies cannot come from two places.
+   */
+  async retentionDaysFor(workspaceId: string): Promise<number | null> {
+    if (!this.entitlements.hostedPlans) return parseRetentionDays(env().ACTIVITY_EVENTS_RETENTION_DAYS);
+    const row = await this.db.query.billingSubscriptions.findFirst({ where: eq(billingSubscriptions.workspaceId, workspaceId), columns: { plan: true } });
+    return ACTIVITY_RETENTION_DAYS_BY_PLAN[row?.plan ?? 'free'] ?? null;
+  }
+
   /** Delete expired `activity_events` in batches. Returns counts only. Safe to call concurrently and repeatedly. */
   async purge(opts: PurgeOptions = {}): Promise<PurgeResult> {
-    const configured = opts.retentionDays === undefined ? parseRetentionDays(env().ACTIVITY_EVENTS_RETENTION_DAYS).days : opts.retentionDays;
-    if (configured === null) return { deleted: 0, batches: 0, capped: false, disabled: true };
-    const days = Math.max(configured, MIN_RETENTION_DAYS);
     const now = opts.now ?? new Date();
-    // Strictly older than the cutoff: an event exactly `days` old is kept.
-    const cutoff = new Date(now.getTime() - days * DAY_MS).toISOString();
+    const cutoffs = this.cutoffs(opts, now);
+    if (!cutoffs) return { deleted: 0, batches: 0, capped: false, disabled: true };
+    const monthStart = budgetPeriod(now).startsAt.toISOString();
+    const lookback = env().WEBHOOK_SCAN_LOOKBACK_SECONDS;
     const batchSize = Math.max(1, opts.batchSize ?? PURGE_BATCH_SIZE);
     const maxBatches = opts.maxBatches ?? MAX_BATCHES_PER_RUN;
     const pauseMs = opts.pauseMs ?? PAUSE_BETWEEN_BATCHES_MS;
@@ -129,7 +166,9 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
         WITH picked AS MATERIALIZED (
           SELECT e.id, e.created_at
           FROM activity_events e
-          WHERE e.created_at < ${cutoff}::timestamptz
+          LEFT JOIN billing_subscriptions bs ON bs.workspace_id = e.workspace_id
+          WHERE e.created_at < ${cutoffs.newest}::timestamptz
+            AND e.created_at < ${cutoffs.expr}
             AND (e.created_at, e.id) > (${lastTs}::timestamptz, ${lastId}::uuid)
             AND (e.record_id IS NOT NULL OR e.type LIKE 'outward.%')
             AND NOT (
@@ -140,9 +179,15 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
                 WHERE k IN (SELECT f.id::text FROM fields f WHERE f.type = 'user')
               )
             )
+            AND NOT (e.type LIKE 'outward.%' AND e.created_at >= ${monthStart}::timestamptz)
+            AND NOT EXISTS (
+              SELECT 1 FROM webhook_subscriptions w
+              WHERE w.workspace_id = e.workspace_id AND w.enabled
+                AND e.created_at > w.cursor_at - make_interval(secs => ${lookback})
+            )
           ORDER BY e.created_at, e.id
           LIMIT ${batchSize}
-          FOR UPDATE SKIP LOCKED
+          FOR UPDATE OF e SKIP LOCKED
         ), gone AS (
           DELETE FROM activity_events a USING picked p WHERE a.id = p.id RETURNING a.id
         )
@@ -161,9 +206,7 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
       if (pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
     if (deleted > 0 || capped) {
-      this.logger.log(
-        `activity_events purge: deleted ${deleted} rows older than ${days} days in ${batches} batches${capped ? ` (stopped at ${maxBatches} batches; the next run continues)` : ''}`,
-      );
+      this.logger.log(`activity_events purge: deleted ${deleted} rows in ${batches} batches${capped ? ` (stopped at ${maxBatches} batches; the next run continues)` : ''}`);
     }
     return { deleted, batches, capped, disabled: false };
   }

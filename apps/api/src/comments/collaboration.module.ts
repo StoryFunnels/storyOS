@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { DatabasesModule } from '../databases/databases.module';
 import { MentionsModule } from '../mentions/mentions.module';
 import { RecordsModule } from '../records/records.module';
@@ -17,7 +18,7 @@ import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
 
 @Module({
-  imports: [WorkspacesModule, DatabasesModule, RecordsModule, MentionsModule, UsersModule, MembersDbModule],
+  imports: [BillingModule, WorkspacesModule, DatabasesModule, RecordsModule, MentionsModule, UsersModule, MembersDbModule],
   controllers: [CommentsController, ActivityController, DatabaseActivityController, RecordVersionsController, AuditLogController],
   // #268 — SlackService is provided directly (it only needs the global DB) rather
   // than importing the whole IntegrationsModule: adding that module edge shifts
