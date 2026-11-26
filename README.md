@@ -12,6 +12,8 @@
 
 <p align="center"><img src="docs/assets/storyos-demo.gif" width="900" alt="StoryOS: a board of projects, a project linked to its client and an overdue invoice, and an agent posting a hand-off draft on the project"></p>
 
+<p align="center"><sub>A demo workspace with fictional data.</sub></p>
+
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"/></a>
   <a href="https://docs.storyos.dev"><img src="https://img.shields.io/badge/docs-docs.storyos.dev-informational" alt="Docs"/></a>
