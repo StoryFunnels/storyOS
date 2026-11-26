@@ -168,6 +168,10 @@ export function buildIconCatalog(): {
  * The generated lead is whole sentences, never a mid-sentence cut. Caps are enforced by description-budget.test.ts.
  */
 export const SHORT_DESCRIPTION_CAP = 340;
+
+/** #704 - the one wording of the field `description` parameter, shared by add_field and update_field. */
+const FIELD_DESCRIPTION_PARAM =
+  'Help text for this field: plain text, up to 200 characters, stored with the field and returned wherever fields are listed.';
 export const TOOL_NOTES_HEADING = 'TOOL NOTES';
 /** The exact section string get_started's `section` argument accepts for one tool's full text. */
 export const toolNotesSection = (tool: string): string => `${TOOL_NOTES_HEADING} ${tool}`;
@@ -309,6 +313,8 @@ interface FieldDef {
   displayName: string;
   type: string;
   isSystem?: boolean;
+  /** #704 - the field's help text, null when it has none. */
+  description?: string | null;
   options?: Array<{ id: string; label: string; color?: string; icon?: string | null; category?: string | null }>;
   relation?: { id?: string; target_database_id: string; target_database_name: string | null; cardinality: string; side: string };
 }
@@ -469,6 +475,9 @@ function describeFields(db: DatabaseDetail) {
     .filter((f) => !f.isSystem && !SYSTEM_FIELD_BY_API_NAME.has(f.apiName))
     .map((f) => {
       const out: Record<string, unknown> = { api_name: f.apiName, name: f.displayName, type: f.type };
+      // #704 - what the field is FOR, in its author's words. Omitted (never null or '') when there is none, like the database description above,
+      // so an agent that copies this object back does not send one and the common undescribed field stays terse.
+      if (f.description) out.description = f.description;
       // #216: `icon` is returned so what an agent reads is what it can write
       // back. Omitted when absent, keeping the common no-icon case terse.
       if (f.options?.length)
@@ -1369,7 +1378,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Describe database',
       description:
-        'The schema of one database: every field with its exact api_name, type, select options and relation targets. These are the exact api_names that record writes and queries are keyed by.',
+        'The schema of one database: every field with its exact api_name, type, select options, relation targets and (when it has one) its description, the field\'s help text. These are the exact api_names that record writes and queries are keyed by.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -3244,7 +3253,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Build a proposed schema',
       description:
-        'Build an approved plan from propose_schema in ONE call — every database, field, relation and state together, reusing existing databases where the plan says reuse. Returns a summary of what was created vs reused, with ids. Replaces a sequence of create_database/add_field calls.',
+        'Build an approved plan from propose_schema in ONE call — every database, field, relation and state together, reusing existing databases where the plan says reuse. A plan field (and a state) may carry a `description`, the field\'s help text (plain text, up to 200 characters). Returns a summary of what was created vs reused, with ids. Replaces a sequence of create_database/add_field calls.',
       inputSchema: {
         workspace: z.string(),
         plan: z
@@ -3669,7 +3678,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
         'the mention badge and My Work all key off it. A workflow field created with NO options starts as To do / In progress / Done (categories unstarted / started / completed); options you pass are used exactly as given, nothing added. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Formula config: {expression, format?, currency_code?, precision?} — dry-run the expression with preview_formula FIRST (it saves nothing, returns the result type and values on 5 records, and positioned errors with the nearest valid field or function name) — a number-returning formula may set format "percent" or "currency" (currency REQUIRES a 3-letter currency_code, e.g. "EUR", and is refused on a formula that returns text/date/checkbox). Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field, or a formula that RETURNS a number and reads no lookup, via target_field_api_name — e.g. sum a Quote Line\'s `qty * price` formula onto its Quote) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. A sum/avg/min/max rollup is shown in the number format of the field it aggregates (describe_database returns it in the rollup\'s config with format_inherited: true); set format/currency_code/precision on the rollup to override it, null to go back to inheriting. A count is always a plain integer and refuses a format. (Relations link two databases — not added here yet.) ' +
-        'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Returns the field.',
+        'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Pass `description` (plain text, up to 200 characters) to say what the field is for and how to fill it: it is stored with the field and returned wherever fields are listed, so set it when the name alone does not say. Returns the field.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -3677,16 +3686,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         type: z.enum(FIELD_TYPES),
         options: z.array(optionShape).optional().describe('select/multi_select/workflow choices, as labels or {label,color,icon,category}. On a workflow field each option gets a state category (inferred from its label and position unless you give one). Omit them on a workflow field to get To do / In progress / Done.'),
         config: z.record(z.string(), z.any()).optional().describe('Advanced per-type config (lookup/rollup/formula).'),
+        description: z.string().nullable().optional().describe(FIELD_DESCRIPTION_PARAM),
       },
     },
-    handle<{ workspace: string; database: string; name: string; type: string; options?: Array<string | { label: string; color?: string; icon?: string }>; config?: Record<string, unknown> }>(
-      async ({ workspace, database, name, type, options, config }) => {
+    handle<{ workspace: string; database: string; name: string; type: string; options?: Array<string | { label: string; color?: string; icon?: string }>; config?: Record<string, unknown>; description?: string | null }>(
+      async ({ workspace, database, name, type, options, config, description }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const field = await unwrap<unknown>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields', {
             params: { path: { ws: ws.id, db: db.id } },
-            body: { display_name: name, type, options: normOptions(options), config } as never,
+            body: { display_name: name, type, options: normOptions(options), config, ...(description !== undefined ? { description } : {}) } as never,
           }),
         );
         return text(field);
@@ -3699,7 +3709,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update field',
       description:
-        'Rename a field, add select options, or edit and remove existing ones. Returns the updated field. ' +
+        'Rename a field, set or clear its description (help text), add select options, or edit and remove existing ones. Returns the updated field. ' +
         'Editing is non-destructive: recolouring or renaming an option leaves every record that holds it untouched, ' +
         'because options have stable ids and records point at the id, not the text. ' +
         'Removing one is the exception — it refuses with a usage count unless you confirm, and can reassign holders to another option.',
@@ -3708,6 +3718,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         database: z.string(),
         field: z.string().describe('Field to update (name, api_name, or id).'),
         rename_to: z.string().optional(),
+        description: z.string().nullable().optional().describe(`${FIELD_DESCRIPTION_PARAM} Pass null or "" to remove it; leave it out to keep what is there.`),
         unique: z
           .boolean()
           .optional()
@@ -3760,13 +3771,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       database: string;
       field: string;
       rename_to?: string;
+      description?: string | null;
       unique?: boolean;
       unique_normalize?: boolean;
       add_options?: Array<string | { label: string; color?: string; icon?: string; category?: string }>;
       update_options?: Array<{ option: string; label?: string; color?: string; icon?: string | null; category?: string | null }>;
       remove_options?: Array<{ option: string; confirm?: boolean; reassign_to?: string }>;
     }>(
-      async ({ workspace, database, field, rename_to, unique, unique_normalize, add_options, update_options, remove_options }) => {
+      async ({ workspace, database, field, rename_to, description, unique, unique_normalize, add_options, update_options, remove_options }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -3799,6 +3811,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
               params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
               body: { display_name: rename_to } as never,
+            }),
+          );
+        }
+        // #704 - null clears, so this is `!== undefined` and not a truthiness test (an empty string clears too, server-side).
+        if (description !== undefined) {
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+              body: { description } as never,
             }),
           );
         }
