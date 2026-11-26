@@ -10,7 +10,7 @@
   Clients, contacts and projects as linked records, with your own AI working inside them. Open source and self-hostable.
 </p>
 
-<!-- PRODUCT GIF SLOT: Dara's product GIF goes here, centred, under the tagline. Not ready yet; add it in a follow-up. -->
+<p align="center"><img src="docs/assets/storyos-demo.gif" width="900" alt="StoryOS: a board of projects, a project linked to its client and an overdue invoice, and an agent posting a hand-off draft on the project"></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"/></a>
