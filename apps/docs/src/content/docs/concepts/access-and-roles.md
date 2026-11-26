@@ -211,12 +211,17 @@ who to ask for a new one, rather than a page that looks like the link never exis
 the same address again at any time; that makes a new, working link. The record of the revoke is
 deleted 30 days later, after which the old link reads like one that never existed.
 
-**Joining needs a verified email address.** An invite is for one email address, and holding the link is not enough: the
-account that accepts it must have that address and must have verified it. Someone who creates their account from the
-invite link has verified it already, because the link went to that mailbox. Someone whose account already existed
-without a verified address is told to verify it first (**Send verification email**, then open the link in it), and
-the same invite link works afterwards: the refusal does not use it up. Creating an account at that address in some
-other way does not count, so a forwarded link alone does not let a stranger in by typing the address.
+**Joining needs a verified email address.** An invite is for one email address, and the account that accepts it
+must have that address and must have verified it. Someone who creates their account from the invite link has
+verified it already, because the link went to that mailbox. Someone whose account already existed without a
+verified address is told to verify it first (**Send verification email**, then open the link in it), and the same
+invite link works afterwards: the refusal does not use it up.
+
+**Treat the invite link like a key to that seat.** Anyone who holds the link and knows the invited address can
+sign up from the link, is verified by it and can join. Forwarding the link forwards the seat. The controls are
+the 7-day expiry and **Revoke**. What the verified-email rule closes is narrower: an account that already
+existed at that address without ever verifying it (for example one someone else registered with it) can no
+longer join with the link until the address is verified from its mailbox.
 
 **Throttled to one resend per minute**, per invite — a repeat click inside that window is refused
 with a plain "wait a minute" message rather than silently sending twice.

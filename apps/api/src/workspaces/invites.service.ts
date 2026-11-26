@@ -317,11 +317,13 @@ export class InvitesService implements OnModuleInit, OnModuleDestroy {
     if (invite.email !== user.email.toLowerCase()) {
       throw codedException(403, 'invite_email_mismatch', 'This invite was issued for a different email address');
     }
-    // Ticket #1347 — the address matches, but matching is only a string comparison and sign-up does not prove the mailbox, so a
-    // leaked link plus a sign-up with the invited address would pass it. Joining needs an address the account has VERIFIED: an
-    // account created through this link is verified at creation (auth.ts), anyone else uses the emailed link first. Checked AFTER
-    // the address so the answer for someone else's invite never depends on the caller's verification state, and BEFORE anything is
-    // written, so a refusal creates no membership and does not burn the token: once verified, the same link works.
+    // Ticket #1347 — the address matches, but matching is only a string comparison, and an account that already existed at this
+    // address may never have proven the mailbox (someone else may have registered it). Joining needs an address the account has
+    // VERIFIED: an account created through this link is verified at creation (auth.ts), anyone else uses the emailed link first.
+    // This does NOT stop someone who holds the link and knows the address from signing up through the link and joining: that is
+    // the accepted magic-link risk, controlled by expiry and revoke. Checked AFTER the address so the answer for someone else's
+    // invite never depends on the caller's verification state, and BEFORE anything is written, so a refusal creates no
+    // membership and does not burn the token: once verified, the same link works.
     if (!user.emailVerified) {
       throw codedException(
         403,
