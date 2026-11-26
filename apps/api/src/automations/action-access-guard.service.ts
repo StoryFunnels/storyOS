@@ -55,6 +55,8 @@ export type LinkedResolver = () => Promise<{ targetDbId: string; linkedIds: stri
  * rule switches itself off after MAX_FAILURES, so a rule that can never succeed stops being fired rather than retried forever. A
  * queued job refused at claim time is finalized without a retry (job-runner's non-retryable path).
  *
+ * Callers must pass a real USER ID as the actor: the lookup is by membership, so an email address or a made-up string is refused as "not a member".
+ *
  * attach_pdf is NOT checked here: it carries its own, stricter check (it also needs the source readable), and was the model.
  */
 @Injectable()
