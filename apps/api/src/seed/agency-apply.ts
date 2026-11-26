@@ -20,7 +20,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { EntitlementsService } from '../billing/entitlements.service';
-import { backdate, injector, ok, tokenFrom, type Injector } from './apply';
+import { backdate, injector, markSeedAccountVerified, ok, tokenFrom, type Injector } from './apply';
 import {
   AGENCY_WORKSPACE,
   AGENT_LOGINS,
@@ -234,6 +234,7 @@ export async function applyAgency(app: NestFastifyApplication, opts: AgencyOptio
     if (invite.status >= 300) throw new Error(`invite ${person.email} failed (${invite.status}): ${JSON.stringify(invite.body)}`);
     const inviteToken = new URL((invite.body as { accept_url: string }).accept_url).searchParams.get('token');
     if (!inviteToken) throw new Error('invite carried no token in accept_url');
+    await markSeedAccountVerified(db, person.email);
     ok(await call('POST', '/invites/accept', { token: inviteToken }, acct.token), `accept invite for ${person.email}`);
     result.members_invited++;
   }
