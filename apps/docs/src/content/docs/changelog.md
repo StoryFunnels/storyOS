@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **25 Nov** — A built-in Shop OS pack: customers, products, orders and order lines, an order board by status, an Unpaid Orders view, and a drafter agent that installs switched off. [The Shop OS pack](/guides/shop-os-pack/)
 - **15 Nov** — The record page's Activity, Comments and About sit under the fields on a window narrower than 900px, Activity reads as "set", "cleared" and "changed" sentences, and a half-typed comment is kept per record. [The record page](/concepts/databases-and-fields/#the-record-page)
 - **15 Nov** — My Work gathers finished rows under a closed **Done · N** group, writes the space on two databases that share a name, and says **Not recorded** when it has no record of who assigned you. [My Work: what is waiting on you](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you)
 - **13 Nov** — An approval that an automation rule asked for names the rule, in the approvals list and in My Work, and the API carries `rule_id`, `rule_name` and `rule_label`. [How the Inbox names a rule's request](/concepts/approval-gates/#how-the-inbox-names-a-rules-request)
