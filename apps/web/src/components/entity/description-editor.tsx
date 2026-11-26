@@ -10,6 +10,8 @@ import '@blocknote/mantine/style.css';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { api } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
+import { editorNonceOptions, useStyleNonce } from '@/lib/style-nonce';
+import { EditorMantine } from './editor-mantine';
 import { BLOCKNOTE_BODY } from '@/components/entity/long-text-block';
 import type { MutableRefObject } from 'react';
 import {
@@ -105,7 +107,9 @@ function EditorInner({
   const { resolved: theme } = useTheme();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const nonce = useStyleNonce();
   const editor = useCreateBlockNote({
+    ...editorNonceOptions(nonce),
     schema: mentionSchema,
     initialContent:
       initial.content && initial.content.length > 0 ? (initial.content as never) : undefined,
@@ -216,6 +220,7 @@ function EditorInner({
           classes undo it there (no pull, normal width) and give the text a 12px inset from the border. */}
       <div className={BLOCKNOTE_BODY}>
         <MentionScope ws={ws}>
+          <EditorMantine>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and it
                wins over the reordered one in MentionSuggestionMenus. */
@@ -232,6 +237,7 @@ function EditorInner({
           >
             <MentionSuggestionMenus editor={editor as never} ws={ws} />
           </BlockNoteView>
+          </EditorMantine>
         </MentionScope>
       </div>
       <p className="text-right text-meta text-faint">{saving ? 'Saving…' : 'Saved'}</p>

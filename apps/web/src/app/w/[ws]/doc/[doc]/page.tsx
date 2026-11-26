@@ -12,6 +12,8 @@ import '@blocknote/mantine/style.css';
 import { api } from '@/lib/api';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { useTheme } from '@/lib/theme';
+import { editorNonceOptions, useStyleNonce } from '@/lib/style-nonce';
+import { EditorMantine } from '@/components/entity/editor-mantine';
 import { consumeNewDocument } from '@/lib/new-doc-focus';
 import { MarkdownActions } from '@/components/entity/markdown-actions';
 import { PrintAction } from '@/components/entity/print-action';
@@ -71,7 +73,9 @@ function DocEditor({
   const [title, setTitle] = useState(initial.title);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolved: theme } = useTheme();
+  const nonce = useStyleNonce();
   const editor = useCreateBlockNote({
+    ...editorNonceOptions(nonce),
     schema: mentionSchema,
     initialContent: Array.isArray(initial.content) && initial.content.length > 0 ? (initial.content as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
@@ -145,6 +149,7 @@ function DocEditor({
         </span>
       </div>
       <MentionScope ws={ws}>
+        <EditorMantine>
         <BlockNoteView
           /* #338: BlockNote mounts its own "/" menu unless this is off, and
              it wins over ours — so the reordered menu in MentionSuggestionMenus
@@ -162,6 +167,7 @@ function DocEditor({
         >
           <MentionSuggestionMenus editor={editor as never} ws={ws} />
         </BlockNoteView>
+        </EditorMantine>
       </MentionScope>
     </div>
   );

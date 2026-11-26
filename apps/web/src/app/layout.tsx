@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import Script from 'next/script';
 import { connection } from 'next/server';
+import { headers } from 'next/headers';
 import { preload } from 'react-dom';
 import { Providers } from './providers';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
@@ -66,7 +67,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const viewport = { width: 'device-width', initialScale: 1, themeColor: '#FAF7F1' };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // Ticket #1340: the per-request nonce `src/proxy.ts` put on the request, handed to the client code that creates <style> elements.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   // #855 — React's own preload API: it emits ONE <link rel="preload"> in the head and dedupes repeat calls.
   preload(assetUrl(figtreeLatin), { as: 'font', type: 'font/woff2', crossOrigin: 'anonymous' });
   return (
@@ -83,7 +86,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="font-sans">
-        <Providers>{children}</Providers>
+        <Providers nonce={nonce}>{children}</Providers>
       </body>
     </html>
   );
