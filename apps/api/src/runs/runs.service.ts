@@ -9,6 +9,7 @@ import { DatabasesService } from '../databases/databases.service';
 import { JobRunnerService } from '../automations/job-runner.service';
 import { AutomationsService } from '../automations/automations.service';
 import { AWAITING_APPROVAL, effectiveStatus, hasWaitingApproval, waitingCounts } from '../automations/run-status';
+import { parseFailure } from '../automations/publish-failure';
 import { maskUserinfoInText } from '../common/webhook-headers';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
 
@@ -243,7 +244,8 @@ export class RunsService {
         kind: j.kind,
         status: j.status,
         attempts: j.attempts,
-        last_error: j.lastError,
+        // A post_social failure is shown as the code + sentence, never an older row's raw network response (ticket #42).
+        last_error: j.kind === 'post_social' ? (parseFailure(j.lastError)?.message ?? null) : j.lastError,
         artifact: j.artifact,
         connection_id: j.connectionId,
         idempotency_key: j.idempotencyKey,
