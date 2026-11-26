@@ -46,6 +46,9 @@ import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 import { redactSecrets } from '../common/redact-secrets';
 import { MAX_FAILURES } from './constants';
+import { NotificationsService } from '../notifications/notifications.service';
+import { isAccessRefusal, isFirstRefusal, notifyAdmins, ownerFlags } from './owner-refusal';
+import type { NeedsNewOwnerReason } from './owner-refusal';
 
 interface Trigger {
   type: string;
@@ -144,6 +147,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     private readonly entitlements: EntitlementsService,
     private readonly approvalsService: ApprovalsService,
     private readonly httpRequestAction: HttpRequestActionService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   onModuleInit() {
@@ -169,22 +173,23 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Ticket #1353 — `ownerMissing`: true when the rule's owner (`created_by`) is null or is not an ACTIVE member of this workspace, so the
-   * rule is refused at run time and an admin has to take it over. Read fresh on every list/read, never stored: it is true exactly while
-   * the owner is gone, and clears the moment the rule is handed to a member. One query for the whole list.
+   * Ticket #1353 — the owner flags on every rule the API returns: `needsNewOwner` (boolean) with `needsNewOwnerReason`
+   * (`missing` | `left` | `lacks_access` | null), and `ownerMissing`, kept for the first two reasons. Derived on each read, never stored;
+   * see owner-refusal.ts. One owner lookup and one last-run lookup for the whole list.
    */
-  private async presentAll<R extends { actions: unknown; createdBy: string | null }>(databaseId: string, rules: R[]) {
-    const ids = [...new Set(rules.map((r) => r.createdBy).filter((id): id is string => Boolean(id)))];
-    let active = new Set<string>();
-    if (ids.length > 0) {
-      const rows = await this.db
-        .select({ userId: memberships.userId })
-        .from(memberships)
-        .innerJoin(databases, eq(databases.workspaceId, memberships.workspaceId))
-        .where(and(eq(databases.id, databaseId), eq(memberships.status, 'active'), inArray(memberships.userId, ids)));
-      active = new Set(rows.map((r) => r.userId));
-    }
-    return rules.map((r) => ({ ...this.present(r), ownerMissing: !r.createdBy || !active.has(r.createdBy) }));
+  private async presentAll<R extends { id: string; actions: unknown; createdBy: string | null }>(databaseId: string, rules: R[]) {
+    const [db] = await this.db.select({ workspaceId: databases.workspaceId }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+    const reasons = db ? await ownerFlags(this.db, db.workspaceId, rules) : new Map<string, NeedsNewOwnerReason | null>();
+    return rules.map((r) => {
+      const reason = reasons.get(r.id) ?? null;
+      return { ...this.present(r), ownerMissing: reason === 'missing' || reason === 'left', needsNewOwner: reason !== null, needsNewOwnerReason: reason };
+    });
+  }
+
+  /** One rule, with the same shape and flags the list carries. */
+  async get(databaseId: string, ruleId: string) {
+    const rule = await this.getRule(databaseId, ruleId);
+    return (await this.presentAll(databaseId, [rule]))[0]!;
   }
 
   /** Read shape: secret send_webhook header values become the presence flag (#249). */
@@ -759,7 +764,29 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
           .where(eq(automations.id, rule.id));
         if (streak >= MAX_FAILURES)
           this.logger.warn(`automation ${rule.id} auto-disabled after ${streak} failures`);
+        await this.noticeAfterFailure(current, workspaceId, runId, message, streak);
       }
+    }
+  }
+
+  /**
+   * Ticket #1353 — no silent failure. The FIRST access refusal in a row tells the workspace's admins the rule needs attention
+   * (person and kind of record, never a title); a rule that switches itself off tells them too, not only the server log.
+   */
+  private async noticeAfterFailure(
+    rule: { id: string; name: string; databaseId: string; createdBy: string | null },
+    workspaceId: string,
+    runId: string,
+    message: string,
+    streak: number,
+  ): Promise<void> {
+    try {
+      if (isAccessRefusal(message) && (await isFirstRefusal(this.db, rule.id, runId))) {
+        await notifyAdmins(this.db, this.notifications, rule, workspaceId, 'refused', message);
+      }
+      if (streak >= MAX_FAILURES) await notifyAdmins(this.db, this.notifications, rule, workspaceId, 'disabled', message);
+    } catch (error) {
+      this.logger.warn(`could not notify admins about rule ${rule.id}: ${String(error)}`);
     }
   }
 
@@ -1046,6 +1073,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         .where(eq(automations.id, ruleId));
       if (streak >= MAX_FAILURES)
         this.logger.warn(`automation ${ruleId} auto-disabled after ${streak} failures`);
+      await this.noticeAfterFailure({ id: ruleId, name: rule.name, databaseId, createdBy: rule.createdBy }, workspaceId, runId, message, streak);
     }
   }
 

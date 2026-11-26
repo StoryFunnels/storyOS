@@ -324,6 +324,12 @@ export const DEFERRED: CoverageRule[] = [
       "#443 — creating a subscription returns its live signing secret in the response body (shown once, never listed again), and a tool result is transcript. Redacting it is not an option: no read path can return it afterwards. Make the subscription in-app; list_webhooks / update_webhook / delete_webhook / list_webhook_deliveries manage and debug it. Outbound calls in general are reachable via create_automation's send_webhook action.",
   },
   {
+    // Ticket #1353 — the single-rule read.
+    match: /^GET \/api\/v1\/workspaces\/\{ws\}\/databases\/\{db\}\/automations\/\{id\}$/,
+    reason:
+      "#1353 — get_automation already reads one rule: it takes it from the same database's rule list, which carries the identical fields (including needs_new_owner and its reason), so the single-rule GET adds nothing an agent cannot already reach.",
+  },
+  {
     // #684 — narrowed from `(test|last-payload|regenerate-hook)`. Otto's
     // review (2026-09-10) caught that the bundled rule gave only ONE of the
     // three a real reason: `regenerate-hook` mints a token (the same

@@ -326,6 +326,8 @@ export interface AutomationRow {
   createdBy?: string | null;
   /** #1353 — true when the owner (`createdBy`) is null or no longer an active member; the rule is refused at run time until an admin takes it over. */
   ownerMissing?: boolean;
+  needsNewOwner?: boolean;
+  needsNewOwnerReason?: 'missing' | 'left' | 'lacks_access' | null;
   hookToken?: string | null;
   /** #392 — schedule-only top-N selection; null on every rule that doesn't use it. */
   sort?: Array<{ field: string; direction: 'asc' | 'desc' }> | null;
@@ -365,6 +367,9 @@ export function readableAutomation(
     created_by: row.createdBy ?? null,
     // #1353 — the rule runs as its owner and is refused at run time when that person is gone; true here means an admin has to take it over.
     owner_missing: row.ownerMissing === true,
+    // #1353 — set from the FIRST refused run (lacks_access) or when the owner is gone (missing, left).
+    needs_new_owner: row.needsNewOwner === true,
+    needs_new_owner_reason: row.needsNewOwnerReason ?? null,
     // #392 — a schedule-only top-N selection; both null on every other rule.
     sort: row.sort ?? null,
     limit: row.topNLimit ?? null,

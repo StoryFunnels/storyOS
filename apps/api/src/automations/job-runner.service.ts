@@ -8,7 +8,7 @@ import {
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { approvals, automationJobs, automations, connections } from '../db/schema';
+import { approvals, automationJobs, automations, connections, databases } from '../db/schema';
 import { env } from '../config/env';
 import { redactSecrets } from '../common/redact-secrets';
 import { parseEventOrigin, runWithEventOrigin } from '../common/credential-context';
@@ -21,6 +21,7 @@ import { PROVIDER_REGISTRY } from '../connections/providers';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommentsService } from '../comments/comments.service';
 import { MAX_FAILURES } from './constants';
+import { isAccessRefusal, notifyAdmins } from './owner-refusal';
 
 type AutomationJobRow = typeof automationJobs.$inferSelect;
 
@@ -464,6 +465,19 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
       .update(automations)
       .set({ failureStreak: streak, enabled: streak >= MAX_FAILURES ? false : undefined })
       .where(eq(automations.id, job.ruleId));
+    // Ticket #1353 — the first access refusal of a queued action tells the admins; so does a rule that switches itself off.
+    const [owner] = await this.db.select({ workspaceId: databases.workspaceId }).from(databases).where(eq(databases.id, rule.databaseId)).limit(1);
+    if (owner) {
+      if (isAccessRefusal(lastError)) {
+        const earlier = await this.db
+          .select({ id: automationJobs.id })
+          .from(automationJobs)
+          .where(and(eq(automationJobs.ruleId, job.ruleId), eq(automationJobs.status, 'failed'), sql`${automationJobs.lastError} LIKE 'automation_%'`, sql`${automationJobs.id} <> ${job.id}`))
+          .limit(1);
+        if (earlier.length === 0) await notifyAdmins(this.db, this.notifications, rule, owner.workspaceId, 'refused', lastError);
+      }
+      if (streak >= MAX_FAILURES) await notifyAdmins(this.db, this.notifications, rule, owner.workspaceId, 'disabled', lastError);
+    }
     if (streak < MAX_FAILURES) return;
     this.logger.warn(`automation ${job.ruleId} auto-disabled after ${streak} failures (job ${job.id})`);
     if (!rule.createdBy) return;

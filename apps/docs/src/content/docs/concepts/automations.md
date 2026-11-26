@@ -110,10 +110,18 @@ the workspace or the rule has no owner. A refusal counts as a failure, so a rule
 switches itself off after ten in a row. An email, API call or post that was already queued is checked again
 when it is sent, and is not retried if the owner has lost access.
 
-A rule whose owner is gone is flagged **owner missing** in its settings, so an admin can see it needs a new
-owner. In the API the rule carries `ownerMissing: true`, and `get_automation` / `list_automations` show
-`owner_missing: true`. This is a change for rules that were saved before it existed: a rule whose creator was
-since demoted or removed used to keep running with that person's old access, and is now refused.
+**No action runs on a system database** (Members, the Agents pack), whichever action it is, whether the rule runs
+on one or an action writes into one. It is refused with `automation_system_database`.
+
+**A rule that needs a new owner says so from its first refused run.** Its settings show **Needs a new owner** with
+the reason: **no owner**, **left the workspace**, or **no longer has access** (still a member, but demoted or
+removed from the database). The workspace's admins get an in-app notice at that first refusal, naming the person
+and the kind of record, never a title, and another if the rule then switches itself off. In the API every rule
+carries `needsNewOwner` (true or false) and `needsNewOwnerReason` (`missing`, `left`, `lacks_access` or null);
+`ownerMissing` stays true for the first two reasons, and `GET .../automations/{id}` returns one rule with the same
+fields. In `get_automation` and `list_automations` they read `needs_new_owner`, `needs_new_owner_reason` and
+`owner_missing`. This is a change for rules that were saved before it existed: a rule whose creator was since
+demoted or removed used to keep running with that person's old access, and is now refused.
 
 A **button** runs as the person who pressed it, with the access they have at that moment; pressing never
 needed the access to build automations.

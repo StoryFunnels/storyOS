@@ -1,11 +1,11 @@
 import { ForbiddenException, HttpException, Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { AutomationAction } from '@storyos/schemas';
 import { codedException } from '../common/coded-exception';
 import { DatabasesService } from '../databases/databases.service';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { memberships, user } from '../db/schema';
+import { databases, memberships, user } from '../db/schema';
 import type { EffectiveRole } from '../access/access.service';
 import type { ProjectedRecord } from '../records/records.service';
 import { RecordsService } from '../records/records.service';
@@ -15,15 +15,15 @@ import { JobRunnerService } from './job-runner.service';
 /** The two codes a refusal carries. Stable: a client may branch on them, and the run row's text starts with one. */
 export const OWNER_MISSING_CODE = 'automation_owner_missing';
 export const OWNER_NO_ACCESS_CODE = 'automation_owner_no_access';
+export const SYSTEM_DATABASE_CODE = 'automation_system_database';
+/** A queued job whose stored details cannot say who, where or what: refused, never treated as fine. */
+export const JOB_UNREADABLE_CODE = 'automation_job_unreadable';
 
 /**
  * Ticket #1353 — the actions that leave through the job queue's door later (a retried email, an approved post). Their access is
  * re-read AGAIN when the job is claimed, because a job can wait through backoff for hours after the run that queued it.
  */
 const QUEUED_KINDS: ReadonlySet<string> = new Set(['send_email', 'http_request', 'post_social', 'run_agent', 'send_webhook', 'send_slack_message']);
-
-/** Actions that send something out of the workspace (or start an agent): the rule's owner must still be able to BUILD such a rule. */
-const OUTWARD: ReadonlySet<string> = QUEUED_KINDS;
 
 /** What the guard needs to know about the run. `ruleId` set = a rule's run (the actor is the rule's OWNER); absent = a person pressed a button, or an agent applied a staged action. */
 export interface ActionGuardContext {
@@ -73,7 +73,10 @@ export class ActionAccessGuardService implements OnModuleInit {
       if (!QUEUED_KINDS.has(job.kind)) return;
       const payload = job.payload as { action?: AutomationAction; ctx?: { workspaceId?: string; databaseId?: string | null; actorId?: string } } | null;
       const ctx = payload?.ctx;
-      if (!payload?.action || !ctx?.workspaceId || !ctx.databaseId || typeof ctx.actorId !== 'string') return;
+      if (!payload?.action || !ctx?.workspaceId || !ctx.databaseId || typeof ctx.actorId !== 'string' || ctx.actorId.length === 0) {
+        // Unresolvable must never read as "fine": without a workspace, database and actor there is no access to re-check.
+        throw new Error(`${JOB_UNREADABLE_CODE}: This queued action's stored details could not be read, so it was not run.`);
+      }
       try {
         await this.check(payload.action, { workspaceId: ctx.workspaceId, databaseId: ctx.databaseId, record: null, actorId: ctx.actorId, ruleId: job.ruleId });
       } catch (error) {
@@ -95,20 +98,35 @@ export class ActionAccessGuardService implements OnModuleInit {
     const name = await this.personName(ctx.actorId, isRule);
     const refuse = (message: string) => codedException(403, OWNER_NO_ACCESS_CODE, message, { action_type: action.type });
 
-    if (OUTWARD.has(action.type)) {
-      // A rule's owner must still be able to build automations on this database (the rung that saved it); a presser, what the press asked.
-      const rung: EffectiveRole = isRule ? 'creator' : 'editor';
-      await this.databaseRung(membership, ctx.databaseId, rung, () =>
-        refuse(
-          isRule
-            ? `${name} can no longer manage automations on this database, so ${action.type} did not run. An admin needs to take this rule over.`
-            : `${name} can no longer edit records on this database, so ${action.type} did not run.`,
-        ),
-      );
-      return;
+    // Ticket #1353, Otto's ruling: NO action runs against a system database (Members, the Agents pack...), whichever action it is.
+    // The databases an action touches: the one it runs on, and the one it writes into. update_linked's is resolved here.
+    const touched = [ctx.databaseId];
+    if (action.type === 'create_record' || action.type === 'create_records') touched.push(action.database_id);
+    let linked: { targetDbId: string; linkedIds: string[] } | null = null;
+    if (action.type === 'update_linked') {
+      linked = resolveLinked ? await resolveLinked() : null;
+      if (linked) touched.push(linked.targetDbId);
     }
+    await this.assertNoSystemDatabase(ctx.workspaceId, touched, name, action.type);
 
     switch (action.type) {
+      case 'send_email':
+      case 'http_request':
+      case 'post_social':
+      case 'run_agent':
+      case 'send_webhook':
+      case 'send_slack_message': {
+        // A rule's owner must still be able to build automations on this database (the rung that saved it); a presser, what the press asked.
+        const rung: EffectiveRole = isRule ? 'creator' : 'editor';
+        await this.databaseRung(membership, ctx.databaseId, rung, () =>
+          refuse(
+            isRule
+              ? `${name} can no longer manage automations on this database, so ${action.type} did not run. An admin needs to take this rule over.`
+              : `${name} can no longer edit records on this database, so ${action.type} did not run.`,
+          ),
+        );
+        return;
+      }
       case 'set_values':
         await this.recordRung(membership, ctx, 'contributor', () => refuse(`${name} can no longer edit this record, so set_values did not run.`));
         return;
@@ -126,15 +144,33 @@ export class ActionAccessGuardService implements OnModuleInit {
         );
         return;
       case 'update_linked': {
-        const linked = resolveLinked ? await resolveLinked() : null;
         if (!linked) return;
         for (const id of linked.linkedIds) {
           await this.linkedRecordRung(membership, linked.targetDbId, id, () => refuse(`${name} can no longer edit the linked records, so update_linked did not run.`));
         }
         return;
       }
-      default:
-        return;
+      default: {
+        // Fails CLOSED. A 14th action type fails to COMPILE here until someone decides what it needs, and an unknown type that
+        // reaches this line at run time (a stored rule from a newer build) is refused, never waved through.
+        const unreachable: never = action;
+        throw codedException(403, OWNER_NO_ACCESS_CODE, `${name} cannot run an action of a kind this server does not know how to check, so it did not run.`, {
+          action_type: String((unreachable as { type?: unknown }).type),
+        });
+      }
+    }
+  }
+
+  /** Every database the action touches must be an ordinary one. One sentence naming the person and the kind of database, never its name. */
+  private async assertNoSystemDatabase(workspaceId: string, databaseIds: string[], name: string, actionType: string): Promise<void> {
+    const rows = await this.db
+      .select({ id: databases.id, isSystem: databases.isSystem })
+      .from(databases)
+      .where(and(eq(databases.workspaceId, workspaceId), inArray(databases.id, [...new Set(databaseIds)])));
+    if (rows.some((r) => r.isSystem)) {
+      throw codedException(403, SYSTEM_DATABASE_CODE, `${name}'s automation cannot run ${actionType} on a system database (such as Members or the Agents pack), so it did not run.`, {
+        action_type: actionType,
+      });
     }
   }
 

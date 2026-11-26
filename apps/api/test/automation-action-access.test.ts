@@ -8,7 +8,7 @@ import { call as rawCall, joinAs, setRestricted } from './helpers/members';
 import type { Person } from './helpers/members';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { accessGrants, activityEvents, automationJobs, automationRuns, automations, memberships, notifications, records } from '../src/db/schema';
+import { accessGrants, activityEvents, automationJobs, automationRuns, automations, databases, memberships, notifications, records } from '../src/db/schema';
 import { AutomationsService } from '../src/automations/automations.service';
 import { JobRunnerService } from '../src/automations/job-runner.service';
 import { ActionAccessGuardService } from '../src/automations/action-access-guard.service';
@@ -159,7 +159,7 @@ const cases: ActionCase[] = [
     action: () => ({ type: 'notify_user', user: `@member:${adminId}`, message: 'ping' }),
     // Reading is all this needs, so a viewer is still allowed; losing the database is not.
     refusedWhen: 'revoked',
-    read: async (c) => (await db.select().from(notifications).where(and(eq(notifications.userId, adminId), eq(notifications.workspaceId, wsId)))).length,
+    read: async (c) => (await db.select().from(notifications).where(and(eq(notifications.userId, adminId), eq(notifications.workspaceId, wsId), eq(notifications.type, 'mentioned')))).length,
   },
   { type: 'create_record', action: (f) => ({ type: 'create_record', database_id: f.targets, values: { name: 'Made by rule' } }), refusedWhen: 'viewer', read: (c) => countIn(c.f.targets, 'Made by rule') },
   { type: 'create_records', action: (f) => ({ type: 'create_records', database_id: f.targets, count: 2, values: { name: 'Batch by rule' } }), refusedWhen: 'viewer', read: (c) => countIn(c.f.targets, 'Batch by rule') },
@@ -425,5 +425,130 @@ describe('ownerMissing on the rule (ticket #1353)', () => {
     // An admin handing the rule to themselves (a PATCH does not change the owner), the flag is read fresh, never stored.
     const patched = await asAdmin('PATCH', `/workspaces/${wsId}/databases/${f.orders}/automations/${gone.id}`, { enabled: false });
     expect(patched.json().ownerMissing).toBe(true);
+  });
+});
+
+describe('the guard fails closed (ticket #1353, review)', () => {
+  it('an action type it does not know is refused, not waved through', async () => {
+    const f = await fixture();
+    const person = await maker(f, 'Unknown type');
+    await expect(guard.check({ type: 'teleport_record' } as never, { workspaceId: wsId, databaseId: f.orders, record: null, actorId: person.id, ruleId: randomUUID() })).rejects.toMatchObject({
+      response: { code: 'automation_owner_no_access' },
+    });
+  });
+
+  it('a queued job whose stored details cannot say who, where or what FAILS once with a coded message; it is not run and not retried', async () => {
+    const f = await fixture();
+    const rule = await newRule(await maker(f, 'Unreadable job owner'), f, [{ type: 'add_comment', body_template: 'x' }]);
+    const [job] = await db
+      .insert(automationJobs)
+      .values({ workspaceId: wsId, ruleId: rule.id, actionIndex: 0, kind: 'http_request', payload: { action: { type: 'http_request', method: 'GET', url: 'https://example.invalid' } }, idempotencyKey: randomUUID() })
+      .returning();
+    await jobs.tick();
+    const [after] = await db.select().from(automationJobs).where(eq(automationJobs.id, job!.id));
+    expect(after!.status).toBe('failed');
+    expect(after!.attempts).toBe(0);
+    expect(after!.lastError).toMatch(/^automation_job_unreadable: /);
+  });
+});
+
+describe('no action runs on a system database (ticket #1353, Otto ruling 1)', () => {
+  const everyType = [
+    { type: 'set_values', values: {} },
+    { type: 'create_record', database_id: 'TARGET', values: {} },
+    { type: 'create_records', database_id: 'TARGET', count: 1, values: {} },
+    { type: 'add_comment', body_template: 'x' },
+    { type: 'notify_user', user: '@me', message: 'x' },
+    { type: 'update_linked', relation_field_id: randomUUID(), values: {} },
+    { type: 'send_slack_message', text: 'x' },
+    { type: 'send_webhook', url: 'https://example.invalid' },
+    { type: 'run_agent', agent: 'x' },
+    { type: 'send_email', connection_id: randomUUID(), to: 'a@b.co', subject: 's', body_template: 'b' },
+    { type: 'http_request', method: 'GET', url: 'https://example.invalid' },
+    { type: 'post_social', connection_id: randomUUID(), target: 'x', text_template: 't' },
+  ];
+  it('every action type is refused when the rule runs on a system database, and when it writes into one', async () => {
+    const f = await fixture();
+    const sys = (await db.select().from(databases).where(and(eq(databases.workspaceId, wsId), eq(databases.isSystem, true))).limit(1))[0];
+    expect(sys, 'the workspace has a system database (Members)').toBeTruthy();
+    const adminMember = (await db.select().from(memberships).where(and(eq(memberships.workspaceId, wsId), eq(memberships.role, 'admin'))).limit(1))[0]!;
+    const rec = { id: randomUUID() } as never;
+    for (const a0 of everyType) {
+      const a = a0.database_id === 'TARGET' ? { ...a0, database_id: f.targets } : a0;
+      const onSystem = { workspaceId: wsId, databaseId: sys!.id, record: rec, actorId: adminMember.userId, ruleId: randomUUID() };
+      await expect(guard.check(a as never, onSystem, async () => ({ targetDbId: f.targets, linkedIds: [] })), `${a.type} on a system database`).rejects.toMatchObject({ response: { code: 'automation_system_database' } });
+    }
+    // Writing INTO a system database from an ordinary one.
+    const ordinary = { workspaceId: wsId, databaseId: f.orders, record: rec, actorId: adminMember.userId, ruleId: randomUUID() };
+    for (const t of ['create_record', 'create_records']) {
+      await expect(guard.check({ type: t, database_id: sys!.id, count: 1, values: {} } as never, ordinary)).rejects.toMatchObject({ response: { code: 'automation_system_database' } });
+    }
+    await expect(guard.check({ type: 'update_linked', relation_field_id: randomUUID(), values: {} } as never, ordinary, async () => ({ targetDbId: sys!.id, linkedIds: [randomUUID()] }))).rejects.toMatchObject({
+      response: { code: 'automation_system_database' },
+    });
+    // Control: the same actions on an ordinary database are not refused for this reason.
+    await expect(guard.check({ type: 'add_comment', body_template: 'x' } as never, { ...ordinary, record: null })).resolves.toBeUndefined();
+  });
+});
+
+describe('a rule that needs a new owner says so from the FIRST refusal, and tells the admins (ticket #1353, Otto ruling 2, AC6)', () => {
+  const adminNotices = async (type: string) =>
+    db.select().from(notifications).where(and(eq(notifications.userId, adminId), eq(notifications.workspaceId, wsId), eq(notifications.type, type)));
+
+  it('AC6: a member who is demoted but STILL in the workspace: the first failed run sets lacks_access and sends one notice (no title), a second refusal sends none', async () => {
+    const f = await fixture();
+    const person = await maker(f, 'Demoted Dana');
+    const rule = await newRule(person, f, [{ type: 'set_values', values: { [f.statusApi]: 'done' } }]);
+    const get = async () => (await asAdmin('GET', `/workspaces/${wsId}/databases/${f.orders}/automations/${rule.id}`)).json();
+    expect(await get()).toMatchObject({ needsNewOwner: false, needsNewOwnerReason: null, ownerMissing: false });
+
+    await degrade(person, 'viewer');
+    const before = (await adminNotices('automation_owner_refused')).length;
+    const first = await order(f, false);
+    const run = await fire(f, rule.id, first.id);
+    expect(run.status).toBe('error');
+    // The flag is on after ONE refused run, not after a streak.
+    expect(await get()).toMatchObject({ needsNewOwner: true, needsNewOwnerReason: 'lacks_access', ownerMissing: false });
+    const notices = (await adminNotices('automation_owner_refused')).filter((n) => n.snippet?.includes('Demoted Dana'));
+    expect(notices.length).toBe(1);
+    expect(before).toBeGreaterThanOrEqual(0);
+    expect(notices[0]!.snippet).toContain('can no longer edit this record');
+    expect(notices[0]!.snippet).not.toContain(ORDER_TITLE);
+
+    const second = await order(f, false);
+    await fire(f, rule.id, second.id);
+    const again = (await adminNotices('automation_owner_refused')).filter((n) => n.snippet?.includes('Demoted Dana'));
+    expect(again.length).toBe(1);
+    expect(again[0]!.count, 'no second notice for the second refusal').toBe(1);
+  });
+
+  it('reasons: missing (no owner) and left (not a member); the single-rule GET and the list agree', async () => {
+    const f = await fixture();
+    const person = await maker(f, 'Leaving Lee');
+    const gone = await newRule(person, f, [{ type: 'add_comment', body_template: 'x' }]);
+    const nobody = await newRule(person, f, [{ type: 'add_comment', body_template: 'x' }]);
+    await db.update(automations).set({ createdBy: null }).where(eq(automations.id, nobody.id));
+    await degrade(person, 'left');
+    const one = async (id: string) => (await asAdmin('GET', `/workspaces/${wsId}/databases/${f.orders}/automations/${id}`)).json();
+    expect(await one(gone.id)).toMatchObject({ needsNewOwner: true, needsNewOwnerReason: 'left', ownerMissing: true });
+    expect(await one(nobody.id)).toMatchObject({ needsNewOwner: true, needsNewOwnerReason: 'missing', ownerMissing: true });
+    const list = (await asAdmin('GET', `/workspaces/${wsId}/databases/${f.orders}/automations`)).json().data as Array<{ id: string; needsNewOwnerReason: string | null }>;
+    expect(list.find((r) => r.id === gone.id)!.needsNewOwnerReason).toBe('left');
+    expect((await asAdmin('GET', `/workspaces/${wsId}/databases/${f.orders}/automations/${randomUUID()}`)).statusCode).toBe(404);
+  });
+
+  it('a rule that switches itself off tells the admins, not only the log', async () => {
+    const f = await fixture();
+    const person = await maker(f, 'Disabled Dee');
+    const rule = await newRule(person, f, [{ type: 'set_values', values: { [f.statusApi]: 'done' } }]);
+    await degrade(person, 'viewer');
+    await db.update(automations).set({ failureStreak: 9 }).where(eq(automations.id, rule.id));
+    const rec = await order(f, false);
+    await fire(f, rule.id, rec.id);
+    const [row] = await db.select().from(automations).where(eq(automations.id, rule.id));
+    expect(row!.enabled).toBe(false);
+    const notices = (await adminNotices('automation_disabled')).filter((n) => n.snippet?.includes('switched off'));
+    expect(notices.length).toBeGreaterThan(0);
+    expect(notices.some((n) => n.snippet?.includes('can no longer edit this record'))).toBe(true);
   });
 });

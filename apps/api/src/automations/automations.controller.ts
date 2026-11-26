@@ -55,6 +55,13 @@ export class AutomationsController {
     return this.automationsService.list(databaseId);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'One rule, with the same shape and owner flags as the list' })
+  async getOne(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('id') id: string) {
+    await this.databases.assertAccess(req.membership, databaseId, AUTOMATIONS_READ_MIN);
+    return this.automationsService.get(databaseId, id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a rule (trigger + condition + actions)' })
   async create(
