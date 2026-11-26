@@ -631,7 +631,48 @@ describe('ONE GATE PER RISK: only a video that would not be private is held by d
   });
 });
 
+// Ticket #1353's generic run-time guard (action-access-guard.service.ts) now refuses a queued job whose owner is gone or has lost
+// access BEFORE the executor runs, with its own coded refusal. The YouTube executor keeps its own check as a second layer (it
+// also refuses personal space, which the generic guard does not), so a job through the queue is refused by one or the other.
+const REFUSED_OWNER_NO_ACCESS = /^(\[no_access\] The rule owner can no longer read this record|automation_owner_no_access)/;
+const REFUSED_OWNER_MISSING = /^(\[no_access\] This rule has no owner who is an active member|automation_owner_missing)/;
+const REFUSED_SYSTEM_DB = /^(\[no_access\] Videos are never uploaded from a system database or from personal space|automation_system_database)/;
+
 describe('the video is read as the ACTOR, through the shared access check', () => {
+  /** The executor on its own, without the queue's generic guard in front: proves the YouTube layer itself refuses. */
+  async function runDirect(s: Scenario, rec: string, actorId: string, databaseId = s.dbId) {
+    const payload = { action: { ...youtubeAction(s), result_field_id: undefined, title: 'T', text: 'd' }, ctx: { workspaceId: wsId, databaseId, recordId: rec, actorId } } as never;
+    const helpers = { connectionAuth: (id: string) => conns.getDecryptedAuth(wsId, id), fetcher: fetch, idempotencyKey: randomUUID(), signal: new AbortController().signal };
+    return post.run(payload, helpers as never).then(
+      () => 'uploaded',
+      (e: Error) => e.message,
+    );
+  }
+
+  it('the executor\'s OWN layer refuses a guest, a non-member, a pending member and a system database, with the generic guard out of the way', async () => {
+    reset();
+    const s = await scenario();
+    const rec = await record(s);
+    await addVideo(s, rec, videoBytes(100));
+    expect(await runDirect(s, rec, adminId), 'control: the owner uploads').toBe('uploaded');
+    reset();
+    expect(await runDirect(s, rec, guest.id)).toMatch(/^\[no_access\] The rule owner can no longer read this record/);
+    expect(await runDirect(s, rec, outsiderId)).toMatch(/^\[no_access\] This rule has no owner who is an active member/);
+    await db.update(memberships).set({ status: 'pending' }).where(and(eq(memberships.userId, member.id), eq(memberships.workspaceId, wsId)));
+    try {
+      expect(await runDirect(s, rec, member.id)).toMatch(/^\[no_access\] This rule has no owner who is an active member/);
+    } finally {
+      await db.update(memberships).set({ status: 'active' }).where(and(eq(memberships.userId, member.id), eq(memberships.workspaceId, wsId)));
+    }
+    await db.update(databases).set({ isSystem: true, systemKey: 'agent_triggers' }).where(eq(databases.id, s.dbId));
+    try {
+      expect(await runDirect(s, rec, adminId)).toMatch(/^\[no_access\] Videos are never uploaded from a system database/);
+    } finally {
+      await db.update(databases).set({ isSystem: false, systemKey: null }).where(eq(databases.id, s.dbId));
+    }
+    expect(yt.calls, 'nothing but the control reached YouTube').toHaveLength(0);
+  });
+
   it('a rule owner with access uploads (the positive control)', async () => {
     reset();
     const s = await scenario();
@@ -652,11 +693,11 @@ describe('the video is read as the ACTOR, through the shared access check', () =
     await jobs.tick();
     const row = (await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!;
     expect(row.status).toBe('failed');
-    expect(row.lastError).toMatch(/^\[no_access\] The rule owner can no longer read this record/);
+    expect(row.lastError).toMatch(REFUSED_OWNER_NO_ACCESS);
     expect(yt.calls).toHaveLength(0);
   });
 
-  it('an owner who is no longer a member (or never was) is refused, and the sentence names nobody', async () => {
+  it('an owner who is no longer a member (or never was) is refused, and the sentence carries no record title or file name', async () => {
     reset();
     const s = await scenario();
     const rec = await record(s);
@@ -666,8 +707,8 @@ describe('the video is read as the ACTOR, through the shared access check', () =
     await jobs.tick();
     for (const j of [gone, unknown]) {
       const row = (await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, j.id) }))!;
-      expect(row.lastError).toMatch(/^\[no_access\] This rule has no owner who is an active member/);
-      expect(row.lastError).not.toMatch(/Cut|cut\.mp4|YT /);
+      expect(row.lastError).toMatch(REFUSED_OWNER_MISSING);
+      expect(row.lastError, 'no record title and no file name').not.toMatch(/Cut [a-z0-9]{6}|cut\.mp4/);
     }
     expect(yt.calls).toHaveLength(0);
   });
@@ -681,7 +722,7 @@ describe('the video is read as the ACTOR, through the shared access check', () =
     try {
       const job = await craft(s, rec, { ctx: { actorId: member.id } });
       await jobs.tick();
-      expect((await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!.lastError).toMatch(/^\[no_access\] This rule has no owner who is an active member/);
+      expect((await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!.lastError).toMatch(REFUSED_OWNER_MISSING);
       expect(yt.calls).toHaveLength(0);
     } finally {
       await db.update(memberships).set({ status: 'active' }).where(and(eq(memberships.userId, member.id), eq(memberships.workspaceId, wsId)));
@@ -697,7 +738,7 @@ describe('the video is read as the ACTOR, through the shared access check', () =
     try {
       const job = await craft(s, rec);
       await jobs.tick();
-      expect((await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!.lastError).toMatch(/^\[no_access\] Videos are never uploaded from a system database or from personal space/);
+      expect((await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!.lastError).toMatch(REFUSED_SYSTEM_DB);
       expect(yt.calls).toHaveLength(0);
     } finally {
       await db.update(databases).set({ isSystem: false, systemKey: null }).where(eq(databases.id, s.dbId));
@@ -762,7 +803,7 @@ describe('the video is read as the ACTOR, through the shared access check', () =
     await addVideo(s, rec, videoBytes(100));
     const job = await craft(s, rec, { databaseId: randomUUID(), action: { result_field_id: undefined } });
     await jobs.tick();
-    expect((await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!.lastError).toMatch(/^\[no_access\]/);
+    expect((await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!.lastError).toMatch(/^(\[no_access\]|automation_)/);
     expect(yt.calls).toHaveLength(0);
   });
 });
