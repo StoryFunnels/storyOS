@@ -9287,6 +9287,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         '#334: the automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
         'enabled state, failure streak and last-run status (ok, error, skipped, running, or awaiting_approval when an action is waiting for a person to approve it, the same word get_runs uses). Automations are an admin surface, so this needs an admin-scoped token. ' +
+        "A rule runs as its OWNER (`created_by`) and every action re-checks that person's access each time it runs: if they left, lost the database or were demoted, the action is refused (the run's error starts with `automation_owner_missing` or `automation_owner_no_access` and names the person and the kind of record, never a title) and nothing after it runs. `needs_new_owner: true` with `needs_new_owner_reason` (`missing`, `left` or `lacks_access`) marks a rule whose owner has to change: the flag appears on the first refused run, the workspace's admins are notified at that first refusal and again if the rule switches itself off, and `owner_missing` is true for the first two reasons. " +
         'Use get_automation for one rule\'s full editable definition.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -9325,7 +9326,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Get automation',
       description:
         "#334: one automation rule's full, editable definition — trigger, condition and actions with human-readable database/field/" +
-        'select names alongside their stable ids, plus enabled state and last-run status. update_automation accepts the same shape.',
+        'select names alongside their stable ids, plus enabled state and last-run status. update_automation accepts the same shape. ' +
+        "`needs_new_owner: true` with `needs_new_owner_reason` (`missing`: no owner; `left`: not a member any more; `lacks_access`: still a member but the latest run was refused for lack of access) means the rule needs a different owner. Each action is refused at run time (error `automation_owner_missing` or `automation_owner_no_access`, naming the person, never a title); `owner_missing` is true for the first two reasons.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),

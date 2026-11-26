@@ -12,6 +12,7 @@ import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { SkillsModule } from '../skills/skills.module';
 import { SkillPublishGateService } from './skill-publish-gate.service';
+import { ActionAccessGuardService } from './action-access-guard.service';
 import { AutomationActionsService } from './actions.service';
 import { AttachPdfActionService } from './attach-pdf.action';
 import { ApprovalsController } from './approvals.controller';
@@ -50,6 +51,7 @@ import { SocialPublishesService } from './social-publishes.service';
   ],
   controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController, SocialPublishesController, PublishingController],
   providers: [
+    ActionAccessGuardService,
     AutomationActionsService,
     AutomationsService,
     HookRateLimiterService,

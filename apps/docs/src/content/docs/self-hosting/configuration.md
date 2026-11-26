@@ -144,9 +144,10 @@ StoryOS sets these on its responses:
   HTTPS it will refuse plain HTTP for that host for a year.
 - A **Content-Security-Policy** on web pages, **enforced**. Scripts run only with a fresh per-request
   nonce (`'self' 'nonce-…' 'strict-dynamic'`): no `'unsafe-inline'` and no `'unsafe-eval'` in
-  production, so an injected `<script>` or inline event handler does not execute. Styles allow
-  inline (`style-src 'self' 'unsafe-inline'`), because the interface and the editor set styles that
-  way. Also `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, and the same
+  production, so an injected `<script>` or inline event handler does not execute. Style elements
+  are nonce-only too (`style-src-elem 'self' 'nonce-…'` plus the hash of one fixed toast-library sheet, no `'unsafe-inline'`). Style attributes keep
+  `style-src-attr 'unsafe-inline'`, because React renders every `style={{…}}` prop as an attribute and
+  an attribute cannot carry a nonce. Also `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, and the same
   `frame-ancestors` rule as above. The page may connect to its own origin, to the API origin if you
   set `NEXT_PUBLIC_API_URL`, and to the PostHog host if you configured one; nothing is hard-coded.
   Those two origins are **build-time** values: the web bundle can only call the origins it was built

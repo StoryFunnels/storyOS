@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import posthog from 'posthog-js';
 import { commentDrafts } from '@/components/entity/comment-draft';
 import { ThemeProvider } from '@/lib/theme';
+import { StyleNonceProvider } from '@/lib/style-nonce';
 import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { registerServiceWorker } from '@/lib/service-worker';
@@ -93,7 +94,7 @@ function AuthEventBeacon() {
   return null;
 }
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({ children, nonce }: { children: ReactNode; nonce?: string }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -106,6 +107,7 @@ export function Providers({ children }: { children: ReactNode }) {
     captureFirstTouch(window.location.search, window.sessionStorage);
   }, []);
   return (
+    <StyleNonceProvider nonce={nonce}>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <ConfirmProvider>
@@ -117,5 +119,6 @@ export function Providers({ children }: { children: ReactNode }) {
         </ConfirmProvider>
       </ThemeProvider>
     </QueryClientProvider>
+    </StyleNonceProvider>
   );
 }

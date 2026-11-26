@@ -30,6 +30,8 @@ describe('http_request automation action (MN-263)', () => {
   let jobs: JobRunnerService;
   let actions: AutomationActionsService;
   let admin: { token: string; email: string };
+  // Ticket #1353: the executor re-reads its actor's membership, so the actor must be a real member's user id (this used to pass the email address).
+  let adminId: string;
   let wsId: string;
   let dbId: string;
   let numberFieldId: string;
@@ -57,6 +59,7 @@ describe('http_request automation action (MN-263)', () => {
     actions = app.get(AutomationActionsService);
     admin = await signUpUser(app, 'HttpAction');
     wsId = (await inject('POST', '/workspaces', { name: 'HTTP Action WS' })).json().id;
+    adminId = (await inject('GET', '/me')).json().id;
     const spaceId = (await inject('GET', `/workspaces/${wsId}/spaces`)).json()[0].id;
     dbId = (await inject('POST', `/workspaces/${wsId}/databases`, { space_id: spaceId, name: 'Orders' })).json().id;
     const numberField = (
@@ -131,7 +134,7 @@ describe('http_request automation action (MN-263)', () => {
       workspaceId: wsId,
       databaseId: dbId,
       record: record as never,
-      actorId: admin.email,
+      actorId: adminId,
       depth: 0,
       runId: randomUUID(),
     };

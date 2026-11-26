@@ -4854,6 +4854,36 @@
       }
     },
     "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}": {
+      "get": {
+        "operationId": "AutomationsController_getOne",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "One rule, with the same shape and owner flags as the list",
+        "tags": [
+          "automations"
+        ]
+      },
       "patch": {
         "operationId": "AutomationsController_update",
         "parameters": [

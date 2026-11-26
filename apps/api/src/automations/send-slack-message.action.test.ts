@@ -47,6 +47,8 @@ function build() {
     { hasExecutor: () => false } as unknown as JobRunnerService,
     approvalsService,
     {} as never,
+    // The run-time access guard (ticket #1353) has its own tests; here every actor is allowed.
+    { check: async () => undefined } as never,
   );
   vi.spyOn(service, 'validate').mockResolvedValue(undefined as never);
   return { service, posts, approvals };
