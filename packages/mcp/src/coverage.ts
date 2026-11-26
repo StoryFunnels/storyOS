@@ -190,6 +190,11 @@ export const EXCLUDED: CoverageRule[] = [
       'Anonymous pre-auth surface (public form fill, pre-signup pack browsing, and the invite-link read GET /public/invites/details, ticket #1302: a person with no account yet reads who invited them before signing in; the invite token is the credential and a workspace agent never holds one). Reachable without a credential by design, so an authenticated tool adds nothing.',
   },
   {
+    match: /^GET \/api\/v1\/attachments\/signed\/\{id\}$/,
+    reason:
+      'Ticket #51 — the signed, expiring image read that Meta fetches when an Instagram post is published. It is an unauthenticated byte stream whose only caller is Meta\'s servers, using a URL the publish itself mints (15 minutes, HMAC); there is no agent action in it and a tool could neither mint nor use the URL. An agent publishes with post_social (an automation action) and reads accounts with list_social_accounts.',
+  },
+  {
     // Only the binary halves. `GET .../attachments` is the METADATA listing and
     // `list_attachments` calls it — excluding that too was an overreach the
     // contradiction check below caught.

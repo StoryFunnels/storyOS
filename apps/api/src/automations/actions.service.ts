@@ -7,7 +7,6 @@ import type { AutomationAction, FormulaFieldInfo } from '@storyos/schemas';
 import { evaluateFormula, parseFormula } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { env } from '../config/env';
 import { agentOriginHoldsAction, classRulesFor } from '../action-gates/action-classes';
 import { loadAgentApprovalPolicy } from '../agents/agent-approval-policy';
 import type { EventOrigin } from '../common/credential-context';

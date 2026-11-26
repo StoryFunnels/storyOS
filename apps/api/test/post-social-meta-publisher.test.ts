@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProviderError } from '../common/provider-error';
-import type { MetaAuth } from '../connections/providers/meta';
-import { countHashtags, jpegSize, preflightInstagram, publishToMeta, resolveMetaPage } from './post-social-meta';
-import type { MetaMedia, MetaPublishArgs } from './post-social-meta';
-import type { PostSocialAction } from './post-social.action';
-import { fakeJpeg } from '../../test/helpers/jpeg';
+import { ProviderError } from '../src/common/provider-error';
+import type { MetaAuth } from '../src/connections/providers/meta';
+import { countHashtags, jpegSize, preflightInstagram, publishToMeta, resolveMetaPage } from '../src/automations/post-social-meta';
+import type { MetaMedia, MetaPublishArgs } from '../src/automations/post-social-meta';
+import type { PostSocialAction } from '../src/automations/post-social.action';
+import { fakeJpeg } from './helpers/jpeg';
 
 /**
  * Ticket #51 — the Meta publisher, against a SCRIPTED fake network. No real Graph API, token, page or account exists

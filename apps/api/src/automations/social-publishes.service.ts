@@ -2,7 +2,6 @@ import { ConflictException, Inject, Injectable, NotFoundException, Unprocessable
 import { and, desc, eq, inArray, like, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { env } from '../config/env';
 import { MAX_ATTEMPTS } from '../common/backoff-schedule';
 import { approvals, automationJobs, connections } from '../db/schema';
 import { looksLikeUuid } from '../common/uuid';

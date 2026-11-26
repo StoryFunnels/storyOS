@@ -11,7 +11,7 @@ import type { LinkedinAuth } from '../connections/providers/linkedin';
 import type { XAuth } from '../connections/providers/x';
 import { RecordsService } from '../records/records.service';
 import { getStorage } from '../attachments/storage';
-import { LINKEDIN_ORG_URN, namesAccount } from './social-targets';
+import { namesAccount } from './social-targets';
 import { preflightInstagram, publishToMeta } from './post-social-meta';
 import type { MetaPoll } from './post-social-meta';
 import { mintAttachmentUrl } from '../attachments/signed-attachment';
