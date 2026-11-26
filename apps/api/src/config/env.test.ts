@@ -218,6 +218,30 @@ describe('envSchema PDF renderer (#262 / #794)', () => {
   });
 });
 
+describe('envSchema RESEND_API_KEY (ticket #1337)', () => {
+  // A plain `cp .env.example .env` used to ship `re_your_resend_api_key_here`; the API then called Resend with a fake
+  // key, got a 401 and left every new user unverified. The placeholder (and a blank) must read as "no key", so mail is
+  // logged instead, while a real-looking key is passed through untouched.
+  it('treats the .env.example placeholder as unset, so mail is logged rather than sent with a fake key', () => {
+    expect(envSchema.parse({ RESEND_API_KEY: 're_your_resend_api_key_here' }).RESEND_API_KEY).toBeUndefined();
+  });
+
+  it('treats a blank value (compose passes an empty string when unset) as unset', () => {
+    expect(envSchema.parse({ RESEND_API_KEY: '' }).RESEND_API_KEY).toBeUndefined();
+    expect(envSchema.parse({ RESEND_API_KEY: '  ' }).RESEND_API_KEY).toBeUndefined();
+  });
+
+  it('keeps a real key exactly as given', () => {
+    expect(envSchema.parse({ RESEND_API_KEY: 're_AbC123_realKey' }).RESEND_API_KEY).toBe('re_AbC123_realKey');
+  });
+
+  it('leaves the SMTP_HOST fallback reachable when only the placeholder is set', () => {
+    const e = envSchema.parse({ RESEND_API_KEY: 're_your_resend_api_key_here', SMTP_HOST: 'smtp.example.com' });
+    expect(e.RESEND_API_KEY).toBeUndefined();
+    expect(e.SMTP_HOST).toBe('smtp.example.com');
+  });
+});
+
 describe('assertS3Credentials (ticket #1045)', () => {
   it('refuses the s3 driver with no credentials, naming both variables', () => {
     expect(() => assertS3Credentials('s3', undefined, undefined)).toThrow(
