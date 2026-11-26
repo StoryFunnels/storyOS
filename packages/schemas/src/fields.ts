@@ -512,6 +512,39 @@ export const actionSchema = z.discriminatedUnion('type', [
     media_field_id: z.uuid().optional(),
     link: z.string().max(500).optional(),
     result_field_id: z.uuid().optional(),
+    /**
+     * Ticket #42 — WHICH account the post goes out as, beyond the connection. A LinkedIn company page is
+     * named by its organization URN (`urn:li:organization:<id>`), chosen from
+     * GET /connections/{id}/social-accounts; `linkedin_org` REQUIRES it (saving one without it is a 422,
+     * and the executor refuses a job without it rather than posting from the member's own profile).
+     * `linkedin_member` posts as the connection's own member and may carry the member URN to pin it;
+     * `x` posts as the connected X account and takes none.
+     */
+    account_id: z.string().min(1).max(200).optional(),
+  }),
+  /**
+   * Ticket #877 — make a PDF of the triggering record (or of ONE record it links to, one hop) and attach it to an attachment
+   * field on the triggering record. Runs INLINE, not through the job queue: a later action in the same rule (a send_email that
+   * attaches that field) must not run if no PDF was made, so a failure here fails the run and stops the list.
+   *
+   * It renders with the RULE OWNER's access, checked at run time (see attach-pdf.action.ts): what the owner cannot read is never
+   * rendered, and a field the owner cannot write is never written. `require_approval` is refused on it; there is nothing to hold.
+   *
+   * `filename_template` takes {Field} tokens plus {date} (today, UTC); the result is sanitised (no path separators, capped) and
+   * given a .pdf extension. Omitted = "{title} · {date}". `if_exists` says what to do when the field already holds a file of
+   * that name: `skip` (the default, so a re-run of the same trigger attaches nothing twice), `replace` (swap that file for the
+   * new render), or `add` (keep both).
+   */
+  z.object({
+    ...gated,
+    type: z.literal('attach_pdf'),
+    source: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('record') }),
+      z.object({ kind: z.literal('linked_record'), relation_field_id: z.uuid() }),
+    ]),
+    target_field_id: z.uuid(),
+    filename_template: z.string().min(1).max(200).optional(),
+    if_exists: z.enum(['skip', 'replace', 'add']).optional(),
   }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
@@ -726,10 +759,32 @@ export function validateFieldConfig(type: CreatableFieldType, config: unknown) {
   return fieldConfigSchemas[type].safeParse(config ?? {});
 }
 
+/**
+ * Ticket #704 - a field's help text: ONE plain-text string per field (not per view, not markdown), at most 200 characters AFTER trimming.
+ * It is part of what the field IS, so it lives on the field and not in view config. Nullable and absent by default: a field with no
+ * description costs nothing, and an empty or whitespace-only string means "none" (the service stores null), exactly like null does.
+ */
+export const FIELD_DESCRIPTION_MAX = 200;
+export const fieldDescriptionSchema = z
+  .string()
+  .trim()
+  .max(FIELD_DESCRIPTION_MAX, `A field description is at most ${FIELD_DESCRIPTION_MAX} characters`);
+/** Create/update input: a string, or null to clear (an empty string clears too; see `normalizeFieldDescription`). */
+export const fieldDescriptionInputSchema = fieldDescriptionSchema.nullish();
+
+/** The stored form of a description input: trimmed text, or null when there is none (empty, whitespace, null) and undefined when absent. */
+export function normalizeFieldDescription(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value === null ? '' : value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 export const createFieldSchema = z
   .object({
     display_name: z.string().trim().min(1).max(100),
     type: creatableFieldTypeSchema,
+    /** #704 - optional help text (max 200 chars, plain text); null/empty = none. */
+    description: fieldDescriptionInputSchema,
     config: z.record(z.string(), z.unknown()).optional(),
     /** Initial options for select/multi_select fields. */
     options: z
@@ -756,6 +811,8 @@ export const createFieldSchema = z
 
 export const updateFieldSchema = atLeastOneField(z.object({
   display_name: z.string().trim().min(1).max(100).optional(),
+  /** #704 - help text; null or an empty string clears it, absent leaves it as it is. */
+  description: fieldDescriptionInputSchema,
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.number().int().optional(),
 }));

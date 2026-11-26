@@ -939,6 +939,13 @@
       "when": 1795650008256,
       "tag": "0133_activity_events_created_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1795662682044,
+      "tag": "0134_fields_description",
+      "breakpoints": true
     }
   ]
 }

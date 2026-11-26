@@ -120,6 +120,7 @@ api_tokens       id, user_id FK, workspace_id FK, name, token_hash (uq),
 
 databases        id, space_id FK, name, icon, api_slug, position
 fields           id, database_id FK, display_name, api_name, type, config jsonb,
+                 description text NULL (#704: plain-text help, <= 200 chars),
                  position, is_system, deleted_at
 select_options   id, field_id FK, label, color, position
 relations        id, workspace_id FK, database_a_id FK, database_b_id FK,

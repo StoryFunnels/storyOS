@@ -5201,6 +5201,98 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes": {
+      "get": {
+        "operationId": "SocialPublishesController_list",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "What this record's posts to LinkedIn and X did, one entry per channel (latest outcome): waiting for approval, sent back, queued or retrying, published (with the post URL) or failed (with a safe code and sentence, never the network's own response).",
+        "tags": [
+          "social-publishes"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes/{publish}/retry": {
+      "post": {
+        "operationId": "SocialPublishesController_retry",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rec",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publish",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrySocialPublishDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Try a failed post again with its ORIGINAL account and approved text (no re-pick, no second approval). 409 when the post already went out, is in flight, was superseded, or hit the retry cap; 422 when it names no account.",
+        "tags": [
+          "social-publishes"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/webhooks": {
       "get": {
         "operationId": "WebhooksController_list",
@@ -7392,6 +7484,47 @@
           }
         ],
         "summary": "The provider catalog — what can be connected, and how",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/connections/{id}/social-accounts": {
+      "get": {
+        "operationId": "ConnectionsController_socialAccounts",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "refresh",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The accounts a LinkedIn or X connection can post as (profile, company pages, X account): the picker a post names its account from. Workspace admin or the person who connected it. Cached a few minutes; refresh=true asks the network again.",
         "tags": [
           "connections"
         ]
@@ -10915,7 +11048,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BuildDto"
+                "$ref": "#/components/schemas/TyronBuildDto"
               }
             }
           }
@@ -13618,6 +13751,11 @@
               "ai"
             ]
           },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
           "config": {
             "type": "object",
             "additionalProperties": {}
@@ -13789,6 +13927,11 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
           },
           "config": {
             "type": "object",
@@ -16278,6 +16421,11 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "account_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
                     }
                   },
                   "required": [
@@ -16285,6 +16433,82 @@
                     "connection_id",
                     "target",
                     "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "attach_pdf"
+                      ]
+                    },
+                    "source": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "record"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "linked_record"
+                              ]
+                            },
+                            "relation_field_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "relation_field_id"
+                          ]
+                        }
+                      ]
+                    },
+                    "target_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "filename_template": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "if_exists": {
+                      "type": "string",
+                      "enum": [
+                        "skip",
+                        "replace",
+                        "add"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "source",
+                    "target_field_id"
                   ]
                 }
               ]
@@ -17036,6 +17260,11 @@
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "account_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
                     }
                   },
                   "required": [
@@ -17043,6 +17272,82 @@
                     "connection_id",
                     "target",
                     "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "require_approval": {
+                      "type": "boolean"
+                    },
+                    "condition": {},
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "attach_pdf"
+                      ]
+                    },
+                    "source": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "record"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "linked_record"
+                              ]
+                            },
+                            "relation_field_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "relation_field_id"
+                          ]
+                        }
+                      ]
+                    },
+                    "target_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "filename_template": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "if_exists": {
+                      "type": "string",
+                      "enum": [
+                        "skip",
+                        "replace",
+                        "add"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "source",
+                    "target_field_id"
                   ]
                 }
               ]
@@ -17113,6 +17418,13 @@
             "type": "string",
             "maxLength": 2000
           }
+        }
+      },
+      "RetrySocialPublishDto": {
+        "type": "object",
+        "properties": {
+          "account_id": {},
+          "connection_id": {}
         }
       },
       "CreateWebhookDto": {
@@ -21638,15 +21950,8 @@
       "BuildDto": {
         "type": "object",
         "properties": {
-          "description": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 2000
-          }
-        },
-        "required": [
-          "description"
-        ]
+          "plan": {}
+        }
       },
       "CreateThreadDto": {
         "type": "object",
@@ -21692,6 +21997,19 @@
         },
         "required": [
           "approve"
+        ]
+      },
+      "TyronBuildDto": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "description"
         ]
       },
       "RunnerToolChoiceDto": {

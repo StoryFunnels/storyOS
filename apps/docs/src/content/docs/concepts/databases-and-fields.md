@@ -142,6 +142,24 @@ forward.
 **Setting it is API/MCP-only today** — `update_field` takes `unique` and `unique_normalize` on an
 existing field; there's no toggle in the web field editor yet.
 
+## Field descriptions
+
+A field can carry a **description**: one short piece of help text saying what the field is for and how to
+fill it. It is part of the field, so it is the same wherever the field appears, and a field that was never
+given one has none (it is `null`, not an empty string).
+
+- **Plain text, at most 200 characters** after surrounding whitespace is trimmed. No markdown. A longer one is
+  a `422` that names the limit, and nothing is written.
+- **Optional on create and update.** `POST .../fields` and `PATCH .../fields/{field}` take `description`; an
+  update that does not mention it leaves it alone, and `null` or an empty string removes it. MCP: `add_field` and
+  `update_field` take `description`, and a `build_schema` plan may carry one on a field or a state.
+- **Returned wherever fields are listed.** The database detail (`GET .../databases/{db}`, which the record
+  page reads), MCP `describe_database` (the key is left out when there is none), the public form definition
+  (as `description`, next to the form's own per-field `help`) and the workspace export all carry it.
+- **Copied with the field.** A pack export and install, **Duplicate database** and **Change type** keep it. A
+  pack that never described a field is exported exactly as before.
+- **Same permission as any other schema edit.** Creator access on the database; guests never.
+
 ## Select options are first-class
 
 Options for `select` / `multi_select` / `workflow` fields are **real rows with stable IDs**, never

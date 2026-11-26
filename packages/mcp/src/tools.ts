@@ -168,6 +168,10 @@ export function buildIconCatalog(): {
  * The generated lead is whole sentences, never a mid-sentence cut. Caps are enforced by description-budget.test.ts.
  */
 export const SHORT_DESCRIPTION_CAP = 340;
+
+/** #704 - the one wording of the field `description` parameter, shared by add_field and update_field. */
+const FIELD_DESCRIPTION_PARAM =
+  'Help text for this field: plain text, up to 200 characters, stored with the field and returned wherever fields are listed.';
 export const TOOL_NOTES_HEADING = 'TOOL NOTES';
 /** The exact section string get_started's `section` argument accepts for one tool's full text. */
 export const toolNotesSection = (tool: string): string => `${TOOL_NOTES_HEADING} ${tool}`;
@@ -309,6 +313,8 @@ interface FieldDef {
   displayName: string;
   type: string;
   isSystem?: boolean;
+  /** #704 - the field's help text, null when it has none. */
+  description?: string | null;
   options?: Array<{ id: string; label: string; color?: string; icon?: string | null; category?: string | null }>;
   relation?: { id?: string; target_database_id: string; target_database_name: string | null; cardinality: string; side: string };
 }
@@ -469,6 +475,9 @@ function describeFields(db: DatabaseDetail) {
     .filter((f) => !f.isSystem && !SYSTEM_FIELD_BY_API_NAME.has(f.apiName))
     .map((f) => {
       const out: Record<string, unknown> = { api_name: f.apiName, name: f.displayName, type: f.type };
+      // #704 - what the field is FOR, in its author's words. Omitted (never null or '') when there is none, like the database description above,
+      // so an agent that copies this object back does not send one and the common undescribed field stays terse.
+      if (f.description) out.description = f.description;
       // #216: `icon` is returned so what an agent reads is what it can write
       // back. Omitted when absent, keeping the common no-icon case terse.
       if (f.options?.length)
@@ -956,6 +965,10 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   list_source_providers: 'read',
   list_source_runs: 'read',
   list_youtube_channels: 'read',
+  // #42 — the per-record publish state and the account picker are reads; the retry sends a public post again, so it sits at rerun_action's admin ceiling.
+  list_social_publishes: 'read',
+  list_social_accounts: 'read',
+  retry_social_publish: 'admin',
   discover_source_fields: 'write',
   create_source: 'write',
   update_source: 'write',
@@ -1369,7 +1382,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Describe database',
       description:
-        'The schema of one database: every field with its exact api_name, type, select options and relation targets. These are the exact api_names that record writes and queries are keyed by.',
+        'The schema of one database: every field with its exact api_name, type, select options, relation targets and (when it has one) its description, the field\'s help text. These are the exact api_names that record writes and queries are keyed by.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -3244,7 +3257,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Build a proposed schema',
       description:
-        'Build an approved plan from propose_schema in ONE call — every database, field, relation and state together, reusing existing databases where the plan says reuse. Returns a summary of what was created vs reused, with ids. Replaces a sequence of create_database/add_field calls.',
+        'Build an approved plan from propose_schema in ONE call — every database, field, relation and state together, reusing existing databases where the plan says reuse. A plan field (and a state) may carry a `description`, the field\'s help text (plain text, up to 200 characters). Returns a summary of what was created vs reused, with ids. Replaces a sequence of create_database/add_field calls.',
       inputSchema: {
         workspace: z.string(),
         plan: z
@@ -3669,7 +3682,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'Add a field to a database. For select/multi_select/workflow pass options as labels. Use `workflow` (not `select`) for the ' +
         'lifecycle status a database is tracked by \u2014 it is the canonical status field: at most ONE per database, and board grouping, ' +
         'the mention badge and My Work all key off it. A workflow field created with NO options starts as To do / In progress / Done (categories unstarted / started / completed); options you pass are used exactly as given, nothing added. A plain `select` is for any other list of choices. lookup/rollup/formula/ai need config. Formula config: {expression, format?, currency_code?, precision?} — dry-run the expression with preview_formula FIRST (it saves nothing, returns the result type and values on 5 records, and positioned errors with the nearest valid field or function name) — a number-returning formula may set format "percent" or "currency" (currency REQUIRES a 3-letter currency_code, e.g. "EUR", and is refused on a formula that returns text/date/checkbox). Rollup config: {relation_field_id, op}, where op is count|sum|avg|min|max (aggregate a number field, or a formula that RETURNS a number and reads no lookup, via target_field_api_name — e.g. sum a Quote Line\'s `qty * price` formula onto its Quote) or first|last (#286 — order the linked records by order_by_field_api_name and return that record\'s target_field_api_name, or omit it for a link to the record itself). Optional filter narrows the linked records first. A sum/avg/min/max rollup is shown in the number format of the field it aggregates (describe_database returns it in the rollup\'s config with format_inherited: true); set format/currency_code/precision on the rollup to override it, null to go back to inheriting. A count is always a plain integer and refuses a format. (Relations link two databases — not added here yet.) ' +
-        'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Returns the field.',
+        'AI field config: {prompt, output}. prompt uses {Field Name} tokens over this record\'s OWN fields only (no relation reach in v1). output is {kind:"text"} for free text or {kind:"choice", options:["a","b"]} to constrain the model to one of a fixed set. Recomputes automatically when a referenced field is written — never on read, never per view. Pass `description` (plain text, up to 200 characters) to say what the field is for and how to fill it: it is stored with the field and returned wherever fields are listed, so set it when the name alone does not say. Returns the field.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -3677,16 +3690,17 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         type: z.enum(FIELD_TYPES),
         options: z.array(optionShape).optional().describe('select/multi_select/workflow choices, as labels or {label,color,icon,category}. On a workflow field each option gets a state category (inferred from its label and position unless you give one). Omit them on a workflow field to get To do / In progress / Done.'),
         config: z.record(z.string(), z.any()).optional().describe('Advanced per-type config (lookup/rollup/formula).'),
+        description: z.string().nullable().optional().describe(FIELD_DESCRIPTION_PARAM),
       },
     },
-    handle<{ workspace: string; database: string; name: string; type: string; options?: Array<string | { label: string; color?: string; icon?: string }>; config?: Record<string, unknown> }>(
-      async ({ workspace, database, name, type, options, config }) => {
+    handle<{ workspace: string; database: string; name: string; type: string; options?: Array<string | { label: string; color?: string; icon?: string }>; config?: Record<string, unknown>; description?: string | null }>(
+      async ({ workspace, database, name, type, options, config, description }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const field = await unwrap<unknown>(
           client.POST('/api/v1/workspaces/{ws}/databases/{db}/fields', {
             params: { path: { ws: ws.id, db: db.id } },
-            body: { display_name: name, type, options: normOptions(options), config } as never,
+            body: { display_name: name, type, options: normOptions(options), config, ...(description !== undefined ? { description } : {}) } as never,
           }),
         );
         return text(field);
@@ -3699,7 +3713,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update field',
       description:
-        'Rename a field, add select options, or edit and remove existing ones. Returns the updated field. ' +
+        'Rename a field, set or clear its description (help text), add select options, or edit and remove existing ones. Returns the updated field. ' +
         'Editing is non-destructive: recolouring or renaming an option leaves every record that holds it untouched, ' +
         'because options have stable ids and records point at the id, not the text. ' +
         'Removing one is the exception — it refuses with a usage count unless you confirm, and can reassign holders to another option.',
@@ -3708,6 +3722,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         database: z.string(),
         field: z.string().describe('Field to update (name, api_name, or id).'),
         rename_to: z.string().optional(),
+        description: z.string().nullable().optional().describe(`${FIELD_DESCRIPTION_PARAM} Pass null or "" to remove it; leave it out to keep what is there.`),
         unique: z
           .boolean()
           .optional()
@@ -3760,13 +3775,14 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       database: string;
       field: string;
       rename_to?: string;
+      description?: string | null;
       unique?: boolean;
       unique_normalize?: boolean;
       add_options?: Array<string | { label: string; color?: string; icon?: string; category?: string }>;
       update_options?: Array<{ option: string; label?: string; color?: string; icon?: string | null; category?: string | null }>;
       remove_options?: Array<{ option: string; confirm?: boolean; reassign_to?: string }>;
     }>(
-      async ({ workspace, database, field, rename_to, unique, unique_normalize, add_options, update_options, remove_options }) => {
+      async ({ workspace, database, field, rename_to, description, unique, unique_normalize, add_options, update_options, remove_options }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const detail = await getDetail(ws.id, db.id);
@@ -3799,6 +3815,15 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
             client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
               params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
               body: { display_name: rename_to } as never,
+            }),
+          );
+        }
+        // #704 - null clears, so this is `!== undefined` and not a truthiness test (an empty string clears too, server-side).
+        if (description !== undefined) {
+          await unwrap<unknown>(
+            client.PATCH('/api/v1/workspaces/{ws}/databases/{db}/fields/{field}', {
+              params: { path: { ws: ws.id, db: db.id, field: fieldId } } as never,
+              body: { description } as never,
             }),
           );
         }
@@ -8450,6 +8475,81 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'list_social_publishes',
+    {
+      title: "List a record's social posts",
+      description:
+        "What this record's posts to LinkedIn and X did, one entry per channel with its latest outcome: state (awaiting_approval, sent_back, expired, queued, running, published, failed), the named account it goes out as (connection and, for a LinkedIn page, the organization id), attempt and next_attempt_at while it retries by itself, the post URL once published, and for a failure a safe `error` {code, message} (never the network's own response). Each entry has a `publish_id` (null while it only waits for approval) and `can_retry` for the caller. Read-only.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        record: z.string().describe('Record uuid or public number.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes', {
+          params: { path: { ws: ws.id, db: db.id, rec } },
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'retry_social_publish',
+    {
+      title: 'Retry a failed social post',
+      description:
+        "Try ONE failed post again, with its ORIGINAL account and the text that was approved: it never re-picks an account and never asks for a second approval. `publish` is the `publish_id` from list_social_publishes. Idempotent: a post that already went out, is in flight, was superseded by a newer attempt or has used its 5 retries is a 409 and nothing is posted; a post that names no account is a 422. It sends the post publicly. Needs edit on the record.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        record: z.string().describe('Record uuid or public number.'),
+        publish: z.string().describe('The publish_id of the failed post, from list_social_publishes.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; publish: string }>(async ({ workspace, database, record, publish }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes/{publish}/retry', {
+          params: { path: { ws: ws.id, db: db.id, rec, publish } },
+          body: {},
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_social_accounts',
+    {
+      title: 'List the accounts a social connection can post as',
+      description:
+        "The accounts a LinkedIn or X connection can post as, as `{ id, name, type }` (type member, organization or x_account): the picker a post names its account from. For a LinkedIn page post, put the organization `id` in the action's `account_id`. Reads through to the network with the stored connection (cached a few minutes; refresh true asks again); changes nothing and returns nothing secret. Needs a workspace admin, or the person who connected it.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        connection_id: z.string().describe("The linkedin or x connection's id (from list_connections)."),
+        refresh: z.boolean().optional().describe('Ask the network again instead of using the cached list.'),
+      },
+    },
+    handle<{ workspace: string; connection_id: string; refresh?: boolean }>(async ({ workspace, connection_id, refresh }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/connections/{id}/social-accounts', {
+          params: { path: { ws: ws.id, id: connection_id }, query: refresh ? { refresh: 'true' } : {} },
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'discover_source_fields',
     {
       title: 'Discover source fields',
@@ -9232,7 +9332,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create automation',
       short:
-        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Covers every trigger and action shape, templates, top-N sort/limit. [Full notes: get_started section \"TOOL NOTES create_automation\"]",
+        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, attach_pdf, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Covers every trigger and action shape, templates, top-N sort/limit. [Full notes: get_started section \"TOOL NOTES create_automation\"]",
       description:
 /*
          * #393 — the capability sentence comes FIRST, in words.
@@ -9270,6 +9370,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
+        // Ticket #877: the PDF action.
+        'attach_pdf{target_field, source?:{kind:"record"}|{kind:"linked_record", relation_field}, filename_template?, if_exists?:"skip"|"replace"|"add"} — ' +
+        'make a PDF of the triggering record (or of the ONE record it links to through relation_field) and attach it to an ATTACHMENT field on the triggering record; a later send_email can attach that field. ' +
+        'It is made with the RULE OWNER\'s access, checked on every run (the person who created the rule, not who switched it on): what they cannot read is never rendered and a record they cannot edit gets no file, and the run fails with a plain message and the actions after it do not run. ' +
+        'filename_template takes {Field} tokens and {date} (default "{title} · {date}"); the name is made safe and ends .pdf. if_exists: skip (default, so a re-run attaches nothing twice), replace, or add. ' +
+        'Needs the PDF renderer on the server: without it the rule cannot be switched on (saving it switched off is fine) and a run fails loudly. Up to 25 PDFs per workspace wait their turn; more are refused. Not on webhook_received rules (no record), and never held for approval · ' +
         'run_agent{agent, prompt?, target?:"trigger_record", require_approval?, ...} — run an agent (its record uuid or public number, from get_agents) — ' +
         'this is how an agent works on a SCHEDULE or while nobody is signed in: pair it with a schedule trigger and it runs once per ' +
         'record the rule selects (add a condition, or sort/limit, to narrow that — with none, every record in the database up to 500 each tick). ' +

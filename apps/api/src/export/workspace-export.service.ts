@@ -400,6 +400,8 @@ export class WorkspaceExportService {
         api_name: f.apiName,
         type: f.type,
         config: f.config,
+        // #704 - the field's help text rides along with the schema (null when there is none)
+        description: f.description,
         position: f.position,
         is_system: f.isSystem,
         options: (optionsByField.get(f.id) ?? []).map((o) => ({

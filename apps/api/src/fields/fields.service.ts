@@ -30,10 +30,12 @@ import {
   aiFieldConfigSchema,
   aiPromptRefs,
   CONVERTIBLE,
+  FIELD_DESCRIPTION_MAX,
   FormulaError,
   FORMULA_PREVIEW_MAX_SAMPLES,
   formulaErrorToDiagnostic,
   formulaConfigSchema,
+  normalizeFieldDescription,
   NUMBER_FORMAT_KEYS,
   rollupConfigSchema,
   rollupInheritsFormat,
@@ -451,11 +453,26 @@ export class FieldsService {
     }
   }
 
+  /**
+   * #704 - the ONE place a description is normalised for storage: trimmed, empty/whitespace/null all mean "none" (null), absent stays
+   * undefined (leave as it is). The 200-character cap is enforced here as well as by `fieldDescriptionSchema`, because a pack manifest
+   * or an architect plan reaches `create` without the controller's DTO, and a column with no cap would be a way round the one on the API.
+   */
+  private checkedDescription(value: string | null | undefined): string | null | undefined {
+    const normalized = normalizeFieldDescription(value);
+    if (typeof normalized === 'string' && normalized.length > FIELD_DESCRIPTION_MAX) {
+      throw new UnprocessableEntityException(`A field description is at most ${FIELD_DESCRIPTION_MAX} characters`);
+    }
+    return normalized;
+  }
+
   async create(
     databaseId: string,
     input: {
       display_name: string;
       type: CreatableFieldType;
+      /** #704 - help text: trimmed, at most 200 chars; null/empty/absent = none (the service stores null). Validated at the schema AND here, because pack and architect installs reach this method without the controller's schema. */
+      description?: string | null;
       config?: Record<string, unknown>;
       options?: Array<{ label: string; color?: string; icon?: string | null; category?: StateCategory }>; // #202, #1014
     },
@@ -463,6 +480,7 @@ export class FieldsService {
     membership?: Membership,
   ) {
     await this.assertUniqueDisplayName(databaseId, input.display_name);
+    const description = this.checkedDescription(input.description) ?? null;
     // #1087 — a workflow field created with no options (none, or an empty list) starts as To do / In progress / Done, not with zero
     // columns to type by hand. Decided HERE, in the one place every surface creates a field through, so REST, MCP and the web dialog
     // agree. Options a caller gives are used exactly as given, and every other type is untouched.
@@ -539,6 +557,7 @@ export class FieldsService {
           apiName,
           type: input.type,
           config,
+          description,
           position,
         })
         .returning();
@@ -1609,26 +1628,28 @@ export class FieldsService {
   async update(
     databaseId: string,
     fieldId: string,
-    patch: { display_name?: string; config?: Record<string, unknown>; position?: number },
+    patch: { display_name?: string; description?: string | null; config?: Record<string, unknown>; position?: number },
     /** #1070 — same contract as create()'s `membership`. */
     membership?: Membership,
   ) {
     const field = await this.getField(databaseId, fieldId);
+    const description = this.checkedDescription(patch.description);
     // A system field's schema (name, type, position) is fixed — but its per-view
     // LAYOUT config is not schema. The record page needs to toggle entity_zones /
     // entity_hidden on the audit fields to show them (MN-126), so allow a
     // config-only patch on system fields while still refusing name/position edits.
+    // #704: a description is neither name, type nor position, so a system field can carry one (it explains what the column is).
     if (field.isSystem) {
       if (patch.display_name !== undefined || patch.position !== undefined) {
         throw new UnprocessableEntityException('System fields cannot be renamed or reordered');
       }
-      if (!patch.config) return this.withOptions(this.db, field);
+      if (!patch.config && description === undefined) return this.withOptions(this.db, field);
       // Resolve write-only header presence flags against the stored config so an
       // unrelated edit can't clobber a secret webhook header to a sentinel (#249).
-      const restored = restoreFieldConfig(patch.config, field.config);
+      const restored = patch.config ? restoreFieldConfig(patch.config, field.config) : undefined;
       const [updated] = await this.db
         .update(fields)
-        .set({ config: { ...(field.config as object), ...restored } })
+        .set({ ...(restored ? { config: { ...(field.config as object), ...restored } } : {}), ...(description !== undefined ? { description } : {}) })
         .where(eq(fields.id, fieldId))
         .returning();
       return this.withOptions(this.db, updated!);
@@ -1810,6 +1831,8 @@ export class FieldsService {
         displayName: patch.display_name,
         config: nextConfig,
         position: patch.position,
+        // #704: undefined leaves the column alone (drizzle skips it), null clears it
+        description,
       })
       .where(eq(fields.id, fieldId))
       .returning();

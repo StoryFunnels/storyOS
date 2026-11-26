@@ -293,7 +293,7 @@ describe('PostSocialActionService (ticket #42 / MN-257)', () => {
 
       expect(err).toBeInstanceOf(ProviderError);
       expect((err as ProviderError).retryable).toBe(false);
-      expect((err as Error).message).toContain('already posted');
+      expect((err as Error).message).toContain('[already_posted]');
       expect(fetcher).not.toHaveBeenCalled();
     });
 
@@ -345,6 +345,110 @@ describe('PostSocialActionService (ticket #42 / MN-257)', () => {
 
       await service.run(payload({ target: 'x' }), helpers({ provider: 'x', auth: { access_token: 'x-tok' } }));
       expect(recordsUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Ticket #42 (the named-account rescope) ─────────────────────────────────────────────────────
+  describe('NOTHING POSTS FROM AN UNNAMED ACCOUNT', () => {
+    const ORG = 'urn:li:organization:5551234';
+
+    it('a linkedin_org post goes out AS the named page, not as the member (and the image is owned by the page)', async () => {
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(fakeResponse({ json: { value: { uploadUrl: 'https://upload.example/u', image: 'urn:li:image:1' } } }))
+        .mockResolvedValueOnce(fakeResponse({ status: 201 }))
+        .mockResolvedValueOnce(fakeResponse({ status: 201, headers: { 'x-restli-id': 'urn:li:share:77' } }));
+      const { service } = newService({ attachmentsFindFirst: { filename: 'a.png', mime: 'image/png', storageKey: 'k' } });
+      getStorageMock.mockReturnValue({ getStream: async () => fakeStream([Buffer.from('img')]) });
+      service.fetcher = fetcher as unknown as typeof fetch;
+
+      await service.run(payload({ target: 'linkedin_org', account_id: ORG, media_field_id: 'media-f' }), helpers());
+
+      // No /v2/userinfo call at all: the author is the page, there is nothing to look up about the member.
+      expect(fetcher.mock.calls.map((c) => c[0])).not.toContain('https://api.linkedin.com/v2/userinfo');
+      expect(JSON.parse((fetcher.mock.calls[0]![1] as { body: string }).body).initializeUploadRequest.owner).toBe(ORG);
+      const post = JSON.parse((fetcher.mock.calls[2]![1] as { body: string }).body);
+      expect(post.author).toBe(ORG);
+    });
+
+    it('a linkedin_org job with NO account_id is refused before any provider call, non-retryably (never falls back to the member)', async () => {
+      const fetcher = vi.fn();
+      const { service } = newService();
+      service.fetcher = fetcher as unknown as typeof fetch;
+      const h = helpers();
+      const err = await service.run(payload({ target: 'linkedin_org' }), h).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ProviderError);
+      expect((err as ProviderError).retryable).toBe(false);
+      expect((err as Error).message).toMatch(/^\[no_account\]/);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(h.connectionAuth, 'the credential is not even opened').not.toHaveBeenCalled();
+    });
+
+    it('a linkedin_org job whose account_id is not an organization URN is refused the same way', async () => {
+      const fetcher = vi.fn();
+      const { service } = newService();
+      service.fetcher = fetcher as unknown as typeof fetch;
+      for (const bad of ['urn:li:person:abc', 'acme-co', 'urn:li:organization:12ab']) {
+        const err = await service.run(payload({ target: 'linkedin_org', account_id: bad }), helpers()).catch((e: unknown) => e);
+        expect((err as Error).message, bad).toMatch(/^\[no_account\]/);
+      }
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    it('a linkedin_member post that pins a DIFFERENT member than the connection belongs to is refused before posting', async () => {
+      const fetcher = vi.fn().mockResolvedValueOnce(fakeResponse({ json: { sub: 'me' } }));
+      const { service } = newService();
+      service.fetcher = fetcher as unknown as typeof fetch;
+      const err = await service.run(payload({ target: 'linkedin_member', account_id: 'urn:li:person:someone-else' }), helpers()).catch((e: unknown) => e);
+      expect((err as Error).message).toMatch(/^\[account_mismatch\]/);
+      expect((err as ProviderError).retryable).toBe(false);
+      expect(fetcher).toHaveBeenCalledTimes(1); // the userinfo lookup only, never /rest/posts
+    });
+
+    it("a linkedin_member post that pins the connection's own member goes out", async () => {
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(fakeResponse({ json: { sub: 'me' } }))
+        .mockResolvedValueOnce(fakeResponse({ status: 201, headers: { 'x-restli-id': 'urn:li:share:5' } }));
+      const { service } = newService();
+      service.fetcher = fetcher as unknown as typeof fetch;
+      const r = await service.run(payload({ target: 'linkedin_member', account_id: 'urn:li:person:me' }), helpers());
+      expect(r.external_id).toBe('urn:li:share:5');
+    });
+  });
+
+  describe("a failed publish stores a code and a short sentence, never the network's own response", () => {
+    // A token fragment and a person's name, the two things a provider's error body can echo back.
+    const BODY = '{"message":"Invalid access token AQXsecretTOKENvalue123","detail":"Post by Maya Chen: Autumn lookbook launch"}';
+
+    async function failWith(status: number, target: PostSocialAction['target']) {
+      const fetcher = vi.fn();
+      if (target === 'x') fetcher.mockResolvedValueOnce(fakeResponse({ status, text: BODY }));
+      else fetcher.mockResolvedValueOnce(fakeResponse({ json: { sub: 'me' } })).mockResolvedValueOnce(fakeResponse({ status, text: BODY }));
+      const { service } = newService();
+      service.fetcher = fetcher as unknown as typeof fetch;
+      const h = target === 'x' ? helpers({ provider: 'x', auth: { access_token: 'x-tok' } }) : helpers();
+      return (await service.run(payload({ target }), h).catch((e: unknown) => e)) as ProviderError;
+    }
+
+    it.each([
+      [401, 'auth_refused', false],
+      [403, 'forbidden', false],
+      [404, 'not_found', false],
+      [422, 'rejected', false],
+      [429, 'rate_limited', true],
+      [503, 'provider_unavailable', true],
+    ])('HTTP %i becomes [%s] (retryable: %s) on X and on LinkedIn, with the body dropped', async (status, code, retryable) => {
+      for (const target of ['x', 'linkedin_member'] as const) {
+        const err = await failWith(status, target);
+        expect(err.message, target).toMatch(new RegExp(`^\\[${code}\\] `));
+        expect(err.message).toContain(`HTTP ${status}`);
+        expect(err.retryable, target).toBe(retryable);
+        expect(err.message).not.toContain('AQXsecretTOKENvalue123');
+        expect(err.message).not.toContain('Maya Chen');
+        expect(err.message).not.toContain('lookbook');
+        expect(err.message.length).toBeLessThan(220);
+      }
     });
   });
 });

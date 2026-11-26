@@ -216,6 +216,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       await this.assertConditionCompiles(await this.conditionDbFor(databaseId, input.trigger), input.condition, actorId);
     }
     this.assertScheduleValid(input.trigger);
+    if (input.enabled ?? true) await this.actions.assertRendererForEnabled(actions);
     if (input.approverId) await this.assertApprover(workspaceId, input.approverId);
     this.assertTopNAllowed(input.trigger.type, input.sort, input.limit);
     if (input.sort) validateSorts(input.sort, await this.sortableDefsFor(databaseId));
@@ -322,6 +323,11 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         : rule.hookToken
           ? { hookToken: null, hookSecret: null, lastHookPayload: null, lastHookAt: null }
           : {};
+    // Ticket #877 — a rule that makes PDFs is only refused being ON while the renderer is unusable; a rule left alone and already
+    // running is not re-judged by an unrelated edit, and switching one OFF is always allowed.
+    if ((patch.enabled ?? rule.enabled) && ((patch.enabled === true && !rule.enabled) || actions)) {
+      await this.actions.assertRendererForEnabled(actions ?? (rule.actions as AutomationAction[]));
+    }
     const [updated] = await this.db
       .update(automations)
       .set({

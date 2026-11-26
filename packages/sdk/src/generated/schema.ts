@@ -2016,6 +2016,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this record's posts to LinkedIn and X did, one entry per channel (latest outcome): waiting for approval, sent back, queued or retrying, published (with the post URL) or failed (with a safe code and sentence, never the network's own response). */
+        get: operations["SocialPublishesController_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes/{publish}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Try a failed post again with its ORIGINAL account and approved text (no re-pick, no second approval). 409 when the post already went out, is in flight, was superseded, or hit the retry cap; 422 when it names no account. */
+        post: operations["SocialPublishesController_retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/webhooks": {
         parameters: {
             query?: never;
@@ -2875,6 +2909,23 @@ export interface paths {
         };
         /** The provider catalog — what can be connected, and how */
         get: operations["ConnectionsController_providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/connections/{id}/social-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The accounts a LinkedIn or X connection can post as (profile, company pages, X account): the picker a post names its account from. Workspace admin or the person who connected it. Cached a few minutes; refresh=true asks the network again. */
+        get: operations["ConnectionsController_socialAccounts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5507,6 +5558,7 @@ export interface components {
             display_name: string;
             /** @enum {string} */
             type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula" | "ai";
+            description?: string | null;
             config?: {
                 [key: string]: unknown;
             };
@@ -5547,6 +5599,7 @@ export interface components {
         };
         UpdateFieldDto: {
             display_name?: string;
+            description?: string | null;
             config?: {
                 [key: string]: unknown;
             };
@@ -6189,6 +6242,26 @@ export interface components {
                 link?: string;
                 /** Format: uuid */
                 result_field_id?: string;
+                account_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "attach_pdf";
+                source: {
+                    /** @enum {string} */
+                    kind: "record";
+                } | {
+                    /** @enum {string} */
+                    kind: "linked_record";
+                    /** Format: uuid */
+                    relation_field_id: string;
+                };
+                /** Format: uuid */
+                target_field_id: string;
+                filename_template?: string;
+                /** @enum {string} */
+                if_exists?: "skip" | "replace" | "add";
             })[];
             /** @default true */
             enabled: boolean;
@@ -6390,6 +6463,26 @@ export interface components {
                 link?: string;
                 /** Format: uuid */
                 result_field_id?: string;
+                account_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "attach_pdf";
+                source: {
+                    /** @enum {string} */
+                    kind: "record";
+                } | {
+                    /** @enum {string} */
+                    kind: "linked_record";
+                    /** Format: uuid */
+                    relation_field_id: string;
+                };
+                /** Format: uuid */
+                target_field_id: string;
+                filename_template?: string;
+                /** @enum {string} */
+                if_exists?: "skip" | "replace" | "add";
             })[];
             enabled?: boolean;
             approverId?: string | null;
@@ -6410,6 +6503,10 @@ export interface components {
         };
         RejectApprovalDto: {
             reason?: string;
+        };
+        RetrySocialPublishDto: {
+            account_id?: unknown;
+            connection_id?: unknown;
         };
         CreateWebhookDto: {
             /** Format: uri */
@@ -7561,7 +7658,7 @@ export interface components {
             draft?: unknown;
         };
         BuildDto: {
-            description: string;
+            plan?: unknown;
         };
         CreateThreadDto: {
             first_message?: string;
@@ -7574,6 +7671,9 @@ export interface components {
         };
         ConfirmDto: {
             approve: boolean;
+        };
+        TyronBuildDto: {
+            description: string;
         };
         RunnerToolChoiceDto: {
             tool: string;
@@ -11067,6 +11167,51 @@ export interface operations {
             };
         };
     };
+    SocialPublishesController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SocialPublishesController_retry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                rec: string;
+                publish: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetrySocialPublishDto"];
+            };
+        };
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     WebhooksController_list: {
         parameters: {
             query?: never;
@@ -12365,6 +12510,27 @@ export interface operations {
             query?: never;
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ConnectionsController_socialAccounts: {
+        parameters: {
+            query?: {
+                refresh?: "true" | "false";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -14652,7 +14818,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BuildDto"];
+                "application/json": components["schemas"]["TyronBuildDto"];
             };
         };
         responses: {
