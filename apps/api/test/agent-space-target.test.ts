@@ -466,3 +466,195 @@ describe('#1338 copy and import cannot mint a wider agent either', () => {
     expect((await records.create(ws, agentsDbId, wide, manager.id, 1, 'automation')).id).toBeTruthy();
   });
 });
+
+/**
+ * ticket #1352 — the update guard (#1336) is keyed on the credential the work ORIGINATED with, not on the `source` label a path writes
+ * under. A CSV import applied its updates with no source at all, so an agent credential rewrote an agent's scopes through it while the same
+ * change sent as a PATCH was refused. Every door that ends in records.update / restoreVersion is proved below, for the two credentials
+ * that matter: an UNBOUND run credential with a write ceiling (what a Runner is handed) and an agent token a member minted.
+ */
+describe('#1352 every door that updates an agent record is held to the originating credential', () => {
+  const fieldId = async (apiName: string) => (await pool.query('select id from fields where database_id = $1 and api_name = $2', [agentsDbId, apiName])).rows[0].id as string;
+  const row = async (id: string) => (await pool.query('select values from records where id = $1', [id])).rows[0].values as Record<string, unknown>;
+  let victim = '';
+  let victimName = '';
+  let runToken = '';
+  let patToken = '';
+  let boundAgentId = '';
+  let before: Record<string, unknown> = {};
+  const wide = () => ({ scopes: [scopeIds['admin']], target_databases: otherDb });
+
+  const multipart = (fields: Record<string, string>, csv: string) => {
+    const boundary = 'X-1352-BOUNDARY';
+    const parts = Object.entries(fields).map(([n, v]) => `--${boundary}\r\nContent-Disposition: form-data; name="${n}"\r\n\r\n${v}\r\n`);
+    parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="data.csv"\r\nContent-Type: text/csv\r\n\r\n${csv}\r\n--${boundary}--\r\n`);
+    return { payload: parts.join(''), headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
+  };
+  const importUpsert = async (token: string, dryRun: boolean, columns: Array<[string, string]> = [['Scopes', 'scopes'], ['Targets', 'target_databases']], cells: string[] = ['admin', otherDb]) => {
+    const body = multipart(
+      {
+        mapping: JSON.stringify([{ column: 'Name', to: { kind: 'title' } }, ...(await Promise.all(columns.map(async ([column, api]) => ({ column, to: { kind: 'existing', field_id: await fieldId(api) } }))))]),
+        upsert: JSON.stringify({ column: 'Name', on_match: 'update', on_no_match: 'skip' }),
+        dry_run: dryRun ? 'true' : 'false',
+      },
+      `Name,${columns.map(([c]) => c).join(',')}\n${victimName},${cells.join(',')}`,
+    );
+    return app.inject({ method: 'POST', url: `/api/v1/workspaces/${ws}/databases/${agentsDbId}/import`, headers: { ...authed(token), ...body.headers }, payload: body.payload as never });
+  };
+  const unchanged = async () => {
+    const now = await row(victim);
+    for (const k of ['scopes', 'target_databases', 'target_spaces', 'tools', 'model']) {
+      const id = await fieldId(k);
+      expect(now[id], `${k} must be unchanged`).toEqual(before[id]);
+    }
+  };
+
+  beforeAll(async () => {
+    victimName = 'Update door victim';
+    victim = await mkAgent(victimName, { target_databases: 'Ledger', scopes: [scopeIds['write']] });
+    before = await row(victim);
+    const u = await mkAgent('Update door unbound', { scopes: [scopeIds['write']] });
+    await assign(u);
+    const claimed = await claimFor(u);
+    expect(claimed.agent.scope.enforced).toBe(false); // unbound
+    runToken = claimed.credential.token;
+    boundAgentId = u;
+    const m = await mkAgent('Update door minted', { scopes: [scopeIds['write']] });
+    const res = await as(manager.token, 'POST', '/me/tokens', { name: 'door agent token', workspace_id: ws, scope: 'write', agent_id: m });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    patToken = res.json().token as string;
+    // The premise: both credentials really do reach the Agents database.
+    for (const t of [runToken, patToken]) expect((await as(t, 'POST', `/workspaces/${ws}/databases/${agentsDbId}/records/query`, { limit: 1 })).statusCode).toBeLessThan(300);
+  });
+
+  for (const who of ['unbound run credential', 'member-minted agent token'] as const) {
+    const token = () => (who === 'unbound run credential' ? runToken : patToken);
+
+    describe(`as a ${who}`, () => {
+      it('baseline: a direct PATCH is refused (403)', async () => {
+        const res = await as(token(), 'PATCH', `${agentsRecords()}/${victim}`, { values: wide() });
+        expect(res.statusCode, res.body).toBe(403);
+        await unchanged();
+      });
+
+      it('CSV import upsert (on_match update) is refused with the same 403, and nothing changed', async () => {
+        const res = await importUpsert(token(), false);
+        expect(res.statusCode, res.body).toBe(403);
+        expect(res.json().message).toMatch(/cannot change an agent/);
+        await unchanged();
+      });
+
+      it('CSV import upsert is refused for each guarded column on its own (scopes, target databases, model)', async () => {
+        for (const [col, api, cell] of [['Scopes', 'scopes', 'admin'], ['Targets', 'target_databases', otherDb], ['Model', 'model', 'some-model']] as const) {
+          const res = await importUpsert(token(), false, [[col, api]], [cell]);
+          expect(res.statusCode, `${api}: ${res.body}`).toBe(403);
+        }
+        await unchanged();
+      });
+
+      it('a CSV import that only touches fields that are not scope still applies', async () => {
+        const res = await importUpsert(token(), false, [['Enabled', 'enabled']], ['true']);
+        expect(res.statusCode, res.body).toBeLessThan(300);
+        expect(res.json().updated).toBe(1);
+      });
+
+      it('the import DRY RUN reports the refusal on the row instead of previewing a success', async () => {
+        const res = await importUpsert(token(), true);
+        expect(res.statusCode, res.body).toBe(201);
+        const body = res.json();
+        expect(body.will_update).toBe(0);
+        expect(body.will_refuse).toBe(1);
+        expect(body.warnings.map((w: { row: number; message: string }) => `${w.row}: ${w.message}`).join('\n')).toMatch(/2: refused: An agent cannot change an agent/);
+        await unchanged();
+      });
+
+      it('batch update is refused per record (nothing updated) and a bulk job is refused when it is enqueued', async () => {
+        const res = await as(token(), 'PATCH', `${agentsRecords()}/batch`, { record_ids: [victim], values: wide() });
+        expect(res.statusCode, res.body).toBe(200);
+        expect(res.json().updated).toBe(0);
+        expect(res.json().failed[0].message).toMatch(/cannot change an agent/);
+        const job = await as(token(), 'POST', `${agentsRecords()}/batch-jobs`, { op: 'update', record_ids: [victim], values: wide() });
+        expect(job.statusCode, job.body).toBe(403);
+        await unchanged();
+      });
+
+      it('copy_records is create-only: its dry run REPORTS a refused agent copy per record instead of previewing a success', async () => {
+        const source = await mkAgent(`Copy dry-run source ${who}`, { target_databases: `${ledger}, ${otherDb}`, scopes: [scopeIds['admin']] });
+        const res = await as(token(), 'POST', `/workspaces/${ws}/databases/${agentsDbId}/records/copy`, { record_ids: [source], target_database_id: agentsDbId, dry_run: true });
+        expect(res.statusCode, res.body).toBeLessThan(300);
+        expect(res.json().will_refuse).toBe(1);
+        expect(res.json().will_create).toBe(0);
+        expect(JSON.stringify(res.json().warnings)).toMatch(/refused/);
+        const person = await as(manager.token, 'POST', `/workspaces/${ws}/databases/${agentsDbId}/records/copy`, { record_ids: [source], target_database_id: agentsDbId, dry_run: true });
+        expect(person.json().will_refuse).toBe(0);
+        expect(person.json().will_create).toBe(1);
+      });
+
+      it('move with a value patch is refused', async () => {
+        const res = await as(token(), 'POST', `${agentsRecords()}/${victim}/move`, { values: wide() });
+        expect(res.statusCode, res.body).toBe(403);
+        await unchanged();
+      });
+
+      it('restoring a version of an agent record is refused, and so is undoing a batch update', async () => {
+        // A person edits the victim, so there is a captured version to restore.
+        const edit = await as(manager.token, 'PATCH', `${agentsRecords()}/${victim}`, { values: { enabled: false } });
+        expect(edit.statusCode, edit.body).toBe(200);
+        const versions = (await as(manager.token, 'GET', `${agentsRecords()}/${victim}/versions`)).json().data as Array<{ id: string }>;
+        expect(versions.length).toBeGreaterThan(0);
+        const res = await as(token(), 'POST', `${agentsRecords()}/${victim}/versions/${versions[0]!.id}/restore`);
+        expect(res.statusCode, res.body).toBe(403);
+        const undo = await as(token(), 'POST', `${agentsRecords()}/batch-update-undo`, { restorable: [{ record_id: victim, version_id: versions[0]!.id }] });
+        expect(undo.json().restored).toBe(0);
+        expect(undo.json().failed[0].message).toMatch(/cannot change an agent/);
+        await unchanged();
+      });
+    });
+  }
+
+  it('an automation chained from an agent write (it carries the run credential origin) cannot rewrite an agent; an automation with no origin can', async () => {
+    const records = app.get(RecordsService);
+    const { runWithEventOrigin } = await import('../src/common/credential-context');
+    const origin = { agentId: boundAgentId, agentName: 'Update door unbound', runId: null, runnerId: runner.id, runnerName: 'Test machine' };
+    await expect(runWithEventOrigin(origin, () => records.update(ws, agentsDbId, victim, wide(), manager.id, 1, 'automation'))).rejects.toThrow(/cannot change an agent/);
+    await unchanged();
+    // The same write from a rule an admin wrote, fired by a person's change: no agent credential behind it.
+    await records.update(ws, agentsDbId, victim, { target_databases: 'Ledger' }, manager.id, 1, 'automation');
+    // A run executor acting as an agent, writing under an unrelated label.
+    await expect(asActingAgent({ agentId: boundAgentId, agentName: 'x' }, () => records.update(ws, agentsDbId, victim, wide(), manager.id, 0, 'automation'))).rejects.toThrow(/cannot change an agent/);
+    await unchanged();
+  });
+
+  it('a restore carried by an agent origin is refused whatever the label', async () => {
+    const records = app.get(RecordsService);
+    const { runWithEventOrigin } = await import('../src/common/credential-context');
+    const versions = (await as(manager.token, 'GET', `${agentsRecords()}/${victim}/versions`)).json().data as Array<{ id: string }>;
+    const origin = { agentId: boundAgentId, agentName: 'x', runId: null, runnerId: runner.id, runnerName: 'Test machine' };
+    await expect(runWithEventOrigin(origin, () => records.restoreVersion(ws, agentsDbId, victim, versions[0]!.id, manager.id, 'automation'))).rejects.toThrow(/cannot change an agent/);
+    await unchanged();
+  });
+
+  it('MUST KEEP: a person changes an agent through PATCH, batch update and a CSV import (dry run and commit)', async () => {
+    const patch = await as(manager.token, 'PATCH', `${agentsRecords()}/${victim}`, { values: { scopes: [scopeIds['read']] } });
+    expect(patch.statusCode, patch.body).toBe(200);
+    const batch = await as(manager.token, 'PATCH', `${agentsRecords()}/batch`, { record_ids: [victim], values: { target_databases: 'Ledger' } });
+    expect(batch.json().updated).toBe(1);
+    const dry = await importUpsert(manager.token, true);
+    expect(dry.statusCode, dry.body).toBe(201);
+    expect(dry.json().will_update).toBe(1);
+    expect(dry.json().will_refuse).toBe(0);
+    const live = await importUpsert(manager.token, false);
+    expect(live.statusCode, live.body).toBeLessThan(300);
+    expect(live.json().updated).toBe(1);
+    expect((await row(victim))[await fieldId('scopes')]).toEqual([scopeIds['admin']]);
+  });
+
+  it('MUST KEEP: a write a person approved still applies for an agent origin (the approvals marker), and still does not cover Tools or Model', async () => {
+    const records = app.get(RecordsService);
+    const { runWithEventOrigin } = await import('../src/common/credential-context');
+    const origin = { agentId: boundAgentId, agentName: 'x', runId: null, runnerId: runner.id, runnerName: 'Test machine' };
+    await runWithEventOrigin(origin, () => asApprovedAgentWrite(() => records.update(ws, agentsDbId, victim, { target_databases: 'Ledger' }, manager.id, 0, 'agent', boundAgentId, 'x')));
+    expect((await row(victim))[await fieldId('target_databases')]).toBe('Ledger');
+    await expect(runWithEventOrigin(origin, () => asApprovedAgentWrite(() => records.update(ws, agentsDbId, victim, { target_databases: 'Ledger', tools: 'x' }, manager.id, 0, 'agent', boundAgentId, 'x')))).rejects.toThrow(/cannot change an agent/);
+  });
+});
