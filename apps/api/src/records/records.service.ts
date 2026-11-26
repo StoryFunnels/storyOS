@@ -3265,9 +3265,9 @@ export class RecordsService implements OnModuleInit {
     const acting = currentActingAgent();
     const ambient = currentActor();
     let creator: AgentCreator | null = null;
-    if (acting) creator = { agentId: acting.agentId, tokenScope: null, resourceScope: undefined };
-    else if (ambient?.source === 'agent') creator = { agentId: ambient.agentId, tokenScope: ambient.tokenScope ?? 'read', resourceScope: ambient.resourceScope ?? null };
-    else if (agentIdParam) creator = { agentId: agentIdParam, tokenScope: null, resourceScope: undefined };
+    if (acting) creator = { agentId: acting.agentId, ceiling: null, resourceScope: undefined };
+    else if (ambient?.source === 'agent') creator = { agentId: ambient.agentId, ceiling: ambient.tokenScope ?? 'read', resourceScope: ambient.resourceScope ?? null };
+    else if (agentIdParam) creator = { agentId: agentIdParam, ceiling: null, resourceScope: undefined };
     if (!creator) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;

@@ -28,7 +28,7 @@ import { parseTargetList, resolveAgentScope, toResourceScope } from './agent-sco
 export interface AgentCreator {
   agentId: string | null;
   /** The credential's own ceiling, when the request carried one. Null = look it up from the agent's record. */
-  tokenScope: TokenScope | null;
+  ceiling: TokenScope | null;
   /** The credential's #543 binding. `undefined` = not known from the request: resolve it live from the agent record. */
   resourceScope: { space_ids: string[]; database_ids: string[] } | null | undefined;
 }
@@ -127,7 +127,7 @@ export async function assertAgentCreateWithinReach(
     reach = new Set(rows.filter((r) => resourceScope!.database_ids.includes(r.id) || (resourceScope!.space_ids.includes(r.spaceId) && coveredByWholeSpaceGrant(r))).map((r) => r.id.toLowerCase()));
   }
 
-  const creatorCeiling = creator.tokenScope ?? (creator.agentId ? await declaredCeiling(db, agentsDatabaseId, creator.agentId) : 'read');
+  const creatorCeiling = creator.ceiling ?? (creator.agentId ? await declaredCeiling(db, agentsDatabaseId, creator.agentId) : 'read');
 
   let newCeiling: TokenScope | null = null;
   const declared = input['scopes'];
