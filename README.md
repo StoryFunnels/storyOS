@@ -7,7 +7,7 @@
 
 <p align="center">
   <strong>The one place a small business's real things live.</strong><br/>
-  Customers, jobs, orders and invoices as linked records, with your own AI working inside them. Open source and self-hostable.
+  Clients, contacts and projects as linked records, with your own AI working inside them. Open source and self-hostable.
 </p>
 
 <!-- PRODUCT GIF SLOT: Dara's product GIF goes here, centred, under the tagline. Not ready yet; add it in a follow-up. -->
@@ -21,9 +21,9 @@
 
 ---
 
-StoryOS is the one place a small business's real things live (customers, jobs, orders, invoices), so the owner runs the business and their AI does the work inside it. You define databases, link them with real two-sided relations, and work the same records as a table, a board, a calendar and more.
+StoryOS is the one place a small business's real things live (clients, contacts, projects), so the owner runs the business and their AI does the work inside it. You define databases, link them with real two-sided relations, and work the same records as a table, a board, a calendar and more.
 
-It is built API-first: the web app is one client of a public REST API, and the built-in MCP server lets the Claude or ChatGPT you already use read and change the same records, with your role's permissions. An admin can require a person's approval before an AI deletes records or before a hired agent writes, and every change an AI makes is marked as the AI's.
+It is built API-first: the web app is one client of a public REST API, and the built-in MCP server lets the Claude or ChatGPT you already use read and change the same records, with your role's permissions. An admin can require a person's approval before an AI deletes records or before a hired agent writes, and changes an AI makes are marked as the AI's.
 
 **Hosted:** [app.storyos.dev](https://app.storyos.dev) · **Docs:** [docs.storyos.dev](https://docs.storyos.dev) · **Connect your AI:** [storyos.dev/ai/connect](https://storyos.dev/ai/connect/) · **Self-host:** below
 
@@ -138,8 +138,8 @@ TypeScript monorepo (pnpm + Turborepo) · NestJS 11 on Fastify · Next.js 16 / R
 
 ## License
 
-AGPL-3.0, see [LICENSE](LICENSE).
+**Dual-licensed.** [AGPL-3.0-or-later](LICENSE) for everyone, free forever; if you host it as a service, share your changes back. A separate **commercial license** is available for organisations that cannot accept the AGPL: same code, different legal terms. See [docs/licensing.md](docs/licensing.md).
 
-**One exception: the Runner.** `packages/runner` (the open-source worker that runs your agents on your own computer) is **Apache-2.0**, with its own [LICENSE](packages/runner/LICENSE); the server and everything else stay AGPL-3.0. The Runner may not depend on any AGPL package, and CI fails if it does. See [docs/licensing.md](docs/licensing.md).
+**One exception: the Runner.** `packages/runner` (the open-source worker that runs your agents on your own computer) is **Apache-2.0**, with its own [LICENSE](packages/runner/LICENSE); the server and everything else stay AGPL-3.0-or-later. The Runner may not depend on any AGPL package, and CI fails if it does. See [docs/licensing.md](docs/licensing.md).
 
 Contributions require agreeing to the [Contributor License Agreement](CLA.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
