@@ -51,13 +51,13 @@ export class RequestMemoInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     // #882 — interceptors run AFTER the guards, so the auth guard has already set `auth.tokenId` (PATs only).
     const request = context.switchToHttp().getRequest<{
-      auth?: { tokenId?: string; source?: RequestActor['source']; agentId?: string; agentName?: string; run?: RunStamp };
+      auth?: { tokenId?: string; source?: RequestActor['source']; agentId?: string; agentName?: string; run?: RunStamp; tokenScope?: RequestActor['tokenScope']; resourceScope?: RequestActor['resourceScope'] };
       user?: { id?: string };
     }>();
     const tokenId = request?.auth?.tokenId ?? null;
     // #1059 — who is acting, for audit events written below the controller (see RequestActor).
     const actor: RequestActor | null = request?.user?.id
-      ? { userId: request.user.id, source: request.auth?.source ?? null, agentId: request.auth?.agentId ?? null, agentName: request.auth?.agentName ?? null }
+      ? { userId: request.user.id, source: request.auth?.source ?? null, agentId: request.auth?.agentId ?? null, agentName: request.auth?.agentName ?? null, tokenScope: request.auth?.tokenScope ?? null, resourceScope: request.auth?.resourceScope ?? null }
       : null;
     return new Observable((subscriber) =>
       runWithCredential(

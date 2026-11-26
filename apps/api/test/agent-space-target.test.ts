@@ -6,7 +6,7 @@ import { call, grant, joinAs, setRestricted } from './helpers/members';
 import type { Person } from './helpers/members';
 import { connectTestDb } from './helpers/db';
 import { RecordsService } from '../src/records/records.service';
-import { asApprovedAgentWrite } from '../src/records/agent-write-context';
+import { asActingAgent, asApprovedAgentWrite } from '../src/records/agent-write-context';
 
 /**
  * ticket #1195 — an agent's scope is its databases PLUS its spaces; a space resolves to its databases AT CALL TIME.
@@ -267,5 +267,202 @@ describe('#1336 an agent that can reach the Agents database cannot rewrite agent
   it('MUST KEEP: an agent can still write the fields that are not scope', async () => {
     const res = await as(token, 'PATCH', `${agentsRecords()}/${agent}`, { values: { enabled: false } });
     expect(res.statusCode, res.body).toBe(200);
+  });
+});
+
+/**
+ * ticket #1338 — sibling of #1336: an agent credential that can reach the Agents database must not CREATE an agent whose reach is
+ * wider than its own. The new agent's databases must be a subset of the creator's scope (named by id: a name resolves later, and a
+ * database created tomorrow under the same name could be outside it), its scopes no higher, and an agent that names no database at all
+ * (which reaches everything its owner can) is only mintable by a creator that is itself unbound. A person, a pack install and an
+ * architect build are untouched; a write a person approved applies.
+ */
+describe('#1338 an agent that can reach the Agents database cannot create an agent wider than itself', () => {
+  const fieldId = async (apiName: string) => (await pool.query('select id from fields where database_id = $1 and api_name = $2', [agentsDbId, apiName])).rows[0].id as string;
+  const countNamed = async (name: string) => Number((await pool.query('select count(*)::int as n from records where database_id = $1 and title = $2', [agentsDbId, name])).rows[0].n);
+  let membersDb = '';
+  let bound = '';
+  let boundToken = '';
+  let unbound = '';
+  let unboundToken = '';
+  const spawn = (token: string, name: string, values: Record<string, unknown>) => as(token, 'POST', agentsRecords(), { values: { name, enabled: true, ai_mode: aiOwn, ...values } });
+
+  beforeAll(async () => {
+    membersDb = (await pool.query("select id from databases where workspace_id = $1 and is_system = true and system_key = 'members'", [ws])).rows[0].id as string;
+    bound = await mkAgent('Create probe', { target_databases: `${ledger}, ${agentsDbId}`, scopes: [scopeIds['write']] });
+    await assign(bound);
+    boundToken = (await claimFor(bound)).credential.token;
+    expect((await as(boundToken, 'POST', `/workspaces/${ws}/databases/${agentsDbId}/records/query`, { limit: 1 })).statusCode).toBeLessThan(300);
+    unbound = await mkAgent('Create probe unbound', { scopes: [scopeIds['write']] });
+    await assign(unbound);
+    const claimed = await claimFor(unbound);
+    expect(claimed.agent.scope.enforced).toBe(false);
+    unboundToken = claimed.credential.token;
+  });
+
+  it('refuses a new agent that names a database outside its own scope (403) and stores nothing', async () => {
+    const res = await spawn(boundToken, 'Wider by database', { target_databases: `${ledger}, ${otherDb}`, scopes: [scopeIds['read']] });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(res.body).not.toContain('Elsewhere');
+    expect(await countNamed('Wider by database')).toBe(0);
+  });
+
+  it('refuses a new agent that names a system database the creator cannot reach, by id', async () => {
+    const res = await spawn(boundToken, 'Wider by system db', { target_databases: `${ledger}, ${membersDb}`, scopes: [scopeIds['read']] });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(await countNamed('Wider by system db')).toBe(0);
+  });
+
+  it('refuses a new agent that names no database at all (an unbound agent reaches more than a bound creator)', async () => {
+    const res = await spawn(boundToken, 'Wider by silence', { scopes: [scopeIds['read']] });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(await countNamed('Wider by silence')).toBe(0);
+  });
+
+  it('refuses a new agent that names a database by NAME (a name binds later, and could bind something outside the creator)', async () => {
+    const res = await spawn(boundToken, 'Wider by name', { target_databases: 'Ledger', scopes: [scopeIds['read']] });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(res.body).toContain('by id'); // the refusal says how to do it right, not only that it is wrong
+    expect(await countNamed('Wider by name')).toBe(0);
+  });
+
+  it('refuses a new agent with higher scopes than the creator holds', async () => {
+    const res = await spawn(boundToken, 'Wider by scopes', { target_databases: ledger, scopes: [scopeIds['admin']] });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(await countNamed('Wider by scopes')).toBe(0);
+  });
+
+  it('refuses the same widening through the batch endpoint and through duplicate', async () => {
+    const batch = await as(boundToken, 'POST', `${agentsRecords()}/batch`, { records: [{ values: { name: 'Batch wider', target_databases: otherDb } }] });
+    expect(batch.statusCode, batch.body).toBe(403);
+    const wide = await mkAgent('Wide source', { target_databases: `${ledger}, ${otherDb}` });
+    const dup = await as(boundToken, 'POST', `${agentsRecords()}/${wide}/duplicate`);
+    expect(dup.statusCode, dup.body).toBe(403);
+    expect(await countNamed('Batch wider')).toBe(0);
+    expect(await countNamed('Wide source (copy)')).toBe(0);
+  });
+
+  it("allows a new agent whose databases and scopes are a subset of the creator's (and the stored value is what was asked for)", async () => {
+    const res = await spawn(boundToken, 'Narrower child', { target_databases: ledger, scopes: [scopeIds['read']] });
+    expect(res.statusCode, res.body).toBe(201);
+    const row = (await pool.query('select values from records where id = $1', [res.json().id])).rows[0].values as Record<string, unknown>;
+    expect(row[await fieldId('target_databases')]).toBe(ledger);
+    expect((await spawn(boundToken, 'Equal child', { target_databases: `${ledger}, ${agentsDbId}`, scopes: [scopeIds['write']] })).statusCode).toBe(201);
+  });
+
+  it('an agent that is itself unbound may create an unbound agent, and one that names databases (its owner reach is the ceiling), but not higher scopes', async () => {
+    expect((await spawn(unboundToken, 'Unbound child', { scopes: [scopeIds['read']] })).statusCode).toBe(201);
+    expect((await spawn(unboundToken, 'Unbound child named', { target_databases: `${ledger}, ${otherDb}`, scopes: [scopeIds['write']] })).statusCode).toBe(201);
+    const res = await spawn(unboundToken, 'Unbound child admin', { scopes: [scopeIds['admin']] });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(await countNamed('Unbound child admin')).toBe(0);
+  });
+
+  it('MUST KEEP: a person who manages agents creates any agent they like', async () => {
+    const res = await spawn(manager.token, 'Person made', { target_databases: `${ledger}, ${otherDb}, ${membersDb}`, scopes: [scopeIds['admin']] });
+    expect(res.statusCode, res.body).toBe(201);
+  });
+
+  it('MUST KEEP: a create made by an internal build (no agent credential at the door) with source agent still applies, as a pack install and an architect build do', async () => {
+    const records = app.get(RecordsService);
+    const made = await records.create(ws, agentsDbId, { name: 'Built by a person-approved build', enabled: true, target_databases: `${ledger}, ${otherDb}`, scopes: [scopeIds['admin']] }, manager.id, 0, 'agent');
+    expect(made.id).toBeTruthy();
+  });
+
+  it('MUST KEEP: a write a person APPROVED (the approval marker) applies; the same create unapproved is refused, and so is a run-executor create', async () => {
+    const records = app.get(RecordsService);
+    const widen = { name: 'Approved wide child', enabled: true, target_databases: `${ledger}, ${otherDb}`, scopes: [scopeIds['read']] };
+    await expect(records.create(ws, agentsDbId, widen, manager.id, 0, 'agent', bound, 'Create probe')).rejects.toThrow(/cannot|reach|scope/i);
+    await expect(asActingAgent({ agentId: bound, agentName: 'Create probe' }, () => records.create(ws, agentsDbId, widen, manager.id, 0, 'agent'))).rejects.toThrow(/cannot|reach|scope/i);
+    expect(await countNamed('Approved wide child')).toBe(0);
+    await asApprovedAgentWrite(() => records.create(ws, agentsDbId, widen, manager.id, 0, 'agent', bound, 'Create probe'));
+    expect(await countNamed('Approved wide child')).toBe(1);
+  });
+});
+
+/**
+ * ticket #1338, second half — the SAME rule on every door that creates a record, keyed on the credential the work ORIGINATED with and
+ * not on the `source` label the path writes with. copy_records and the CSV importer apply with source 'automation', and a first version of
+ * the guard that looked only at source 'agent' let both through.
+ */
+describe('#1338 copy and import cannot mint a wider agent either', () => {
+  const countNamed = async (name: string) => Number((await pool.query('select count(*)::int as n from records where database_id = $1 and title = $2', [agentsDbId, name])).rows[0].n);
+  const fieldRow = async (apiName: string) => (await pool.query('select id from fields where database_id = $1 and api_name = $2', [agentsDbId, apiName])).rows[0].id as string;
+  let wideSource = '';
+  let unboundToken2 = '';
+  let boundToken2 = '';
+  let minted = '';
+  let boundAgent = '';
+
+  const copy = (token: string, ids: string[]) => as(token, 'POST', `/workspaces/${ws}/databases/${agentsDbId}/records/copy`, { record_ids: ids, target_database_id: agentsDbId, dry_run: false });
+  const multipartBody = (fields: Record<string, string>, csv: string) => {
+    const boundary = 'X-1338-BOUNDARY';
+    const parts = Object.entries(fields).map(([n, v]) => `--${boundary}\r\nContent-Disposition: form-data; name="${n}"\r\n\r\n${v}\r\n`);
+    parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="data.csv"\r\nContent-Type: text/csv\r\n\r\n${csv}\r\n--${boundary}--\r\n`);
+    return { payload: parts.join(''), headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
+  };
+  const importCsv = async (token: string, name: string) => {
+    const body = multipartBody(
+      {
+        mapping: JSON.stringify([
+          { column: 'Name', to: { kind: 'title' } },
+          { column: 'Scopes', to: { kind: 'existing', field_id: await fieldRow('scopes') } },
+          { column: 'Targets', to: { kind: 'existing', field_id: await fieldRow('target_databases') } },
+        ]),
+        dry_run: 'false',
+      },
+      `Name,Scopes,Targets\n${name},admin,${otherDb}`,
+    );
+    return app.inject({ method: 'POST', url: `/api/v1/workspaces/${ws}/databases/${agentsDbId}/import`, headers: { ...authed(token), ...body.headers }, payload: body.payload as never });
+  };
+
+  beforeAll(async () => {
+    wideSource = await mkAgent('Copy source wide', { target_databases: `${ledger}, ${otherDb}`, scopes: [scopeIds['admin']] });
+    const u = await mkAgent('Copy probe unbound', { scopes: [scopeIds['write']] });
+    await assign(u);
+    unboundToken2 = (await claimFor(u)).credential.token;
+    const b = await mkAgent('Copy probe bound', { target_databases: `${ledger}, ${agentsDbId}`, scopes: [scopeIds['write']] });
+    await assign(b);
+    boundAgent = b;
+    boundToken2 = (await claimFor(b)).credential.token;
+    const m = await mkAgent('Copy probe minted', { scopes: [scopeIds['write']] });
+    const res = await as(manager.token, 'POST', '/me/tokens', { name: 'minted agent token', workspace_id: ws, scope: 'write', agent_id: m });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    minted = res.json().token as string;
+  });
+
+  for (const who of ['unbound run credential', 'bound run credential', 'member-minted agent token'] as const) {
+    const token = () => (who === 'unbound run credential' ? unboundToken2 : who === 'bound run credential' ? boundToken2 : minted);
+    it(`copy_records: a ${who} cannot copy an admin-scoped agent record (403, nothing created)`, async () => {
+      const res = await copy(token(), [wideSource]);
+      expect([403, 422], res.body).toContain(res.statusCode); // a refusal: the apply paths report a refused row as a 422 with nothing written
+      expect(await countNamed('Copy source wide')).toBe(1); // only the source itself
+    });
+    it(`CSV import: a ${who} cannot import an agent record with admin scopes (403, nothing created)`, async () => {
+      const name = `Imported wide ${who}`;
+      const res = await importCsv(token(), name);
+      expect([403, 422], res.body).toContain(res.statusCode); // a refusal: the apply paths report a refused row as a 422 with nothing written
+      expect(await countNamed(name)).toBe(0);
+    });
+  }
+
+  it('MUST KEEP: a member copies and imports agent records exactly as before', async () => {
+    const copied = await copy(manager.token, [wideSource]);
+    expect(copied.statusCode, copied.body).toBeLessThan(300);
+    expect(await countNamed('Copy source wide')).toBe(2);
+    const imported = await importCsv(manager.token, 'Imported by a person');
+    expect(imported.statusCode, imported.body).toBeLessThan(300);
+    expect(await countNamed('Imported by a person')).toBe(1);
+  });
+
+  it('automation create_record: an agent write that sets off a rule creating an agent record carries its origin, and the rule cannot mint a wider agent', async () => {
+    const records = app.get(RecordsService);
+    const { runWithEventOrigin } = await import('../src/common/credential-context');
+    const wide = { name: 'Chained wide agent', enabled: true, target_databases: otherDb, scopes: [scopeIds['admin']] };
+    // The write is made with source 'automation' (a rule), but the chain began with a run credential of an agent.
+    await expect(runWithEventOrigin({ agentId: boundAgent, agentName: 'Create probe', runId: null, runnerId: runner.id, runnerName: 'Test machine' }, () => records.create(ws, agentsDbId, wide, manager.id, 1, 'automation'))).rejects.toThrow();
+    expect(await countNamed('Chained wide agent')).toBe(0);
+    // No origin = a rule an admin wrote, firing from a person's change: untouched.
+    expect((await records.create(ws, agentsDbId, wide, manager.id, 1, 'automation')).id).toBeTruthy();
   });
 });

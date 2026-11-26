@@ -154,7 +154,7 @@ short-lived credential made for that one run. There is no MCP setup to do.
 
 An agent's record in the Agents database has two text fields that say where it works:
 
-- **Target databases**: database names, one per entry.
+- **Target databases**: database names or ids, one per entry. A name binds a **user** database only; it never binds a system database such as Members. To give an agent a system database, put its id here.
 - **Target spaces**: space names or ids. A space stands for every user database in it, meaning every database that is not a system one. It never covers a system database such as Members (every colleague's email) or the Agents pack: those are reachable only when you name them in **Target databases**.
 
 Entries are separated by commas or new lines; names are matched ignoring case. A space target is
@@ -164,6 +164,13 @@ is a database the agent's manager cannot open: the agent's credential is never w
 An entry that matches nothing, or matches a personal space, is reported as `unresolved` rather than
 dropped silently.
 
+**How a database name is read.** StoryOS looks inside the agent's own target spaces first. If the name is
+not there, it binds a database only when exactly one database in the workspace carries that name. If several
+do, it binds none, and the entry shows as `unresolved` in the agent's scope until you put the database's id
+there instead. A name can therefore only ever make the scope smaller, never wider. For example, with
+a "Clients" database in Pinewood Studio and another in a different space, naming `Clients` binds neither unless
+one of them sits in a target space of the agent.
+
 - **`enforced`.** An agent that names a target space or a target database has its scope enforced on its
   credential: it works in the user databases of those spaces plus the databases it names, and nowhere else.
   That includes an agent with only target databases: it reaches exactly those, not the other databases in
@@ -171,8 +178,9 @@ dropped silently.
   it can use the routes for records, databases, fields, views, relations, comments and search inside that
   scope, but not workspace-level routes such as documents, spaces, folders, automations, skills or the
   members list. An agent that names nothing is not bound.
-- **Who sets it.** A person edits these fields. An agent that tries to change an agent's Target spaces is
-  refused with a 403, like its Tools, Model and budget. The hire card's **Works in** picker lists
+- **Who sets it.** A person edits these fields. An agent that tries to change an existing agent's Target spaces,
+  Target databases or scopes is refused with a 403, like its Tools, Model and budget. This stops an agent from
+  widening its own reach. A write that a person has approved in the Approvals inbox is the one exception. The hire card's **Works in** picker lists
   databases only (see [Hiring an agent](/guides/hiring-an-agent/)), so to target a space, edit the
   **Target spaces** field on the agent's record.
 - **Reading the resolved scope.** `GET /workspaces/{ws}/agents/{agent}/scope` (the agent's uuid or public
