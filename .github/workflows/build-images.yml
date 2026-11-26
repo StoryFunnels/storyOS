@@ -264,8 +264,9 @@ jobs:
     # #1125 — deploy every main commit, including ones where no image changed:
     # `merge` gives every service a `:<sha>` tag either way, and a compose-only
     # change still has to reach staging. Without `always()` a skipped `build`
-    # skips this job too.
-    if: always() && needs.merge.result == 'success'
+    # skips this job too. A manual run (workflow_dispatch) deploys only from
+    # `main`; a run from any other ref republishes images but never deploys.
+    if: always() && needs.merge.result == 'success' && github.ref == 'refs/heads/main'
     timeout-minutes: 10
     # Holds STAGING_HOST / STAGING_SSH_KEY / STAGING_KNOWN_HOSTS. The environment
     # only releases them to runs from `main`, the same as deploy-production.yml.
@@ -277,8 +278,9 @@ jobs:
     # #1125 — it used to be `continue-on-error`, which kept the run green while
     # 10 of 24 staging deploys failed unnoticed (the disk kept filling, #522).
     # A failed deploy now turns the run red, and GitHub emails whoever merged.
-    permissions:
-      contents: read
+    # The job never reads the repository (the host checks out the sha itself),
+    # so the token carries no scopes.
+    permissions: {}
     # One deploy at a time; a second push queues instead of racing the first.
     concurrency:
       group: deploy-staging
@@ -290,6 +292,7 @@ jobs:
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           STAGING_KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
         run: |
           install -d -m 700 ~/.ssh
           install -m 600 /dev/null ~/.ssh/staging_key && printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/staging_key
@@ -298,7 +301,7 @@ jobs:
           # is refused, never silently trusted.
           cat > ~/.ssh/config <<EOF
           Host staging
-            HostName ${{ secrets.STAGING_HOST }}
+            HostName $STAGING_HOST
             User deploy
             IdentityFile ~/.ssh/staging_key
             IdentitiesOnly yes

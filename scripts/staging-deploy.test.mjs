@@ -22,7 +22,7 @@ test('a failed staging deploy is not hidden', () => {
 });
 
 test('staging deploys even when no image was rebuilt', () => {
-  assert.match(deploy, /^ {4}if:\s*always\(\) && needs\.merge\.result == 'success'\s*$/m);
+  assert.match(deploy, /^ {4}if:\s*always\(\) && needs\.merge\.result == 'success'( && github\.ref == 'refs\/heads\/main')?\s*$/m);
 });
 
 test('staging checks out the sha it deploys, not the tip of main', () => {
