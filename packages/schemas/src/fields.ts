@@ -506,7 +506,7 @@ export const actionSchema = z.discriminatedUnion('type', [
     ...gated,
     type: z.literal('post_social'),
     connection_id: z.uuid(),
-    target: z.enum(['linkedin_org', 'linkedin_member', 'x']),
+    target: z.enum(['linkedin_org', 'linkedin_member', 'x', 'facebook_page', 'instagram_business']),
     /** {Field Name}/{payload.…} tokens are interpolated from the triggering record. */
     text: z.string().min(1).max(3000),
     media_field_id: z.uuid().optional(),
@@ -519,6 +519,10 @@ export const actionSchema = z.discriminatedUnion('type', [
      * and the executor refuses a job without it rather than posting from the member's own profile).
      * `linkedin_member` posts as the connection's own member and may carry the member URN to pin it;
      * `x` posts as the connected X account and takes none.
+     *
+     * Ticket #51 — `facebook_page` names the Facebook Page by its numeric id and `instagram_business` the Instagram
+     * business account by its numeric id (both from the same picker); BOTH require it, and it must be one of the
+     * connection's own accounts. There is no default account: a Meta post that does not name one is never sent.
      */
     account_id: z.string().min(1).max(200).optional(),
   }),

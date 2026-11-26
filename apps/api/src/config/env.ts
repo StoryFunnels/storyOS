@@ -364,6 +364,25 @@ export const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
   /**
+   * Ticket #51 — Meta (Facebook Pages + Instagram) publishing. Tier B like LinkedIn: hosted StoryOS supplies a verified app,
+   * a self-managed operator brings their own (META_APP_ID/META_APP_SECRET, read by connections/providers/meta.ts's
+   * `oauth.clientIdEnv`/`clientSecretEnv`). The app needs Meta's own App Review for pages_manage_posts and
+   * instagram_content_publish before anyone outside the app's own testers can connect, so META_ACTIONS_ENABLED is the same
+   * save-time kill-switch LINKEDIN_ACTIONS_ENABLED is: OFF by default, no post_social to facebook_page/instagram_business can
+   * be saved or run until an operator turns it on. Not z.coerce.boolean() (Boolean("false") is true).
+   */
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  META_ACTIONS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  /** The Graph API version the Meta provider calls. Meta retires old versions on a schedule, so it is one setting, not a literal in ten places. */
+  META_GRAPH_VERSION: z
+    .string()
+    .regex(/^v[0-9]+\.[0-9]+$/, 'META_GRAPH_VERSION looks like v21.0')
+    .default('v21.0'),
+  /**
    * #345 — deployment mode signal for the integration-tier resolver
    * (parent #344). Explicit override of "is this hosted StoryOS Cloud?":
    *   - 'true'/'1'  → force hosted (managed OAuth apps available).

@@ -8,7 +8,8 @@ import { approvals, automationJobs, connections } from '../db/schema';
 import { looksLikeUuid } from '../common/uuid';
 import { RecordsService } from '../records/records.service';
 import { JobRunnerService } from './job-runner.service';
-import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN } from './post-social.action';
+import { channelOfTarget, isSocialTarget, namesAccount, SOCIAL_TARGETS, targetEnabled } from './social-targets';
+import type { SocialChannel, SocialTarget } from './social-targets';
 import type { PostSocialAction } from './post-social.action';
 import { parseFailure } from './publish-failure';
 import type { PublishFailure } from './publish-failure';
@@ -31,8 +32,8 @@ export type PublishState = 'awaiting_approval' | 'sent_back' | 'expired' | 'queu
 /** What one channel of one record did, as the record shows it. Everything here is safe to show to anyone who can read the record. */
 export interface SocialPublish {
   /** The network: a LinkedIn profile and a LinkedIn page are both `linkedin`; `target` tells them apart. */
-  channel: 'linkedin' | 'x';
-  target: 'linkedin_org' | 'linkedin_member' | 'x';
+  channel: SocialChannel;
+  target: SocialTarget;
   account: { connection_id: string | null; connection_name: string | null; account_id: string | null };
   state: PublishState;
   /** The job id: what `retry` is addressed by. Null while the post is only waiting for approval. */
@@ -60,9 +61,6 @@ interface Snapshot {
   ctx?: { databaseId?: string; recordId?: string | null };
 }
 
-function channelOf(target: string | undefined): 'linkedin' | 'x' {
-  return target === 'x' ? 'x' : 'linkedin';
-}
 
 /**
  * Ticket #42 — the per-record publish state, and the retry. No table of its own: a publish attempt IS an
@@ -146,7 +144,7 @@ export class SocialPublishesService {
         at: job.createdAt.getTime(),
         key: `${job.ruleId ?? 'none'}:${job.actionIndex}:${target}`,
         view: {
-          channel: channelOf(target),
+          channel: channelOfTarget(target),
           target,
           account: {
             connection_id: job.connectionId,
@@ -174,7 +172,7 @@ export class SocialPublishesService {
             !!job.connectionId &&
             !filled &&
             (retryCounts.get(base) ?? 0) < MAX_MANUAL_RETRIES &&
-            this.namesAccount(action),
+            namesAccount(action),
         },
       });
     }
@@ -190,7 +188,7 @@ export class SocialPublishesService {
         at: approval.createdAt.getTime(),
         key: `${approval.ruleId ?? 'none'}:${approval.actionIndex}:${target}`,
         view: {
-          channel: channelOf(target),
+          channel: channelOfTarget(target),
           target,
           account: {
             connection_id: action.connection_id ?? null,
@@ -224,13 +222,6 @@ export class SocialPublishesService {
       if (!seen || c.at > seen.at) latest.set(c.key, c);
     }
     return { data: [...latest.values()].sort((a, b) => b.at - a.at).map((c) => c.view) };
-  }
-
-  /** Whether the action names the account it posts as (see the executor and validate(): a page without one never posts). */
-  private namesAccount(action: Partial<PostSocialAction>): boolean {
-    if (action.target === 'linkedin_org') return !!action.account_id && LINKEDIN_ORG_URN.test(action.account_id);
-    if (action.target === 'linkedin_member') return !action.account_id || LINKEDIN_PERSON_URN.test(action.account_id);
-    return action.target === 'x' && !action.account_id;
   }
 
   private approvalView(a: ApprovalRow): NonNullable<SocialPublish['approval']> {
@@ -330,7 +321,7 @@ export class SocialPublishesService {
     }
 
     // Nothing posts from an unnamed account, and the connection must still be one of this workspace's.
-    if (!this.namesAccount(action)) {
+    if (!namesAccount(action)) {
       throw new UnprocessableEntityException('This post does not name the account it goes out as. Pick the account in the rule and run it again.');
     }
     if (!job.connectionId) throw new NotFoundException('The connection this post used no longer exists. Reconnect it and run the rule again.');
@@ -339,8 +330,9 @@ export class SocialPublishesService {
       columns: { id: true, provider: true },
     });
     if (!connection) throw new NotFoundException('The connection this post used no longer exists. Reconnect it and run the rule again.');
-    if (action.target !== 'x' && !env().LINKEDIN_ACTIONS_ENABLED) {
-      throw new UnprocessableEntityException('LinkedIn publishing is not enabled on this deployment yet.');
+    if (!isSocialTarget(action.target)) throw new UnprocessableEntityException('This post has no known network to go out on.');
+    if (!targetEnabled(action.target)) {
+      throw new UnprocessableEntityException(SOCIAL_TARGETS[action.target].gateMessage);
     }
 
     const prior = await this.db
