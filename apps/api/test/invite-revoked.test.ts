@@ -231,7 +231,7 @@ describe('a revoked token is REFUSED on every accept path, with its own stable c
 
     const spy = vi.spyOn(db.query.invites, 'findFirst').mockResolvedValueOnce(stale);
     try {
-      await expect(invitesService.accept({ id: me.id, email: me.email } as never, token)).rejects.toMatchObject({ status: 404 });
+      await expect(invitesService.accept({ id: me.id, email: me.email, emailVerified: true } as never, token)).rejects.toMatchObject({ status: 404 });
     } finally {
       spy.mockRestore();
     }
