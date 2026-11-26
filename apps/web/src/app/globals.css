@@ -756,6 +756,20 @@ html[data-modality='pointer'] :focus-visible:not(input, textarea, select, [conte
   padding-inline: 8px;
   min-height: 0;
 }
+/*
+ * #1344 — headings overlapped the rows below them.
+ *
+ * `.bn-suggestion-menu` is a column flexbox with a capped height, and flex
+ * children default to `flex-shrink: 1`. Once the `min-height: 0` above removed
+ * the rows' content-based floor, a menu with more entries than fit squeezed
+ * every row and group heading to ~20px while their content kept its full size,
+ * so each heading drew on top of the first row of its group. The menu scrolls
+ * (`overflow: auto`), so rows must keep their height and let it scroll.
+ */
+.bn-suggestion-menu > .bn-suggestion-menu-item,
+.bn-suggestion-menu > .bn-suggestion-menu-label {
+  flex-shrink: 0;
+}
 .bn-suggestion-menu .bn-mt-suggestion-menu-item-section svg {
   width: 16px;
   height: 16px;
