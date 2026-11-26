@@ -29,17 +29,35 @@ function isHttps(url) {
   }
 }
 
+/** The one value of `CSP_MODE` that is recognised. Compared exactly: no trimming, no case folding. */
+export const CSP_REPORT_ONLY = 'report-only';
+
 /**
- * Ticket #1238: whether the policy is ENFORCED or only reported. Enforced is the default, and anything that is not exactly
- * `report-only` enforces: a typo (`enforced`, `report_only`) must not silently switch the protection off. `report-only` is the
- * operator's fast way back if an enforced policy breaks a page: set `CSP_MODE=report-only` and restart the web container (it is
- * read per request, so no rebuild).
+ * Ticket #1238: whether the policy is ENFORCED or only reported. Enforced is the default, and anything that is not EXACTLY
+ * `report-only` enforces (ticket #1343: no trimming or lower-casing, so `Report-Only` and ` report-only` enforce too, which is
+ * what the self-hosting configuration page says): a typo must not silently switch the protection off. See `cspModeProblem` for
+ * the boot-time warning that makes such a typo visible. `report-only` is the operator's fast way back if an enforced policy
+ * breaks a page: set `CSP_MODE=report-only` and restart the web container (it is read per request, so no rebuild).
  *
  * @param {string | undefined} value
  * @returns {'enforce' | 'report-only'}
  */
 export function cspMode(value) {
-  return value?.trim().toLowerCase() === 'report-only' ? 'report-only' : 'enforce';
+  return value === CSP_REPORT_ONLY ? 'report-only' : 'enforce';
+}
+
+/**
+ * Ticket #1343: a one-line warning for a `CSP_MODE` that is set but not recognised, or null when it is unset, empty or exactly
+ * `report-only`. `src/instrumentation.ts` logs it once at boot, so an operator who typed `Report-Only` (and so still has an
+ * ENFORCED policy while believing it is relaxed) finds out from the log rather than from a page that stays broken.
+ *
+ * @param {string | undefined} value
+ * @returns {string | null}
+ */
+export function cspModeProblem(value) {
+  if (value === undefined || value === '' || value === CSP_REPORT_ONLY) return null;
+  const shown = JSON.stringify(value.length > 40 ? `${value.slice(0, 40)}...` : value);
+  return `CSP_MODE=${shown} is not recognised, so the Content-Security-Policy is ENFORCED. The only accepted value is exactly "${CSP_REPORT_ONLY}" (or leave it unset).`;
 }
 
 /** The response header that carries the policy in a given mode. */
@@ -63,12 +81,15 @@ export const CSP_REPORT_PATH = '/csp-report';
  *   runtime. Inline CSS cannot run script, which is what this policy exists to stop; tightening it (nonce Mantine and tiptap,
  *   hash sonner) is a separate, tracked job. NB a nonce or hash in a style directive makes browsers IGNORE `'unsafe-inline'`
  *   there, so none may be added to it without removing it.
- * - `connect-src` adds the API origin (NEXT_PUBLIC_API_URL, inlined at build time) and PostHog when set as absolute URLs; the
- *   default same-origin `/api` and `/ingest` paths are covered by `'self'`.
+ * - `connect-src` adds the API origin (NEXT_PUBLIC_API_URL) and PostHog (NEXT_PUBLIC_POSTHOG_HOST) when set as absolute URLs; the
+ *   default same-origin `/api` and `/ingest` paths are covered by `'self'`. BOTH are BUILD-time values (ticket #1343): Next
+ *   inlines a `NEXT_PUBLIC_*` that is set at build into the proxy bundle as it does into the client bundle. Set them when the
+ *   image is built: the client can only call the origin it was built with, so a value given only to the running container is
+ *   not supported (the policy and the client would disagree). Only `WEB_URL` and `CSP_MODE` are read at request time.
  * - `img-src https:` (plus `http:` on a plain-HTTP deployment): avatars and link previews come from arbitrary hosts.
  * - `upgrade-insecure-requests` only when WEB_URL is https: on a plain-HTTP self-host it would rewrite every same-origin
- *   subresource request to an https one that nothing serves. Nothing here is a hard-coded host: the API origin, the PostHog
- *   origin and the scheme all come from the deployment's own env.
+ *   subresource request to an https one that nothing serves. Nothing here is a hard-coded host: the API origin and the PostHog
+ *   origin come from the deployment's build-time env, the scheme from its runtime `WEB_URL`.
  *
  * @param {{ apiUrl?: string, posthogHost?: string, webUrl?: string }} env
  * @param {{ embeddable: boolean, nonce?: string, dev?: boolean }} opts
@@ -112,19 +133,21 @@ export function isEmbeddablePath(pathname) {
  * Everything `src/proxy.ts` needs for one request: the header NAME (enforced or report-only, from `cspMode`) and its VALUE with a
  * fresh nonce. Kept here, not in the proxy, so the unit test exercises the exact code that ships.
  *
- * `framing` is set in report-only mode on the pages that must not be framed: the old baseline (ticket #1042) always ENFORCED
- * `frame-ancestors 'none'`, and a switch back to report-only must not quietly un-protect against clickjacking.
+ * It deliberately returns ONE header. Ticket #1343: until then, report-only mode also had the proxy set a second, enforced
+ * `Content-Security-Policy: frame-ancestors 'none'` (so a rollback would not un-protect against clickjacking), and that cost every
+ * script its nonce. Next copies every header a proxy sets on the RESPONSE back onto the request it renders, then reads the nonce from
+ * `content-security-policy` before `content-security-policy-report-only`; the framing-only value has no `script-src`, so no nonce was
+ * found and the report-only policy reported every one of the app's own scripts. The enforced framing header now comes from the
+ * static `securityHeaders()` instead, which Next applies without feeding it back into the render.
  *
  * @param {{ apiUrl?: string, posthogHost?: string, webUrl?: string, mode?: string, dev?: boolean }} env
  * @param {{ pathname: string, nonce: string }} req
- * @returns {{ name: string, value: string, nonce: string, framing: { name: string, value: string } | null }}
+ * @returns {{ name: string, value: string, nonce: string }}
  */
 export function cspForRequest(env, { pathname, nonce }) {
   const embeddable = isEmbeddablePath(pathname);
-  const mode = cspMode(env.mode);
   const value = contentSecurityPolicy(env, { embeddable, nonce, dev: env.dev });
-  const framing = mode === 'report-only' && !embeddable ? { name: cspHeaderName('enforce'), value: "frame-ancestors 'none'" } : null;
-  return { name: cspHeaderName(mode), value, nonce, framing };
+  return { name: cspHeaderName(cspMode(env.mode)), value, nonce };
 }
 
 /** Headers for every response, framed or not. */
@@ -138,15 +161,17 @@ const COMMON = [
 
 /**
  * The static `headers()` entries for next.config.mjs. Everything except the embeddable routes is unframeable
- * (`X-Frame-Options: DENY`; the matching `frame-ancestors 'none'` rides in the CSP); the embeddable routes get no anti-framing
- * header. The Content-Security-Policy itself is NOT here (ticket #1238): it carries a per-request nonce, so `src/proxy.ts` sets it.
+ * (`X-Frame-Options: DENY` plus an ENFORCED `Content-Security-Policy: frame-ancestors 'none'`, ticket #1343, so clickjacking
+ * protection holds in report-only mode too); the embeddable routes get no anti-framing header. The script/style policy itself is
+ * NOT here (ticket #1238): it carries a per-request nonce, so `src/proxy.ts` sets it. That is also why the framing-only CSP is here
+ * and not in the proxy: see `cspForRequest`.
  */
 export function securityHeaders() {
   const embeddable = EMBEDDABLE_PREFIXES.map((p) => p.slice(1, -1)).join('|');
   return [
     {
       source: `/:path((?!(?:${embeddable})/).*)`,
-      headers: [...COMMON, { key: 'X-Frame-Options', value: 'DENY' }],
+      headers: [...COMMON, { key: 'X-Frame-Options', value: 'DENY' }, { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" }],
     },
     {
       // One regex rule, not `/f/:path*`: that form misses `/v/token/`, and the app does not strip trailing slashes.
