@@ -237,7 +237,7 @@ describe('the gallery and the OAuth connect (fake token endpoint)', () => {
 
     const listed = await as(admin.token, 'GET', `/workspaces/${wsId}/connections`);
     expect(listed.body).not.toMatch(/minted|client-secret/);
-    const stored = (await db.query.connections.findMany({ where: and(eq(connections.workspaceId, wsId), eq(connections.provider, 'youtube')) })).find((c) => c.scopes?.length === 2 && !c.authSealed.includes('ya29.not-a-real-token'))!;
+    const stored = (await db.query.connections.findMany({ where: and(eq(connections.workspaceId, wsId), eq(connections.provider, 'youtube')) })).find((c) => (c.scopes as string[] | null)?.length === 2 && !c.authSealed.includes('ya29.not-a-real-token'))!;
     expect(stored.authSealed).not.toContain('minted');
     expect(stored.scopes).toEqual(['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly']);
     const opened = (await conns.getDecryptedAuth(wsId, stored.id)).auth as { access_token: string; refresh_token: string; expires_at: number };
