@@ -22,7 +22,7 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 | `POSTGRES_PASSWORD`                                                | `storyos`                         | Change for anything internet-facing.                                                                                                                                                                 |
 | `API_URL` / `WEB_URL`                                              | `http://localhost` (port 80) | Set **both** to your public URL (same origin), e.g. `https://os.example.com`. Auth only accepts requests whose Origin is exactly `WEB_URL`, otherwise sign-up fails with "Invalid origin"; if you change `HTTP_PORT`, set both to `http://localhost:<port>`. `WEB_URL` is also passed to the `mcp` service (the origin used to build the `url` field on MCP record responses) and to `web` itself (`metadataBase`, so shared-link previews resolve images against your real domain instead of `localhost`). |
 | `NEXT_PUBLIC_API_URL`                                              | empty (same-origin)               | Only for split-origin setups (API on a different host). Set at build time.                                                                                                                           |
-| `CSP_MODE`                                                         | empty (enforced)                  | `report-only` makes browsers log Content-Security-Policy violations instead of blocking them. Read by the `web` container on every request, so changing it needs a restart, not a rebuild. See [Security headers](#security-headers). |
+| `CSP_MODE`                                                         | empty (enforced)                  | Exactly `report-only` makes browsers log Content-Security-Policy violations instead of blocking them; any other value enforces. Read by the `web` container on every request, so changing it needs a restart, not a rebuild. See [Security headers](#security-headers). |
 | `API_INTERNAL_URL`                                                 | `http://api:3001`                 | The `web` container's own server-side route to `api` over the compose network, used when a page resolves data before rendering (e.g. a shared view's link-preview metadata). Change only if you've renamed the `api` service. |
 | `HTTP_PORT` / `HTTPS_PORT`                                         | `80` / `443`                      | Host ports of the Caddy proxy.                                                                                                                                                                       |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS`, `MAIL_FROM` | unset                             | Invites, mentions, verification, and resets. Without SMTP, invite links are copyable in the UI and other emails are logged. Any SMTP provider works.                                                 |
@@ -143,10 +143,16 @@ StoryOS sets these on its responses:
   way. Also `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, and the same
   `frame-ancestors` rule as above. The page may connect to its own origin, to the API origin if you
   set `NEXT_PUBLIC_API_URL`, and to the PostHog host if you configured one; nothing is hard-coded.
+  Those two origins are **build-time** values: the web bundle can only call the origins it was built
+  with, so set `NEXT_PUBLIC_API_URL` (and `NEXT_PUBLIC_POSTHOG_HOST`) when you build the image, not
+  only on the running container. Only `WEB_URL` and `CSP_MODE` are read by the running `web`
+  container on each request.
   `upgrade-insecure-requests` is added only when `WEB_URL` is `https://`, so an instance on plain
   HTTP is unaffected, and images from `http:` hosts are allowed there.
 - **If a page breaks.** Set `CSP_MODE=report-only` for the `web` service and restart it: the same
-  policy is then only reported. Clickjacking protection stays enforced either way. Browsers send
+  policy, nonces included, is then only reported. The value must be exactly `report-only`: any other
+  value (including `Report-Only` or one with a space) keeps the policy **enforced**, and the `web`
+  container logs a `[csp]` warning at startup so a typo is visible. Clickjacking protection stays enforced either way. Browsers send
   every violation to `/csp-report`, which writes one `csp_violation` JSON line per report to the
   `web` container's log (origins only, never paths or query strings; at most 30 lines a minute).
   If you put your own proxy in front, let `/csp-report` through to the web service.
