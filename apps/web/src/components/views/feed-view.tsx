@@ -31,12 +31,15 @@ import { newRecordHref } from '@/components/entity/new-record';
 export function FeedView({
   ws,
   db,
+  viewId,
   config,
   readOnly,
   personalFilter,
 }: {
   ws: string;
   db: string;
+  /** Ticket #1339 — the saved view this is drawing; creates from it send it as `view_id`. Absent = none sent. */
+  viewId?: string;
   config: ViewConfig;
   readOnly: boolean;
   /** #259 — narrows this view's results for the current viewer only. */
@@ -50,7 +53,7 @@ export function FeedView({
   const search = useViewSearch(db);
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   const records = useRecordsInfinite(ws, db, queryBody);
-  const { updateRecord, createRecord } = useRecordMutations(ws, db);
+  const { updateRecord, createRecord } = useRecordMutations(ws, db, viewId);
 
   const addRecord = () =>
     createRecord.mutate(

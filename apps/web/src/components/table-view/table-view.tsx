@@ -185,7 +185,7 @@ export function TableView({
   }, [queryBody, hierarchyField]);
 
   const records = useRecordsInfinite(ws, db, rootQueryBody);
-  const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db);
+  const { updateRecord, createRecord, deleteRecord } = useRecordMutations(ws, db, viewId);
   // #659 — the persistent "how many rows does this view hold" answer the row
   // index alone can't give without scrolling to the end. Same filter as the
   // grid's own query (root-only when nested), so it always matches what's on

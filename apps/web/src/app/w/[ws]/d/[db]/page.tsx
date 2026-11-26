@@ -98,7 +98,7 @@ function DatabasePageInner() {
   const queryBody = useMemo(() => queryBodyFromConfig(config, personalFilter, search), [config, personalFilter, search]);
   // #965 — WHY a record-grid view is empty: filters, the personal filter, or Find, never "add your first".
   const emptyCause = useEmptyViewCause(ws, db, config, personalFilter);
-  const { createRecord } = useRecordMutations(ws, db);
+  const { createRecord } = useRecordMutations(ws, db, activeView?.id);
   const clearPersonal = useClearPersonalFilter(ws, db);
 
   const viewSensors = useSortableSensors();
@@ -494,13 +494,13 @@ function DatabasePageInner() {
             onPatch={patch}
           />
         ) : activeView?.type === 'calendar' ? (
-          <CalendarView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
+          <CalendarView ws={ws} db={db} viewId={activeView.id} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
         ) : activeView?.type === 'gallery' ? (
-          <GalleryView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
+          <GalleryView ws={ws} db={db} viewId={activeView.id} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'list' ? (
-          <ListView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} onPatch={patch} />
+          <ListView ws={ws} db={db} viewId={activeView.id} config={config} readOnly={readOnly} personalFilter={personalFilter} onPatch={patch} />
         ) : activeView?.type === 'feed' ? (
-          <FeedView ws={ws} db={db} config={config} readOnly={readOnly} personalFilter={personalFilter} />
+          <FeedView ws={ws} db={db} viewId={activeView.id} config={config} readOnly={readOnly} personalFilter={personalFilter} />
         ) : activeView?.type === 'timeline' ? (
           <TimelineView ws={ws} db={db} config={config} readOnly={readOnly} onPatch={patch} personalFilter={personalFilter} />
         ) : activeView?.type === 'form' ? (

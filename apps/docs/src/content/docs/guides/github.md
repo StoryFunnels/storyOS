@@ -11,7 +11,7 @@ rules are in [Branch names and pull request linking](#branch-names-and-pull-requ
 `#number` never links.
 
 It lives at **Settings → Integrations → GitHub**. This page covers connecting, choosing repositories
-and the one list that tends to puzzle people. The page also has a **Code & reviews** section, which
+and the one list that tends to puzzle people. The page also has a **Code and reviews** section, which
 isn't covered here.
 
 ## Connecting

@@ -74,8 +74,8 @@ a name, a job, a weekday-morning schedule and every "Asks before" box ticked.
    - **Deleting anything**
 
    Held actions wait for a person's decision; see [approval gates](/concepts/approval-gates/).
-6. **Reports to you.** You become the agent's manager. All of this can be changed later on the
-   agent's page.
+6. **Reports to you.** You become the agent's manager. The agent's page shows all of this later; its
+   wake rules are changed per database, in **Automations**.
 7. **Runs on.** One of your own Runners. You can hire without one: the card says the agent starts
    work once it has a Runner, and the card offers a way to add one.
 
@@ -97,3 +97,20 @@ and [Switching an agent to your own AI, and Run now](/guides/runner/#switching-a
   applied on its own. If one fails, the agent is still hired, and a warning names every setting that
   did not apply and why, and says everything else was saved. Set those on the agent's page. You land
   on that page after hiring either way.
+
+## What the agent's page says
+
+For a workspace admin the facts box on an agent's page has two rows beside the manager and the Runner:
+
+- **Wakes when.** One line per trigger the agent has, in words: *A client's Status becomes Onboarding*,
+  *A client is assigned to it*. A trigger that is switched off carries **Off**. One that waits for a
+  person carries **Starts only when you do**. With no trigger the row says **No trigger of its own.**
+  A line under it says wake rules are set per database, in **Automations**, with a link to the
+  database of its first trigger; the row does not list automations, so it never claims nothing else
+  wakes the agent.
+- **Works in.** The spaces and databases the agent is allowed to work in. A whole space is listed
+  with a note that it covers user databases only. It never lists a system database such as Members.
+  With none chosen it says **No database chosen.**
+
+A member or guest does not see these two rows. **Agent runs** and **Triggers** are no longer rows in
+the sidebar; the page has a line linking to the same records as tables.

@@ -90,9 +90,16 @@ A record opens as one **main column** and a fixed **side panel**.
 - **Comments show where they came from.** Each comment carries the same source badge the activity
   feed uses, so a comment an agent posted doesn't read as a person's. A comment from before sources
   were recorded shows the "source not recorded" badge rather than reading as human.
-- **The side panel** (about 344px, hidden on a narrow window) has three tabs: **Activity**,
-  **Comments** and **About**. About holds the **Watchers** list, **Mentioned in**, and a **Details**
-  block — the database, space, record number, created and updated times, and your access.
+- **The side panel** (about 344px, beside the fields) has three tabs: **Activity**, **Comments** and
+  **About**. About holds the **Watchers** list, **Mentioned in**, and a **Details** block — the
+  database, space, record number, created and updated times, and your access. On a window narrower
+  than 900px there is no room beside the fields, so the same three tabs sit **under** the fields
+  instead, and a phone reaches comments and activity too. A comment you started typing is kept for
+  that record when the layout changes or you open another record and come back.
+- **Activity reads as a sentence.** Each change says **set** *Field* **to** *value*, **cleared**
+  *Field* **(was** *value***)**, or **changed** *Field*: *old* → *new*. A date is written the way the
+  date field above it shows it. An edit to rich text that left nothing visibly different says so
+  instead of showing two identical lines.
 - **Watching is a button now.** A **Watch** toggle in the record header (and in the About tab) follows
   the record: you're notified when it changes. See [mentions and
   notifications](/concepts/mentions-and-notifications/#watching-a-record-for-changes).
