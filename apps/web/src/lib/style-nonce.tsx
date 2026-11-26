@@ -11,7 +11,28 @@ import type { ReactNode } from 'react';
  */
 const StyleNonceContext = createContext<string | undefined>(undefined);
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- assigned for the bundler, which exposes it to libraries
+declare let __webpack_nonce__: string | undefined;
+
+/**
+ * Hand the nonce to the libraries that read the bundler's nonce global. Radix's scroll lock (`react-remove-scroll-bar`, behind every
+ * dropdown, dialog, select and popover) injects a `<style>` through `get-nonce`, which reads `__webpack_nonce__` and nothing else we
+ * can reach; unset, that style has no nonce and `style-src-elem` blocks it on every open (the page then never gets its scrollbar
+ * compensation). It must be set before the first Radix surface mounts, so the provider does it during render, client only.
+ * The bundler rewrites the bare assignment; `globalThis` is set too for a runtime that reads the global directly.
+ */
+export function applyBundlerNonce(nonce: string | undefined): void {
+  if (!nonce || typeof window === 'undefined') return;
+  try {
+    __webpack_nonce__ = nonce;
+  } catch {
+    // Not running under a bundler that provides the variable (a unit test): the globalThis copy below still applies.
+  }
+  (globalThis as { __webpack_nonce__?: string }).__webpack_nonce__ = nonce;
+}
+
 export function StyleNonceProvider({ nonce, children }: { nonce: string | undefined; children: ReactNode }) {
+  applyBundlerNonce(nonce);
   return <StyleNonceContext.Provider value={nonce}>{children}</StyleNonceContext.Provider>;
 }
 
