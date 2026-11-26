@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { creatableFieldTypeSchema, OPTION_COLORS, stateCategorySchema } from './fields';
+import { creatableFieldTypeSchema, fieldDescriptionSchema, OPTION_COLORS, stateCategorySchema } from './fields';
 import { relationCardinalitySchema } from './relations';
 import { filterSchema } from './query';
 
@@ -66,6 +66,8 @@ export const planFieldSchema = z.object({
    * at, which is why a pack carries them separately (`derived_fields`).
    */
   config: z.record(z.string(), z.unknown()).optional(),
+  /** #704 - the field's help text (plain text, max 200 chars). Optional: a manifest without it installs exactly as before. */
+  description: fieldDescriptionSchema.optional(),
 });
 export type PlanField = z.infer<typeof planFieldSchema>;
 
@@ -112,6 +114,8 @@ export const planStateSchema = z.object({
   database: nameSchema,
   field: nameSchema,
   options: z.array(planOptionSchema).min(1),
+  /** #704 - the state field's help text (same rules as `planFieldSchema.description`). */
+  description: fieldDescriptionSchema.optional(),
 });
 export type PlanState = z.infer<typeof planStateSchema>;
 

@@ -5,7 +5,7 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { invites } from '../src/db/schema';
+import { invites, user as users } from '../src/db/schema';
 import { EmailService } from '../src/mail/email.service';
 import { ActivationService } from '../src/workspaces/activation.service';
 import { InvitesService, REVOKED_INVITE_RETENTION_MS } from '../src/workspaces/invites.service';
@@ -38,9 +38,14 @@ afterAll(async () => {
 const call = (token: string | null, method: string, url: string, payload?: unknown) =>
   app.inject({ method: method as never, url: `/api/v1${url}`, headers: token ? authed(token) : {}, payload: payload as never });
 
+/**
+ * These tests are about revoke states, not verification, so the invitee is a person whose address is already verified (ticket #1347
+ * made joining need one: the refusal and the invite-link seam are tested in invite-join.test.ts).
+ */
 async function signUpAs(email: string, name = 'Invited Person') {
   const res = await app.inject({ method: 'POST', url: '/api/v1/auth/sign-up/email', payload: { email, password: PASSWORD, name } });
   expect(res.statusCode, res.body).toBe(200);
+  await db.update(users).set({ emailVerified: true }).where(eq(users.email, email));
   return String(res.headers['set-auth-token']);
 }
 
@@ -226,7 +231,7 @@ describe('a revoked token is REFUSED on every accept path, with its own stable c
 
     const spy = vi.spyOn(db.query.invites, 'findFirst').mockResolvedValueOnce(stale);
     try {
-      await expect(invitesService.accept({ id: me.id, email: me.email } as never, token)).rejects.toMatchObject({ status: 404 });
+      await expect(invitesService.accept({ id: me.id, email: me.email, emailVerified: true } as never, token)).rejects.toMatchObject({ status: 404 });
     } finally {
       spy.mockRestore();
     }

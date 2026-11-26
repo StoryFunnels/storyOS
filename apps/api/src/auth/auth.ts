@@ -14,6 +14,7 @@ import {
   oauthConsent,
 } from '../db/auth-schema';
 import type { EmailService } from '../mail/email.service';
+import { inviteTokenVouchesFor } from '../workspaces/invite-token';
 
 /**
  * better-auth instance (docs/architecture/auth.md).
@@ -64,6 +65,30 @@ export function createAuth(
      */
     databaseHooks: {
       user: {
+        /**
+         * Ticket #1347 — an account CREATED THROUGH THE INVITE LINK is born email-verified.
+         *
+         * The link was mailed to the invited address, so registering that address while holding the link proves the mailbox exactly
+         * as a magic link does; accepting an invite then needs a verified address (invites.service accept()) and these people have
+         * no reason to be sent through a second email. The web sends the link's token as `invite_token` on the ordinary email
+         * sign-up. It counts only when it names a PENDING invite issued to exactly the address being registered; anything else
+         * (revoked, expired, used, unknown, malformed, another address) leaves the account unverified and the sign-up's response
+         * unchanged, so a sign-up never reveals the state of an invite.
+         *
+         * This runs only while a NEW user row is being inserted, so it can never upgrade an account that already exists:
+         * better-auth refuses a sign-up for a taken address before it gets here. It is limited to the email sign-up route, so
+         * social sign-ins and any other way of creating a user are untouched.
+         */
+        create: {
+          before: async (
+            created: { email?: string },
+            context?: { path?: string; body?: Record<string, unknown> } | null,
+          ) => {
+            if (context?.path !== '/sign-up/email' || !created?.email) return;
+            const vouched = await inviteTokenVouchesFor(db, context.body?.['invite_token'], created.email);
+            return vouched ? { data: { emailVerified: true } } : undefined;
+          },
+        },
         update: {
           after: async (updated: { id?: string }) => {
             if (updated?.id) onUserUpdated?.(updated.id);
@@ -100,6 +125,9 @@ export function createAuth(
       sendOnSignUp: true,
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user: u, url }) => {
+        // #1347 — an account created through an invite link is already verified; mailing it a link to do so again is noise.
+        // better-auth only calls this for an unverified address on every other path, so this only silences the sign-up case.
+        if (u.emailVerified) return;
         await emailService.send({ kind: 'verify-email', to: u.email, url });
       },
     },
