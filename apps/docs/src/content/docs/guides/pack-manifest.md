@@ -73,6 +73,10 @@ may carry a `category`: what *kind* of state it is.
   plain **select** option keeps none.
 - **Declared:** your category is used.
 - **Any other value is refused** on install, and the error names the option by its label.
+- **A fully categorised select is a state.** If every option of a select carries a category, a record
+  created without a value for it starts at its first option, like a workflow field. A select with no
+  categories, or with a category on only some options, is left empty. See
+  [Default values](/concepts/databases-and-fields/#default-values).
 - **Only a missing option gets the category.** An option the database already has is not rewritten.
 - **Export keeps categories.** An exported manifest carries the category of each option that has one.
 - **Update preview.** When an update would add options with declared categories, the preview data lists

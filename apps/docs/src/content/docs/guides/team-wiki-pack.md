@@ -20,7 +20,8 @@ Two databases:
 | **Teams** | **Pages** (the pages the team keeps). It has no other fields |
 
 Each Status option carries a category: Draft is unstarted, Verified is completed, Needs review is
-started. See [Option categories](/guides/pack-manifest/#option-categories).
+started. See [Option categories](/guides/pack-manifest/#option-categories). A new page starts as a **Draft**,
+the first Status option. Pass `null` for Status to leave it empty.
 
 ## The three views
 

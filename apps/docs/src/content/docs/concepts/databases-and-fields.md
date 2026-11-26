@@ -48,11 +48,23 @@ A record opens as one **main column** and a fixed **side panel**.
 - **Main column**, top to bottom: the title, a status strip (workflow status, assignee, due date and
   who's watching), the fields in labelled groups — **Details**, **Links**, **Computed** and **System**
   — then the **Description**, any embedded collections (sub-items and the like), and **Attachments**.
+- **A record you add from a view starts with no title, and the cursor is in it.** The same holds for
+  the **+** on a board column (**Add card**), the **+** on a list group, a day on a calendar, a gallery or feed
+  add, the **New** button, the empty-database button and the mobile quick-add. The record opens on its
+  own page with an empty title that shows the grey word *Untitled* as a placeholder, so you can type
+  the real name straight away. The word is not stored: until you type, the record has no title, and
+  what you type is the whole title. A board card keeps its column's value and a calendar record keeps
+  its day. Reloading the page or going Back does not put the cursor back in the title.
 - **An empty strip shows Assignee and Due date, and hides the rest.** On a new record the status
   strip still draws a person field and a date field while they are empty, as chips you click to
   set, so assigning and dating a record takes one click each. Any other empty strip property
   (a select, a number, a relation) is left out and comes back through **+ Add property** at the end
   of the strip. A person or date field that someone hid on the record stays hidden.
+- **A long field name is never cut off.** A field's name can be up to 100 characters. On the record
+  page its label wraps onto as many lines as it needs, with the type icon beside the first line, so two
+  names that differ only at the end can be told apart. Where space is tight, as in a table's column
+  headers, the strip and the hidden-fields list, the field menus and the pickers, the name can still
+  end in an ellipsis, and pointing at it shows the full name.
 - **Attachments appear only when they have something to show** — the database has an attachment
   field, or this record already has files. Existing files are never hidden.
 - **Empty collections hide by default.** A collection on a record (many-to-many, or the many side of a
@@ -250,19 +262,49 @@ actually stays true over time:
   options are still local drafts without ids to point a default at. Configure the options first,
   save the field, then set the default from Edit.
 
-  **A workflow field with no default starts at its first state.** A record created without a value
-  for a Workflow (status) field gets the field's configured default, or else its **first** option in
-  the field's own order, so a new record is on a board column and in a queue from the moment it
-  exists. That holds on every way of creating a record: the app, REST, MCP, forms, CSV import and
-  automations. The rules:
+  **A field that is a state, with no default, starts at its first state.** A state is a Workflow
+  (status) field, or a select in which **every** option has a state category (as the built-in
+  packs declare theirs; see [Option categories](/guides/pack-manifest/#option-categories)). A
+  record created without a value for it gets the field's configured default, or else its **first**
+  option in the field's own order, so a new record is on a board column and in a queue from the
+  moment it exists. That holds on every way of creating a record: the app, REST, MCP, forms, CSV
+  import and automations. The rules:
   - **A plain select is not filled.** An empty Priority or Type is a legitimate answer; an empty
-    State is not.
+    State is not. A select with no categories, or with a category on only some of its options, is
+    a plain select.
   - **Passing a value is respected, including an explicit empty one.** Leaving the field out of the
     request is what triggers the default; sending the field as `null` keeps it empty. In a batch
     each record decides for itself.
-  - **Existing records are not changed**, and neither is a record you later edit. Changing the
+  - **Existing records are not changed**, and neither is a record you later edit. A record made
+    before this applied to a pack's State field keeps its empty State until you set it. Changing the
     default afterwards doesn't touch records that were already empty.
   - A workflow field with no options has nothing to default to, and the record is still created.
+
+## Record templates
+
+A record template is a saved starting point for new records in one database: some field values and a
+description. A database can have none, one or many.
+
+- **New grows a menu when there is a template.** In the toolbar, **New** gets a small arrow beside it.
+  Open it to see **New from a template**: each template by name, with its description underneath
+  (a template a pack installed says *From a pack* when it has none). Choose one and the record is
+  made from it and opens. The **New** button itself, and the **n** shortcut, still make a blank record
+  and never wait on the list. A database with no templates keeps the plain **New** button.
+- **Save a record as a template.** Open a record, open its menu and choose **Save as template**. The
+  name starts as the record's title; change it and choose **Save template**. The template keeps the
+  record's field values and description. It does not keep the title, the links or the computed
+  fields. You need to be able to edit the database.
+- **Manage templates.** The last row of the arrow's menu, **Manage templates...**, lists them. **Edit**
+  changes a name and a one-line description. **Delete** asks first, and records already made from the
+  template are not changed. You can edit or delete a template a pack installed; a pack that you
+  uninstall later keeps one you changed.
+- **A preset that no longer fits is skipped, and you are told.** If the database lost a field, or the
+  field lost the option a template names, the record is still created and a message says that one
+  preset, or how many presets, could not be applied, with the field names.
+
+For the packs' own templates see [Record templates](/guides/pack-manifest/#record-templates) in the
+pack manifest page and [The issue templates](/guides/dev-tracker-pack/#the-issue-templates) in Dev Tracker.
+Over MCP, `list_record_templates` and `create_record_from_template` do the same thing.
 
 ## Field lifecycle
 

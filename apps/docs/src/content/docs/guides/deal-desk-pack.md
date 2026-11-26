@@ -30,6 +30,9 @@ A deal's **Stage** has seven options, each with a category: **Lead** is backlog,
 **Status** categories are Draft unstarted, Sent started, Accepted completed, and Declined and Expired canceled.
 See [Option categories](/guides/pack-manifest/#option-categories).
 
+A new deal starts at **Lead**, a new quote at **Draft** and a new activity as **Planned**, the first option of each.
+An account's **Status** has no categories, so a new account starts with Status empty.
+
 ### Money and the computed fields
 
 - **Line total** is a currency formula, `Qty * Unit price * (1 - Discount % / 100)`, and a missing discount
