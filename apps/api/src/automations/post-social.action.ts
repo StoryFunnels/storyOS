@@ -43,6 +43,62 @@ const X_MAX_WEIGHTED_LENGTH = 280;
  * breaking changes on LinkedIn's own schedule). */
 const LINKEDIN_API_VERSION = '202401';
 
+/**
+ * Ticket #42 — what a failed publish SAYS. The job's `last_error` is shown on the record (the publish-state read, the
+ * approval-outcome comment, run history), so it must never carry a provider's raw response: that body can echo the
+ * post text, an account's name or an id, and a token fragment in an error detail. A failure is therefore a stable
+ * CODE plus a short message this file wrote, stored as `[code] message` and parsed back by `social-publishes.service.ts`.
+ * Only the HTTP status is carried over from the provider.
+ */
+export type PublishFailureCode =
+  | 'no_account'
+  | 'account_mismatch'
+  | 'already_posted'
+  | 'too_long'
+  | 'no_token'
+  | 'wrong_connection'
+  | 'auth_refused'
+  | 'forbidden'
+  | 'not_found'
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'rejected'
+  | 'bad_response';
+
+export function publishFailure(code: PublishFailureCode, message: string, retryable: boolean): ProviderError {
+  return new ProviderError(`[${code}] ${message}`, { retryable });
+}
+
+/** One HTTP failure from a network, reduced to a code and a sentence that carries the status and nothing else. */
+function httpFailure(network: 'LinkedIn' | 'X', step: string, status: number): ProviderError {
+  const retryable = status >= 500 || status === 429;
+  const code: PublishFailureCode =
+    status === 401
+      ? 'auth_refused'
+      : status === 403
+        ? 'forbidden'
+        : status === 404
+          ? 'not_found'
+          : status === 429
+            ? 'rate_limited'
+            : status >= 500
+              ? 'provider_unavailable'
+              : 'rejected';
+  const hint =
+    code === 'auth_refused'
+      ? ' Reconnect the account.'
+      : code === 'forbidden'
+        ? network === 'X'
+          ? " Usually the X app's tier does not allow posting."
+          : ' The connected member may not be allowed to post as this account.'
+        : '';
+  return publishFailure(code, `${network} refused the ${step} (HTTP ${status}).${hint}`, retryable);
+}
+
+/** A LinkedIn page is named by its organization URN, and only by that. */
+export const LINKEDIN_ORG_URN = /^urn:li:organization:[0-9]+$/;
+export const LINKEDIN_PERSON_URN = /^urn:li:person:[A-Za-z0-9_-]+$/;
+
 export interface PostSocialResult {
   url: string;
   external_id: string;
@@ -116,10 +172,15 @@ export class PostSocialActionService implements OnModuleInit {
     if (action.result_field_id && ctx.recordId) {
       const already = await this.existingResultValue(ctx.databaseId, ctx.recordId, action.result_field_id);
       if (already) {
-        throw new ProviderError(`post_social already posted — "${action.result_field_id}" already has a value`, {
-          retryable: false,
-        });
+        throw publishFailure('already_posted', 'This post already has a link on the record, so it was not posted a second time.', false);
       }
+    }
+
+    // Ticket #42 — NOTHING POSTS FROM AN UNNAMED ACCOUNT. A company-page post names the page; a job without it (a rule
+    // saved before this check existed, or a payload edited by hand) is refused here, before any provider call, rather
+    // than falling back to the member's own profile, which is what this executor used to do for linkedin_org.
+    if (action.target === 'linkedin_org' && !(action.account_id && LINKEDIN_ORG_URN.test(action.account_id))) {
+      throw publishFailure('no_account', 'This post does not name the LinkedIn page it goes out as. Pick the page in the rule and run it again.', false);
     }
 
     // Pre-flight length check (#42): X's weighted-length cap is tighter than
@@ -135,10 +196,7 @@ export class PostSocialActionService implements OnModuleInit {
       // only form that actually works.
       const { weightedLength, valid } = parseTweet(action.text);
       if (!valid || weightedLength > X_MAX_WEIGHTED_LENGTH) {
-        throw new ProviderError(
-          `post_social text is too long for X: ${weightedLength} weighted characters (max ${X_MAX_WEIGHTED_LENGTH})`,
-          { retryable: false },
-        );
+        throw publishFailure('too_long', `The text is too long for X: ${weightedLength} of ${X_MAX_WEIGHTED_LENGTH} characters.`, false);
       }
     }
 
@@ -227,18 +285,23 @@ export class PostSocialActionService implements OnModuleInit {
     provider: string,
   ): Promise<PostSocialResult> {
     if (provider !== 'linkedin') {
-      throw new ProviderError(`connection provider "${provider}" cannot post to LinkedIn`, { retryable: false });
+      throw publishFailure('wrong_connection', 'The connection this post uses is not a LinkedIn connection.', false);
     }
     if (!auth.access_token) {
-      throw new ProviderError('LinkedIn connection has no access token', { retryable: false });
+      throw publishFailure('no_token', 'The LinkedIn connection has no access token. Reconnect it.', false);
     }
-    // Phase A (#42): the author URN is the authenticated member's own id for
-    // BOTH linkedin_member and linkedin_org — a true organization-page post
-    // (posting AS the org rather than as the member who administers it)
-    // needs the org's own URN, which this ticket's connection shape doesn't
-    // yet capture (no org picker on connect). Tracked as a known gap, not
-    // silently assumed to already work — see the PR description.
-    const authorUrn = await this.fetchLinkedinAuthorUrn(auth.access_token);
+    // Ticket #42: WHO the post goes out as is always named. A company page posts AS the organization the action names
+    // (account_id, chosen from the connection's page list); a member post goes out as the connection's own member, and
+    // an account_id on it only pins that member, it never redirects the post somewhere else.
+    let authorUrn: string;
+    if (action.target === 'linkedin_org') {
+      authorUrn = action.account_id!;
+    } else {
+      authorUrn = await this.fetchLinkedinAuthorUrn(auth.access_token);
+      if (action.account_id && action.account_id !== authorUrn) {
+        throw publishFailure('account_mismatch', 'The member this post names is not the member the connection belongs to.', false);
+      }
+    }
 
     let mediaUrn: string | undefined;
     if (media) {
@@ -263,10 +326,7 @@ export class PostSocialActionService implements OnModuleInit {
       body: JSON.stringify(postBody),
     });
     if (res.status < 200 || res.status >= 300) {
-      const detail = await res.text().catch(() => '');
-      throw new ProviderError(`LinkedIn post failed: HTTP ${res.status} — ${detail}`, {
-        retryable: res.status >= 500 || res.status === 429,
-      });
+      throw httpFailure('LinkedIn', 'post', res.status);
     }
     // LinkedIn returns the created post's URN in the x-restli-id / x-linkedin-id
     // response header, not the JSON body (a 201 with no body is normal here).
@@ -288,13 +348,11 @@ export class PostSocialActionService implements OnModuleInit {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     if (res.status < 200 || res.status >= 300) {
-      throw new ProviderError(`LinkedIn profile lookup failed: HTTP ${res.status}`, {
-        retryable: res.status >= 500 || res.status === 429,
-      });
+      throw httpFailure('LinkedIn', 'profile lookup', res.status);
     }
     const body = (await res.json()) as { sub?: string };
     if (!body.sub) {
-      throw new ProviderError('LinkedIn profile lookup returned no member id', { retryable: false });
+      throw publishFailure('bad_response', 'LinkedIn did not say which member the connection belongs to.', false);
     }
     return `urn:li:person:${body.sub}`;
   }
@@ -308,10 +366,7 @@ export class PostSocialActionService implements OnModuleInit {
       body: JSON.stringify({ initializeUploadRequest: { owner: authorUrn } }),
     });
     if (initRes.status < 200 || initRes.status >= 300) {
-      const detail = await initRes.text().catch(() => '');
-      throw new ProviderError(`LinkedIn media init failed: HTTP ${initRes.status} — ${detail}`, {
-        retryable: initRes.status >= 500 || initRes.status === 429,
-      });
+      throw httpFailure('LinkedIn', 'image upload', initRes.status);
     }
     const initBody = (await initRes.json()) as {
       value?: { uploadUrl?: string; image?: string };
@@ -319,7 +374,7 @@ export class PostSocialActionService implements OnModuleInit {
     const uploadUrl = initBody.value?.uploadUrl;
     const imageUrn = initBody.value?.image;
     if (!uploadUrl || !imageUrn) {
-      throw new ProviderError('LinkedIn media init returned no uploadUrl/image urn', { retryable: false });
+      throw publishFailure('bad_response', 'LinkedIn did not accept the image upload.', false);
     }
     const putRes = await this.fetcher(uploadUrl, {
       method: 'PUT',
@@ -327,9 +382,7 @@ export class PostSocialActionService implements OnModuleInit {
       body: media.buffer.toString('binary'),
     });
     if (putRes.status < 200 || putRes.status >= 300) {
-      throw new ProviderError(`LinkedIn media upload failed: HTTP ${putRes.status}`, {
-        retryable: putRes.status >= 500 || putRes.status === 429,
-      });
+      throw httpFailure('LinkedIn', 'image upload', putRes.status);
     }
     return imageUrn;
   }
@@ -342,7 +395,7 @@ export class PostSocialActionService implements OnModuleInit {
     media: MediaAsset | null,
   ): Promise<PostSocialResult> {
     if (!auth.access_token) {
-      throw new ProviderError('X connection has no access token', { retryable: false });
+      throw publishFailure('no_token', 'The X connection has no access token. Reconnect it.', false);
     }
     let mediaId: string | undefined;
     if (media) {
@@ -358,15 +411,12 @@ export class PostSocialActionService implements OnModuleInit {
       body: JSON.stringify(body),
     });
     if (res.status < 200 || res.status >= 300) {
-      const detail = await res.text().catch(() => '');
-      throw new ProviderError(`X post failed: HTTP ${res.status} — ${detail}`, {
-        retryable: res.status >= 500 || res.status === 429,
-      });
+      throw httpFailure('X', 'post', res.status);
     }
     const json = (await res.json()) as { data?: { id?: string } };
     const tweetId = json.data?.id;
     if (!tweetId) {
-      throw new ProviderError('X post succeeded but returned no tweet id', { retryable: false });
+      throw publishFailure('bad_response', 'X accepted the post but did not return its id, so the link could not be saved.', false);
     }
     return { url: `https://x.com/i/web/status/${tweetId}`, external_id: tweetId };
   }
@@ -386,13 +436,11 @@ export class PostSocialActionService implements OnModuleInit {
       }).toString(),
     });
     if (initRes.status < 200 || initRes.status >= 300) {
-      throw new ProviderError(`X media INIT failed: HTTP ${initRes.status}`, {
-        retryable: initRes.status >= 500 || initRes.status === 429,
-      });
+      throw httpFailure('X', 'image upload', initRes.status);
     }
     const initJson = (await initRes.json()) as { media_id_string?: string };
     const mediaId = initJson.media_id_string;
-    if (!mediaId) throw new ProviderError('X media INIT returned no media_id', { retryable: false });
+    if (!mediaId) throw publishFailure('bad_response', 'X did not accept the image upload.', false);
 
     const appendRes = await this.fetcher('https://upload.twitter.com/1.1/media/upload.json', {
       method: 'POST',
@@ -405,9 +453,7 @@ export class PostSocialActionService implements OnModuleInit {
       }).toString(),
     });
     if (appendRes.status < 200 || appendRes.status >= 300) {
-      throw new ProviderError(`X media APPEND failed: HTTP ${appendRes.status}`, {
-        retryable: appendRes.status >= 500 || appendRes.status === 429,
-      });
+      throw httpFailure('X', 'image upload', appendRes.status);
     }
 
     const finalizeRes = await this.fetcher('https://upload.twitter.com/1.1/media/upload.json', {
@@ -416,9 +462,7 @@ export class PostSocialActionService implements OnModuleInit {
       body: new URLSearchParams({ command: 'FINALIZE', media_id: mediaId }).toString(),
     });
     if (finalizeRes.status < 200 || finalizeRes.status >= 300) {
-      throw new ProviderError(`X media FINALIZE failed: HTTP ${finalizeRes.status}`, {
-        retryable: finalizeRes.status >= 500 || finalizeRes.status === 429,
-      });
+      throw httpFailure('X', 'image upload', finalizeRes.status);
     }
     return mediaId;
   }

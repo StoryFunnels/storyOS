@@ -512,6 +512,15 @@ export const actionSchema = z.discriminatedUnion('type', [
     media_field_id: z.uuid().optional(),
     link: z.string().max(500).optional(),
     result_field_id: z.uuid().optional(),
+    /**
+     * Ticket #42 — WHICH account the post goes out as, beyond the connection. A LinkedIn company page is
+     * named by its organization URN (`urn:li:organization:<id>`), chosen from
+     * GET /connections/{id}/social-accounts; `linkedin_org` REQUIRES it (saving one without it is a 422,
+     * and the executor refuses a job without it rather than posting from the member's own profile).
+     * `linkedin_member` posts as the connection's own member and may carry the member URN to pin it;
+     * `x` posts as the connected X account and takes none.
+     */
+    account_id: z.string().min(1).max(200).optional(),
   }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;
