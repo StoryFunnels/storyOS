@@ -17,7 +17,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  */
 export interface RequestActor {
   userId: string | null;
-  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import' | null;
   agentId: string | null;
   agentName: string | null;
   /**

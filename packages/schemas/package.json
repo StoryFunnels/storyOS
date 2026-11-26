@@ -30,6 +30,10 @@
       "types": "./dist/state-category.d.ts",
       "default": "./dist/state-category.js"
     },
+    "./identifier": {
+      "types": "./dist/identifier.d.ts",
+      "default": "./dist/identifier.js"
+    },
     "./safe-url": {
       "types": "./dist/safe-url.d.ts",
       "default": "./dist/safe-url.js"

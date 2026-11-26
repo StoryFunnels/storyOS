@@ -12,7 +12,7 @@
  */
 export interface CommentAuthorInput {
   author: { id: string; name: string; image: string | null };
-  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import' | null;
   agent_name: string | null;
 }
 

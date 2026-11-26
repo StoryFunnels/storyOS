@@ -22,7 +22,7 @@ const auditLogQuerySchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined))
-    .pipe(z.array(z.enum(['human', 'agent', 'automation', 'mcp'])).min(1).optional()),
+    .pipe(z.array(z.enum(['human', 'agent', 'automation', 'mcp', 'import'])).min(1).optional()),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),

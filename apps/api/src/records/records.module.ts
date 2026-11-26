@@ -10,6 +10,7 @@ import { UsersModule } from '../users/users.module';
 import { ViewerStateModule } from '../viewer-state/viewer-state.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { RecordsController } from './records.controller';
+import { RecordIdentifiersController } from './record-identifiers.controller';
 import { RecordsService } from './records.service';
 import { RollupInvalidationSubscriber } from './rollup-invalidation.subscriber';
 import { PositionRepairSubscriber } from './position-repair.subscriber';
@@ -37,7 +38,7 @@ import { ViewCreateContextService } from './view-create-context.service';
     ViewerStateModule, // ticket #1333: ViewCreateContextService reads the caller's personal view filter
     forwardRef(() => AttachmentsModule),
   ],
-  controllers: [RecordsController],
+  controllers: [RecordsController, RecordIdentifiersController],
   providers: [RecordsService, RollupInvalidationSubscriber, PositionRepairSubscriber, TitleLocalBackfillSubscriber, WatcherEmailService, BulkRecordJobsService, ViewCreateContextService],
   exports: [RecordsService, BulkRecordJobsService],
 })

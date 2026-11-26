@@ -145,6 +145,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'GET /api/v1/workspaces/:ws/databases/:db/records/:rec/branch-name': scoped('assertRecordAccess', 'records/records.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/records/:rec/watchers': scoped('assertAccess + visibleRecordIds + effectiveForRecord', 'records/records.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/records/batch-jobs/:id': scoped('assertAccess + visibleRecordIds + effectiveForRecord', 'records/records.controller.ts'),
+  'GET /api/v1/workspaces/:ws/records/by-identifier/:identifier': scoped('assertAccess + effectiveForRecord', 'records/record-identifiers.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/records/by-number/:number': scoped('assertAccess + visibleRecordIds + effectiveForRecord', 'records/records.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/records/trash': scoped('assertAccess + visibleRecordIds + effectiveForRecord', 'records/records.controller.ts'),
   'GET /api/v1/workspaces/:ws/databases/:db/sources': scoped('assertAccess', 'sources/sources.controller.ts'),

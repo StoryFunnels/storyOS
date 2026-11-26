@@ -100,6 +100,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'POST /workspaces/:ws/databases/:db/records/batch-restore': { verdict: 'gated', why: FANOUT_WHY },
   'GET /workspaces/:ws/databases/:db/records/trash': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/by-number/:number': { verdict: 'internal', why: 'read: returns data to the caller only' },
+  'GET /workspaces/:ws/records/by-identifier/:identifier': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /workspaces/:ws/databases/:db/records/:rec': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'PATCH /workspaces/:ws/databases/:db/records/:rec': { verdict: 'gated', why: FANOUT_WHY },
   'DELETE /workspaces/:ws/databases/:db/records/:rec': { verdict: 'gated', why: FANOUT_WHY },

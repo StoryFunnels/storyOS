@@ -31,8 +31,11 @@ export * from './auth-schema';
  * event. An enum rather than free text so the timeline UI and the audit-log
  * filters stay cheap, and `human` is the default so existing session writes
  * stay correct without touching every call site.
+ *
+ * Ticket #1363 added `import`: history written by an importer that replays what happened in the system it reads from. It is its
+ * own value because labelling it `automation` would say an automation did something it did not (Otto's ruling, ticket #1362).
  */
-export const changeSource = pgEnum('change_source', ['human', 'agent', 'automation', 'mcp']);
+export const changeSource = pgEnum('change_source', ['human', 'agent', 'automation', 'mcp', 'import']);
 /** #390 — the write's PROVENANCE. Orthogonal to `actorUserId`, which stays the person. */
 export type ChangeSource = (typeof changeSource.enumValues)[number];
 
@@ -394,12 +397,23 @@ export const databases = pgTable(
      * and edits it. The model lives in `AccessService`; nothing else should read this column to decide access.
      */
     restricted: boolean('restricted').notNull().default(false),
+    /**
+     * Ticket #1363 — the opt-in prefix of this database's record identifiers (`ISSUE` makes record 5201 `ISSUE-5201`). null = the
+     * database has no identifiers and everything behaves exactly as before. Unique per workspace, case-insensitively. The
+     * identifier itself is NEVER stored: it is prefix + '-' + `records.number`, derived on read, so it cannot drift from either.
+     * Set by an admin only, over the database PATCH, never by an agent token. See records/record-identifier.ts.
+     */
+    identifierPrefix: text('identifier_prefix'),
     /** #453 — structural soft-delete; see the identical note on `spaces.deletedAt` above. */
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     uniqueIndex('databases_space_slug_uq').on(t.spaceId, t.apiSlug),
+    // Ticket #1363 — one prefix per workspace, case-insensitive. A soft-deleted database keeps its prefix reserved: restoring it must
+    // never collide with a prefix someone else took in the meantime.
+    uniqueIndex('databases_workspace_identifier_prefix_uq').on(t.workspaceId, sql`lower(${t.identifierPrefix})`).where(sql`${t.identifierPrefix} IS NOT NULL`),
+    check('databases_identifier_prefix_valid', sql`${t.identifierPrefix} IS NULL OR ${t.identifierPrefix} ~ '^[A-Z][A-Z0-9]{1,9}$'`),
     // #1063 — at most one database per key in a workspace; user databases (null key) are unconstrained.
     uniqueIndex('databases_workspace_system_key_uq').on(t.workspaceId, t.systemKey).where(sql`${t.systemKey} IS NOT NULL`),
     check('databases_system_key_valid', sql`${t.systemKey} IS NULL OR (${t.isSystem} AND ${t.systemKey} IN ('agents', 'agent_triggers', 'agent_runs', 'members'))`),

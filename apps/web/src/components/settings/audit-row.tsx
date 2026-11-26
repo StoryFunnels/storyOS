@@ -38,7 +38,7 @@ export interface AuditLogEntry {
   actor_kind?: 'member' | 'system' | null;
   /** True only for a member who has left (their Members row is tombstoned); never for a system actor. Absent from an older API. */
   actor_removed?: boolean;
-  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import' | null;
   /** The agent's name when an agent made the write (a snapshot taken then). Null for everything else. */
   agent_name?: string | null;
   payload?: unknown;

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   forwardRef,
@@ -17,6 +18,7 @@ import {
   describeUnresolvedLabels,
   resolveOptionLabels,
   evaluateFormula,
+  formatIdentifier,
   formulaRefs,
   SORTABLE_FIELD_TYPES as SHARED_SORTABLE_FIELD_TYPES,
   systemFieldDefsFor,
@@ -98,6 +100,13 @@ import { ComputedFieldFailures, computeCellGuarded, nullCells } from './computed
 
 type RecordRow = typeof records.$inferSelect;
 
+/**
+ * Ticket #1363 — the identifier prefix of the database a `fieldDefs()` result was read for. A WeakMap keyed by the defs array, so the
+ * prefix cannot outlive them and a defs array that did not come from `fieldDefs()` reads as "no prefix" (identifier: null), never as
+ * somebody else's prefix.
+ */
+const identifierPrefixByDefs = new WeakMap<object, string | null>();
+
 /** Ids per statement when a rollup fetches its linked records (a statement allows 65,535 parameters). */
 const ROLLUP_TARGET_CHUNK = 5000;
 
@@ -119,6 +128,8 @@ export interface ProjectedRecord {
   id: string;
   /** Per-database sequential public id — the human handle in URLs (MN-087). */
   number: number | null;
+  /** Ticket #1363 — `<PREFIX>-<number>` when the database carries an identifier prefix, else null. Derived on every read, never stored. */
+  identifier: string | null;
   title: string;
   values: Record<string, unknown>;
   position: string;
@@ -366,7 +377,7 @@ export class RecordsService implements OnModuleInit {
       const isSingleValued = cardinality === 'one_to_many' && side === 'a';
       multiByFieldId.set(f.id, !isSingleValued);
     }
-    return fieldRows.map((f) => ({
+    const defs: FieldDef[] = fieldRows.map((f) => ({
       id: f.id,
       api_name: f.apiName,
       type: f.type,
@@ -378,6 +389,11 @@ export class RecordsService implements OnModuleInit {
       option_order: optionOrderByField.get(f.id),
       option_categories: categoriesByField.get(f.id),
     }));
+    // Ticket #1363 — project() is synchronous and every read path already holds these defs, so the database's identifier prefix rides
+    // along with them instead of costing each path its own lookup.
+    const owner = await reader.query.databases.findFirst({ where: eq(databases.id, databaseId), columns: { identifierPrefix: true } });
+    identifierPrefixByDefs.set(defs, owner?.identifierPrefix ?? null);
+    return defs;
   }
 
   /** Projects storage rows through live fields: api_name keys, dangling options → null. */
@@ -403,6 +419,7 @@ export class RecordsService implements OnModuleInit {
     return {
       id: row.id,
       number: row.number,
+      identifier: formatIdentifier(identifierPrefixByDefs.get(defs), row.number),
       title: row.title,
       values,
       position: row.position,
@@ -3374,9 +3391,20 @@ export class RecordsService implements OnModuleInit {
       agentName?: string;
       /** #1070 — the caller, so link targets are access-checked (planLinks). */
       membership?: Membership;
+      /**
+       * Ticket #1363 — IMPORT ONLY: the public number each input must be written at (parallel to `inputs`), instead of taking the next
+       * one from the counter. Never reachable from an HTTP route (a client choosing numbers is a collision machine); the migration
+       * framework's externalIdUpsert is the one caller. A number that is already held refuses the WHOLE batch naming the holder, and
+       * never overwrites; afterwards `record_counter = GREATEST(record_counter, highest number written)` in the same transaction, so
+       * records made later continue after the highest imported number.
+       */
+      numbers?: number[];
     } = {},
   ): Promise<ProjectedRecord[]> {
     const source: ChangeSource = options.source ?? 'human';
+    if (options.numbers && options.numbers.length !== inputs.length) {
+      throw new BadRequestException('numbers must have one entry per input');
+    }
     const agentId = options.agentId;
     const agentName = options.agentName;
     for (const input of inputs) {
@@ -3443,12 +3471,24 @@ export class RecordsService implements OnModuleInit {
       rows = await this.db.transaction(async (tx) => {
         // Allocate a contiguous block of public numbers atomically (MN-087): bump the
         // per-database counter by N and take the returned high-water mark. Gap-tolerant.
-        const [db] = await tx
-          .update(databases)
-          .set({ recordCounter: sql`${databases.recordCounter} + ${inputs.length}` })
-          .where(eq(databases.id, databaseId))
-          .returning({ counter: databases.recordCounter });
-        const firstNumber = (db!.counter as number) - inputs.length + 1;
+        const explicit = options.numbers;
+        let firstNumber = 0;
+        if (explicit) {
+          await this.assertNumbersFree(tx as unknown as Db, databaseId, explicit);
+          // The counter row update takes the row lock, so two concurrent imports serialise here; GREATEST never moves it backwards.
+          await tx
+            .update(databases)
+            .set({ recordCounter: sql`GREATEST(${databases.recordCounter}, ${Math.max(...explicit)})` })
+            .where(eq(databases.id, databaseId));
+        } else {
+          const [db] = await tx
+            .update(databases)
+            .set({ recordCounter: sql`${databases.recordCounter} + ${inputs.length}` })
+            .where(eq(databases.id, databaseId))
+            .returning({ counter: databases.recordCounter });
+          firstNumber = (db!.counter as number) - inputs.length + 1;
+        }
+        const numberAt = (i: number) => (explicit ? explicit[i]! : firstNumber + i);
         const inserted = await tx
           .insert(records)
           .values(
@@ -3457,11 +3497,11 @@ export class RecordsService implements OnModuleInit {
               // #id-post-allocation: firstNumber+i is this record's public number,
               // already allocated above, so a `{Number}`/#id template resolves.
               const pair = titleDef
-                ? this.computeTitlePair(titleDef, defs, values, firstNumber + i, labelByOption)
+                ? this.computeTitlePair(titleDef, defs, values, numberAt(i), labelByOption)
                 : { title: v.title ?? '', titleLocal: null };
               return {
                 databaseId,
-                number: firstNumber + i,
+                number: numberAt(i),
                 title: pair.title,
                 titleLocal: pair.titleLocal,
                 values,
@@ -3520,6 +3560,10 @@ export class RecordsService implements OnModuleInit {
       // #229 AC5 — the pre-check above raced and lost; re-resolve the SAME
       // conflict now that the winner has committed, so the caller still gets a
       // named record instead of a raw 23505.
+      // Ticket #1363 — an import that lost a race for an explicit number: the pre-check could not see the winner, the index can.
+      if (options.numbers && JSON.stringify(err).includes('records_db_number_uq')) {
+        throw new ConflictException('One of the numbers in this import was taken by another write at the same moment; nothing was written');
+      }
       const fieldId = uniqueFieldIdFromViolation(err);
       if (fieldId === undefined) throw err;
       const def = defs.find((d) => d.id === fieldId);
@@ -3555,6 +3599,27 @@ export class RecordsService implements OnModuleInit {
       }
     }
     return rows.map((row) => this.project(row, defs));
+  }
+
+  /**
+   * Ticket #1363 — refuse, naming the holder, when any of `numbers` is already a record's number in this database. Soft-deleted records
+   * still hold theirs (records_db_number_uq does not exclude them, which is right for an identifier that must never be reused).
+   * Duplicates inside the batch itself refuse too. The unique index remains the real guard for a concurrent writer.
+   */
+  async assertNumbersFree(reader: Db, databaseId: string, numbers: number[]): Promise<void> {
+    const dup = numbers.find((n, i) => numbers.indexOf(n) !== i);
+    if (dup !== undefined) throw new ConflictException(`Number ${dup} appears twice in this import batch`);
+    const holders = await reader
+      .select({ number: records.number, title: records.title, deletedAt: records.deletedAt })
+      .from(records)
+      .where(and(eq(records.databaseId, databaseId), inArray(records.number, numbers)))
+      .limit(1);
+    const holder = holders[0];
+    if (holder) {
+      throw new ConflictException(
+        `Number ${holder.number} is already held by the record "${holder.title}"${holder.deletedAt ? ' (in the trash; a number is never reused)' : ''}. An import never overwrites a record's number.`,
+      );
+    }
   }
 
   async getRow(databaseId: string, recordId: string): Promise<RecordRow> {

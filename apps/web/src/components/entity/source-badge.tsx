@@ -1,14 +1,16 @@
-import { Bot, HelpCircle, Terminal, Workflow } from 'lucide-react';
+import { Bot, HelpCircle, Import, Terminal, Workflow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isAiSource } from '@/lib/governance';
 
 /** The source of a write as the API records it. `null` is "not recorded": never folded into a person. */
-export type BadgeSource = 'human' | 'agent' | 'automation' | 'mcp' | null;
+export type BadgeSource = 'human' | 'agent' | 'automation' | 'mcp' | 'import' | null;
 
 /** The badge's tooltip: with the agent's name when it is known, so the gold says WHO the agent is, not only that one was there. */
-export function sourceBadgeTitle(source: 'agent' | 'automation' | 'mcp', agentName?: string | null): string {
+export function sourceBadgeTitle(source: 'agent' | 'automation' | 'mcp' | 'import', agentName?: string | null): string {
   const name = typeof agentName === 'string' ? agentName.trim() : '';
   if (source === 'agent' && name) return `Made by ${name}, an agent, not typed by a person`;
+  // Ticket #1363: history an importer replayed from the system it read, with the times and people THAT system recorded.
+  if (source === 'import') return 'Brought in by an import from another tool, with the time and person it recorded there; not typed here';
   return `This event was made by ${source === 'mcp' ? 'an MCP client' : `an ${source}`}, not typed by a person`;
 }
 
@@ -17,7 +19,7 @@ export function sourceBadgeTitle(source: 'agent' | 'automation' | 'mcp', agentNa
  * was there. No name (unset, empty, blank) keeps the generic word; MCP and automation never borrow an agent's name. The actor stays the
  * member (ADR-0016): this is only what the badge reads.
  */
-export function sourceBadgeLabel(source: 'agent' | 'automation' | 'mcp', agentName?: string | null): string {
+export function sourceBadgeLabel(source: 'agent' | 'automation' | 'mcp' | 'import', agentName?: string | null): string {
   const name = typeof agentName === 'string' ? agentName.trim() : '';
   if (source === 'agent' && name) return name;
   return source === 'mcp' ? 'MCP' : source;
@@ -53,10 +55,11 @@ export function SourceBadge({
       </span>
     );
   }
-  const config: Record<'agent' | 'automation' | 'mcp', { icon: typeof Bot; label: string }> = {
+  const config: Record<'agent' | 'automation' | 'mcp' | 'import', { icon: typeof Bot; label: string }> = {
     agent: { icon: Bot, label: 'agent' },
     automation: { icon: Workflow, label: 'automation' },
     mcp: { icon: Terminal, label: 'MCP' },
+    import: { icon: Import, label: 'import' },
   };
   const { icon: Icon } = config[source];
   const label = inlineName ? sourceBadgeLabel(source, agentName) : config[source].label;

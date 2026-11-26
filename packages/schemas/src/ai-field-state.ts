@@ -47,6 +47,11 @@ export const recordResponseSchema = z.object({
   id: z.uuid(),
   /** Per-database sequential public id, the human handle in URLs. */
   number: z.number().int().nullable(),
+  /**
+   * Ticket #1363 — `<PREFIX>-<number>` (ISSUE-5201) when the database carries an identifier prefix, otherwise null. Derived on every
+   * read from the prefix and `number`, never stored. Open a record by it with `GET /workspaces/{ws}/records/by-identifier/{identifier}`.
+   */
+  identifier: z.string().nullable(),
   title: z.string(),
   /** Stored values keyed by field api_name (relations carry `{id, title}` chips; select values are option ids). */
   values: z.record(z.string(), z.unknown()),

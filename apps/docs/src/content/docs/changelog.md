@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **26 Nov** — A database can carry an **identifier prefix** such as `ISSUE`, so record 5201 is also `ISSUE-5201`: shown in the record header, on every record payload (`identifier`), openable at `/w/{workspace}/i/ISSUE-5201`, `GET .../records/by-identifier/{identifier}` and MCP `get_record` with `identifier`, set by an admin only. An import can write a record at the number its source gave it. [Record identifiers](/concepts/record-identifiers/)
 - **27 Oct** — A scheduled Linear sync reads only the issues and comments Linear changed since the last success, with a full read at least once a day. [Keeping it in sync](/guides/migrate-from-linear/#keeping-it-in-sync)
 - **24 Oct** — Preview on the Linear page answers at once while a sync is running, and asks you to try again when it finishes, instead of waiting behind it. [How to run it](/guides/migrate-from-linear/#how-to-run-it)
 - **26 Nov** — Plan & billing on StoryOS Cloud says admins get one notification and email at 80% of the month's automation runs. [Plan & billing](/settings/workspace/#plan--billing)

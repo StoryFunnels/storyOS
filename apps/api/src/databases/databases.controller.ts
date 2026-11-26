@@ -91,6 +91,17 @@ export class DatabasesController {
     if (body.restricted !== undefined && req.membership.role !== 'admin') {
       throw new ForbiddenException('Only an admin can change who a database is shared with');
     }
+    // Ticket #1363 — the identifier prefix names every record of the database and is unique across the workspace, so it is an admin's
+    // decision, made by a person: an agent token (even one an admin holds) and a token bound to specific databases are refused, the same
+    // way a plain member is. Checked on the caller, here, because the service has no request.
+    if (body.identifier_prefix !== undefined) {
+      if (req.membership.role !== 'admin') {
+        throw new ForbiddenException('Only an admin can set a database identifier prefix');
+      }
+      if (req.auth?.source === 'agent' || req.auth?.resourceScope) {
+        throw new ForbiddenException('A database identifier prefix is set by an admin, not by an agent or a token bound to specific databases');
+      }
+    }
     return this.databases.update(req.membership, databaseId, body);
   }
 
