@@ -82,6 +82,8 @@ export interface RecordRow {
   id: string;
   /** Per-database sequential public id — the human handle in URLs (MN-087). */
   number: number | null;
+  /** Ticket #1363 — `PREFIX-number` (ISSUE-5201) when the database has an identifier prefix, else null. Derived by the API, never stored. */
+  identifier?: string | null;
   title: string;
   values: Record<string, unknown>;
   position: string;

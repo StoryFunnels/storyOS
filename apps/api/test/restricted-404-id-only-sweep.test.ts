@@ -32,6 +32,7 @@ let dbh: Db;
 let owner: { token: string; email: string };
 let ws: string, general: string, back: string;
 let secretDb: string, backDb: string, openDb: string;
+let secretIdent = '', backIdent = '';
 let bob: Person;
 interface Caller { label: string; token: string }
 const callers: Caller[] = [];
@@ -90,6 +91,12 @@ beforeAll(async () => {
   const secretRun = await mkRun(secretDb, recSecret);
   const backRec = await id('POST', `/workspaces/${ws}/databases/${backDb}/records`, { values: { name: 'Minutes rec' } });
   const backRun = await mkRun(backDb, backRec);
+  // ticket #1363 — a record is also reachable by IDENTIFIER (`PAY-1`), which names no database in the path: the prefix is the only key.
+  // Both hidden databases get a prefix, so the sweep compares a REAL hidden identifier against one that resolves to nothing.
+  for (const [database, prefix] of [[secretDb, 'PAY'], [backDb, 'BRD']] as const) await id('PATCH', `/workspaces/${ws}/databases/${database}`, { identifier_prefix: prefix });
+  const numberOfRecord = async (database: string, record: string) => (await adm('GET', `/workspaces/${ws}/databases/${database}/records/${record}`)).json().number as number;
+  secretIdent = `PAY-${await numberOfRecord(secretDb, recSecret)}`;
+  backIdent = `BRD-${await numberOfRecord(backDb, backRec)}`;
 
   bob = await joinAs(app, owner.token, ws, 'Idonly Bob', 'member');
   const gina = await joinAs(app, owner.token, ws, 'Idonly Gina', 'guest', [{ database_id: openDb, role: 'viewer' }]);
@@ -117,6 +124,7 @@ beforeAll(async () => {
     { re: /\/runs\/:id/, param: 'id', real: () => [secretRun.run, backRun.run] },
     { re: /\/approvals\/:id\//, param: 'id', real: () => [secretRun.approval, backRun.approval] },
     { re: /\/favorites\/:type\/:id/, param: 'id', real: () => [secretDb, backDb], fixed: { type: 'database' } },
+    { re: /\/records\/by-identifier\/:identifier/, param: 'identifier', real: () => [secretIdent, backIdent] },
   );
 }, 300_000);
 afterAll(async () => { await app.close(); restoreMcpOAuth(); });

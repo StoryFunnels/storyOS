@@ -1374,6 +1374,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/records/by-identifier/{identifier}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve a record by its identifier, e.g. ISSUE-5201 (the database identifier prefix, a dash, the record number; the prefix is case-insensitive). 404 for an unknown prefix, a database you cannot see and a missing number alike. */
+        get: operations["RecordIdentifiersController_getByIdentifier"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks": {
         parameters: {
             query?: never;
@@ -5634,6 +5651,7 @@ export interface components {
             description_hidden?: boolean;
             description_order?: number | null;
             restricted?: boolean;
+            identifier_prefix?: string | null;
         };
         DeleteDatabaseDto: {
             confirm: string;
@@ -5779,6 +5797,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             number: number | null;
+            identifier: string | null;
             title: string;
             values: {
                 [key: string]: unknown;
@@ -5842,6 +5861,7 @@ export interface components {
                 /** Format: uuid */
                 id: string;
                 number: number | null;
+                identifier: string | null;
                 title: string;
                 values: {
                     [key: string]: unknown;
@@ -5948,6 +5968,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             number: number | null;
+            identifier: string | null;
             title: string;
             values: {
                 [key: string]: unknown;
@@ -5978,6 +5999,28 @@ export interface components {
             };
             /** Format: uuid */
             view_id?: string;
+        };
+        IdentifiedRecordResponseDto: {
+            /** Format: uuid */
+            id: string;
+            number: number | null;
+            identifier: string | null;
+            title: string;
+            values: {
+                [key: string]: unknown;
+            };
+            position: string;
+            created_by: string | null;
+            /** @description ISO timestamp */
+            created_at: string;
+            /** @description ISO timestamp */
+            updated_at: string;
+            /** @description Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell "computing" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand. */
+            computed_values: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            database_id: string;
         };
         PreferencesPatchDto: {
             myWorkEmail?: {
@@ -10222,6 +10265,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    RecordIdentifiersController_getByIdentifier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentifiedRecordResponseDto"];
+                };
             };
         };
     };

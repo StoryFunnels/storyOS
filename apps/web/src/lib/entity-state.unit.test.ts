@@ -152,6 +152,7 @@ const CARRIER: Record<string, string> = {
   'w/[ws]/d/[db]/trash': 'app/w/[ws]/d/[db]/trash/page.tsx',
   'w/[ws]/doc/[doc]': 'app/w/[ws]/doc/[doc]/page.tsx',
   'w/[ws]/v/[view]': 'app/w/[ws]/v/[view]/page.tsx',
+  'w/[ws]/i/[ident]': 'app/w/[ws]/i/[ident]/page.tsx', // ticket #1363: open a record by identifier (ISSUE-5201)
   'w/[ws]/s/[space]': 'app/w/[ws]/s/[space]/page.tsx',
   'w/[ws]/skills/[id]': 'app/w/[ws]/skills/[id]/page.tsx',
   'w/[ws]/agents/[agent]': 'components/runners/agent-page.tsx',

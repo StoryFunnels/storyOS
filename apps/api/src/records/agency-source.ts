@@ -11,6 +11,8 @@ import type { ChangeSource } from '../db/schema';
  *                        told apart from MCP and stamps
  *   automation  does NOT stamp - an automation is neutral (ticket #1206); the rule that runs it is the member's, not an agent's
  *   human       does NOT stamp - a web session, never a header (provenance is the credential, #357)
+ *   import      does NOT stamp - history replayed from another tool is neither an agent nor an automation (ticket #1363, Otto's ruling
+ *                 on ticket #1362: labelling it `automation` would say an automation did something it did not)
  *
  * This is the ONE place the rule lives. The stamp in RecordsService (create, update, restore), the recompute in migration 0131 and
  * the tests all read it; a new write path or a new `change_source` value must be decided HERE, never re-cased inline. Migration

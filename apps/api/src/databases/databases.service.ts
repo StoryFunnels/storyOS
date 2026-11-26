@@ -5,9 +5,9 @@ import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundExce
 import { recordStructuralEvent } from '../activity/structural-events';
 import { randomUUID } from 'node:crypto';
 import { BOUNDARY_REFUSAL } from '../access/resource-scope';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
-import { defaultEntityColor } from '@storyos/schemas';
+import { defaultEntityColor, identifierPrefixSchema } from '@storyos/schemas';
 import { resolveDatabaseColor } from '../common/database-color';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -602,6 +602,8 @@ export class DatabasesService {
       description_order?: number | null;
       /** #943 / ADR-0018 — admin-only (the controller refuses anyone else). */
       restricted?: boolean;
+      /** Ticket #1363 — admin-only and never an agent (the controller refuses both); null removes it. */
+      identifier_prefix?: string | null;
     },
   ) {
     const current = await this.db.query.databases.findFirst({
@@ -614,6 +616,7 @@ export class DatabasesService {
       throw new UnprocessableEntityException('A system database (such as Members) cannot be restricted');
     }
     const wasRestricted = current.restricted;
+    const identifierPrefix = patch.identifier_prefix === undefined ? undefined : await this.validatedIdentifierPrefix(membership.workspaceId, current, patch.identifier_prefix);
 
     // Moving to another space: keep the slug if free there, else suffix — the
     // per-space uniqueness (MN-153) would otherwise 500 on a collision.
@@ -651,9 +654,18 @@ export class DatabasesService {
         descriptionHidden: patch.description_hidden,
         descriptionOrder: patch.description_order,
         restricted: patch.restricted,
+        identifierPrefix,
       })
       .where(eq(databases.id, databaseId))
-      .returning();
+      .returning()
+      // the check above can lose a race to a concurrent PATCH: the unique index is the real guard, so name it the same way
+      .catch((err: unknown) => {
+        const code = (err as { code?: string; cause?: { code?: string } })?.code ?? (err as { cause?: { code?: string } })?.cause?.code;
+        if (identifierPrefix && code === '23505') {
+          throw new ConflictException(`The identifier prefix ${identifierPrefix} is already used by another database in this workspace`);
+        }
+        throw err;
+      });
     if (patch.restricted !== undefined) {
       this.access.forgetClosed();
       // #1059 / ADR-0018 — who closed or reopened a database's door. Only a CHANGE is an event.
@@ -662,6 +674,28 @@ export class DatabasesService {
       }
     }
     return updated!;
+  }
+
+  /**
+   * Ticket #1363 — the prefix as it may be stored, or the refusal. null clears it. 422 for a bad shape or a system database (the Members
+   * database and the agent runtime's databases are not where a person's records live), 409 naming the database that holds it already.
+   * Uniqueness is case-insensitive and a soft-deleted database still holds its prefix (restoring it must not collide).
+   */
+  private async validatedIdentifierPrefix(workspaceId: string, current: { id: string; isSystem: boolean }, prefix: string | null): Promise<string | null> {
+    if (prefix === null) return null;
+    if (current.isSystem) {
+      throw new UnprocessableEntityException('A system database (such as Members) cannot carry an identifier prefix');
+    }
+    const parsed = identifierPrefixSchema.safeParse(prefix);
+    if (!parsed.success) throw new UnprocessableEntityException(parsed.error.issues[0]?.message ?? 'Invalid identifier prefix');
+    const holder = await this.db.query.databases.findFirst({
+      where: and(eq(databases.workspaceId, workspaceId), sql`lower(${databases.identifierPrefix}) = lower(${prefix})`),
+      columns: { id: true, name: true },
+    });
+    if (holder && holder.id !== current.id) {
+      throw new ConflictException(`The identifier prefix ${prefix} is already used by the database "${holder.name}"`);
+    }
+    return prefix;
   }
 
   /**

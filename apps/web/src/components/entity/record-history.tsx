@@ -22,7 +22,7 @@ interface FieldChange {
   field_id: string | null;
   field_name: string;
   actor_id: string | null;
-  source: 'human' | 'agent' | 'automation' | 'mcp';
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import';
   old_value: unknown;
   new_value: unknown;
   /** The API resolves option ids and passes everything else through as stored, so this is
@@ -43,7 +43,7 @@ interface VersionEntry {
   actor_id: string | null;
   // #677 (Gap 1) — the API has sent these since PR #843; this UI never read
   // them, which is the exact "visible-at-a-glance" gap #677's AC #3 names.
-  source: 'human' | 'agent' | 'automation' | 'mcp';
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import';
   agent_id: string | null;
   agent_name: string | null;
   created_at: string;
@@ -69,7 +69,7 @@ interface VersionPreview {
 interface DocVersionEntry {
   id: string;
   actor_id: string | null;
-  source: 'human' | 'agent' | 'automation' | 'mcp';
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import';
   agent_id: string | null;
   agent_name: string | null;
   created_at: string;
@@ -92,6 +92,7 @@ const SOURCE_LABEL: Record<string, string> = {
   agent: 'Agent',
   automation: 'Automation',
   mcp: 'MCP',
+  import: 'Import',
 };
 
 function SourceBadge({ source }: { source: string }) {

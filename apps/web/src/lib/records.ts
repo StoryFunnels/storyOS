@@ -18,6 +18,16 @@ export function recordSlug(
   return base ? `${base}-${number}` : String(number);
 }
 
+/**
+ * Ticket #1363 — the short handle a record is called by: its identifier (`ISSUE-5201`) when its database carries a prefix, else `#number`,
+ * else null (no number yet). ONE place, so the header, the details panel and any later surface agree on which one to show.
+ */
+export function recordHandle(rec: { identifier?: string | null; number?: number | null }): string | null {
+  if (rec.identifier) return rec.identifier;
+  if (rec.number === null || rec.number === undefined) return null;
+  return `#${rec.number}`;
+}
+
 /** The `[rec]` route segment for a record — the pretty `slug-{number}` when it
  * has a number, else the UUID. Shared by `recordHref` and the split-screen panel
  * (#146), so a panel opened for a record keys its query the same way the record

@@ -17,6 +17,7 @@ import { BRAND_ICON_META, BRAND_ICON_PREFIX, ICON_CATEGORIES, ICON_SET_META, ICO
 // so it can be imported as a value here without inlining a CJS require('zod').
 import { SYSTEM_FIELDS, SYSTEM_FIELD_BY_API_NAME } from '@storyos/schemas/system-fields';
 import { HTTP_URL_MESSAGE, isHttpUrl } from '@storyos/schemas/safe-url';
+import { IDENTIFIER_PREFIX_RE, parseIdentifier } from '@storyos/schemas/identifier';
 // Type-only — erased at compile time, so unlike a value import this does NOT pull
 // the zod-bearing barrel into the bundle (see note above).
 import type { FilterOp } from '@storyos/schemas';
@@ -326,6 +327,8 @@ interface DatabaseDetail {
   spaceSlug?: string | null;
   qualifiedSlug?: string;
   my_access?: string;
+  /** Ticket #1363 — the prefix of this database's record identifiers (ISSUE), or null/absent when it has none. */
+  identifierPrefix?: string | null;
   /** #1062/#1063 — set on system databases; describeFields uses isSystem + systemKey to flag the runtime-owned Runs fields. */
   isSystem?: boolean;
   systemKey?: string | null;
@@ -337,6 +340,8 @@ interface DatabaseDetail {
 interface RecordRow {
   id: string;
   number: number | null;
+  /** Ticket #1363 — `<PREFIX>-<number>` when the database carries an identifier prefix, else null. */
+  identifier?: string | null;
   title: string;
   values: Record<string, unknown>;
 }
@@ -1375,6 +1380,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           // every row is noise in a listing an agent reads on every task, and
           // "absent" already reads as "nobody has said".
           ...(d.description ? { description: d.description } : {}),
+          // Ticket #1363: omitted when the database has no identifiers, like description.
+          ...(d.identifierPrefix ? { identifier_prefix: d.identifierPrefix } : {}),
         })),
       );
     }),
@@ -1407,6 +1414,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         ref: detail.qualifiedSlug ?? undefined,
         space: detail.spaceSlug ?? undefined,
         my_access: detail.my_access,
+        /* Ticket #1363 — records of this database read PREFIX-<number>; get_record takes that as `identifier`. */
+        identifier_prefix: detail.identifierPrefix ?? undefined,
         fields: describeFields(detail),
         /*
          * #332 — the view's ID is included, not just its name.
@@ -1702,6 +1711,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           records: res.data.map((r) => ({
             id: r.id,
             number: r.number,
+            identifier: r.identifier ?? null,
             title: r.title,
             values: labelize(detail, r.values),
             url: recordUrl(ws.id, db.id, r),
@@ -1717,15 +1727,30 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'get_record',
     {
       title: 'Get record',
-      description: 'One record in full — values keyed by api_name, resolved relation chips. Accepts the record uuid or its public number. `computed_values` carries an AI field\'s state beside its value: `<field_id>:computed_at`, `<field_id>:error` (a failed recompute; the last good value is kept) and `<field_id>:pending_at` (an ISO time, present while a recompute is in flight; the API already drops it once it is more than 5 minutes old).',
+      short: 'One record in full. Pass database + record (uuid or number), or just `identifier` ("ISSUE-5201").',
+      description: 'One record in full: values by api_name, resolved relation chips. Pass `database` + `record` (uuid or public number), or just `identifier` ("ISSUE-5201"), which names its database. `computed_values` carries an AI field\'s state: `<field_id>:computed_at`, `<field_id>:error`, `<field_id>:pending_at` (ISO time while a recompute runs).',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
-        database: z.string().describe('Database name, api slug, or id.'),
-        record: z.string().describe('Record uuid or public number (e.g. "17").'),
+        database: z.string().optional().describe('Database name, api slug, or id.'),
+        record: z.string().optional().describe('Record uuid or public number (e.g. "17").'),
+        identifier: z.string().optional().describe('Identifier such as "ISSUE-5201"; use instead of database + record.'),
       },
     },
-    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+    handle<{ workspace: string; database?: string; record?: string; identifier?: string }>(async ({ workspace, database, record, identifier }) => {
       const ws = await resolveWorkspace(client, workspace);
+      if (identifier !== undefined && identifier.trim() !== '') {
+        if (record !== undefined || database !== undefined) throw new Error('Pass either identifier, or database + record, not both.');
+        const parsed = parseIdentifier(identifier);
+        if (!parsed) throw new Error(`"${identifier}" is not an identifier: expected a database identifier prefix, a dash and a number (e.g. ISSUE-5201).`);
+        const row = await unwrap<RecordRow & { database_id: string }>(
+          client.GET('/api/v1/workspaces/{ws}/records/by-identifier/{identifier}', {
+            params: { path: { ws: ws.id, identifier: `${parsed.prefix}-${parsed.number}` } },
+          }),
+        );
+        const detail = await getDetail(ws.id, row.database_id);
+        return text(serializeRecord(detail, ws.id, row.database_id, row));
+      }
+      if (database === undefined || record === undefined) throw new Error('Pass `database` and `record`, or an `identifier` such as ISSUE-5201.');
       const db = await resolveDatabase(client, ws.id, database);
       const isNumber = /^\d+$/.test(record.trim());
       const row = isNumber
@@ -6051,6 +6076,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
           .describe(`${DESCRIPTION_PARAM} Pass null to clear.`),
         move_to_space: z.string().optional().describe('Space name or slug to move the database into. Never a personal space: those hold documents and views only (422).'),
         restricted: z.boolean().optional().describe('Admin only. true = the database is visible only to people holding a grant on it (admins always see it); false = open again. A restricted database inside an open space is not opened by a space grant — it needs its own grant. Not allowed on personal spaces or system databases.'),
+        identifier_prefix: z
+          .string()
+          .regex(IDENTIFIER_PREFIX_RE, 'Capital letters and digits, 2-10 characters, starting with a letter (ISSUE, SF2).')
+          .nullable()
+          .optional()
+          .describe('Admin only, not an agent. Records then read ISSUE-5201. Unique per workspace; null removes it.'),
       },
     },
     handle<{
@@ -6062,8 +6093,9 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description?: string | null;
       move_to_space?: string;
       restricted?: boolean;
+      identifier_prefix?: string | null;
     }>(
-      async ({ workspace, database, rename_to, icon, color, description, move_to_space, restricted }) => {
+      async ({ workspace, database, rename_to, icon, color, description, move_to_space, restricted, identifier_prefix }) => {
         const ws = await resolveWorkspace(client, workspace);
         const db = await resolveDatabase(client, ws.id, database);
         const body: Record<string, unknown> = {};
@@ -6075,6 +6107,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         if (description !== undefined) body.description = description;
         if (move_to_space) body.space_id = await resolveSpaceId(ws.id, move_to_space);
         if (restricted !== undefined) body.restricted = restricted;
+        if (identifier_prefix !== undefined) body.identifier_prefix = identifier_prefix;
         const res = await unwrap<unknown>(
           client.PATCH('/api/v1/workspaces/{ws}/databases/{db}', {
             params: { path: { ws: ws.id, db: db.id } } as never,
