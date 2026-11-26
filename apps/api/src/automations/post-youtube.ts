@@ -63,6 +63,13 @@ export interface YoutubeUploadArgs {
   now?: () => Date;
 }
 
+/** A size a person reads: 3 KB, 12 MB, 2 GB (rounded up, so a limit is never understated). */
+export function formatBytes(n: number): string {
+  if (n >= 1024 ** 3) return `${Math.ceil(n / 1024 ** 3)} GB`;
+  if (n >= 1024 ** 2) return `${Math.ceil(n / 1024 ** 2)} MB`;
+  return `${Math.max(1, Math.ceil(n / 1024))} KB`;
+}
+
 /** `Range: bytes=0-N` into "N+1 bytes are safe". No header means none yet. */
 export function parseRange(header: string | null | undefined): number {
   if (!header) return 0;

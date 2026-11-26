@@ -82,7 +82,18 @@ describe('PostSocialActionService (ticket #42 / MN-257)', () => {
   it('registers itself as the post_social executor at boot', () => {
     const { service, jobs } = newService();
     service.onModuleInit();
-    expect(jobs.registerExecutor).toHaveBeenCalledWith('post_social', expect.any(Function), { timeoutClass: 'long' });
+    expect(jobs.registerExecutor).toHaveBeenCalledWith('post_social', expect.any(Function), { timeoutClass: 'long', timeoutClassFor: expect.any(Function) });
+  });
+
+  it('a YouTube upload gets the upload budget, every other post keeps the long one (ticket #60)', () => {
+    const { service, jobs } = newService();
+    service.onModuleInit();
+    const opts = (jobs.registerExecutor as unknown as { mock: { calls: [string, unknown, { timeoutClassFor: (p: unknown) => string | undefined }][] } }).mock.calls[0]![2];
+    expect(opts.timeoutClassFor({ action: { target: 'youtube_channel' } })).toBe('upload');
+    for (const target of ['x', 'linkedin_org', 'linkedin_member', 'facebook_page', 'instagram_business']) {
+      expect(opts.timeoutClassFor({ action: { target } }), target).toBeUndefined();
+    }
+    expect(opts.timeoutClassFor({})).toBeUndefined();
   });
 
   describe('LinkedIn publish', () => {

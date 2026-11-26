@@ -18,7 +18,7 @@ import { mintAttachmentUrl } from '../attachments/signed-attachment';
 import type { MetaAuth } from '../connections/providers/meta';
 import type { YoutubeAuth } from '../connections/providers/youtube';
 import { env } from '../config/env';
-import { streamFromOffset, uploadToYoutube } from './post-youtube';
+import { formatBytes, streamFromOffset, uploadToYoutube } from './post-youtube';
 import type { UploadSession, YoutubeVideo } from './post-youtube';
 import { ProviderError } from '../common/provider-error';
 import { failClosedFetch } from '../common/test-network-guard';
@@ -354,7 +354,7 @@ export class PostSocialActionService implements OnModuleInit {
     if (attachment.size <= 0 || attachment.size > max) {
       throw publishFailure(
         'video_too_large',
-        `The video is ${attachment.size <= 0 ? 'empty' : `${Math.ceil(attachment.size / 1024 / 1024)} MB and the limit is ${Math.floor(max / 1024 / 1024)} MB`}. Nothing was uploaded.`,
+        `The video is ${attachment.size <= 0 ? 'empty' : `${formatBytes(attachment.size)} and the limit is ${formatBytes(max)}`}. Nothing was uploaded.`,
         false,
       );
     }
