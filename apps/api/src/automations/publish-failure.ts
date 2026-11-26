@@ -22,10 +22,18 @@ export type PublishFailureCode =
   // Ticket #51
   | 'reconnect_required'
   | 'media_required'
-  | 'media_unsupported';
+  | 'media_unsupported'
+  // Ticket #60 (YouTube upload)
+  | 'quota_exceeded'
+  | 'upload_limit'
+  | 'no_access'
+  | 'video_missing'
+  | 'video_unsupported'
+  | 'video_too_large'
+  | 'bad_metadata';
 
-export function publishFailure(code: PublishFailureCode, message: string, retryable: boolean): ProviderError {
-  return new ProviderError(`[${code}] ${message}`, { retryable });
+export function publishFailure(code: PublishFailureCode, message: string, retryable: boolean, retryAfterMs?: number): ProviderError {
+  return new ProviderError(`[${code}] ${message}`, { retryable, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) });
 }
 
 export interface PublishFailure {
@@ -37,6 +45,7 @@ const KNOWN_CODES = new Set<string>([
   'no_account', 'account_mismatch', 'already_posted', 'too_long', 'no_token', 'wrong_connection', 'auth_refused', 'forbidden',
   'not_found', 'rate_limited', 'provider_unavailable', 'rejected', 'bad_response',
   'reconnect_required', 'media_required', 'media_unsupported',
+  'quota_exceeded', 'upload_limit', 'no_access', 'video_missing', 'video_unsupported', 'video_too_large', 'bad_metadata',
 ]);
 
 /**

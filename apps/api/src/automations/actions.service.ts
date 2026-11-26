@@ -538,6 +538,30 @@ export class AutomationActionsService implements OnModuleInit {
         if (action.target === 'instagram_business' && !action.media_field_id) {
           throw new UnprocessableEntityException('post_social to Instagram needs an image: set media_field_id to an attachment field holding a JPEG');
         }
+        // Ticket #60 — a YouTube upload is a video from an attachment field on THIS database, with a title, to a NAMED channel.
+        // Nothing uploads to an unnamed channel: the `namesAccount` check above is the one for it, so the 422 is specific.
+        if (action.target === 'youtube_channel') {
+          if (!namesAccount(action)) {
+            throw new UnprocessableEntityException(
+              "post_social to YouTube must name the channel: set account_id to the channel id (UC…) from the connection's social accounts",
+            );
+          }
+          if (!action.video_field_id) {
+            throw new UnprocessableEntityException('post_social to YouTube needs a video: set video_field_id to an attachment field holding the video file');
+          }
+          const videoField = live.find((f) => f.id === action.video_field_id);
+          if (!videoField || videoField.type !== 'attachment') {
+            throw new UnprocessableEntityException('post_social video_field_id must be an attachment field on this database');
+          }
+          if (!action.title?.trim()) {
+            throw new UnprocessableEntityException('post_social to YouTube needs a title (YouTube allows 100 characters once the {Field} tokens are filled in)');
+          }
+          if (action.media_field_id || action.link) {
+            throw new UnprocessableEntityException('post_social to YouTube takes its video from video_field_id; media_field_id and link are not used for it');
+          }
+        } else if (action.video_field_id || action.title || action.tags || action.privacy) {
+          throw new UnprocessableEntityException('post_social video_field_id, title, tags and privacy are only used when the target is youtube_channel');
+        }
         if (action.media_field_id) {
           const mediaField = live.find((f) => f.id === action.media_field_id);
           if (!mediaField) {
@@ -962,6 +986,16 @@ export class AutomationActionsService implements OnModuleInit {
         // .ts) never touches {Field}/{payload} interpolation itself.
         const text = this.interpolate(action.text, ctx, displayToApi);
         const link = action.link ? this.interpolate(action.link, ctx, displayToApi) : action.link;
+        if (action.target === 'youtube_channel') {
+          // Ticket #60 — title and tags are templated like text; the preview says WHICH channel, the privacy it goes up as (an
+          // unset one is private) and the title, so an approver sees what is about to be uploaded and where.
+          const title = action.title ? this.interpolate(action.title, ctx, displayToApi) : action.title;
+          const tags = action.tags ? this.interpolate(action.tags, ctx, displayToApi) : action.tags;
+          return {
+            snapshot: { ...action, text, title, tags },
+            previewText: `Upload a video to YouTube channel ${action.account_id ?? '(unnamed)'} as ${action.privacy ?? 'private'}: ${(title ?? '').slice(0, 120)}`,
+          };
+        }
         return {
           snapshot: { ...action, text, link },
           previewText: `Post to ${action.target}${action.account_id ? ` as ${action.account_id}` : ''}: ${text.slice(0, 200)}`,

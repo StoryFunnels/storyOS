@@ -506,7 +506,7 @@ export const actionSchema = z.discriminatedUnion('type', [
     ...gated,
     type: z.literal('post_social'),
     connection_id: z.uuid(),
-    target: z.enum(['linkedin_org', 'linkedin_member', 'x', 'facebook_page', 'instagram_business']),
+    target: z.enum(['linkedin_org', 'linkedin_member', 'x', 'facebook_page', 'instagram_business', 'youtube_channel']),
     /** {Field Name}/{payload.…} tokens are interpolated from the triggering record. */
     text: z.string().min(1).max(3000),
     media_field_id: z.uuid().optional(),
@@ -525,6 +525,17 @@ export const actionSchema = z.discriminatedUnion('type', [
      * connection's own accounts. There is no default account: a Meta post that does not name one is never sent.
      */
     account_id: z.string().min(1).max(200).optional(),
+    /**
+     * Ticket #60 — the fields only a `youtube_channel` upload uses. `text` is the video's DESCRIPTION; `account_id` is the
+     * channel id (`UC…`, from the picker) and is REQUIRED: a video is never uploaded to a channel the rule does not name.
+     * `video_field_id` names an attachment field on this database, whose first video file is uploaded (resumably, streamed).
+     * `title` is {Field}-templated like `text` (YouTube allows 100 characters). `tags` is a templated comma-separated list.
+     * `privacy` is what the video is uploaded as: an unset value means PRIVATE, never public, and `public` has to be written out.
+     */
+    video_field_id: z.uuid().optional(),
+    title: z.string().min(1).max(200).optional(),
+    tags: z.string().max(500).optional(),
+    privacy: z.enum(['private', 'unlisted', 'public']).optional(),
   }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;

@@ -383,6 +383,29 @@ export const envSchema = z.object({
     .regex(/^v[0-9]+\.[0-9]+$/, 'META_GRAPH_VERSION looks like v21.0')
     .default('v21.0'),
   /**
+   * Ticket #60 — YouTube upload. Tier B like Meta and LinkedIn: hosted StoryOS supplies a verified Google app, a self-managed
+   * operator brings their own (YOUTUBE_CLIENT_ID/YOUTUBE_CLIENT_SECRET, read by connections/providers/youtube.ts's
+   * `oauth.clientIdEnv`/`clientSecretEnv`). A DEDICATED client, not GOOGLE_CLIENT_ID: that one backs "Continue with Google" and the
+   * read-only YouTube source, and `youtube.upload` is a sensitive scope Google verifies per app, so it must not widen sign-in
+   * consent. YOUTUBE_ACTIONS_ENABLED is the same save-time kill-switch the other networks have: OFF by default, so no post_social
+   * to `youtube_channel` can be saved or run until an operator turns it on after Google has cleared the app.
+   */
+  YOUTUBE_CLIENT_ID: z.string().optional(),
+  YOUTUBE_CLIENT_SECRET: z.string().optional(),
+  YOUTUBE_ACTIONS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+  /** The largest video one upload will send (bytes). The attachment's own size cap (ATTACHMENT_MAX_BYTES) still applies first. */
+  YOUTUBE_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(8 * 1024 * 1024 * 1024),
+  /** Bytes per resumable-upload chunk. YouTube wants a multiple of 256 KiB; a smaller chunk resumes cheaper, a larger one needs fewer calls. */
+  YOUTUBE_UPLOAD_CHUNK_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .refine((n) => n % (256 * 1024) === 0, 'YOUTUBE_UPLOAD_CHUNK_BYTES must be a multiple of 262144 (256 KiB)')
+    .default(8 * 1024 * 1024),
+  /**
    * #345 — deployment mode signal for the integration-tier resolver
    * (parent #344). Explicit override of "is this hosted StoryOS Cloud?":
    *   - 'true'/'1'  → force hosted (managed OAuth apps available).

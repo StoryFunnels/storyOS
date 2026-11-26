@@ -64,6 +64,8 @@ export type JobExecutor = (payload: Record<string, unknown>, helpers: JobHelpers
 interface ExecutorEntry {
   fn: JobExecutor;
   timeoutClass: TimeoutClass;
+  /** Ticket #60 — a kind whose budget depends on WHAT it does (post_social: a video upload is an hour, a text post is not). */
+  timeoutClassFor?: (payload: Record<string, unknown>) => TimeoutClass | undefined;
 }
 
 export interface EnqueueInput {
@@ -157,8 +159,12 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
   // ── executor registry ────────────────────────────────────────────────────
 
   /** Provider modules (MN-256/257/258/259/263) call this at bootstrap. */
-  registerExecutor(kind: string, fn: JobExecutor, opts?: { timeoutClass?: TimeoutClass }): void {
-    this.executors.set(kind, { fn, timeoutClass: opts?.timeoutClass ?? 'short' });
+  registerExecutor(
+    kind: string,
+    fn: JobExecutor,
+    opts?: { timeoutClass?: TimeoutClass; timeoutClassFor?: (payload: Record<string, unknown>) => TimeoutClass | undefined },
+  ): void {
+    this.executors.set(kind, { fn, timeoutClass: opts?.timeoutClass ?? 'short', timeoutClassFor: opts?.timeoutClassFor });
   }
 
   /** actions.service.ts's execute() routes a kind through the queue instead of
@@ -170,7 +176,8 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
   // ── enqueue ──────────────────────────────────────────────────────────────
 
   async enqueue(input: EnqueueInput): Promise<{ jobId: string; status: string }> {
-    const timeoutClass = input.timeoutClass ?? this.executors.get(input.kind)?.timeoutClass ?? 'short';
+    const entry = this.executors.get(input.kind);
+    const timeoutClass = input.timeoutClass ?? entry?.timeoutClassFor?.(input.payload) ?? entry?.timeoutClass ?? 'short';
     const [inserted] = await this.db
       .insert(automationJobs)
       .values({
@@ -293,7 +300,8 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
     const attempts = job.attempts + 1;
     await this.db.update(automationJobs).set({ attempts }).where(eq(automationJobs.id, job.id));
 
-    const timeoutMs = TIMEOUT_MS[executor.timeoutClass];
+    // The class the job was enqueued with (a retry keeps it); the executor's own only when the row carries none we know.
+    const timeoutMs = TIMEOUT_MS[job.timeoutClass as TimeoutClass] ?? TIMEOUT_MS[executor.timeoutClass];
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
