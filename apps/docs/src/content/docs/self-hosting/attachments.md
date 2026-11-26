@@ -13,6 +13,11 @@ The default (`local`) keeps files in the `storyos_attachments` Docker volume. It
 fine for most teams — nothing to configure. Back it up alongside your database (see
 [backup & upgrade](/self-hosting/backup-upgrade/)).
 
+The API container runs as the unprivileged `node` user. On the first start after upgrading, it hands a
+`storyos_attachments` volume that older images left owned by root to that user, which can take a moment on
+a large volume. If you set `user:` for the API service in your own Compose file, StoryOS does not change
+ownership: make the volume writable by that user yourself.
+
 ## S3-compatible (MinIO, S3, R2)
 
 For object storage, set `STORAGE_DRIVER=s3` and point the `S3_*` variables at your bucket. The
