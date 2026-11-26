@@ -10,6 +10,10 @@ day the change reached the product.
 ## Week of 9 November 2026
 
 - **25 Nov** — A built-in Shop OS pack: customers, products, orders and order lines, an order board by status, an Unpaid Orders view, and a drafter agent that installs switched off. [The Shop OS pack](/guides/shop-os-pack/)
+- **23 Nov** — A new record starts at the first option of a state field when that field is a select whose every option has a state category, as the built-in packs declare theirs, so a pack's tasks, pages, deals, leads and issues no longer start with an empty State or Status. [Default values](/concepts/databases-and-fields/#default-values)
+- **23 Nov** — Adding a card, a row or a record from a view makes a record with no title and puts the cursor in it, instead of saving the word "Untitled" as the title. [The record page](/concepts/databases-and-fields/#the-record-page)
+- **11 Nov** — **New** on a database gets an arrow that lists its record templates; choosing one makes the record from it, a record's menu has **Save as template**, and **Manage templates...** renames or deletes them. [Record templates](/concepts/databases-and-fields/#record-templates)
+- **16 Nov** — A long field name wraps in full on the record page, and where it is still shortened, in table headers, menus and pickers, pointing at it shows the whole name. [The record page](/concepts/databases-and-fields/#the-record-page)
 - **13 Nov** — Every `records/:rec/...` API route takes a record's public number as well as its uuid, looked up inside the database in the path. [API conventions](/api/conventions/#resource-layout)
 - **13 Nov** — The self-hosting quickstart sets `CONNECTIONS_MASTER_KEY` and defaults `API_URL` and `WEB_URL` to `http://localhost`, so first sign-up works on port 80. [Self-hosting overview](/self-hosting/overview/#quickstart)
 - **15 Nov** — `get_field_usage` counts relation fields by their links instead of reporting 0, and says when the count is incomplete for you. [MCP tools](/mcp/tools/)
