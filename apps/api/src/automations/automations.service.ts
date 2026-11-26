@@ -50,7 +50,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { isAccessRefusal, isFirstRefusal, notifyAdmins, ownerFlags } from './owner-refusal';
 import type { NeedsNewOwnerReason } from './owner-refusal';
 import { ActionAccessGuardService, OWNER_MISSING_CODE, OWNER_NO_ACCESS_CODE, SYSTEM_DATABASE_CODE } from './action-access-guard.service';
-import { recordAutomationEvent } from '../activity/structural-events';
+import { recordAutomationTakenOver } from '../activity/structural-events';
 import { codedException } from '../common/coded-exception';
 
 interface Trigger {
@@ -437,7 +437,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     }
     const updated = await this.db.transaction(async (tx) => {
       const [row] = await tx.update(automations).set({ createdBy: actorId }).where(eq(automations.id, ruleId)).returning();
-      await recordAutomationEvent(tx, { workspaceId, action: 'taken_over', id: ruleId, name: rule.name, databaseId, from: rule.createdBy, to: actorId });
+      await recordAutomationTakenOver(tx, { workspaceId, id: ruleId, name: rule.name, databaseId, from: rule.createdBy, to: actorId });
       return row!;
     });
     return (await this.presentAll(databaseId, [updated]))[0]!;

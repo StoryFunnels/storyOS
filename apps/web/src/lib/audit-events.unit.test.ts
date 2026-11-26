@@ -251,6 +251,7 @@ const SENTENCES: Record<string, [payload: unknown, sentence: string]> = {
   'portal_recipient.created': [named('Acme'), 'Created a portal link for “Acme”'],
   'portal_recipient.rotated': [named('Acme'), 'Replaced the portal link for “Acme”'],
   'portal_recipient.revoked': [named('Acme'), 'Revoked the portal link for “Acme”'],
+  'automation.taken_over': [named('Nightly digest'), 'Took over the automation rule “Nightly digest”'],
   'runner.paired': [named('Studio'), 'Paired the Runner “Studio”'],
   'runner.activated': [named('Studio'), 'Activated the Runner “Studio”'],
   'runner.assigned': [named('Studio'), 'Assigned an agent to the Runner “Studio”'],
