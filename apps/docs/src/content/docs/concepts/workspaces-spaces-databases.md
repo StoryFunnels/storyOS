@@ -26,20 +26,23 @@ not for separate projects.
 
 ### The workspace home
 
-The page a workspace opens to changes as the workspace matures. A **new** workspace gets the setup
-helpers — the getting-started checklist, a sample-data banner, a prompt to create a first database.
-An **established** one gets three blocks of live work instead:
+The page opens with a greeting for the time of day on your computer and your first name (**Good
+morning, Ana**), and under it today's date, written the way you set dates in Preferences, then the
+workspace name. A **new** workspace also gets the setup helpers: the getting-started checklist, a
+sample-data banner, a prompt to create a first database. They sit above the work blocks and never
+replace them. The blocks are:
 
-- **Needs a decision** — approvals waiting on anyone in the workspace, not only you. Your own
-  [Inbox](/concepts/approval-gates/) shows what is routed *to you*; this is where you notice the
-  one waiting on a colleague who is away. It shows only what you can see.
-- **Agent runs** — recent runs, **failures first**, so a failed run isn't buried behind twenty green
-  ones.
-- **Where to go** — your favourites and databases.
+- **Review** — approvals waiting on anyone in the workspace, not only you, with the count in the
+  title (**Review · 3**). It shows from the first day. Your own [Inbox](/concepts/approval-gates/)
+  shows what is routed *to you*; this is where you notice the one waiting on a colleague who is away.
+  It shows only what you can see. If the count could not be loaded, the block shows a dash, never
+  "nothing is waiting".
+- **Automation runs** — recent runs, **failures first**, so a failed run isn't buried behind twenty
+  green ones. It appears once the workspace has at least one agent.
+- **Where to go** — your favourites and databases. The last row, **Start something new**, opens the
+  template gallery.
 
-A block with nothing in it drops its "see all" link rather than send you to an empty page. For
-everyone, new or established, the old wall of template cards is a single **Start something new**
-link; the template gallery is one click behind it.
+A block with nothing in it drops its "see all" link rather than send you to an empty page.
 
 **"Established" is deliberately conservative:** the getting-started checklist is *complete* (merely
 dismissing it doesn't count), there are **no sample records** left, and the workspace has **at least
@@ -79,7 +82,7 @@ folders.
 ### Opening a space
 
 Click a space's name in the sidebar (the caret still just collapses it) and it opens its own page.
-**New space** in the sidebar is one click: it creates "Untitled space" and opens its page with the name selected, so you can type the real name straight away. The page has:
+**New space** is in the **+** menu beside **Spaces** in the sidebar (the tooltip says **Add to Spaces**). It is one click: it creates "Untitled space" and opens its page with the name selected, so you can type the real name straight away. The page has:
 
 - **Identity and actions** — icon, name, and its
   [description](#every-level-can-say-what-it-is-for) if it has one. On the right, an **Everyone** or

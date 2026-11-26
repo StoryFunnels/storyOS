@@ -226,6 +226,23 @@ The API carries the same thing as `caused_by` on the approval and on its Inbox n
 `agent_id`, `agent_name`, `run_id`, `run_number`, `runner_id`, `runner_name` and a ready-made `label`.
 It is `null` when a person caused the approval.
 
+### How the Inbox names a rule's request
+
+An approval that an automation rule asked for says which rule, after the action: *needs your approval
+to run Notify Finance*. My Work's **Waiting** list says the same.
+
+What you see depends on what you may read. If you may read the automations of that rule's database,
+you see the rule's current name. If you may open the database but not its automations, the row says
+*a rule in Tasks* and names no rule. If you cannot open the database either, the row keeps its usual
+sentence with nothing added. An approval no rule wrote (an agent's proposal, or a rule that has since
+been deleted) never carries a rule name.
+
+The API carries this as `rule_id`, `rule_name` and `rule_label` on each approval in the approvals list
+and in My Work's waiting rows. A viewer who may read the rule gets all three. A viewer who may not gets
+`rule_id` and `rule_name` as `null`, and `rule_label` as the neutral wording above. All three are `null`
+when no rule is behind the approval, so `rule_label` set with `rule_name` `null` means "withheld", and
+all `null` means "no rule".
+
 ## What gets held
 
 This section describes the action-class gate above.

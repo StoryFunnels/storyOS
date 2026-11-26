@@ -36,7 +36,7 @@ the same way everywhere:
 
 A provider that cannot be connected on your instance says why on its card instead of offering a button
 that fails. On a self-managed instance a provider that needs its OAuth app configured shows
-that it needs the operator; see [self-hosting integrations](/self-hosting/configuration/#integrations-whats-available-self-hosted).
+that it is **Set up by the server operator**, with environment variables rather than per user; see [self-hosting integrations](/self-hosting/configuration/#integrations-whats-available-self-hosted).
 A connection that was paused after repeated failures shows "Paused until {time}" in its card's
 advanced details, with a **Resume** button for when the cause is fixed.
 
@@ -70,10 +70,13 @@ through the API for posting, but does not offer a connect form for it.
 ## API tokens
 
 **Settings → API tokens** lists your personal tokens for this workspace, with **Create API token**.
-The token is shown once. It sits in the Connections group; the address is still `/api`. See
-[authentication](/api/authentication/).
+The token is shown once. It sits in the Connections group; the address is still `/api`. The list is
+titled **Your tokens for** the workspace you are in, or **Your tokens across all workspaces** when you
+choose to show the others. How to send a token, what it can do and the self-managed notes are in a
+closed **How to use a token** section at the bottom. See [authentication](/api/authentication/).
 
 ## Webhooks
 
-**Settings → Webhooks** (admins) is unchanged apart from its place in the menu; see
-[webhooks](/guides/webhooks/).
+**Settings → Webhooks** (admins) lists **Your webhooks**, each with its deliveries. How a delivery is
+signed, and the n8n, Make and Zapier notes, are in a closed **How webhooks work** section at the bottom.
+See [webhooks](/guides/webhooks/).

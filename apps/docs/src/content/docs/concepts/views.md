@@ -287,21 +287,21 @@ A table has two different numbers on the left, and they mean different things:
   view, and stays on screen as you scroll.
 - **The ID** is the record's **permanent number** — "issue 759", the number people say out loud and
   cite in other records. It does not change when you filter or sort. In a table it's an ordinary
-  **ID** column: frozen at the left, visible by default, and hideable from **Hide fields** like any
-  other column.
+  **ID** column: frozen at the left, visible by default, and hideable from the **Columns** list in
+  **Display** like any other column.
 
-On a **list or feed** view the ID isn't a column; **Hide fields** (or the Cards picker) carries a
+On a **list or feed** view the ID isn't a column; **Display** (or the Cards picker) carries a
 **Row gutter** section with a **Show ID in the row gutter** switch instead. Board, calendar and
 gallery don't draw it, so they have no such control.
 
 **A new table starts with a short, useful set of columns** rather than every field: the ID, the
 title, and up to four others — status/select, person and relation fields first, then whatever else
-comes first. Rich text is never a table column (it isn't offered in **Hide fields** at all), and the
+comes first. Rich text is never a table column (it isn't offered in **Columns** at all), and the
 system dates (created / last edited) are offered but off by default. This only applies to a *new*
 view; an existing view keeps exactly the columns it had.
 
-**Row height** (28, 32 or 40) is a control in the table toolbar and is saved on the view; the
-default is 32.
+**Row height** is in **Display** on a table and is saved on the view: **Compact** (28), **Default**
+(32) or **Tall** (40).
 
 ## Nesting rows under their parent
 
@@ -326,8 +326,10 @@ and restores the ordinary table exactly.
 
 ## Hiding columns
 
-**Hide fields** in the view toolbar turns any column off — including **Created at** and **Updated
-at**. Every column a table draws can be hidden; there is no column you are stuck with.
+The **Columns** list in **Display** turns a column off — including **Created at** and **Updated
+at**. It opens with **N of M** (how many are showing) and **Show all** and **Hide all**. The title
+is the one column that is always on: it is not in the list, and its header menu has no **Hide
+field**, because nothing else could bring it back.
 
 The choice is part of the view, so it survives a reload and everyone looking at that view sees the
 same columns. Want them for yourself only? Make your own view.
@@ -341,7 +343,7 @@ columns.
 **A filtered column shows a glyph on its own header**, always visible rather than only on hover,
 because an active filter is state you need to see at a glance, not something to discover by
 hunting. Its menu carries **Clear filter on this field**, and **Hide field** — which writes the
-same hidden-fields list the toolbar's Fields panel owns, so hiding a column from the header and
+same hidden-fields list the **Columns** list in **Display** owns, so hiding a column from the header and
 from the toolbar can never disagree about which columns are actually hidden.
 
 ## Field order: the grid and the record panel
