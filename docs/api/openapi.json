@@ -3448,6 +3448,42 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/records/by-identifier/{identifier}": {
+      "get": {
+        "operationId": "RecordIdentifiersController_getByIdentifier",
+        "parameters": [
+          {
+            "name": "identifier",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentifiedRecordResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resolve a record by its identifier, e.g. ISSUE-5201 (the database identifier prefix, a dash, the record number; the prefix is case-insensitive). 404 for an unknown prefix, a database you cannot see and a missing number alike.",
+        "tags": [
+          "records"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/backlinks": {
       "get": {
         "operationId": "MentionsController_backlinks",
@@ -13895,6 +13931,10 @@
           },
           "restricted": {
             "type": "boolean"
+          },
+          "identifier_prefix": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -14480,6 +14520,10 @@
             "maximum": 9007199254740991,
             "nullable": true
           },
+          "identifier": {
+            "type": "string",
+            "nullable": true
+          },
           "title": {
             "type": "string"
           },
@@ -14530,6 +14574,7 @@
         "required": [
           "id",
           "number",
+          "identifier",
           "title",
           "values",
           "position",
@@ -14712,6 +14757,10 @@
                   "maximum": 9007199254740991,
                   "nullable": true
                 },
+                "identifier": {
+                  "type": "string",
+                  "nullable": true
+                },
                 "title": {
                   "type": "string"
                 },
@@ -14743,6 +14792,7 @@
               "required": [
                 "id",
                 "number",
+                "identifier",
                 "title",
                 "values",
                 "position",
@@ -15140,6 +15190,10 @@
             "maximum": 9007199254740991,
             "nullable": true
           },
+          "identifier": {
+            "type": "string",
+            "nullable": true
+          },
           "title": {
             "type": "string"
           },
@@ -15171,6 +15225,7 @@
         "required": [
           "id",
           "number",
+          "identifier",
           "title",
           "values",
           "position",
@@ -15215,6 +15270,71 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         }
+      },
+      "IdentifiedRecordResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "identifier": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "position": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "ISO timestamp"
+          },
+          "computed_values": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Computed values keyed by field id, with per-field siblings for an AI field: `<field_id>` is the last good value; `<field_id>:computed_at` the ISO timestamp it was computed; `<field_id>:error` the last failure, if any (the last good value is kept); `<field_id>:pending_at` the ISO timestamp a recompute was QUEUED, present only while one is in flight, and dropped once older than five minutes so a crashed worker cannot leave a cell \"computing\" for ever. Read the marker with `aiPendingAt()` from @storyos/schemas rather than building the key by hand."
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "identifier",
+          "title",
+          "values",
+          "position",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "computed_values",
+          "database_id"
+        ]
       },
       "PreferencesPatchDto": {
         "type": "object",

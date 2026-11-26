@@ -23,6 +23,7 @@ describe('isAiSource: the one rule for gold on a source badge', () => {
     ['agent', true],
     ['mcp', true],
     ['automation', false],
+    ['import', false], // ticket #1363: history replayed from another tool is neither an agent nor an MCP write
     ['human', false],
     [null, false],
     [undefined, false],
@@ -35,6 +36,7 @@ describe('isAiSource: the one rule for gold on a source badge', () => {
     expect(isAgentAction({ kind: 'event', source: 'agent' })).toBe(true);
     expect(isAgentAction({ kind: 'event', source: 'mcp' })).toBe(true);
     expect(isAgentAction({ kind: 'event', source: 'automation' })).toBe(false);
+    expect(isAgentAction({ kind: 'event', source: 'import' })).toBe(false);
     expect(isAgentAction({ kind: 'field_change', source: 'agent' })).toBe(false);
   });
 });
@@ -126,5 +128,14 @@ describe('every gold source badge uses the contrast-checked text token (Vera, ti
 
   it('the raw --accent on --accent-soft does NOT clear AA in light mode: the reason the raw token is not used for text', () => {
     expect(contrast(token('accent', 'light'), token('accent-soft', 'light'))).toBeLessThan(4.5);
+  });
+});
+
+describe('the import source (ticket #1363)', () => {
+  it('has its own words on the badge, the tooltip and the history label, never the automation ones', () => {
+    expect(sourceBadgeTitle('import')).toMatch(/import/i);
+    expect(sourceBadgeTitle('import')).not.toMatch(/automation/i);
+    expect(badgeFile).toContain("import: { icon: Import, label: 'import' }");
+    expect(history).toContain("import: 'Import'");
   });
 });

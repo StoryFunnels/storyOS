@@ -119,7 +119,7 @@ interface Comment {
    * not recorded, must render as "unknown source" via SourceBadge, never
    * silently folded into 'human'.
    */
-  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import' | null;
   agent_id: string | null;
   agent_name: string | null;
 }
@@ -474,7 +474,7 @@ interface ActivityEntry {
   // own explicit "source not recorded" badge below, never silently folded
   // into 'human'. That silent fold is the single most likely way to get this
   // wrong, per #481's own acceptance criteria.
-  source: 'human' | 'agent' | 'automation' | 'mcp' | null;
+  source: 'human' | 'agent' | 'automation' | 'mcp' | 'import' | null;
   /**
    * The agent's name, when the API says which agent made the write (ticket #1206's tooltip: "Made by Triage Bot, an agent..."). A COMMENT
    * carries it today; the activity-events endpoint does not return it yet, so an event badge falls back to the general sentence until it does.
@@ -794,7 +794,7 @@ export function AboutPanel({
   members,
   databaseName,
   spaceName,
-  recordNumber,
+  recordHandle,
   createdAt,
   updatedAt,
   myAccess,
@@ -805,7 +805,8 @@ export function AboutPanel({
   members: Array<{ id: string; name: string; image: string | null }>;
   databaseName: string;
   spaceName?: string;
-  recordNumber: number | null;
+  /** `ISSUE-5201` or `#17` (lib/records.ts recordHandle), null when the record has no number yet. */
+  recordHandle: string | null;
   createdAt: string;
   updatedAt: string;
   myAccess?: string;
@@ -861,10 +862,10 @@ export function AboutPanel({
               <dd className="text-ink">{spaceName}</dd>
             </>
           )}
-          {recordNumber !== null && (
+          {recordHandle !== null && (
             <>
               <dt className="text-muted">Item</dt>
-              <dd className="tabular-nums text-ink">#{recordNumber}</dd>
+              <dd className="tabular-nums text-ink">{recordHandle}</dd>
             </>
           )}
           <dt className="text-muted">Created</dt>

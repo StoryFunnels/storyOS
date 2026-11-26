@@ -25,6 +25,7 @@ POST             /workspaces/:ws/relations        DELETE /relations/:rel
 GET|POST         /.../databases/:db/records       (POST supports batch ≤100)
 GET|PATCH|DELETE /.../records/:rec                 (:rec is a uuid or a public number)
 GET              /.../records/by-number/:number     ← resolve a public number to its record
+GET              /workspaces/:ws/records/by-identifier/:identifier  ← resolve ISSUE-5201 (see Record identifiers)
 POST             /.../databases/:db/records/query          ← the workhorse
 POST             /.../records/:rec/move           { before_record_id? | after_record_id?, values? }
 GET|PUT          /.../records/:rec/links/:field   (list/replace) · POST add · DELETE remove

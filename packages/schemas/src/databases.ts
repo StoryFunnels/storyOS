@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { atLeastOneField } from './patch';
+import { IDENTIFIER_PREFIX_RE } from './identifier';
 import { PALETTE } from './colors';
 import { descriptionPatchSchema, descriptionSchema } from './descriptions';
 
@@ -40,6 +41,11 @@ export const createDatabaseSchema = z.object({
   description: descriptionSchema,
 });
 
+/** Ticket #1363 — an identifier prefix as an API caller may send it. The pattern itself lives in identifier.ts (shared with the MCP bundle). */
+export const identifierPrefixSchema = z
+  .string()
+  .regex(IDENTIFIER_PREFIX_RE, 'An identifier prefix is 2-10 characters: capital letters and digits, starting with a letter (for example ISSUE or SF2)');
+
 export const updateDatabaseSchema = atLeastOneField(z.object({
   name: z.string().trim().min(1).max(100).optional(),
   icon: iconValueSchema.nullable().optional(),
@@ -61,6 +67,11 @@ export const updateDatabaseSchema = atLeastOneField(z.object({
   description_order: z.number().int().nullable().optional(),
   /** #943 / ADR-0018 — restrict the database to people with an access grant (admins only; admins always see it). */
   restricted: z.boolean().optional(),
+  /**
+   * Ticket #1363 — the prefix of this database's record identifiers (ISSUE makes record 5201 ISSUE-5201); null removes it. Admin only,
+   * never an agent token, unique per workspace. 422 for a bad shape (the pattern is checked in the service so the message is ours).
+   */
+  identifier_prefix: z.string().nullable().optional(),
 }));
 
 export const deleteDatabaseSchema = z.object({

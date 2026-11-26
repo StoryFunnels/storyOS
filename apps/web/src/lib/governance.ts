@@ -450,7 +450,7 @@ export function missingCredentialNote(rows: Array<Pick<AuditEventRow, 'credentia
  * Whether a write's `source` is an AI acting: an agent, or an MCP client acting as the member. This is the ONE rule for "gold means an
  * AI acted" on a source badge (ticket #831/#1163): the Activity panel's badge, the record history's badge and this page's own list all
  * read it, so they cannot decide separately and drift. An automation is a rule a person configured that fired deterministically, so it
- * is NOT an AI source (Dara, ticket #1206); a person and an unrecorded source are not either.
+ * is NOT an AI source (Dara, ticket #1206); a person and an unrecorded source are not either, and neither is an `import` (ticket #1363).
  */
 export function isAiSource(source: string | null | undefined): boolean {
   return source === 'agent' || source === 'mcp';

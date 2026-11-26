@@ -27,6 +27,8 @@ export interface DatabaseRef {
   icon?: string | null;
   /** #400 — the database's own purpose line, surfaced by list_databases. */
   description?: string | null;
+  /** Ticket #1363 — the prefix of this database's record identifiers, when it has one. */
+  identifierPrefix?: string | null;
 }
 
 export async function listWorkspaces(client: Client): Promise<WorkspaceRef[]> {
@@ -76,7 +78,7 @@ export interface SkillRef {
   editable: boolean;
   source_template: string | null;
   /** #442 — who authored it, derived from the request's auth server-side. */
-  source?: 'human' | 'agent' | 'automation' | 'mcp';
+  source?: 'human' | 'agent' | 'automation' | 'mcp' | 'import';
 }
 
 export async function listSkills(client: Client, workspaceId: string): Promise<SkillRef[]> {

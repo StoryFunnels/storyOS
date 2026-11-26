@@ -201,7 +201,7 @@ record_field_changes
   record_id      uuid not null → records(id)    on delete cascade
   field_id       uuid          -- null ⇒ the promoted `title` column (matches record-diff.ts)
   actor_user_id  text          -- the attributed user (owner for agent runs), like activity_events.actorId
-  source         enum('human','agent','automation','mcp') not null default 'human'
+  source         enum('human','agent','automation','mcp','import') not null default 'human'
   old_value      jsonb         -- null for a create / first value
   new_value      jsonb
   created_at     timestamptz not null default now()

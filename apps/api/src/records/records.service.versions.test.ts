@@ -49,6 +49,10 @@ function makeDb(opts: {
       fields: {
         findMany: vi.fn().mockResolvedValue([]),
       },
+      // ticket #1363: fieldDefs() also reads the database's identifier prefix (none here)
+      databases: {
+        findFirst: vi.fn().mockResolvedValue({ identifierPrefix: null }),
+      },
       selectOptions: {
         findMany: vi.fn().mockResolvedValue([]),
       },
