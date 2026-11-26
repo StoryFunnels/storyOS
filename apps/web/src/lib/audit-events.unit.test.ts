@@ -144,6 +144,7 @@ function emittedEventTypes(): { types: Set<string>; templates: Set<string> } {
   const actions = literalsAfter(structural, /STRUCTURAL_ACTIONS = \[/);
   for (const k of kinds) for (const a of actions) types.add(`${k}.${a}`);
   for (const a of literalsAfter(structural, /PORTAL_RECIPIENT_ACTIONS = \[/)) types.add(`portal_recipient.${a}`);
+  for (const a of literalsAfter(structural, /PUBLISHING_ACTIONS = \[/)) types.add(`publishing.${a}`);
   for (const a of literalsAfter(text('runners/runner-present.ts'), /action: /)) types.add(`runner.${a}`);
   for (const c of literalsAfter(text('activity/agent-origin-log.ts'), /export type AgentOutwardChannel =/)) types.add(`outward.${c}`);
   return { types, templates };
@@ -160,7 +161,7 @@ describe('every audit event code the API can emit has a sentence (#1287)', () =>
   });
 
   it('the template-built families are exactly the four this test expands (a fifth must be added to the derivation)', () => {
-    expect([...templates].sort()).toEqual(['${event.kind}.${event.action}', 'outward.${input.channel}', 'portal_recipient.${event.action}', 'runner.${event.action}']);
+    expect([...templates].sort()).toEqual(['${event.kind}.${event.action}', 'outward.${input.channel}', 'portal_recipient.${event.action}', 'publishing.${event.action}', 'runner.${event.action}']);
   });
 
   it('the web knows the same structural kinds and actions as the API', () => {
@@ -251,6 +252,8 @@ const SENTENCES: Record<string, [payload: unknown, sentence: string]> = {
   'portal_recipient.created': [named('Acme'), 'Created a portal link for “Acme”'],
   'portal_recipient.rotated': [named('Acme'), 'Replaced the portal link for “Acme”'],
   'portal_recipient.revoked': [named('Acme'), 'Revoked the portal link for “Acme”'],
+  'publishing.enabled': [named('Post scheduled posts to X: @acme'), 'Turned on publishing: “Post scheduled posts to X: @acme”'],
+  'publishing.disabled': [named('Post scheduled posts to X: @acme'), 'Paused publishing: “Post scheduled posts to X: @acme”'],
   'runner.paired': [named('Studio'), 'Paired the Runner “Studio”'],
   'runner.activated': [named('Studio'), 'Activated the Runner “Studio”'],
   'runner.assigned': [named('Studio'), 'Assigned an agent to the Runner “Studio”'],
