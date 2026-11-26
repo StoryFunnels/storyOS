@@ -98,3 +98,10 @@ pack contains.
 
 Offered only on StoryOS Cloud: a self-managed instance does not show it. It was called **Billing**
 before, at the same address.
+
+**A warning at 80% of your monthly automation runs.** Each plan has a number of automation runs per
+month. The month is a UTC calendar month. When the run that reaches 80% of that number happens,
+every active admin gets one in-app notification and one email saying the workspace has used 80% of
+its automation runs for the month. It is sent once per month, not on every run after that. A plan
+with no run limit never sends it. The warning does not stop anything: the limit itself still applies
+when the number is reached. Runs on your own AI or on StoryOS AI do not count towards this number.
