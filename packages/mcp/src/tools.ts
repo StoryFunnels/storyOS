@@ -8482,7 +8482,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: "List a record's social posts",
       description:
-        "What this record's posts to LinkedIn, X, Facebook, Instagram and YouTube did, one entry per channel with its latest outcome: state (awaiting_approval, sent_back, expired, queued, running, published, failed), the named account it goes out as (connection and, for a LinkedIn page, the organization id), attempt and next_attempt_at while it retries by itself, the post URL once published, and for a failure a safe `error` {code, message} (never the network's own response). Each entry has a `publish_id` (null while it only waits for approval) and `can_retry` for the caller. A YouTube upload names its channel id and carries `progress` {sent_bytes, total_bytes} while the video is being sent. Read-only.",
+        "What this record's social posts (LinkedIn, X, Meta, YouTube) did, one entry per channel with its latest outcome: state (awaiting_approval, sent_back, expired, queued, running, published, failed), the named account it goes out as (connection and, for a LinkedIn page, the organization id), attempt and next_attempt_at while it retries by itself, the post URL once published, and for a failure a safe `error` {code, message} (never the network's own response). Each entry has a `publish_id` (null while it only waits for approval) and `can_retry` for the caller. A YouTube upload carries `progress` {sent_bytes,total_bytes} while sending. Read-only.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -8534,7 +8534,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List the accounts a social connection can post as',
       description:
-        "The accounts a LinkedIn, X, Meta or YouTube connection can post as, as `{ id, name, type }`. Put the chosen `id` in the action's `account_id` (a LinkedIn page's organization id, a YouTube channel id: a video is never uploaded to a channel the action does not name). Reads through to the network with the stored connection (cached a few minutes; refresh true asks again); changes nothing and returns nothing secret. Needs a workspace admin, or the person who connected it.",
+        "The accounts a LinkedIn, X, Meta or YouTube connection can post as, as `{ id, name, type }`. Put the chosen `id` in the action's `account_id` (LinkedIn page organization id; YouTube channel id, which an upload must name). Reads through to the network with the stored connection (cached a few minutes; refresh true asks again); changes nothing and returns nothing secret. Needs a workspace admin, or the person who connected it.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         connection_id: z.string().describe("The linkedin, x, meta or youtube connection's id (from list_connections)."),
