@@ -159,6 +159,9 @@ services:
       # (same-origin's '' is relative and only resolvable by a BROWSER) —
       # mirrors the mcp service's own STORYOS_URL default below.
       API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:3001}
+      # Ticket #1238 — the web app's Content-Security-Policy is ENFORCED. Set this to `report-only` (and restart `web`, no rebuild)
+      # to have browsers only log violations while you debug a page the policy breaks. Empty or unset = enforced.
+      CSP_MODE: ${CSP_MODE:-}
     depends_on:
       - api
 
