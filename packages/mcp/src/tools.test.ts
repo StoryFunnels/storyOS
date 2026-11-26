@@ -5847,3 +5847,71 @@ describe('create_record from a view (#1333)', () => {
     expect(posts).toHaveLength(0);
   });
 });
+
+/**
+ * #1361 — take_over_automation makes the caller the rule's owner. The access check is the API's (creating-the-rule access plus the run-time
+ * guard as the caller); this proves the tool reaches the right route with no body, shows the rule back with the flag cleared, carries a
+ * refusal through as an error without pretending it worked, and says what it needs in its description.
+ */
+describe('take_over_automation (#1361)', () => {
+  const WORKSPACE = { id: 'ws-1', name: 'JCM Agency' };
+  const DATABASE = { id: 'db-1', name: 'Leads', apiSlug: 'leads', fields: [] };
+  const TAKEN = { id: 'rule-1', name: 'On create', enabled: false, trigger: { type: 'record_created' }, actions: [], createdBy: 'me', needsNewOwner: false, needsNewOwnerReason: null, ownerMissing: false };
+
+  function setup(post: (path: string) => unknown, scope: 'admin' | 'write' = 'admin') {
+    const handlers = new Map<string, (args: unknown) => Promise<unknown>>();
+    const configs = new Map<string, { description?: string }>();
+    const server = {
+      registerTool: (name: string, config: { description?: string }, handler: (args: unknown) => Promise<unknown>) => {
+        handlers.set(name, handler);
+        configs.set(name, config);
+      },
+    };
+    const posted: string[] = [];
+    const GET = async (path: string) => {
+      if (path === '/api/v1/workspaces') return { data: [WORKSPACE] };
+      if (path === '/api/v1/workspaces/{ws}/databases') return { data: [DATABASE] };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}') return { data: DATABASE };
+      if (path === '/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs') return { data: { data: [] } };
+      throw new Error(`unmocked GET ${path}`);
+    };
+    const POST = async (path: string, opts: { body?: unknown }) => {
+      posted.push(`${path} body=${JSON.stringify(opts.body ?? null)}`);
+      return post(path);
+    };
+    const notes = registerTools(server as never, { client: { GET, POST } as never, baseUrl: 'http://x', token: 't' } as Ctx, { scope, allowRunButton: true });
+    // ticket #1262: the listed description may be a short lead; the FULL text is what get_started returns.
+    for (const [n, full] of notes) configs.set(n, { ...(configs.get(n) ?? {}), description: full });
+    return { handlers, configs, posted };
+  }
+  const args = { workspace: 'JCM Agency', database: 'leads', automation: 'rule-1' };
+
+  it('POSTs the take-over route with no body and returns the rule with the flag cleared and the rule still off', async () => {
+    const { handlers, posted } = setup(() => ({ data: TAKEN }));
+    const res = (await handlers.get('take_over_automation')!(args)) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBeUndefined();
+    expect(posted).toEqual(['/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/take-over body=null']);
+    const out = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
+    expect(out).toMatchObject({ needs_new_owner: false, needs_new_owner_reason: null, owner_missing: false, enabled: false, created_by: 'me' });
+  });
+
+  it('a refusal comes back as an error carrying the API sentence, not as a rule', async () => {
+    const { handlers } = setup(() => ({
+      error: { error: { code: 'automation_takeover_no_access', message: 'You cannot take this rule over: its set_values action needs access you do not have.' } },
+      response: { status: 403 },
+    }));
+    const res = (await handlers.get('take_over_automation')!(args)) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/cannot take this rule over/);
+  });
+
+  it('states the access check, that the rule stays off, and that it is admin-scoped; a write-scoped token does not get it', () => {
+    const { configs } = setup(() => ({ data: TAKEN }));
+    const d = configs.get('take_over_automation')!.description!;
+    expect(d).toMatch(/needs what creating the rule needs/);
+    expect(d).toMatch(/run-time access check as the caller/);
+    expect(d).toMatch(/STAYS off/);
+    expect(d).toMatch(/admin-scoped/);
+    expect(setup(() => ({ data: TAKEN }), 'write').handlers.has('take_over_automation')).toBe(false);
+  });
+});

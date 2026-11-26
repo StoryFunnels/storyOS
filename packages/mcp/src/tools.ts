@@ -999,6 +999,7 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   get_automation: 'admin',
   create_automation: 'admin',
   update_automation: 'admin',
+  take_over_automation: 'admin',
   delete_automation: 'admin',
   test_automation: 'admin',
   get_automation_last_payload: 'admin',
@@ -9264,7 +9265,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         '#334: the automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
         'enabled state, failure streak and last-run status (ok, error, skipped, running, or awaiting_approval when an action is waiting for a person to approve it, the same word get_runs uses). Automations are an admin surface, so this needs an admin-scoped token. ' +
-        "A rule runs as its OWNER (`created_by`) and every action re-checks that person's access each time it runs: if they left, lost the database or were demoted, the action is refused (the run's error starts with `automation_owner_missing` or `automation_owner_no_access` and names the person and the kind of record, never a title) and nothing after it runs. `needs_new_owner: true` with `needs_new_owner_reason` (`missing`, `left` or `lacks_access`) marks a rule whose owner has to change: the flag appears on the first refused run, the workspace's admins are notified at that first refusal and again if the rule switches itself off, and `owner_missing` is true for the first two reasons. " +
+        "A rule runs as its OWNER (`created_by`) and every action re-checks that person's access each time it runs: if they left, lost the database or were demoted, the action is refused (the run's error starts with `automation_owner_missing` or `automation_owner_no_access` and names the person and the kind of record, never a title) and nothing after it runs. `needs_new_owner: true` with `needs_new_owner_reason` (`missing`, `left` or `lacks_access`) marks a rule whose owner has to change; it is read from the owner's access NOW (not from the latest run), so it shows on a disabled rule and on one that has not fired since the owner lost access, and clears the moment access is restored or someone runs take_over_automation. The workspace's admins are notified at the first refused run and again if the rule switches itself off, and `owner_missing` is true for the first two reasons. " +
         'Use get_automation for one rule\'s full editable definition.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -9304,7 +9305,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         "#334: one automation rule's full, editable definition — trigger, condition and actions with human-readable database/field/" +
         'select names alongside their stable ids, plus enabled state and last-run status. update_automation accepts the same shape. ' +
-        "`needs_new_owner: true` with `needs_new_owner_reason` (`missing`: no owner; `left`: not a member any more; `lacks_access`: still a member but the latest run was refused for lack of access) means the rule needs a different owner. Each action is refused at run time (error `automation_owner_missing` or `automation_owner_no_access`, naming the person, never a title); `owner_missing` is true for the first two reasons.",
+        "`needs_new_owner: true` with `needs_new_owner_reason` (`missing`: no owner; `left`: not a member any more; `lacks_access`: still a member but would be refused if the rule ran now, which includes a rule that has not fired since the demotion and a disabled one) means the rule needs a different owner: fix it with take_over_automation. Each action is refused at run time (error `automation_owner_missing` or `automation_owner_no_access`, naming the person, never a title); `owner_missing` is true for the first two reasons.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
@@ -9550,6 +9551,38 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         );
       },
     ),
+  );
+
+  reg(
+    'take_over_automation',
+    {
+      title: 'Take over automation',
+      short:
+        'Make yourself the owner of a rule that needs a new owner. Needs what creating the rule needs.',
+      description:
+        "#1361: make YOU the owner of a rule (`created_by`). A rule runs as its owner and every action re-checks that person's access each time it runs, so this clears `needs_new_owner` (the owner left, lost the database or was demoted): afterwards the rule's actions run with your access. " +
+        "Taking over needs what creating the rule needs: creator or admin on the rule's database, the right to add records to every other database it writes into, and every action passing the run-time access check as the caller. Otherwise it is refused (403 `automation_takeover_no_access`, naming the kind of action, never a record or database name) and the owner is unchanged. " +
+        'A rule on a system database (such as Members or the Agents pack) cannot be taken over, and a rule that sends email or posts publicly with approval switched OFF can only be taken over by a workspace admin typing it themselves, not an agent acting for one. Needs an admin-scoped token, and is not available to an agent run credential. ' +
+        "Nothing else changes: a rule that switched itself off STAYS off (update_automation with enabled true turns it on), its trigger and actions are untouched, nobody is notified, and the audit log records `automation.taken_over` (filter it by the rule's id for the rule's history). A rule you already own is left as it is. Returns the rule as get_automation shows it.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id (the rule\'s home database).'),
+        automation: z.string().describe('Automation rule id (from list_automations).'),
+      },
+    },
+    handle<{ workspace: string; database: string; automation: string }>(async ({ workspace, database, automation }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const detail = await getDetail(ws.id, db.id);
+      const row = await unwrap<AutomationRow>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/take-over', {
+          params: { path: { ws: ws.id, db: db.id, id: automation } },
+        }),
+      );
+      const dbNames = await databaseNames(ws.id);
+      const lastRun = await lastRunFor(ws.id, db.id, row.id);
+      return text(readableAutomation(row, detail as never, { databaseNamesById: dbNames, lastRun, workspaceSlug: ws.slug, webOrigin: ctx.baseUrl }));
+    }),
   );
 
   reg(

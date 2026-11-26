@@ -78,3 +78,33 @@ export async function recordPortalRecipientEvent(
     agentName: actor?.agentName ?? null,
   });
 }
+
+/**
+ * Ticket #1361 — an automation rule handed to a new owner. Same table, same query and same attribution as the events above (actor = the
+ * member who took it over, `source` as the call came), typed `automation.taken_over` with the rule in `payload.object`, so the audit log's
+ * `entity` filter on the rule's id IS the rule's history. `from` and `to` are the two owners' user ids (`from` null when the rule had none).
+ * Not in STRUCTURAL_KINDS, for the reason portal recipients are not: that list is crossed with its actions to build a vocabulary of events
+ * that happen, and `automation.deleted` is not one of them.
+ *
+ * The payload carries the rule's NAME (the audit log is read by admins, who can read every rule) and the database id; never its actions,
+ * which can hold webhook headers, and never a record value.
+ */
+export const AUTOMATION_ACTIONS = ['taken_over'] as const;
+export type AutomationEventAction = (typeof AUTOMATION_ACTIONS)[number];
+
+export async function recordAutomationEvent(
+  db: Db | Tx,
+  event: { workspaceId: string; action: AutomationEventAction; id: string; name: string; databaseId: string; from: string | null; to: string },
+): Promise<void> {
+  const actor = currentActor();
+  await db.insert(activityEvents).values({
+    workspaceId: event.workspaceId,
+    recordId: null,
+    actorId: actor?.userId ?? null,
+    type: `automation.${event.action}`,
+    payload: { object: { kind: 'automation', id: event.id, name: event.name }, database_id: event.databaseId, from: event.from, to: event.to },
+    source: actor?.source ?? null,
+    agentId: actor?.agentId ?? null,
+    agentName: actor?.agentName ?? null,
+  });
+}

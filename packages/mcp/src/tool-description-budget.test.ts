@@ -14,7 +14,10 @@ import type { Ctx, EffectiveScope } from './client.js';
  * Everything is derived from the LIVE registry (registerTools against a recording server). A hand-copied list of tool names would pass
  * for exactly the names it omits.
  */
-const TOTAL_CAP = 60_000;
+// Ticket #1361 raised this from 60_000 by 200: take_over_automation adds 161 listed characters (a hand-written one-line lead plus the
+// pointer) and the registry was 59,964, 36 under the old cap, so ANY new tool tripped it. Raised, not worked around, so the next tool
+// sees the real headroom; trimming the longest leads (create_agent_trigger is 945) is the way back down.
+const TOTAL_CAP = 60_200;
 const PER_TOOL_CAP = 1_500;
 
 const ctx = { client: {} as never, baseUrl: 'http://t', token: 't' } as Ctx;

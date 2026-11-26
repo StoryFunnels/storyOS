@@ -4955,6 +4955,38 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/take-over": {
+      "post": {
+        "operationId": "AutomationsController_takeOver",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Take a rule over: you become its owner, and every action runs with your access. Needs what creating the rule needs",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
       "get": {
         "operationId": "AutomationsController_runs",

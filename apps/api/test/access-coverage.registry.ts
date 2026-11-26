@@ -279,6 +279,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/workspaces/:ws/databases': scoped('assertAccess + visibleRecordIds + effectiveForDatabase', 'databases/databases.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/automations': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/automations/:id/regenerate-hook': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
+  'POST /api/v1/workspaces/:ws/databases/:db/automations/:id/take-over': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/automations/:id/test': scoped('assertAccess + visibleDatabaseIds + effectiveForDatabase', 'automations/automations.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/duplicate': scoped('assertAccess', 'packs/database-duplicate.controller.ts'),
   'POST /api/v1/workspaces/:ws/databases/:db/fields': scoped('assertAccess + visibleDatabaseIds', 'fields/fields.controller.ts'),
