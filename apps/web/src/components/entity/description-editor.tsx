@@ -10,6 +10,7 @@ import '@blocknote/mantine/style.css';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import { api } from '@/lib/api';
 import { useTheme } from '@/lib/theme';
+import { editorNonceOptions, useStyleNonce } from '@/lib/style-nonce';
 import { BLOCKNOTE_BODY } from '@/components/entity/long-text-block';
 import type { MutableRefObject } from 'react';
 import {
@@ -105,7 +106,9 @@ function EditorInner({
   const { resolved: theme } = useTheme();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const nonce = useStyleNonce();
   const editor = useCreateBlockNote({
+    ...editorNonceOptions(nonce),
     schema: mentionSchema,
     initialContent:
       initial.content && initial.content.length > 0 ? (initial.content as never) : undefined,

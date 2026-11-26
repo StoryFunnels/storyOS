@@ -6,6 +6,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
+import { editorNonceOptions, useStyleNonce } from '@/lib/style-nonce';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import type { Field } from '@/components/table-view/use-table-data';
 import { BLOCKNOTE_BODY, LongTextHeader, LongTextMenu } from './long-text-block';
@@ -41,7 +42,9 @@ export function RichTextFieldSection({
   // holds across records rather than resetting on every one.
   const { collapsed, toggle } = useCollapsedSection(db, field.id);
   const { resolved: theme } = useTheme();
+  const nonce = useStyleNonce();
   const editor = useCreateBlockNote({
+    ...editorNonceOptions(nonce),
     schema: mentionSchema,
     initialContent: Array.isArray(value) && value.length > 0 ? (value as never) : undefined,
     uploadFile: (file: File) => uploadEditorImage(ws, file),
