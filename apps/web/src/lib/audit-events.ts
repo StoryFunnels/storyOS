@@ -122,6 +122,7 @@ const PHRASES: Record<string, PhraseFn> = {
   'portal_recipient.revoked': (p) => sentence('Revoked the portal link for', { name: str(asRecord(p.object).name) }),
   'publishing.enabled': (p) => sentence('Turned on publishing:', { name: str(asRecord(p.object).name) }),
   'publishing.disabled': (p) => sentence('Paused publishing:', { name: str(asRecord(p.object).name) }),
+  'automation.taken_over': (p) => sentence('Took over the automation rule', { name: str(asRecord(p.object).name) }),
   'runner.paired': (p) => sentence('Paired the Runner', { name: str(asRecord(p.object).name) }),
   'runner.activated': (p) => sentence('Activated the Runner', { name: str(asRecord(p.object).name) }),
   'runner.assigned': (p) => sentence('Assigned an agent to the Runner', { name: str(asRecord(p.object).name) }),

@@ -28,6 +28,7 @@ describe('AutomationsService.tick — a DB blip must never crash the process', (
       approvals as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     return svc;
   }

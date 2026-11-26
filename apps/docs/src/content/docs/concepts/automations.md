@@ -113,15 +113,36 @@ when it is sent, and is not retried if the owner has lost access.
 **No action runs on a system database** (Members, the Agents pack), whichever action it is, whether the rule runs
 on one or an action writes into one. It is refused with `automation_system_database`.
 
-**A rule that needs a new owner says so from its first refused run.** Its settings show **Needs a new owner** with
+**A rule that needs a new owner says so as soon as its owner loses access.** Its settings show **Needs a new owner** with
 the reason: **no owner**, **left the workspace**, or **no longer has access** (still a member, but demoted or
-removed from the database). The workspace's admins get an in-app notice at that first refusal, naming the person
-and the kind of record, never a title, and another if the rule then switches itself off. In the API every rule
-carries `needsNewOwner` (true or false) and `needsNewOwnerReason` (`missing`, `left`, `lacks_access` or null);
+removed from the database). The flag is read from the owner's access right now, not from the last run, so it shows
+on a rule that has not fired since the change and on a rule that is switched off, and it clears by itself if the
+owner's access comes back. The workspace's admins also get an in-app notice at the first refused run, naming the
+person and the kind of record, never a title, and another if the rule then switches itself off. In the API every
+rule carries `needsNewOwner` (true or false) and `needsNewOwnerReason` (`missing`, `left`, `lacks_access` or null);
 `ownerMissing` stays true for the first two reasons, and `GET .../automations/{id}` returns one rule with the same
 fields. In `get_automation` and `list_automations` they read `needs_new_owner`, `needs_new_owner_reason` and
 `owner_missing`. This is a change for rules that were saved before it existed: a rule whose creator was since
 demoted or removed used to keep running with that person's old access, and is now refused.
+
+## Taking a rule over
+
+**Taking a rule over makes you its owner**, so every action runs with your access from the next run. It is the
+fix for a rule that needs a new owner, and it works on any rule you are allowed to build. In the API it is
+`POST /workspaces/{ws}/databases/{db}/automations/{id}/take-over` (no body), and the MCP tool is
+`take_over_automation`; both return the rule, with `createdBy` set to you and the flag cleared.
+
+You need what **creating** that rule would need: build automations on the rule's database (creator or admin), add
+records to every other database it writes into, and pass the run-time check for each of its actions as yourself.
+A guest, or a member with less access than the rule needs, is refused with `403` and the owner stays as it was. A
+rule that runs on or writes into a system database cannot be taken over, because no rule can run there. A rule
+that sends email or posts publicly with approval switched off can only be taken over by a workspace admin typing
+it themselves, not by an agent acting for one. An agent run credential cannot take a rule over at all.
+
+Taking over changes nothing else. **A rule that switched itself off stays off**, with its failure count, and you
+turn it back on once you are happy to own it, which also resets the count. Nobody is notified. The change is
+recorded in the audit log as `automation.taken_over`, with who took it over and from whom; filter the log by the
+rule's id to see its history. Taking over a rule you already own does nothing.
 
 A **button** runs as the person who pressed it, with the access they have at that moment; pressing never
 needed the access to build automations.

@@ -289,6 +289,11 @@ export class AutomationActionsService implements OnModuleInit {
     return [...out];
   }
 
+  /** Ticket #1361 — the database an update_linked action writes into, or null when its relation field is gone (the run skips it then too). */
+  async linkedTargetDatabase(databaseId: string, relationFieldId: string): Promise<string | null> {
+    return (await this.relationTarget(databaseId, relationFieldId))?.targetDbId ?? null;
+  }
+
   /** The database on the far side of a live relation field on `databaseId`, or null. */
   private async relationTarget(databaseId: string, relationFieldId: string) {
     const field = await this.db.query.fields.findFirst({

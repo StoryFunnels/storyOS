@@ -1,4 +1,4 @@
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, ne } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { automationRuns, memberships } from '../db/schema';
 import type { NotificationsService } from '../notifications/notifications.service';
@@ -16,10 +16,20 @@ export type NeedsNewOwnerReason = 'missing' | 'left' | 'lacks_access';
 
 /**
  * "This rule needs a new owner", derived on every read and never stored: `missing` (no owner recorded), `left` (the owner is not an
- * active member), `lacks_access` (the owner is a member, but the rule's LATEST run was refused for lack of access, which clears the
- * moment a later run succeeds). The flag is therefore true from the FIRST refused run, not after a failure streak.
+ * active member), `lacks_access` (the owner is a member, but would be refused if the rule ran now: `lacksAccess` asks the run-time guard
+ * with the owner's CURRENT grants).
+ *
+ * Ticket #1361 — it used to read the rule's LATEST run, which left three holes: a rule that had not fired since the demotion showed no
+ * flag, a disabled rule kept its flag (or never got one), and a flag outlived the access it was about until a later run happened to
+ * succeed. Reading the access itself closes all three: the flag is on from the moment the access is lost, on enabled and disabled rules
+ * alike, and off the moment it is restored or the rule is taken over.
  */
-export async function ownerFlags<R extends { id: string; createdBy: string | null }>(db: Db, workspaceId: string, rules: R[]) {
+export async function ownerFlags<R extends { id: string; createdBy: string | null }>(
+  db: Db,
+  workspaceId: string,
+  rules: R[],
+  lacksAccess: (rule: R, ownerId: string) => Promise<boolean>,
+) {
   const ids = [...new Set(rules.map((r) => r.createdBy).filter((id): id is string => Boolean(id)))];
   const active = new Set<string>();
   if (ids.length > 0) {
@@ -29,26 +39,16 @@ export async function ownerFlags<R extends { id: string; createdBy: string | nul
       .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')));
     for (const r of rows) if (ids.includes(r.userId)) active.add(r.userId);
   }
-  const needLastRun = rules.filter((r) => r.createdBy && active.has(r.createdBy)).map((r) => r.id);
-  const lastError = new Map<string, string | null>();
-  if (needLastRun.length > 0) {
-    const res = (await db.execute(sql`
-      SELECT DISTINCT ON (automation_id) automation_id AS id, error
-      FROM automation_runs
-      WHERE automation_id IN (${sql.join(needLastRun.map((id) => sql`${id}::uuid`), sql`, `)})
-      ORDER BY automation_id, created_at DESC
-    `)) as unknown as { rows: Array<{ id: string; error: string | null }> };
-    for (const r of res.rows) lastError.set(r.id, r.error);
-  }
-  return new Map(
-    rules.map((r) => {
+  const entries = await Promise.all(
+    rules.map(async (r) => {
       let reason: NeedsNewOwnerReason | null = null;
       if (!r.createdBy) reason = 'missing';
       else if (!active.has(r.createdBy)) reason = 'left';
-      else if ((lastError.get(r.id) ?? '').startsWith('automation_owner_no_access')) reason = 'lacks_access';
+      else if (await lacksAccess(r, r.createdBy)) reason = 'lacks_access';
       return [r.id, reason] as const;
     }),
   );
+  return new Map(entries);
 }
 
 /** Is this the rule's first access refusal in a row? (The run being recorded is excluded; the one before it decides.) */

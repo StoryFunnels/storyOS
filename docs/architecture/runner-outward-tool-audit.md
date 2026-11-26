@@ -111,7 +111,7 @@ These are refusals, not approvals: a Runner agent has no staging path for them y
 | outbound webhooks: `POST/PATCH/DELETE /webhooks`, `list_webhooks`, `update_webhook`, `list_webhook_deliveries` | delivers events to an external URL | admin scope (#1049) | UNREACHABLE |
 | webhook DELIVERY of a record event to an existing subscription (`apps/api/src/webhooks/webhooks.service.ts:64`) | record data to an admin-chosen URL | any record write | LOGGED with the agent (delivery payload `caused_by`), runs as configured: #1174 |
 | inbound `POST /hooks/:slug/:token` | fires a rule's actions | public, token + HMAC; the only way a run credential could learn a token was regenerate-hook (F3) | PUBLIC (token unreachable: F3 fixed) |
-| `create_automation`, `update_automation`, `delete_automation`, `test_automation`, `get_automation` | authors / runs outward actions | `@RequiresScope(admin)` on the controller | UNREACHABLE |
+| `create_automation`, `update_automation`, `delete_automation`, `test_automation`, `get_automation`, `take_over_automation` | authors / runs outward actions | `@RequiresScope(admin)` on the controller | UNREACHABLE |
 | `run_button` / `POST .../buttons/:field/press` | runs the button's outward actions | was reachable; `allowRunButton: false` (`apps/api/src/auth/auth.guard.ts:147`) | FIXED, now UNREACHABLE (F2) |
 | `rerun_run`, `rerun_action` | re-fires rule actions | was reachable at write | FIXED, now UNREACHABLE (F6b) |
 | rule actions `send_email`, `post_social`, `send_slack_message`, `send_webhook`, `http_request`, `youtube_upload` fired by an agent's record write | email / public post / Slack / HTTP | send_email held by default (`apps/api/src/automations/actions.service.ts:984`), post_social held by class (`apps/api/src/action-gates/action-classes.ts:54`), the rest not; an admin may turn approval off | STAGED for an agent's write: all five outward kinds, whatever `require_approval` says; a member-only email is the one exception (#1174) |
@@ -353,6 +353,7 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `setup_agents` | unreachable | `POST /workspaces/:p/agents/ensure` (unreach:scope_admin) |
 | `share_view` | unreachable | `POST /workspaces/:p/databases/:p/views/:p/share` (unreach:scope_admin) |
 | `sync_source` | unreachable | `POST /workspaces/:p/databases/:p/sources/:p/sync-now` (unreach:no_run_credential) |
+| `take_over_automation` | unreachable | `POST /workspaces/:p/databases/:p/automations/:p/take-over` (unreach:scope_admin) |
 | `test_automation` | unreachable | `POST /workspaces/:p/databases/:p/automations/:p/test` (unreach:scope_admin) |
 | `undo_batch_update` | gated | `POST /workspaces/:p/databases/:p/records/batch-update-undo` (gated) |
 | `uninstall_pack` | unreachable | `POST /workspaces/:p/packs/:p/uninstall` (unreach:scope_admin) |

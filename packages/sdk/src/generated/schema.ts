@@ -1881,6 +1881,23 @@ export interface paths {
         patch: operations["AutomationsController_update"];
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/take-over": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take a rule over: you become its owner, and every action runs with your access. Needs what creating the rule needs */
+        post: operations["AutomationsController_takeOver"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/databases/{db}/automations/{id}/runs": {
         parameters: {
             query?: never;
@@ -11090,6 +11107,26 @@ export interface operations {
                 "application/json": components["schemas"]["UpdateAutomationDto"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AutomationsController_takeOver: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

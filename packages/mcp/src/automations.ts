@@ -367,7 +367,7 @@ export function readableAutomation(
     created_by: row.createdBy ?? null,
     // #1353 — the rule runs as its owner and is refused at run time when that person is gone; true here means an admin has to take it over.
     owner_missing: row.ownerMissing === true,
-    // #1353 — set from the FIRST refused run (lacks_access) or when the owner is gone (missing, left).
+    // #1353 / #1361 — read from the owner's access NOW: gone (missing, left) or would be refused if the rule ran (lacks_access). Cleared by take_over_automation.
     needs_new_owner: row.needsNewOwner === true,
     needs_new_owner_reason: row.needsNewOwnerReason ?? null,
     // #392 — a schedule-only top-N selection; both null on every other rule.

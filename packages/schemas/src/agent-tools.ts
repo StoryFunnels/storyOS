@@ -209,6 +209,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'setup_agents',
   'share_view',
   'sync_source',
+  'take_over_automation',
   'test_automation',
   'undo_batch_update',
   'uninstall_pack',

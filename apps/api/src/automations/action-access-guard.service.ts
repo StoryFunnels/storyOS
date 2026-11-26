@@ -161,6 +161,71 @@ export class ActionAccessGuardService implements OnModuleInit {
     }
   }
 
+  /**
+   * Ticket #1361 — may THIS person own THIS rule: would every action it carries pass the run-time check as them, right now? One answer,
+   * two askers: the take-over route (is the caller allowed to become the owner) and the "needs a new owner" flag (does the CURRENT owner
+   * still pass), so the flag turns off exactly when a run would stop being refused. Throws the same coded 403 `check` does.
+   *
+   * It asks `check` per action with no record in hand, so the rung each action needs is read at DATABASE level (the run itself narrows to
+   * the one record). Two kinds the run-time guard leaves to someone else are asked here: `attach_pdf` (its own executor checks it; here
+   * it is the editor rung on the rule's database) and `update_linked`'s target database (the run checks each linked record; here it is
+   * contributor on the database they live in).
+   *
+   * `linkedTarget` resolves an update_linked action's relation field to the database on its far side (null when the field is gone).
+   */
+  async assertCanOwn(
+    rule: { id: string; databaseId: string; actions: AutomationAction[] },
+    workspaceId: string,
+    actorId: string,
+    linkedTarget: (action: Extract<AutomationAction, { type: 'update_linked' }>) => Promise<string | null>,
+  ): Promise<void> {
+    const ctx: ActionGuardContext = { workspaceId, databaseId: rule.databaseId, record: null, actorId, ruleId: rule.id };
+    for (const action of rule.actions) {
+      if (action.type === 'attach_pdf') {
+        const membership = await this.activeMembership(ctx, true, action.type);
+        const name = await this.personName(actorId, true);
+        await this.databaseRung(membership, rule.databaseId, 'editor', () =>
+          codedException(403, OWNER_NO_ACCESS_CODE, `${name} can no longer edit records on this database, so attach_pdf did not run.`, { action_type: action.type }),
+        );
+        continue;
+      }
+      const targetId = action.type === 'update_linked' ? await linkedTarget(action) : null;
+      await this.check(action, ctx, action.type === 'update_linked' ? async () => (targetId ? { targetDbId: targetId, linkedIds: [] } : null) : undefined);
+      if (targetId) {
+        const membership = await this.activeMembership(ctx, true, action.type);
+        const name = await this.personName(actorId, true);
+        await this.databaseRung(membership, targetId, 'contributor', () =>
+          codedException(403, OWNER_NO_ACCESS_CODE, `${name} can no longer edit the linked records, so update_linked did not run.`, { action_type: action.type }),
+        );
+      }
+    }
+  }
+
+  /**
+   * Ticket #1361 — `assertCanOwn` as a yes/no for the flag. Only an ACCESS refusal counts as "lacks access"; a system database is not
+   * something a different owner would fix (it is refused for everyone), so it does not flag the rule. Anything else (a database that
+   * will not load, a bug) propagates: an unreadable answer must never read as "no problem".
+   */
+  async ownerLacksAccess(
+    rule: { id: string; databaseId: string; actions: AutomationAction[] },
+    workspaceId: string,
+    ownerId: string,
+    linkedTarget: (action: Extract<AutomationAction, { type: 'update_linked' }>) => Promise<string | null>,
+  ): Promise<boolean> {
+    // One action at a time so a system-database refusal on one does not hide a genuine access refusal on the next.
+    for (const action of rule.actions) {
+      try {
+        await this.assertCanOwn({ ...rule, actions: [action] }, workspaceId, ownerId, linkedTarget);
+      } catch (error) {
+        const code = error instanceof HttpException ? (error.getResponse() as { code?: string }).code : undefined;
+        if (code === OWNER_NO_ACCESS_CODE || code === OWNER_MISSING_CODE) return true;
+        if (code === SYSTEM_DATABASE_CODE) continue;
+        throw error;
+      }
+    }
+    return false;
+  }
+
   /** Every database the action touches must be an ordinary one. One sentence naming the person and the kind of database, never its name. */
   private async assertNoSystemDatabase(workspaceId: string, databaseIds: string[], name: string, actionType: string): Promise<void> {
     const rows = await this.db

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
@@ -111,6 +111,24 @@ export class AutomationsController {
   ) {
     await this.creator(req, databaseId);
     return this.automationsService.remove(databaseId, id);
+  }
+
+  /**
+   * Ticket #1361 — make the CALLER the rule's owner, the one who every later run acts as. The same gate as creating the rule (creator on
+   * this database, contributor on each database it writes into) plus the run-time guard's view of its actions, applied to the caller.
+   * It keeps the controller's ADMIN scope, as creating a rule does, and that is what refuses an agent run credential (capped at `write`):
+   * an agent run cannot pick whose access an automation uses. There is no `@NoRunCredential()` on top, because the outward sweep asks each
+   * route to refuse for the ONE reason it names and the scope refuses first (run-credential-outward-sweep.test.ts holds it to that).
+   */
+  @Post(':id/take-over')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Take a rule over: you become its owner, and every action runs with your access. Needs what creating the rule needs",
+  })
+  async takeOver(@Req() req: WorkspaceRequest, @Param('db') databaseId: string, @Param('id') id: string) {
+    await this.creator(req, databaseId);
+    await this.assertTargets(req, databaseId, await this.automationsService.actionsOf(databaseId, id));
+    return this.automationsService.takeOver(req.membership.workspaceId, databaseId, id, req.user.id, req.membership.role, req.auth?.source ?? 'human');
   }
 
   @Get(':id/runs')
