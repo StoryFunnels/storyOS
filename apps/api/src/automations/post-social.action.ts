@@ -12,6 +12,7 @@ import type { XAuth } from '../connections/providers/x';
 import { RecordsService } from '../records/records.service';
 import { getStorage } from '../attachments/storage';
 import { ProviderError } from '../common/provider-error';
+import { failClosedFetch } from '../common/test-network-guard';
 import { JobRunnerService } from './job-runner.service';
 import type { JobHelpers } from './job-runner.service';
 
@@ -142,7 +143,7 @@ export class PostSocialActionService implements OnModuleInit {
    * approach): LinkedIn/X are fixed external hosts, not caller-supplied URLs, so
    * there is no guardedFetch/SSRF step to go through — this field is the entire
    * send path, and the real provider HTTP call this is swapped for in tests. */
-  fetcher: typeof fetch = fetch;
+  fetcher: typeof fetch = failClosedFetch();
 
   constructor(
     @Inject(DB) private readonly db: Db,

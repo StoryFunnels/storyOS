@@ -6,7 +6,7 @@ import type { FastifyReply } from 'fastify';
 import { createZodDto } from 'nestjs-zod';
 import { createConnectionSchema, updateConnectionSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { RequiresScope } from '../auth/token-scope.guard';
+import { NoRunCredential, RequiresScope } from '../auth/token-scope.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { ConnectionsService } from './connections.service';
@@ -54,8 +54,10 @@ export class ConnectionsController {
     return this.connections.listProviders();
   }
 
+  // An agent run's credential must not enumerate accounts through a stored connection credential: this calls the network LIVE.
   @Get(':id/social-accounts')
   @RequiresScope('read')
+  @NoRunCredential()
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({
     summary:

@@ -9,7 +9,12 @@ import { looksLikeUuid } from '../common/uuid';
 import { RecordsService } from '../records/records.service';
 import { JobRunnerService } from './job-runner.service';
 import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN } from './post-social.action';
-import type { PostSocialAction, PublishFailureCode } from './post-social.action';
+import type { PostSocialAction } from './post-social.action';
+import { parseFailure } from './publish-failure';
+import type { PublishFailure } from './publish-failure';
+
+export { parseFailure };
+export type { PublishFailure };
 
 type ApprovalRow = typeof approvals.$inferSelect;
 type AutomationJobRow = typeof automationJobs.$inferSelect;
@@ -22,10 +27,6 @@ const RETRY_MARK = ':retry-of:';
 
 export type PublishState = 'awaiting_approval' | 'sent_back' | 'expired' | 'queued' | 'running' | 'published' | 'failed';
 
-export interface PublishFailure {
-  code: PublishFailureCode | 'connection_removed' | 'unknown';
-  message: string;
-}
 
 /** What one channel of one record did, as the record shows it. Everything here is safe to show to anyone who can read the record. */
 export interface SocialPublish {
@@ -52,25 +53,6 @@ export interface SocialPublish {
   updated_at: string;
   /** True when THIS caller could press "Try again" right now: failed, nothing posted, within the retry cap, and they can edit the record. */
   can_retry: boolean;
-}
-
-const KNOWN_CODES = new Set<string>([
-  'no_account', 'account_mismatch', 'already_posted', 'too_long', 'no_token', 'wrong_connection', 'auth_refused', 'forbidden',
-  'not_found', 'rate_limited', 'provider_unavailable', 'rejected', 'bad_response',
-]);
-
-/**
- * `last_error` back into the one safe shape the record shows. The executor writes `[code] sentence`; anything else (a row
- * from before that, a runner message, a thrown TypeError) is NOT passed through, because the raw text of an old row can
- * hold a provider's response body. Only an HTTP status is read out of it.
- */
-export function parseFailure(lastError: string | null | undefined): PublishFailure | null {
-  if (!lastError) return null;
-  const tagged = /^\[([a-z_]+)\] ([^\n]{1,300})$/.exec(lastError);
-  if (tagged && KNOWN_CODES.has(tagged[1]!)) return { code: tagged[1] as PublishFailureCode, message: tagged[2]! };
-  if (/connection no longer exists/i.test(lastError)) return { code: 'connection_removed', message: 'The connection this post uses was removed.' };
-  const status = /HTTP (\d{3})/.exec(lastError)?.[1];
-  return { code: 'unknown', message: status ? `The network refused the post (HTTP ${status}).` : 'The post did not go out. Open the run for details.' };
 }
 
 interface Snapshot {

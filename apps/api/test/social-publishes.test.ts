@@ -635,3 +635,28 @@ describe('the account picker: GET /connections/{id}/social-accounts', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe('the run detail never returns the network\'s raw response for a post (GET /runs/:id)', () => {
+  it('an old row whose last_error is raw provider text reads back as a sentence with only the status, for a plain member; a new row reads as its code sentence', async () => {
+    const s = await scenario();
+    await createRule(s, { connection_id: s.xConn, target: 'x', require_approval: false });
+    providerScript = () => ({ status: 403, text: `Invalid token ${SECRET} for ${PERSON}` });
+    const rec = await record(s);
+    await jobs.tick();
+    const job = (await jobFor(rec))[0]!;
+    expect(job.status).toBe('failed');
+    const run = () => as(member.token, 'GET', `/workspaces/${wsId}/runs/${job.runId}`);
+
+    const fresh = await run();
+    expect(fresh.statusCode, fresh.body).toBe(200);
+    expect(fresh.json().actions[0].last_error).toBe('X refused the post (HTTP 403). Usually the X app\'s tier does not allow posting.');
+
+    // The same row as it was stored before the executor wrote codes.
+    await db.update(automationJobs).set({ lastError: `X post failed: HTTP 403 — {"detail":"Invalid token ${SECRET} for ${PERSON}"}` }).where(eq(automationJobs.id, job.id));
+    const legacy = await run();
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json().actions[0].last_error).toBe('The network refused the post (HTTP 403).');
+    expect(legacy.body).not.toContain(SECRET);
+    expect(legacy.body).not.toContain(PERSON);
+  });
+});

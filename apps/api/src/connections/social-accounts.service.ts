@@ -6,7 +6,7 @@ import { env } from '../config/env';
 import { connections } from '../db/schema';
 import { ConnectionsService } from './connections.service';
 import type { LinkedinAuth } from './providers/linkedin';
-import { defaultConnectionFetcher } from './providers/types';
+import { failClosedFetch } from '../common/test-network-guard';
 import type { ConnectionFetcher } from './providers/types';
 import type { XAuth } from './providers/x';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -49,7 +49,7 @@ export interface SocialAccountList {
 @Injectable()
 export class SocialAccountsService {
   /** Swappable in tests: the whole provider surface of this service. Nothing in a test ever calls a real network. */
-  fetcher: ConnectionFetcher = defaultConnectionFetcher;
+  fetcher: ConnectionFetcher = (url, init) => failClosedFetch()(url, { method: init.method ?? 'GET', headers: init.headers, body: init.body }) as unknown as ReturnType<ConnectionFetcher>;
   private readonly cache = new Map<string, { at: number; list: Omit<SocialAccountList, 'cached'> }>();
 
   constructor(
