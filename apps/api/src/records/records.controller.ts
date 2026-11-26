@@ -27,6 +27,7 @@ import {
   batchUpdateRecordsSchema,
   batchUpdateUndoSchema,
   bulkRecordJobSchema,
+  createRecordResponseSchema,
   createRecordSchema,
   createRecordsBatchSchema,
   moveRecordSchema,
@@ -45,8 +46,10 @@ import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { DatabasesService } from '../databases/databases.service';
 import { RecordsService } from './records.service';
 import { BulkRecordJobsService } from './bulk-record-jobs.service';
+import { ViewCreateContextService } from './view-create-context.service';
 
 class CreateRecordDto extends createZodDto(createRecordSchema) {}
+class CreateRecordResponseDto extends createZodDto(createRecordResponseSchema) {}
 class CreateRecordsBatchDto extends createZodDto(createRecordsBatchSchema) {}
 class UpdateRecordDto extends createZodDto(updateRecordSchema) {}
 class UpsertRecordDto extends createZodDto(upsertRecordSchema) {}
@@ -79,6 +82,7 @@ export class RecordsController {
     private readonly recordsService: RecordsService,
     private readonly databases: DatabasesService,
     private readonly bulkJobs: BulkRecordJobsService,
+    private readonly viewCreate: ViewCreateContextService,
   ) {}
 
   /** Access-checked (ADR-0007): 404 without a grant, 403 below min. */
@@ -102,27 +106,37 @@ export class RecordsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a record ({values} keyed by field api_name)' })
+  @ApiOperation({
+    summary:
+      'Create a record ({values} keyed by field api_name). Optional view_id: the view it is created from; the values that view\'s filter requires are filled in under yours and the response carries view_match',
+  })
+  @ApiCreatedResponse({ type: CreateRecordResponseDto })
   async create(
     @Req() req: WorkspaceRequest,
     @Param('db') databaseId: string,
     @Body() body: CreateRecordDto,
   ) {
     await this.assertDb(req, databaseId, 'contributor');
-    return this.recordsService.narrowTitlesDeep(
-      req.membership,
-      await this.recordsService.create(
+    // ticket #1333 — a create made from a view lands inside it. Resolved for THIS caller (an unreadable view is simply no context), the
+    // view's required values go UNDER what the request supplied, and after the write the real evaluator says whether it matched.
+    const view = body.view_id ? await this.viewCreate.resolve(req.membership, databaseId, body.view_id) : undefined;
+    const values = view
+      ? { ...(await this.viewCreate.defaults(view, req.membership.workspaceId, body.values, req.membership)), ...body.values }
+      : body.values;
+    const created = await this.recordsService.create(
       req.membership.workspaceId,
       databaseId,
-      body.values,
+      values,
       req.user.id,
       0,
       req.auth?.source ?? 'human',
       req.auth?.agentId,
       req.auth?.agentName,
       req.membership, // #1070 — link targets are access-checked
-      ),
     );
+    const viewMatch = view ? await this.viewCreate.match(view, created.id, req.membership) : undefined;
+    const narrowed = await this.recordsService.narrowTitlesDeep(req.membership, created);
+    return viewMatch ? { ...narrowed, view_match: viewMatch } : narrowed;
   }
 
   @Post('upsert')
@@ -497,6 +511,7 @@ export class RecordsController {
       req.user.id,
       req.auth?.source ?? 'human',
       req.auth?.agentId, // #1104
+      req.membership, // #1334
       ),
     );
   }

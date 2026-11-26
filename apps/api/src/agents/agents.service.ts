@@ -10,7 +10,7 @@ import {
 import { assertDatabaseInWorkspace } from '../records/database-scope';
 import { and, asc, desc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import { blocksToMarkdown, markdownToBlocks, TOKEN_SCOPE_RANK } from '@storyos/schemas';
-import type { AutomationAction, TokenScope } from '@storyos/schemas';
+import type { AutomationAction, FilterNode, TokenScope } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import {
@@ -28,7 +28,10 @@ import type { ChangeSource } from '../db/schema';
 import { spaceCanHoldDatabases } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
+import { compileFilter } from '../records/query-compiler';
 import { RecordsService } from '../records/records.service';
+import { readTriggerCondition, writeTriggerCondition } from './trigger-condition';
+import type { TriggerCondition } from './trigger-condition';
 import type { ProjectedRecord } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import { SpacesService } from '../workspaces/spaces.service';
@@ -549,6 +552,8 @@ export class AgentsService implements OnModuleInit {
       await this.retireScheduleTrigger(existing.agentsDb.id, existing.runsDb.id);
       // ticket #1130: and a pack provisioned before relation bindings gains their field (idempotent, one lookup once it exists).
       await this.ensureField(existing.triggersDb.id, 'relation_field', { display_name: 'Relation field', type: 'text', config: {} });
+      // ticket #1324 follow-up: and a trigger's condition (a record filter, JSON text). A field is a row: no migration.
+      await this.ensureField(existing.triggersDb.id, 'condition', { display_name: 'Condition', type: 'text', config: { multiline: true } });
       await this.ensureRunnerRunFields(existing.runsDb.id); // ticket #1133: and the run record's fields
       await this.ensureAgentSettingsFields(existing.agentsDb.id); // ticket #1180: and the agent's Tools and Model
       return {
@@ -863,6 +868,8 @@ export class AgentsService implements OnModuleInit {
         // Agents database: "when this field links to the agent, wake it" (how a `Next` field wakes an agent). Stored as the field's id,
         // like the state field, and validated against live schema. A binding has EITHER the state pair OR this, never both.
         { display_name: 'Relation field', type: 'text', config: {} },
+        // ticket #1324 follow-up: the record filter that must MATCH for the binding to wake its agent (JSON text, validated on write).
+        { display_name: 'Condition', type: 'text', config: { multiline: true } },
         // ADR-0010 §5: a human-gate state never auto-fires an agent *out* of it.
         // Checkpoints are first-class — only a human move advances a gated state.
         { display_name: 'Human gate', type: 'checkbox', config: {} },
@@ -2474,11 +2481,15 @@ export class AgentsService implements OnModuleInit {
       relation_field_id?: string;
       human_gate?: boolean;
       enabled?: boolean;
+      /** ticket #1324 follow-up: a record filter that must match for the binding to wake the agent. Validated to compile against the database. */
+      condition?: FilterNode;
     },
     source: ChangeSource = 'human',
   ): Promise<ProjectedRecord> {
     const { agentsDb, triggersDb } = await this.ensurePackForExisting(membership);
     const agentRecord = await this.resolveAgent(agentsDb.id, input.agent);
+    if (input.condition) await this.assertConditionCompiles(input.database_id, input.condition, membership.userId);
+    const conditionText = input.condition ? { condition: writeTriggerCondition(input.condition) } : {};
     if (input.relation_field_id) {
       if (input.state_field_id || input.state_option_id) {
         throw new UnprocessableEntityException('A binding is either a state binding or a relation binding, not both');
@@ -2498,6 +2509,7 @@ export class AgentsService implements OnModuleInit {
           agent: [agentRecord.id],
           database: input.database_id,
           relation_field: input.relation_field_id,
+          ...conditionText,
           enabled: input.enabled ?? true,
         },
         membership.userId,
@@ -2524,6 +2536,7 @@ export class AgentsService implements OnModuleInit {
         state_field: input.state_field_id,
         state_option: input.state_option_id,
         human_gate: input.human_gate ?? false,
+        ...conditionText,
         // A binding you just created is one you meant to arm.
         enabled: input.enabled ?? true,
       },
@@ -2532,6 +2545,53 @@ export class AgentsService implements OnModuleInit {
       source,
     );
   }
+
+  /**
+   * ticket #1324 follow-up - a binding's condition must COMPILE against the binding's database (the same compiler a saved view's filter
+   * goes through), so a misspelt field or an op the field cannot take is a clean 422 at create, not a trigger that fails closed later.
+   */
+  async assertConditionCompiles(databaseId: string, condition: FilterNode, actorId: string): Promise<void> {
+    const defs = await this.recordsService.fieldDefs(databaseId);
+    try {
+      compileFilter(condition, { defs: new Map(defs.map((d) => [d.api_name, d])), currentUserId: actorId });
+    } catch (error) {
+      throw new UnprocessableEntityException(`The trigger's condition cannot be used on this database: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * The verdict of a trigger's condition on ONE record: wake (no condition, or it matches), or a skip with a code: `condition_not_met`
+   * (it does not match) or `condition_invalid` (it could not be read, compiled or evaluated). Anything but a clean "matches" is a skip:
+   * FAIL CLOSED, so a broken guard never turns into "wake for everyone".
+   */
+  async conditionVerdict(
+    databaseId: string,
+    recordId: string,
+    condition: TriggerCondition,
+    actorId: string | null,
+  ): Promise<{ wake: true } | { wake: false; code: 'condition_not_met' | 'condition_invalid'; detail: string }> {
+    if (condition.kind === 'none') return { wake: true };
+    if (condition.kind === 'invalid') return { wake: false, code: 'condition_invalid', detail: condition.reason };
+    try {
+      const defs = await this.recordsService.fieldDefs(databaseId);
+      const where = compileFilter(condition.filter, { defs: new Map(defs.map((d) => [d.api_name, d])), currentUserId: actorId ?? '' });
+      const [row] = await this.db.select({ id: recordsTable.id }).from(recordsTable).where(and(eq(recordsTable.id, recordId), where)).limit(1);
+      return row ? { wake: true } : { wake: false, code: 'condition_not_met', detail: "the record does not match the trigger's condition" };
+    } catch (error) {
+      return { wake: false, code: 'condition_invalid', detail: `the condition could not be evaluated: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  /** Read a binding's stored condition (see trigger-condition.ts). */
+  triggerConditionOf(binding: { values: Record<string, unknown> }): TriggerCondition {
+    return readTriggerCondition(binding.values['condition']);
+  }
+
+  /** A wake the trigger's condition refused, kept as a visible, finished wake (never a silent drop). See AgentWakesService.recordSkip. */
+  recordConditionSkip(input: Parameters<AgentWakesService['recordSkip']>[0]) {
+    return this.wakes.recordSkip(input);
+  }
+
 }
 
 function delay(ms: number): Promise<void> {
