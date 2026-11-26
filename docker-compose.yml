@@ -62,6 +62,10 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # YouTube upload (ticket #60): a DEDICATED Google client (not the sign-in one above) and the off-by-default switch.
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      YOUTUBE_ACTIONS_ENABLED: ${YOUTUBE_ACTIONS_ENABLED:-}
       # Managed StoryOS AI (agent runs + Architect proposals). Leave the key
       # empty to keep managed AI disabled; BYO-AI over MCP does not use it.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

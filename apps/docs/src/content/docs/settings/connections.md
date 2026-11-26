@@ -71,6 +71,10 @@ through the API for posting, but does not offer a connect form for it.
 
 Posting to a Facebook Page or an Instagram business account uses its own **Facebook & Instagram** connection, separate from the Meta Custom API preset above, which only reads comments. **Connect** opens Meta's sign-in and its Page selection; the Pages you choose there, and the Instagram business account linked to each, are what a post can go out as. A post names the Page or Instagram account it goes out as, and nothing posts from an account that is not named. If Meta stops accepting the connection (a Page was removed or its access ended), the connection shows **Expired** and the person who connected it is told to reconnect. On a self-managed install the operator registers the Meta app first; see the [self-hosting guide](/self-hosting/configuration/).
 
+## YouTube uploads
+
+Uploading a record's video to a YouTube channel uses its own **YouTube (upload)** connection, separate from the read-only YouTube connection the YouTube source uses. **Connect** opens Google's sign-in, where you pick the channel the uploads go to. An upload names the channel it goes to, and nothing uploads to a channel that is not named. If the connection belongs to a different channel than the one a rule names, nothing is uploaded and the failure says so. A video goes up **private** unless the rule says unlisted or public, and the rule is held for a person's approval by default like any post. The video is read with the access of the person who owns the rule, and never from a system database or personal space. If YouTube's daily quota is used up the upload waits for the reset and tries again; a dropped connection resumes where it stopped. On a self-managed install the operator registers the Google app first; see the [self-hosting guide](/self-hosting/configuration/).
+
 ## API tokens
 
 **Settings → API tokens** lists your personal tokens for this workspace, with **Create API token**.

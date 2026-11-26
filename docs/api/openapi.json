@@ -16426,7 +16426,8 @@
                         "linkedin_member",
                         "x",
                         "facebook_page",
-                        "instagram_business"
+                        "instagram_business",
+                        "youtube_channel"
                       ]
                     },
                     "text": {
@@ -16452,6 +16453,28 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 200
+                    },
+                    "video_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "tags": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "privacy": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "unlisted",
+                        "public"
+                      ]
                     }
                   },
                   "required": [
@@ -17191,7 +17214,8 @@
                         "linkedin_member",
                         "x",
                         "facebook_page",
-                        "instagram_business"
+                        "instagram_business",
+                        "youtube_channel"
                       ]
                     },
                     "text": {
@@ -17217,6 +17241,28 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 200
+                    },
+                    "video_field_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "tags": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "privacy": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "unlisted",
+                        "public"
+                      ]
                     }
                   },
                   "required": [

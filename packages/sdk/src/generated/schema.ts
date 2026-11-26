@@ -6252,7 +6252,7 @@ export interface components {
                 /** Format: uuid */
                 connection_id: string;
                 /** @enum {string} */
-                target: "linkedin_org" | "linkedin_member" | "x" | "facebook_page" | "instagram_business";
+                target: "linkedin_org" | "linkedin_member" | "x" | "facebook_page" | "instagram_business" | "youtube_channel";
                 text: string;
                 /** Format: uuid */
                 media_field_id?: string;
@@ -6260,6 +6260,12 @@ export interface components {
                 /** Format: uuid */
                 result_field_id?: string;
                 account_id?: string;
+                /** Format: uuid */
+                video_field_id?: string;
+                title?: string;
+                tags?: string;
+                /** @enum {string} */
+                privacy?: "private" | "unlisted" | "public";
             })[];
             /** @default true */
             enabled: boolean;
@@ -6454,7 +6460,7 @@ export interface components {
                 /** Format: uuid */
                 connection_id: string;
                 /** @enum {string} */
-                target: "linkedin_org" | "linkedin_member" | "x" | "facebook_page" | "instagram_business";
+                target: "linkedin_org" | "linkedin_member" | "x" | "facebook_page" | "instagram_business" | "youtube_channel";
                 text: string;
                 /** Format: uuid */
                 media_field_id?: string;
@@ -6462,6 +6468,12 @@ export interface components {
                 /** Format: uuid */
                 result_field_id?: string;
                 account_id?: string;
+                /** Format: uuid */
+                video_field_id?: string;
+                title?: string;
+                tags?: string;
+                /** @enum {string} */
+                privacy?: "private" | "unlisted" | "public";
             })[];
             enabled?: boolean;
             approverId?: string | null;

@@ -8479,7 +8479,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: "List a record's social posts",
       description:
-        "What this record's posts to LinkedIn, X, Facebook, Instagram and YouTube did, one entry per channel with its latest outcome: state (awaiting_approval, sent_back, expired, queued, running, published, failed), the named account it goes out as (connection and, for a LinkedIn page, the organization id; for YouTube, the channel id), `progress` {sent_bytes, total_bytes} while a video upload is open, attempt and next_attempt_at while it retries by itself, the post URL once published, and for a failure a safe `error` {code, message} (never the network's own response). Each entry has a `publish_id` (null while it only waits for approval) and `can_retry` for the caller. Read-only.",
+        "What this record's posts to LinkedIn, X, Facebook, Instagram and YouTube did, one entry per channel with its latest outcome: state (awaiting_approval, sent_back, expired, queued, running, published, failed), the named account it goes out as (connection and, for a LinkedIn page, the organization id), attempt and next_attempt_at while it retries by itself, the post URL once published, and for a failure a safe `error` {code, message} (never the network's own response). Each entry has a `publish_id` (null while it only waits for approval) and `can_retry` for the caller. A YouTube upload names its channel id and carries `progress` {sent_bytes, total_bytes} while the video is being sent. Read-only.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),

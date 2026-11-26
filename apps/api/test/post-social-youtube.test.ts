@@ -9,7 +9,7 @@ import type { Person } from './helpers/members';
 import { expectedDigest, FAKE_CHANNEL, FAKE_VIDEO_ID, FakeYoutube, OTHER_CHANNEL } from './helpers/fake-youtube';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { approvals, attachments, automationJobs, connections, databases, memberships, records, user } from '../src/db/schema';
+import { approvals, attachments, automationJobs, connections, databases, memberships, records, spaces, user } from '../src/db/schema';
 import { env } from '../src/config/env';
 import { AutomationsService } from '../src/automations/automations.service';
 import { JobRunnerService } from '../src/automations/job-runner.service';
@@ -638,6 +638,57 @@ describe('the video is read as the ACTOR, through the shared access check', () =
     } finally {
       await db.update(databases).set({ isSystem: false, systemKey: null }).where(eq(databases.id, s.dbId));
     }
+  });
+
+  it('personal space is never a source of videos, even for its owner', async () => {
+    reset();
+    const s = await scenario();
+    const rec = await record(s);
+    await addVideo(s, rec, videoBytes(100));
+    const dbRow = (await db.query.databases.findFirst({ where: eq(databases.id, s.dbId) }))!;
+    await db.update(spaces).set({ personal: true, ownerUserId: adminId }).where(eq(spaces.id, dbRow.spaceId));
+    try {
+      const job = await craft(s, rec);
+      await jobs.tick();
+      expect((await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, job.id) }))!.lastError).toMatch(/^\[no_access\] Videos are never uploaded from a system database or from personal space/);
+      expect(yt.calls).toHaveLength(0);
+    } finally {
+      await db.update(spaces).set({ personal: false, ownerUserId: null }).where(eq(spaces.id, dbRow.spaceId));
+    }
+  });
+
+  it('only a YouTube job gets the upload budget; an X job enqueued the same way keeps the long one', async () => {
+    const s = await scenario();
+    const rec = await record(s);
+    const x = await connection('x');
+    const mk = async (target: string, extra: Record<string, unknown>) => {
+      const { jobId } = await jobs.enqueue({ workspaceId: wsId, ruleId: null, runId: null, connectionId: x, actionIndex: 0, kind: 'post_social', payload: { action: { type: 'post_social', target, text: 't', ...extra }, ctx: { workspaceId: wsId, databaseId: s.dbId, recordId: rec, actorId: adminId } }, idempotencyKey: randomUUID() });
+      // it is only inspected, never run: cancel it so no later tick sends it anywhere
+      await db.update(automationJobs).set({ status: 'canceled' }).where(eq(automationJobs.id, jobId));
+      return (await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, jobId) }))!.timeoutClass;
+    };
+    expect(await mk('youtube_channel', {})).toBe('upload');
+    expect(await mk('x', {})).toBe('long');
+  });
+
+  it('the runner aborts an attempt after the budget the JOB carries (an upload an hour, a short job 30 seconds), not the executor\'s registered one', async () => {
+    const kind = `probe_budget_${randomUUID().slice(0, 6)}`;
+    jobs.registerExecutor(kind, async () => 'ok', { timeoutClass: 'short' });
+    const real = globalThis.setTimeout;
+    const seen: number[] = [];
+    globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms === 3_600_000 || ms === 30_000) seen.push(ms);
+      return real(fn, ms, ...(rest as []));
+    }) as typeof setTimeout;
+    try {
+      for (const timeoutClass of ['upload', 'short'] as const) {
+        await jobs.enqueue({ workspaceId: wsId, ruleId: null, runId: null, actionIndex: 0, kind, payload: { ctx: {} }, idempotencyKey: randomUUID(), timeoutClass });
+        await jobs.tick();
+      }
+    } finally {
+      globalThis.setTimeout = real;
+    }
+    expect(seen.slice(0, 2)).toEqual([3_600_000, 30_000]);
   });
 
   it('a record in another workspace\'s database cannot be reached with this workspace\'s job (the database is not found)', async () => {
