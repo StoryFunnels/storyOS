@@ -234,6 +234,6 @@ had — StoryOS marks the row rather than erasing it outright.
   the trash. After the toast is gone, ⌘Z still undoes it, and the record can be restored from the
   database's own Trash. Deleting through a personal view deletes the record for everyone, and the
   toast says so. Deleting several records at once keeps its own confirmation.
-- **Settings → Trash**, admin-only, lists deleted **spaces** and **databases** workspace-wide.
+- **Settings → Trash**, admin-only, lists deleted **spaces** and **databases** workspace-wide. A member's deleted personal space is not in an admin's list, and an admin cannot restore it: only its owner sees it in the trash.
   Restoring a space brings back every database it held automatically — you don't separately
   restore each one.

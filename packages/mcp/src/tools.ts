@@ -965,6 +965,10 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   list_source_providers: 'read',
   list_source_runs: 'read',
   list_youtube_channels: 'read',
+  // #42 — the per-record publish state and the account picker are reads; the retry sends a public post again, so it sits at rerun_action's admin ceiling.
+  list_social_publishes: 'read',
+  list_social_accounts: 'read',
+  retry_social_publish: 'admin',
   discover_source_fields: 'write',
   create_source: 'write',
   update_source: 'write',
@@ -8468,6 +8472,81 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         return text(res.data ?? []);
       },
     ),
+  );
+
+  reg(
+    'list_social_publishes',
+    {
+      title: "List a record's social posts",
+      description:
+        "What this record's posts to LinkedIn and X did, one entry per channel with its latest outcome: state (awaiting_approval, sent_back, expired, queued, running, published, failed), the named account it goes out as (connection and, for a LinkedIn page, the organization id), attempt and next_attempt_at while it retries by itself, the post URL once published, and for a failure a safe `error` {code, message} (never the network's own response). Each entry has a `publish_id` (null while it only waits for approval) and `can_retry` for the caller. Read-only.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        record: z.string().describe('Record uuid or public number.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes', {
+          params: { path: { ws: ws.id, db: db.id, rec } },
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'retry_social_publish',
+    {
+      title: 'Retry a failed social post',
+      description:
+        "Try ONE failed post again, with its ORIGINAL account and the text that was approved: it never re-picks an account and never asks for a second approval. `publish` is the `publish_id` from list_social_publishes. Idempotent: a post that already went out, is in flight, was superseded by a newer attempt or has used its 5 retries is a 409 and nothing is posted; a post that names no account is a 422. It sends the post publicly. Needs edit on the record.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        record: z.string().describe('Record uuid or public number.'),
+        publish: z.string().describe('The publish_id of the failed post, from list_social_publishes.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; publish: string }>(async ({ workspace, database, record, publish }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes/{publish}/retry', {
+          params: { path: { ws: ws.id, db: db.id, rec, publish } },
+          body: {},
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_social_accounts',
+    {
+      title: 'List the accounts a social connection can post as',
+      description:
+        "The accounts a LinkedIn or X connection can post as, as `{ id, name, type }` (type member, organization or x_account): the picker a post names its account from. For a LinkedIn page post, put the organization `id` in the action's `account_id`. Reads through to the network with the stored connection (cached a few minutes; refresh true asks again); changes nothing and returns nothing secret. Needs a workspace admin, or the person who connected it.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        connection_id: z.string().describe("The linkedin or x connection's id (from list_connections)."),
+        refresh: z.boolean().optional().describe('Ask the network again instead of using the cached list.'),
+      },
+    },
+    handle<{ workspace: string; connection_id: string; refresh?: boolean }>(async ({ workspace, connection_id, refresh }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/connections/{id}/social-accounts', {
+          params: { path: { ws: ws.id, id: connection_id }, query: refresh ? { refresh: 'true' } : {} },
+        } as never),
+      );
+      return text(res);
+    }),
   );
 
   reg(
