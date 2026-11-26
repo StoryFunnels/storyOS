@@ -969,6 +969,8 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   list_social_publishes: 'read',
   list_social_accounts: 'read',
   retry_social_publish: 'admin',
+  // #456 — the publishing setup read is a read.
+  get_publishing_setup: 'read',
   discover_source_fields: 'write',
   create_source: 'write',
   update_source: 'write',
@@ -8532,7 +8534,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List the accounts a social connection can post as',
       description:
-        "The accounts a LinkedIn or X connection can post as, as `{ id, name, type }` (type member, organization or x_account): the picker a post names its account from. For a LinkedIn page post, put the organization `id` in the action's `account_id`. Reads through to the network with the stored connection (cached a few minutes; refresh true asks again); changes nothing and returns nothing secret. Needs a workspace admin, or the person who connected it.",
+        "The accounts a LinkedIn or X connection can post as, as `{ id, name, type }` (type member, organization or x_account). For a LinkedIn page post, put the organization `id` in the action's `account_id`. Reads through to the network with the stored connection (cached a few minutes; refresh true asks again); changes nothing and returns nothing secret. Needs a workspace admin, or the person who connected it.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         connection_id: z.string().describe("The linkedin or x connection's id (from list_connections)."),
@@ -8545,6 +8547,27 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         client.GET('/api/v1/workspaces/{ws}/connections/{id}/social-accounts', {
           params: { path: { ws: ws.id, id: connection_id }, query: refresh ? { refresh: 'true' } : {} },
         } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_publishing_setup',
+    {
+      title: "Read the Social Command Center's publishing setup",
+      description:
+        "Social Command Center publishing setup: state, rules, unmet reasons.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe("The pack's Posts database: name, api slug, or id."),
+      },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/publishing', { params: { path: { ws: ws.id, db: db.id } } } as never),
       );
       return text(res);
     }),

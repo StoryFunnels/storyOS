@@ -5379,6 +5379,113 @@
         ]
       }
     },
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing": {
+      "get": {
+        "operationId": "PublishingController_setup",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Publishing setup for the Social Command Center's Posts database: whether a publish rule exists and is on, which connections and networks are available, what blocks turning it on (coded), the pack's field ids and the rule to create. Someone who cannot manage rules gets only `can_manage: false`.",
+        "tags": [
+          "publishing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/enable": {
+      "post": {
+        "operationId": "PublishingController_enable",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnablePublishingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Turn on publishing for ONE network: saves the publish rule (Status becomes Scheduled -> post Text and Media, save Post URL) with the named connection and account, switched on. Idempotent. 422 with every unmet prerequisite as `unmet[].code`. A person only (never a run credential, token or connected AI). Posts nothing itself.",
+        "tags": [
+          "publishing"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/disable": {
+      "post": {
+        "operationId": "PublishingController_disable",
+        "parameters": [
+          {
+            "name": "db",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisablePublishingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pause publishing: switches off the Posts database's publish rules (one network, or all). Idempotent; nothing is deleted, so turning it back on is one call.",
+        "tags": [
+          "publishing"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/webhooks": {
       "get": {
         "operationId": "WebhooksController_list",
@@ -17515,6 +17622,49 @@
         "properties": {
           "account_id": {},
           "connection_id": {}
+        }
+      },
+      "EnablePublishingDto": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "linkedin_org",
+              "linkedin_member",
+              "x"
+            ]
+          },
+          "account_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "require_approval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connection_id",
+          "target"
+        ]
+      },
+      "DisablePublishingDto": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "linkedin_org",
+              "linkedin_member",
+              "x"
+            ]
+          }
         }
       },
       "CreateWebhookDto": {

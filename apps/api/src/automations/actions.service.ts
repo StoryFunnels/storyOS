@@ -30,6 +30,7 @@ import { ActionAccessGuardService } from './action-access-guard.service';
 import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN, namesAccount, SOCIAL_TARGETS, targetEnabled } from './social-targets';
 import { AttachPdfActionService } from './attach-pdf.action';
 import { DEFAULT_FILENAME_TEMPLATE, withDateToken } from './attach-pdf-model';
+import { isRichTextBlocks, richTextBlocksToPlain } from '../common/rich-text-plain';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
@@ -806,6 +807,7 @@ export class AutomationActionsService implements OnModuleInit {
         if (!ctx.linkedRecords?.length) return escape('—');
         const value = this.linkedFieldValue(ctx, trimmed.slice('linked.'.length));
         if (value === undefined || value === null) return escape('—');
+        if (isRichTextBlocks(value)) return escape(richTextBlocksToPlain(value));
         if (Array.isArray(value))
           return escape(
             value
@@ -832,6 +834,8 @@ export class AutomationActionsService implements OnModuleInit {
       }
       const value = ctx.record.values[apiName];
       if (value === undefined || value === null) return escape('—');
+      // Ticket #456: a rich_text value is blocks, which have no `title`, so it rendered as '' (see common/rich-text-plain.ts).
+      if (isRichTextBlocks(value)) return escape(richTextBlocksToPlain(value));
       if (Array.isArray(value))
         return escape(
           value

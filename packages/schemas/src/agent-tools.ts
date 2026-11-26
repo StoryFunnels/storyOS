@@ -100,6 +100,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'get_or_create_personal_space',
   'get_personal_collection_filter',
   'get_personal_filter',
+  'get_publishing_setup',
   'get_record',
   'get_record_description',
   'get_relation',
