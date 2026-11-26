@@ -16,6 +16,9 @@ day the change reached the product.
 - **25 Nov** — A guest who asks the API for a personal access token is refused with a 403, matching the app. [Authentication](/api/authentication/)
 - **25 Nov** — The API container runs as the `node` user and fixes the ownership of an older attachments volume on first start. [Attachments](/self-hosting/attachments/)
 
+- **25 Nov** — Settings shows **N connected** beside **Runners**, in the warning colour when a Runner is offline or at its limit. [See your Runners](/guides/adding-and-removing-a-runner/#see-your-runners)
+- **25 Nov** — The catch-up confirmation names the first five waiting records, and the agent's **Runs** list shows each waiting record as a **Not started** row. [Starting an agent on records already waiting](/guides/runner/#starting-an-agent-on-records-already-waiting)
+- **25 Nov** — The delete-field confirmation counts a relation by its links, says nothing is lost for a formula, lookup or rollup, and says "at least" when some records are hidden from you. [Field lifecycle](/concepts/databases-and-fields/#field-lifecycle)
 - **25 Nov** — A built-in Shop OS pack: customers, products, orders and order lines, an order board by status, an Unpaid Orders view, and a drafter agent that installs switched off. [The Shop OS pack](/guides/shop-os-pack/)
 - **15 Nov** — The record page's Activity, Comments and About sit under the fields on a window narrower than 900px, Activity reads as "set", "cleared" and "changed" sentences, and a half-typed comment is kept per record. [The record page](/concepts/databases-and-fields/#the-record-page)
 - **15 Nov** — My Work gathers finished rows under a closed **Done · N** group, writes the space on two databases that share a name, and says **Not recorded** when it has no record of who assigned you. [My Work: what is waiting on you](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you)
