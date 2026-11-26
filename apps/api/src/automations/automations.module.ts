@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { AttachmentsModule } from '../attachments/attachments.module';
+import { DocumentsModule } from '../documents/documents.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { BillingModule } from '../billing/billing.module';
 import { CollaborationModule } from '../comments/collaboration.module';
@@ -11,6 +13,7 @@ import { RelationsModule } from '../relations/relations.module';
 import { SkillsModule } from '../skills/skills.module';
 import { SkillPublishGateService } from './skill-publish-gate.service';
 import { AutomationActionsService } from './actions.service';
+import { AttachPdfActionService } from './attach-pdf.action';
 import { ApprovalsController } from './approvals.controller';
 import { ApprovalsService } from './approvals.service';
 import { ButtonsController } from './buttons.controller';
@@ -39,6 +42,9 @@ import { SocialPublishesService } from './social-publishes.service';
     // #867: one-way (SkillsModule is standalone); the gate service below hands SkillsService its
     // public-approval path at boot.
     SkillsModule,
+    // Ticket #877: attach_pdf renders through the document export's PdfRenderer and writes through AttachmentsService.
+    DocumentsModule,
+    AttachmentsModule,
   ],
   controllers: [ButtonsController, AutomationsController, HooksController, ApprovalsController, SocialPublishesController],
   providers: [
@@ -56,6 +62,8 @@ import { SocialPublishesService } from './social-publishes.service';
     HttpRequestActionService,
     // Ticket #42 / MN-257: registers the 'post_social' executor the same way.
     PostSocialActionService,
+    // Ticket #877: the inline attach_pdf action (not a queued job: a failure must stop the rule's later actions).
+    AttachPdfActionService,
     // Ticket #42: the per-record publish state and the retry of a failed publish.
     SocialPublishesService,
   ],

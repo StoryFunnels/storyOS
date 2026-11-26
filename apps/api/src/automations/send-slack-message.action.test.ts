@@ -46,6 +46,7 @@ function build() {
     {} as never,
     { hasExecutor: () => false } as unknown as JobRunnerService,
     approvalsService,
+    {} as never,
   );
   vi.spyOn(service, 'validate').mockResolvedValue(undefined as never);
   return { service, posts, approvals };
