@@ -179,7 +179,18 @@ export class CopyRecordService {
     const built = report.build();
 
     if (input.dryRun) {
-      return { dry_run: true, plans, ...built };
+      // ticket #1352 — a copy that an agent credential may not make (an agent record wider than the credential) is REPORTED here, per record,
+      // rather than previewed as a success. Asked of the same guard the commit hits, so the preview cannot disagree with the write.
+      const { payloads } = this.buildPayloads(plans, destById, sourceFieldRows, sourceRecords, sourceRelationLinks, []);
+      let willRefuse = 0;
+      for (let i = 0; i < payloads.length; i++) {
+        const refusal = await this.records.agentCreateRefusal(membership.workspaceId, input.targetDatabaseId, payloads[i]!);
+        if (!refusal) continue;
+        willRefuse++;
+        report.addWarning({ row: i + 1, column: '', message: `refused: ${refusal}` });
+      }
+      const refused = report.build();
+      return { dry_run: true, plans, ...refused, will_create: refused.will_create - willRefuse, will_refuse: willRefuse };
     }
     if (report.isBlocked) {
       // Refuse, don't drop (#430) — never silently proceed past a field the
@@ -193,17 +204,15 @@ export class CopyRecordService {
     return this.commit(membership, input.targetDatabaseId, plans, destById, sourceFieldRows, sourceRecords, sourceRelationLinks, actorId);
   }
 
-  private async commit(
-    membership: Membership,
-    targetDatabaseId: string,
+  /** The destination payload for each source record, and the links to make once it exists. Shared by the commit and the dry run's refusal check. */
+  private buildPayloads(
     plans: FieldPlan[],
     destById: Map<string, DestinationField>,
     sourceFieldRows: LiveField[],
     sourceRecords: Awaited<ReturnType<StoryosSourceAdapter['readRecords']>>,
     sourceRelationLinks: Awaited<ReturnType<StoryosSourceAdapter['readRelations']>>,
-    actorId: string,
-  ) {
-    const warnings: string[] = [];
+    warnings: string[],
+  ): { payloads: Array<Record<string, unknown>>; relationsToLink: Array<Array<{ fieldId: string; targetIds: string[] }>> } {
     const sourceOptionLabelById = new Map<string, Map<string, string>>();
     for (const f of sourceFieldRows) {
       if (f.options?.length) sourceOptionLabelById.set(f.apiName, new Map(f.options.map((o) => [o.id, o.label])));
@@ -241,6 +250,21 @@ export class CopyRecordService {
       payloads.push(values);
       relationsToLink.push(links);
     }
+    return { payloads, relationsToLink };
+  }
+
+  private async commit(
+    membership: Membership,
+    targetDatabaseId: string,
+    plans: FieldPlan[],
+    destById: Map<string, DestinationField>,
+    sourceFieldRows: LiveField[],
+    sourceRecords: Awaited<ReturnType<StoryosSourceAdapter['readRecords']>>,
+    sourceRelationLinks: Awaited<ReturnType<StoryosSourceAdapter['readRelations']>>,
+    actorId: string,
+  ) {
+    const warnings: string[] = [];
+    const { payloads, relationsToLink } = this.buildPayloads(plans, destById, sourceFieldRows, sourceRecords, sourceRelationLinks, warnings);
 
     // #372's rollback pattern (mirrored from import.service.ts) — the only
     // creation this path does is records, since copy never creates fields or

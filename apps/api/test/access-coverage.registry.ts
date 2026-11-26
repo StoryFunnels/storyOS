@@ -64,6 +64,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'GET /api/v1/admin/workspaces': adminOnly('platform admin (PlatformAdminGuard), not a workspace role'),
   'GET /api/v1/admin/workspaces/:id/billing': adminOnly('platform admin (PlatformAdminGuard), not a workspace role'),
   'GET /api/v1/auth/providers': publicRoute('MeController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
+  'GET /api/v1/attachments/signed/:id': publicRoute('SignedAttachmentController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'GET /api/v1/capabilities': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'GET /api/v1/connections/oauth/callback': publicRoute('ConnectionsOAuthController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'GET /api/v1/files/:id': publicRoute('PublicFilesController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),

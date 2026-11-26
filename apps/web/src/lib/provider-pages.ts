@@ -180,12 +180,17 @@ export const PROVIDER_PAGES: ReadonlyArray<ProviderPageDef> = [
     blurb: 'Custom API preset: Facebook Page and Instagram comments into a database',
     backing: {
       kind: 'connections',
-      providers: ['http'],
-      rowMatch: isPreset('meta'),
-      connect: [{ providerId: 'http', label: 'Connect Meta', presetId: 'meta' }],
+      providers: ['http', 'meta'],
+      rowMatch: (c) => c.provider === 'meta' || isPreset('meta')(c),
+      // Ticket #51: the second button is the dedicated `meta` provider (OAuth, for posting to a Page or Instagram); the first is the
+      // Custom API preset that reads comments.
+      connect: [
+        { providerId: 'http', label: 'Connect Meta', presetId: 'meta' },
+        { providerId: 'meta', label: 'Connect Facebook & Instagram' },
+      ],
       addAnother: true,
     },
-    disconnectEffect: 'Syncs from Meta stop. Comments already imported stay.',
+    disconnectEffect: 'Syncs from Meta stop, and anything else that uses this connection, such as posting to a Facebook Page or Instagram, stops working. Comments already imported stay.',
   },
   {
     id: 'x',

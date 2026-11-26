@@ -46,8 +46,23 @@ Two limits, each refused when you save rather than discovered later:
   stored on it, so a rollup has nothing to add up; sum the underlying number field instead.
 
 Once a rollup sums a formula, you can't edit that formula into one of those two shapes without first
-changing or deleting the rollup. The rollup shows a plain number: it takes no currency format of its
-own yet.
+changing or deleting the rollup.
+
+### A rollup shows the format of the field it sums
+
+A `sum`, `avg`, `min` or `max` rollup draws its number the way the field it aggregates is drawn. A
+Quote's **Quote Total** that sums a **Line Total** in euros shows euros, and a rollup that averages
+a percent field shows a percent. The format is read from the summed field each time, never copied
+onto the rollup, so if you change the Line Total to dollars the Quote Total follows. A percent or
+currency average is shown to at most two decimal places, in the table and on cards in a board,
+gallery, list or feed.
+
+- **Set a format on the rollup to override it.** An explicit `format` (`plain`, `percent` or
+  `currency`), with `currency_code` and `precision`, wins over the inherited one.
+- **A `count` rollup is always a plain whole number**, and refuses a format.
+- Over the API, a rollup's field config carries the inherited `format`, `currency_code` and
+  `precision`, plus `format_inherited: true`. Sending that config back in a field update does not
+  turn the inherited format into a stored one.
 
 ### Collecting files from related records
 

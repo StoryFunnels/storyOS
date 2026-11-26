@@ -3,6 +3,7 @@ import { googleProvider } from './google';
 import { googleCalendarProvider } from './google-calendar';
 import { httpProvider } from './http';
 import { linkedinProvider } from './linkedin';
+import { metaProvider } from './meta';
 import { openaiProvider } from './openai';
 import { resendProvider } from './resend';
 import { shopifyProvider } from './shopify';
@@ -30,6 +31,8 @@ export { openaiProvider } from './openai';
 export type { OpenAiConnectionAuth } from './openai';
 export { linkedinProvider } from './linkedin';
 export type { LinkedinAuth } from './linkedin';
+export { metaProvider, metaGraphBase, metaErrorCodes, META_SCOPES } from './meta';
+export type { MetaAuth, MetaPage } from './meta';
 export { xProvider } from './x';
 export type { XAuth } from './x';
 
@@ -49,6 +52,7 @@ export const PROVIDER_REGISTRY: ReadonlyMap<string, ProviderDescriptor> = new Ma
     shopifyProvider,
     openaiProvider,
     linkedinProvider,
+    metaProvider,
     xProvider,
   ].map((p) => [p.id, p]),
 );
