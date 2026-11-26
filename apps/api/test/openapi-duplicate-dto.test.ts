@@ -35,7 +35,7 @@ describe('#1341 the OpenAPI document has no duplicate DTO names', () => {
   it('each build endpoint documents its OWN body: the Architect takes a plan, a Tyron thread takes a description', () => {
     const bodyOf = (path: string): Record<string, unknown> => {
       const op = (doc.paths[path] as Record<string, { requestBody?: { content: Record<string, { schema: { $ref?: string } }> } }>).post;
-      const ref = op.requestBody?.content['application/json']?.schema.$ref ?? '';
+      const ref = op?.requestBody?.content['application/json']?.schema.$ref ?? '';
       return (doc.components?.schemas?.[ref.split('/').pop() ?? ''] ?? {}) as Record<string, unknown>;
     };
     const architect = bodyOf('/api/v1/workspaces/{ws}/architect/build');
