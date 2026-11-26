@@ -23,8 +23,22 @@ printf 'BETTER_AUTH_SECRET=%s\nCONNECTIONS_MASTER_KEY=%s\n' "$(openssl rand -hex
 docker compose up -d
 ```
 
-Open **http://localhost** and sign up — the first account creates its own workspace. Migrations
-run automatically when the API boots.
+:::note[The first run builds from source]
+`docker compose up -d` builds three images (api, web, mcp) from the repository on first run. Expect
+15 to 20 minutes on a laptop-class machine; later starts take seconds, and an upgrade rebuilds only
+what changed. The build is the slow step, not a hang: follow it with `docker compose logs -f`. The
+product needs only `api` and `web`: `docker compose up -d caddy` builds and starts just postgres,
+api, web and the proxy, and skips the MCP image.
+:::
+
+Open **http://localhost** and sign up. Sign-up signs you straight in and leads to a **Create your
+workspace** step: name it, then either install the Business Pack or choose **Start empty**. That
+step is where the workspace is made; sign-up only creates your account. Migrations run
+automatically when the API boots.
+
+No mail provider is needed to get started. With no `RESEND_API_KEY` and no `SMTP_HOST`, the API logs
+each email instead of sending it, and an unverified address blocks nothing. To read a verification
+link, run `docker compose logs api | grep "Email delivery not configured"`.
 
 `.env.example` already points `API_URL` and `WEB_URL` at `http://localhost`, the origin the bundled
 proxy serves on port 80, so no URL edits are needed for a local try-out. The generate step sets two
@@ -42,7 +56,9 @@ makes them unreadable.
 - **web** — the Next.js web app.
 - **caddy** — a reverse proxy that serves everything on **one origin** (port 80): the web app at
   `/` and the API at `/api/*`.
-- **mcp** *(optional)* — the [hosted MCP endpoint](/mcp/hosted/); route a subdomain to it.
+- **mcp** — the [hosted MCP endpoint](/mcp/hosted/). `docker compose up -d` builds and starts it, but
+  nothing needs it until you route a subdomain to it for cloud AI clients; to leave it out, run
+  `docker compose up -d caddy` instead.
 - **minio** *(optional, `--profile minio`)* — S3-compatible [attachment storage](/self-hosting/attachments/).
 
 ## Going to production
