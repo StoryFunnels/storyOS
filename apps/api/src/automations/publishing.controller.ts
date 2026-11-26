@@ -41,7 +41,8 @@ export class PublishingController {
 
   @Post('enable')
   @HttpCode(200)
-  @RequiresScope('admin')
+  // `write`, not `admin`, like every other @NoRunCredential route: admin scope would refuse a run credential first, for a different reason, and hide this marker. A token of any scope is refused by assertHumanSource below.
+  @RequiresScope('write')
   @NoRunCredential()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
