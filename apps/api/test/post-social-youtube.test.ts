@@ -293,7 +293,7 @@ describe('the channel picker', () => {
 });
 
 describe('saving a YouTube upload rule', () => {
-  it('a complete rule saves, and defaults to the approval gate (a person must approve an outward post)', async () => {
+  it('a complete rule saves', async () => {
     const s = await scenario();
     const res = await createRule(s, youtubeAction(s));
     expect(res.statusCode, res.body).toBe(201);
@@ -355,16 +355,16 @@ describe('saving a YouTube upload rule', () => {
 });
 
 describe('publishing through the real engine (fake YouTube)', () => {
-  it('approval -> the named channel is checked -> init says PRIVATE -> chunks -> the URL is written back; the preview names the channel and privacy', async () => {
+  it('an UNLISTED upload: approval -> the named channel is checked -> init says unlisted -> chunks -> the URL is written back; the preview names the channel and privacy', async () => {
     reset();
     const s = await scenario();
-    expect((await createRule(s, youtubeAction(s))).statusCode).toBe(201);
+    expect((await createRule(s, youtubeAction(s, { privacy: 'unlisted' }))).statusCode).toBe(201);
     const rec = await record(s);
     const bytes = videoBytes(CHUNK * 2 + 4321);
     await addVideo(s, rec, bytes);
     const pending = (await db.query.approvals.findMany({ where: eq(approvals.recordId, rec) })).find((a) => a.status === 'pending')!;
     expect(pending.previewText).toContain(FAKE_CHANNEL);
-    expect(pending.previewText).toMatch(/as private/);
+    expect(pending.previewText).toMatch(/as unlisted/);
     expect(pending.previewText).toContain('Launch: ');
     expect(yt.calls, 'nothing is sent while it waits for approval').toHaveLength(0);
     expect(((await read(s, rec)).json().data as any[])[0]).toMatchObject({ channel: 'youtube', target: 'youtube_channel', state: 'awaiting_approval' });
@@ -374,7 +374,7 @@ describe('publishing through the real engine (fake YouTube)', () => {
 
     expect(yt.initCount).toBe(1);
     const init = JSON.parse(yt.inits()[0]!.bodyText);
-    expect(init.status).toEqual({ privacyStatus: 'private' });
+    expect(init.status).toEqual({ privacyStatus: 'unlisted' });
     expect(init.snippet.title).toMatch(/^Launch: Cut /);
     expect(init.snippet.description).toMatch(/^Description of Cut /);
     expect(yt.calls[0]!.url, 'the channel is asked before anything is sent').toMatch(/youtube\/v3\/channels/);
@@ -564,6 +564,70 @@ describe('publishing through the real engine (fake YouTube)', () => {
     await craft(s, rec);
     await jobs.tick();
     expect(yt.digestOf('S1')).toBe(expectedDigest(second));
+  });
+});
+
+describe('ONE GATE PER RISK: only a video that would not be private is held by default (Otto\'s ruling)', () => {
+  const pendingFor = async (rec: string) => (await db.query.approvals.findMany({ where: eq(approvals.recordId, rec) })).filter((a) => a.status === 'pending');
+
+  it('unset privacy (private) with no require_approval goes STRAIGHT through: no approval, uploaded private, URL written back', async () => {
+    reset();
+    const s = await scenario();
+    expect((await createRule(s, youtubeAction(s))).statusCode).toBe(201);
+    const rec = await record(s);
+    await addVideo(s, rec, videoBytes(2000));
+    expect(await pendingFor(rec)).toHaveLength(0);
+    await jobs.tick();
+    expect(JSON.parse(yt.inits()[0]!.bodyText).status).toEqual({ privacyStatus: 'private' });
+    expect(((await read(s, rec)).json().data as any[])[0]).toMatchObject({ state: 'published', post_url: `https://youtu.be/${FAKE_VIDEO_ID}` });
+  });
+
+  it('explicit private goes straight through too', async () => {
+    reset();
+    const s = await scenario();
+    await createRule(s, youtubeAction(s, { privacy: 'private' }));
+    const rec = await record(s);
+    await addVideo(s, rec, videoBytes(500));
+    expect(await pendingFor(rec)).toHaveLength(0);
+    await jobs.tick();
+    expect(yt.initCount).toBe(1);
+  });
+
+  it.each(['public', 'unlisted'] as const)('%s is HELD for approval and nothing is sent until it is approved', async (privacy) => {
+    reset();
+    const s = await scenario();
+    await createRule(s, youtubeAction(s, { privacy }));
+    const rec = await record(s);
+    await addVideo(s, rec, videoBytes(500));
+    expect(await pendingFor(rec)).toHaveLength(1);
+    await jobs.tick();
+    expect(yt.calls, 'held: nothing reached YouTube').toHaveLength(0);
+    expect(((await read(s, rec)).json().data as any[])[0]).toMatchObject({ state: 'awaiting_approval' });
+  });
+
+  it('"hold all" (require_approval true) holds a PRIVATE upload as well', async () => {
+    reset();
+    const s = await scenario();
+    await createRule(s, youtubeAction(s, { require_approval: true }));
+    const rec = await record(s);
+    await addVideo(s, rec, videoBytes(500));
+    expect(await pendingFor(rec)).toHaveLength(1);
+    await jobs.tick();
+    expect(yt.calls).toHaveLength(0);
+  });
+
+  it('require_approval false is still only a human admin\'s to set (a member is refused), same as the other networks', async () => {
+    const s = await scenario();
+    const res = await as(member.token, 'POST', `/workspaces/${wsId}/databases/${s.dbId}/automations`, { name: 'm', trigger: { type: 'record_created' }, actions: [youtubeAction(s, { require_approval: false, privacy: 'public' })] });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+  });
+
+  it('the other networks are unchanged: an unset X post is still held', async () => {
+    const s = await scenario();
+    const x = await connection('x');
+    await createRule(s, { type: 'post_social', connection_id: x, target: 'x', text: 'hi' });
+    const rec = await record(s);
+    expect(await pendingFor(rec)).toHaveLength(1);
   });
 });
 

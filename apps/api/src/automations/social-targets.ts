@@ -76,3 +76,15 @@ export function namesAccount(action: { target?: string; account_id?: string }): 
       return false;
   }
 }
+
+/**
+ * Ticket #60 (Otto's ruling) — what a post_social action does when `require_approval` is LEFT UNSET. One gate per risk: LinkedIn,
+ * X and Meta posts are public the moment they go out, so they are held. A YouTube upload's risk is a video going PUBLIC, and
+ * privacy already defaults to private, so an unset rule holds only `public` and `unlisted` uploads and lets a `private` one
+ * (including an unset privacy) go straight through. The same `require_approval` setting applies to every target: `true` is
+ * "hold all" (a private upload too), `false` is "never hold" (a human admin only, the class rule).
+ */
+export function heldWhenUnset(action: { target?: string; privacy?: string }): boolean {
+  if (action.target === 'youtube_channel') return (action.privacy ?? 'private') !== 'private';
+  return true;
+}

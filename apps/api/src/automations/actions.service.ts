@@ -26,7 +26,7 @@ import { stringHeadersOnly } from '../common/webhook-headers';
 import { getJsonPath } from '../common/json-path';
 import { JobRunnerService, buildIdempotencyKey } from './job-runner.service';
 import { ApprovalsService } from './approvals.service';
-import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN, namesAccount, SOCIAL_TARGETS, targetEnabled } from './social-targets';
+import { heldWhenUnset, LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN, namesAccount, SOCIAL_TARGETS, targetEnabled } from './social-targets';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
 const PAYLOAD_VALUE_TOKEN_RE = /^\{payload\.([^{}]+)\}$/;
@@ -1127,7 +1127,8 @@ export class AutomationActionsService implements OnModuleInit {
       // an unset post_social was queued and PUBLISHED with no approval at all, while #42's
       // own title says "approval-gated by default". An explicit true/false still wins.
       if (requireApproval === undefined && classRulesFor(action.type)?.approvalWhenUnset === 'gated') {
-        requireApproval = true;
+        // Ticket #60: a YouTube upload is held by default only when it would not be private (see heldWhenUnset).
+        requireApproval = action.type === 'post_social' ? heldWhenUnset(action) : true;
       }
       if (action.type === 'send_email' && requireApproval === undefined) {
         requireApproval = true;

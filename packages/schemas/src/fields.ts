@@ -530,7 +530,7 @@ export const actionSchema = z.discriminatedUnion('type', [
      * channel id (`UC…`, from the picker) and is REQUIRED: a video is never uploaded to a channel the rule does not name.
      * `video_field_id` names an attachment field on this database, whose first video file is uploaded (resumably, streamed).
      * `title` is {Field}-templated like `text` (YouTube allows 100 characters). `tags` is a templated comma-separated list.
-     * `privacy` is what the video is uploaded as: an unset value means PRIVATE, never public, and `public` has to be written out.
+     * `privacy` is what the video is uploaded as: an unset value means PRIVATE, never public, and `public` has to be written out. With `require_approval` unset a private upload runs straight away and an unlisted or public one is held for approval; `require_approval: true` holds all of them.
      */
     video_field_id: z.uuid().optional(),
     title: z.string().min(1).max(200).optional(),
