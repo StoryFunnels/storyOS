@@ -379,3 +379,90 @@ describe('#1338 an agent that can reach the Agents database cannot create an age
     expect(await countNamed('Approved wide child')).toBe(1);
   });
 });
+
+/**
+ * ticket #1338, second half — the SAME rule on every door that creates a record, keyed on the credential the work ORIGINATED with and
+ * not on the `source` label the path writes with. copy_records and the CSV importer apply with source 'automation', and a first version of
+ * the guard that looked only at source 'agent' let both through.
+ */
+describe('#1338 copy and import cannot mint a wider agent either', () => {
+  const countNamed = async (name: string) => Number((await pool.query('select count(*)::int as n from records where database_id = $1 and title = $2', [agentsDbId, name])).rows[0].n);
+  const fieldRow = async (apiName: string) => (await pool.query('select id from fields where database_id = $1 and api_name = $2', [agentsDbId, apiName])).rows[0].id as string;
+  let wideSource = '';
+  let unboundToken2 = '';
+  let boundToken2 = '';
+  let minted = '';
+  let boundAgent = '';
+
+  const copy = (token: string, ids: string[]) => as(token, 'POST', `/workspaces/${ws}/databases/${agentsDbId}/records/copy`, { record_ids: ids, target_database_id: agentsDbId, dry_run: false });
+  const multipartBody = (fields: Record<string, string>, csv: string) => {
+    const boundary = 'X-1338-BOUNDARY';
+    const parts = Object.entries(fields).map(([n, v]) => `--${boundary}\r\nContent-Disposition: form-data; name="${n}"\r\n\r\n${v}\r\n`);
+    parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="data.csv"\r\nContent-Type: text/csv\r\n\r\n${csv}\r\n--${boundary}--\r\n`);
+    return { payload: parts.join(''), headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
+  };
+  const importCsv = async (token: string, name: string) => {
+    const body = multipartBody(
+      {
+        mapping: JSON.stringify([
+          { column: 'Name', to: { kind: 'title' } },
+          { column: 'Scopes', to: { kind: 'existing', field_id: await fieldRow('scopes') } },
+          { column: 'Targets', to: { kind: 'existing', field_id: await fieldRow('target_databases') } },
+        ]),
+        dry_run: 'false',
+      },
+      `Name,Scopes,Targets\n${name},admin,${otherDb}`,
+    );
+    return app.inject({ method: 'POST', url: `/api/v1/workspaces/${ws}/databases/${agentsDbId}/import`, headers: { ...authed(token), ...body.headers }, payload: body.payload as never });
+  };
+
+  beforeAll(async () => {
+    wideSource = await mkAgent('Copy source wide', { target_databases: `${ledger}, ${otherDb}`, scopes: [scopeIds['admin']] });
+    const u = await mkAgent('Copy probe unbound', { scopes: [scopeIds['write']] });
+    await assign(u);
+    unboundToken2 = (await claimFor(u)).credential.token;
+    const b = await mkAgent('Copy probe bound', { target_databases: `${ledger}, ${agentsDbId}`, scopes: [scopeIds['write']] });
+    await assign(b);
+    boundAgent = b;
+    boundToken2 = (await claimFor(b)).credential.token;
+    const m = await mkAgent('Copy probe minted', { scopes: [scopeIds['write']] });
+    const res = await as(manager.token, 'POST', '/me/tokens', { name: 'minted agent token', workspace_id: ws, scope: 'write', agent_id: m });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    minted = res.json().token as string;
+  });
+
+  for (const who of ['unbound run credential', 'bound run credential', 'member-minted agent token'] as const) {
+    const token = () => (who === 'unbound run credential' ? unboundToken2 : who === 'bound run credential' ? boundToken2 : minted);
+    it(`copy_records: a ${who} cannot copy an admin-scoped agent record (403, nothing created)`, async () => {
+      const res = await copy(token(), [wideSource]);
+      expect([403, 422], res.body).toContain(res.statusCode); // a refusal: the apply paths report a refused row as a 422 with nothing written
+      expect(await countNamed('Copy source wide')).toBe(1); // only the source itself
+    });
+    it(`CSV import: a ${who} cannot import an agent record with admin scopes (403, nothing created)`, async () => {
+      const name = `Imported wide ${who}`;
+      const res = await importCsv(token(), name);
+      expect([403, 422], res.body).toContain(res.statusCode); // a refusal: the apply paths report a refused row as a 422 with nothing written
+      expect(await countNamed(name)).toBe(0);
+    });
+  }
+
+  it('MUST KEEP: a member copies and imports agent records exactly as before', async () => {
+    const copied = await copy(manager.token, [wideSource]);
+    expect(copied.statusCode, copied.body).toBeLessThan(300);
+    expect(await countNamed('Copy source wide')).toBe(2);
+    const imported = await importCsv(manager.token, 'Imported by a person');
+    expect(imported.statusCode, imported.body).toBeLessThan(300);
+    expect(await countNamed('Imported by a person')).toBe(1);
+  });
+
+  it('automation create_record: an agent write that sets off a rule creating an agent record carries its origin, and the rule cannot mint a wider agent', async () => {
+    const records = app.get(RecordsService);
+    const { runWithEventOrigin } = await import('../src/common/credential-context');
+    const wide = { name: 'Chained wide agent', enabled: true, target_databases: otherDb, scopes: [scopeIds['admin']] };
+    // The write is made with source 'automation' (a rule), but the chain began with a run credential of an agent.
+    await expect(runWithEventOrigin({ agentId: boundAgent, agentName: 'Create probe', runId: null, runnerId: runner.id, runnerName: 'Test machine' }, () => records.create(ws, agentsDbId, wide, manager.id, 1, 'automation'))).rejects.toThrow();
+    expect(await countNamed('Chained wide agent')).toBe(0);
+    // No origin = a rule an admin wrote, firing from a person's change: untouched.
+    expect((await records.create(ws, agentsDbId, wide, manager.id, 1, 'automation')).id).toBeTruthy();
+  });
+});

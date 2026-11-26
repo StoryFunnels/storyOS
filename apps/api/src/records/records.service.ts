@@ -84,7 +84,7 @@ import { assertDatabaseInWorkspace } from './database-scope';
 import { ActionGatesService, DELETE_RECORDS_ACTION_CLASS } from '../action-gates/action-gates.service';
 import { AgentWriteGatesService, type AgentWriteOperation } from '../action-gates/agent-write-gates.service';
 import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
-import { currentActor } from '../common/credential-context';
+import { currentActor, currentEventOrigin } from '../common/credential-context';
 import { BUDGET_FIELD_NAMES, budgetWriteProblem } from '../runners/agent-budget';
 import { WriteHeldForApprovalException } from '../common/write-held-for-approval.exception';
 import { currentActingAgent, isApprovedAgentWrite } from './agent-write-context';
@@ -3253,25 +3253,32 @@ export class RecordsService implements OnModuleInit {
 
   /**
    * ticket #1338 — a CREATE of an agent record by an AGENT credential may not mint an agent wider than the creator (see `agent-create-reach.ts`
-   * for the rule). Who the creator is comes from the credential at the door, not from a parameter a caller could leave off:
+   * for the rule). Who the creator is comes from the credential the work ORIGINATED with, never from the `source` label the write path
+   * happens to use (an importer or a copy writes with 'automation' whatever started it) and never from a parameter a caller could leave off:
    *  1. a run executor acting as an agent (`asActingAgent`), else
    *  2. the request's own credential when it is an agent's (run credential, agent-bound token, agent-origin token), else
-   *  3. the agent id a direct caller passed.
+   *  3. the originating run credential an event or job carried (`currentEventOrigin`: an automation or a job an agent's write set off), else
+   *  4. the agent id a direct caller passed with source 'agent'.
    * None of those = a person's session or an internal build (a pack install or an architect build run as the signed-in member and write
    * with source 'agent' for provenance): untouched, as before. The write a person approved (the approvals marker) is untouched too.
+   * Called once per batch: the Agents-database lookup is only paid when an agent credential is behind the write.
    */
-  private async assertAgentCreateWithinReach(workspaceId: string, databaseId: string, input: Record<string, unknown>, source: ChangeSource, agentIdParam: string | undefined): Promise<void> {
-    if (source !== 'agent' || isApprovedAgentWrite()) return;
+  private async assertAgentCreateWithinReach(workspaceId: string, databaseId: string, inputs: Array<Record<string, unknown>>, source: ChangeSource, agentIdParam: string | undefined): Promise<void> {
+    if (isApprovedAgentWrite()) return;
     const acting = currentActingAgent();
     const ambient = currentActor();
+    const origin = currentEventOrigin();
     let creator: AgentCreator | null = null;
     if (acting) creator = { agentId: acting.agentId, ceiling: null, resourceScope: undefined };
     else if (ambient?.source === 'agent') creator = { agentId: ambient.agentId, ceiling: ambient.tokenScope ?? 'read', resourceScope: ambient.resourceScope ?? null };
-    else if (agentIdParam) creator = { agentId: agentIdParam, ceiling: null, resourceScope: undefined };
+    else if (origin) creator = { agentId: origin.agentId, ceiling: null, resourceScope: undefined };
+    else if (source === 'agent' && agentIdParam) creator = { agentId: agentIdParam, ceiling: null, resourceScope: undefined };
     if (!creator) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
-    await assertAgentCreateWithinReach(this.db, { workspaceId, agentsDatabaseId: databaseId, input, creator }, (message) => new ForbiddenException(message));
+    for (const input of inputs) {
+      await assertAgentCreateWithinReach(this.db, { workspaceId, agentsDatabaseId: databaseId, input, creator }, (message) => new ForbiddenException(message));
+    }
   }
 
   /**
@@ -3329,9 +3336,9 @@ export class RecordsService implements OnModuleInit {
     for (const input of inputs) {
       await this.assertNotRuntimeOwned(databaseId, Object.keys(input));
       await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
-      await this.assertAgentCreateWithinReach(workspaceId, databaseId, input, source, agentId); // ticket #1338
       await this.assertTriggerConditionWritable(databaseId, input, actorId);
     }
+    await this.assertAgentCreateWithinReach(workspaceId, databaseId, inputs, source, agentId); // ticket #1338
     const defs = await this.fieldDefs(databaseId);
     /*
      * #203 — field defaults are applied BEFORE validation, so a default goes
