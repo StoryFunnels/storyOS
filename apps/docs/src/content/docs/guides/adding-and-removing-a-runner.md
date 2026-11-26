@@ -101,6 +101,8 @@ An agent's page has a **Runs** list. Each row names the record and says what sta
 job at a time), **Runner offline since <time> · starts when it's back**, **Waiting for your Claude
 limit to reset at <time>**, **Outside working hours**, **Keeping your reserve**, **Running on
 <computer>**, **Needs your approval** (with a **Review** link), **Done**, **Failed** or **Canceled**.
+A record that is waiting for catch-up but has no run yet appears at the top of the list as a grey
+**Not started** row: see [Starting an agent on records already waiting](/guides/runner/#starting-an-agent-on-records-already-waiting).
 These come from the `run_state` the API reports for each wake; see
 [Agent runs](/concepts/agent-runs/#where-a-wake-stands).
 
@@ -121,8 +123,11 @@ query:
 
 Each Runner also has `connected`, true by the same rule, so a row and the counts never disagree.
 A Runner at its limit or outside its working hours is still connected, because it still reports in.
-The counts cover your own Runners only, as the list does. This is the number a screen can show as
-"N connected"; the Settings screen does not show it yet.
+The counts cover your own Runners only, as the list does. Settings shows this
+as **N connected** at the right of the **Runners** row in the Settings menu. The words turn to the
+warning colour when `needs_attention` is `true`, that is when a Runner is offline or at its limit. Nothing
+shows while the counts are unknown, and nothing shows when you have no Runner: "0 connected" would
+read as a fault on a workspace that never set one up. The other count, `total_count`, is not drawn.
 
 `PATCH /api/v1/workspaces/{ws}/runners/{id}` with `{ "tool": "..." }` changes which detected tool
 your agents use on that Runner. The same call takes `working_hours` and `reserve_percent`.
