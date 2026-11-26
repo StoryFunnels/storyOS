@@ -7561,7 +7561,7 @@ export interface components {
             draft?: unknown;
         };
         BuildDto: {
-            description: string;
+            plan?: unknown;
         };
         CreateThreadDto: {
             first_message?: string;
@@ -7574,6 +7574,9 @@ export interface components {
         };
         ConfirmDto: {
             approve: boolean;
+        };
+        TyronBuildDto: {
+            description: string;
         };
         RunnerToolChoiceDto: {
             tool: string;
@@ -14652,7 +14655,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BuildDto"];
+                "application/json": components["schemas"]["TyronBuildDto"];
             };
         };
         responses: {
