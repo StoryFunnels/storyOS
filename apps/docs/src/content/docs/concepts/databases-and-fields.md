@@ -311,7 +311,12 @@ Over MCP, `list_record_templates` and `create_record_from_template` do the same 
 - **Rename** — the `display_name` changes freely; the `api_name` is a stable slug (auto-generated,
   admin-editable with a warning) so integrations don't break.
 - **Delete** — soft delete; orphaned values are ignored by reads and lazily cleaned up, so the
-  action never blocks.
+  action never blocks. The confirmation says what you would lose, from the same counts as
+  `get_field_usage`: "This field has values on 12 records. They'll be lost." Nothing is said when no
+  record has a value. A formula, lookup or rollup is worked out from other fields, so its
+  confirmation says that deleting it removes no record data. When some records are hidden from you, it
+  says "at least" that many and that there may be more, and it never claims zero. Deleting a
+  relation says it removes both paired fields and every link, and counts the records that hold links.
 - **Change type** — a small compatibility matrix converts in place, and the same list drives the
   app's dialog and the API. A text field can become a number, date, rich text, **select**,
   **multi-select** or **workflow**; select, multi-select and workflow convert among themselves and
