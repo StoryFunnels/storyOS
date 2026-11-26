@@ -6,9 +6,11 @@
 </p>
 
 <p align="center">
-  <strong>The open-source work OS your AI can actually run.</strong><br/>
-  Relational databases for the whole company, with a public API and an MCP server, so your own AI works inside it, not beside it.
+  <strong>The one place a small business's real things live.</strong><br/>
+  Customers, jobs, orders and invoices as linked records, with your own AI working inside them. Open source and self-hostable.
 </p>
+
+<!-- PRODUCT GIF SLOT: Dara's product GIF goes here, centred, under the tagline. Not ready yet; add it in a follow-up. -->
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"/></a>
@@ -19,11 +21,11 @@
 
 ---
 
-StoryOS is a connected-database work OS. You define databases, link them with real two-sided relations, and work the same records through nine kinds of view. Clients, tasks, content pipelines, CRM and sprints all live in one engine, on your schema, on your server.
+StoryOS is the one place a small business's real things live (customers, jobs, orders, invoices), so the owner runs the business and their AI does the work inside it. You define databases, link them with real two-sided relations, and work the same records as a table, a board, a calendar and more.
 
-It is built **API-first and agent-first**. The web app is just one client of a public REST API. Everything it can do, a script can do, and so can the AI you already use, through the built-in MCP server. When an agent does something risky, it waits for a human to approve it first.
+It is built API-first: the web app is one client of a public REST API, and the built-in MCP server lets the Claude or ChatGPT you already use read and change the same records, with your role's permissions. An admin can require a person's approval before an AI deletes records or before a hired agent writes, and every change an AI makes is marked as the AI's.
 
-**Hosted:** [app.storyos.dev](https://app.storyos.dev) · **Docs:** [docs.storyos.dev](https://docs.storyos.dev) · **Self-host:** one `docker compose up` (below)
+**Hosted:** [app.storyos.dev](https://app.storyos.dev) · **Docs:** [docs.storyos.dev](https://docs.storyos.dev) · **Connect your AI:** [storyos.dev/ai/connect](https://storyos.dev/ai/connect/) · **Self-host:** below
 
 ![A task board in StoryOS](docs/assets/board-view.png)
 
@@ -70,13 +72,15 @@ It is built **API-first and agent-first**. The web app is just one client of a p
 
 ```bash
 git clone https://github.com/StoryFunnels/storyOS.git storyos && cd storyos
-echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" > .env
+cp .env.example .env
+# generate the two required secrets (keep this file, and back it up)
+printf 'BETTER_AUTH_SECRET=%s\nCONNECTIONS_MASTER_KEY=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 docker compose up -d
 ```
 
-That starts Postgres, the API, the web app and the MCP server behind a Caddy proxy. Open **http://localhost** and sign up: the first account creates its own workspace, and migrations run automatically when the API boots. 1 GB of RAM is plenty for a small team.
+That starts Postgres, the API, the web app and the MCP server behind a Caddy proxy. Open **http://localhost** and sign up: the first account creates its own workspace, and migrations run when the API boots. Keep `CONNECTIONS_MASTER_KEY`: it encrypts saved connection credentials, and losing or changing it makes them unreadable. If `docker compose up` says a secret "is missing a value", the generate step was skipped.
 
-Email, Google sign-in, S3/MinIO attachments (`docker compose --profile minio up -d`), backups and upgrades are covered in **[docs/self-hosting.md](docs/self-hosting.md)** and **[docs.storyos.dev/self-hosting](https://docs.storyos.dev/self-hosting/overview/)**.
+Requirements, email, Google sign-in, S3/MinIO attachments, backups and upgrades: **[docs.storyos.dev/self-hosting](https://docs.storyos.dev/self-hosting/overview/)**.
 
 ## Develop
 
@@ -134,8 +138,8 @@ TypeScript monorepo (pnpm + Turborepo) · NestJS 11 on Fastify · Next.js 16 / R
 
 ## License
 
-**Dual-licensed.** [AGPL-3.0-or-later](LICENSE) for everyone, free forever; if you host it as a service, share your changes back. A separate **commercial license** is available for organisations that cannot accept the AGPL: same code, different legal terms. See [docs/licensing.md](docs/licensing.md).
+AGPL-3.0, see [LICENSE](LICENSE).
 
-**One exception: the Runner.** `packages/runner` (the open-source worker that runs your agents on your own computer) is **Apache-2.0**, with its own [LICENSE](packages/runner/LICENSE); the server and everything else stay AGPL-3.0-or-later. The Runner may not depend on any AGPL package, and CI fails if it does. See [docs/licensing.md](docs/licensing.md).
+**One exception: the Runner.** `packages/runner` (the open-source worker that runs your agents on your own computer) is **Apache-2.0**, with its own [LICENSE](packages/runner/LICENSE); the server and everything else stay AGPL-3.0. The Runner may not depend on any AGPL package, and CI fails if it does. See [docs/licensing.md](docs/licensing.md).
 
 Contributions require agreeing to the [Contributor License Agreement](CLA.md). See [CONTRIBUTING.md](CONTRIBUTING.md).
