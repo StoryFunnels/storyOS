@@ -540,7 +540,7 @@ describe('#1352 every door that updates an agent record is held to the originati
       it('CSV import upsert (on_match update) is refused with the same 403, and nothing changed', async () => {
         const res = await importUpsert(token(), false);
         expect(res.statusCode, res.body).toBe(403);
-        expect(res.json().message).toMatch(/cannot change an agent/);
+        expect(res.body).toMatch(/cannot change an agent/); // the same message a direct PATCH gets
         await unchanged();
       });
 
