@@ -16,6 +16,7 @@ export const NOTIFICATION_VERBS: Record<NotificationType, string> = {
   connection_error: 'flagged a connection',
   auto_reload_failed: 'flagged an auto-reload failure',
   automation_disabled: 'disabled an automation',
+  automation_owner_refused: 'flagged an automation that needs a new owner',
   action_approval_requested: 'needs your approval to run',
   record_changed: 'changed',
   send_email_cap_reached: 'reached the daily email limit',
