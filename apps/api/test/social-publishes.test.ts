@@ -622,6 +622,8 @@ describe('the account picker: GET /connections/{id}/social-accounts', () => {
   it("another workspace's connection, an unknown one and a non-social one are refused without confirming anything", async () => {
     const theirs = await connection('linkedin', adminId, otherWsId);
     expect((await picker(admin.token, theirs)).statusCode, 'foreign workspace: a 404, not a 403').toBe(404);
+    // The oracle: a plain member would get a 403 if the permission check ran before the workspace lookup, and a 403 confirms the id exists.
+    expect((await picker(member.token, theirs)).statusCode, 'a member is told it does not exist, not that they may not see it').toBe(404);
     expect((await picker(admin.token, randomUUID())).statusCode).toBe(404);
     const apify = await connection('apify');
     expect((await picker(admin.token, apify)).statusCode).toBe(422);
