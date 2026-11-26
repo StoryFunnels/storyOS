@@ -27,6 +27,7 @@ import { stringHeadersOnly } from '../common/webhook-headers';
 import { getJsonPath } from '../common/json-path';
 import { JobRunnerService, buildIdempotencyKey } from './job-runner.service';
 import { ApprovalsService } from './approvals.service';
+import { ActionAccessGuardService } from './action-access-guard.service';
 import { AttachPdfActionService } from './attach-pdf.action';
 import { DEFAULT_FILENAME_TEMPLATE, withDateToken } from './attach-pdf-model';
 
@@ -207,6 +208,7 @@ export class AutomationActionsService implements OnModuleInit {
     private readonly jobs: JobRunnerService,
     private readonly approvals: ApprovalsService,
     private readonly attachPdf: AttachPdfActionService,
+    private readonly accessGuard: ActionAccessGuardService,
   ) {}
 
   /**
@@ -1077,6 +1079,14 @@ export class AutomationActionsService implements OnModuleInit {
           continue;
         }
       }
+      // Ticket #1353 — the actor's access, re-read NOW, before this action does anything (writes, enqueues a job, or raises an
+      // approval). A refusal throws: the run fails with a message naming the person and the kind of record, and the actions after
+      // this one do not run. Placed after the per-action condition so an action that is skipped is never refused.
+      await this.accessGuard.check(
+        action,
+        { workspaceId: ctx.workspaceId, databaseId: ctx.databaseId, record: ctx.record, actorId: ctx.actorId, ruleId: ctx.ruleId ?? null },
+        action.type === 'update_linked' && ctx.record ? () => this.resolveLinked(ctx.databaseId, action.relation_field_id, ctx.record!) : undefined,
+      );
       // MN-256: send_email defaults to gated UNLESS every rendered recipient
       // resolves to a workspace member's email — that can only be known at
       // RUN time (the addresses come from {Field}/{payload} tokens), unlike

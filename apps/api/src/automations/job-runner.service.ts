@@ -136,6 +136,8 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(JobRunnerService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
   private executors = new Map<string, ExecutorEntry>();
+  /** Ticket #1353 — the one run-time access guard, set at boot by ActionAccessGuardService. Absent in a unit test that builds this class alone. */
+  private preflight: ((job: AutomationJobRow) => Promise<void>) | null = null;
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -159,6 +161,14 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
   /** Provider modules (MN-256/257/258/259/263) call this at bootstrap. */
   registerExecutor(kind: string, fn: JobExecutor, opts?: { timeoutClass?: TimeoutClass }): void {
     this.executors.set(kind, { fn, timeoutClass: opts?.timeoutClass ?? 'short' });
+  }
+
+  /**
+   * Ticket #1353 — a check run on a claimed job BEFORE its executor and before any attempt is counted. A throw is final: the job is
+   * failed with the error's own (safe) sentence and never retried, because retrying cannot give a person back their access.
+   */
+  setPreflight(fn: (job: AutomationJobRow) => Promise<void>): void {
+    this.preflight = fn;
   }
 
   /** actions.service.ts's execute() routes a kind through the queue instead of
@@ -288,6 +298,15 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
       // not retryable, retrying can't make an executor appear.
       await this.finalizeNonRetryable(job, `no executor registered for kind "${job.kind}"`);
       return;
+    }
+
+    if (this.preflight) {
+      try {
+        await this.preflight(job);
+      } catch (error) {
+        await this.finalizeNonRetryable(job, error instanceof Error ? error.message : String(error));
+        return;
+      }
     }
 
     const attempts = job.attempts + 1;

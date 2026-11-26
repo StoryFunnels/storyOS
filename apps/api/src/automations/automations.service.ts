@@ -165,7 +165,26 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       orderBy: [desc(automations.createdAt)],
     });
     // Never surface a stored secret webhook header value in the rules list (#249).
-    return { data: rules.map((r) => this.present(r)) };
+    return { data: await this.presentAll(databaseId, rules) };
+  }
+
+  /**
+   * Ticket #1353 — `ownerMissing`: true when the rule's owner (`created_by`) is null or is not an ACTIVE member of this workspace, so the
+   * rule is refused at run time and an admin has to take it over. Read fresh on every list/read, never stored: it is true exactly while
+   * the owner is gone, and clears the moment the rule is handed to a member. One query for the whole list.
+   */
+  private async presentAll<R extends { actions: unknown; createdBy: string | null }>(databaseId: string, rules: R[]) {
+    const ids = [...new Set(rules.map((r) => r.createdBy).filter((id): id is string => Boolean(id)))];
+    let active = new Set<string>();
+    if (ids.length > 0) {
+      const rows = await this.db
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .innerJoin(databases, eq(databases.workspaceId, memberships.workspaceId))
+        .where(and(eq(databases.id, databaseId), eq(memberships.status, 'active'), inArray(memberships.userId, ids)));
+      active = new Set(rows.map((r) => r.userId));
+    }
+    return rules.map((r) => ({ ...this.present(r), ownerMissing: !r.createdBy || !active.has(r.createdBy) }));
   }
 
   /** Read shape: secret send_webhook header values become the presence flag (#249). */
@@ -237,7 +256,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         ...(input.trigger.type === 'webhook_received' ? this.mintHook() : {}),
       })
       .returning();
-    return this.present(rule!);
+    return (await this.presentAll(databaseId, [rule!]))[0]!;
   }
 
   /**
@@ -346,7 +365,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       })
       .where(eq(automations.id, ruleId))
       .returning();
-    return this.present(updated!);
+    return (await this.presentAll(databaseId, [updated!]))[0]!;
   }
 
   /** Rotate a rule's hook token + secret (MN-254) — the old URL 404s immediately. */
@@ -362,7 +381,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       .set(this.mintHook())
       .where(eq(automations.id, ruleId))
       .returning();
-    return this.present(updated!);
+    return (await this.presentAll(databaseId, [updated!]))[0]!;
   }
 
   /** The RuleEditor's "last received payload" inspector (MN-254). */
@@ -1045,6 +1064,10 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   private describeActionError(error: unknown): string {
     if (error instanceof HttpException) {
       const response = error.getResponse();
+      // Ticket #1353 — a run-time access refusal reads "<code>: <sentence>", so the run row carries the code a person can search and the
+      // sentence that says who and what KIND of record (never a title).
+      const refusalCode = typeof response === 'object' && response !== null ? (response as { code?: unknown }).code : undefined;
+      if (typeof refusalCode === 'string' && refusalCode.startsWith('automation_owner_')) return `${refusalCode}: ${error.message}`.slice(0, 500);
       if (typeof response === 'object' && response !== null && 'details' in response) {
         const details = (response as { details?: unknown }).details;
         if (Array.isArray(details) && details.length > 0) {
