@@ -163,6 +163,9 @@ export class AttachmentsService implements OnModuleInit {
     actorId: string | null,
     fieldId?: string,
     source: ChangeSource = 'human',
+    /** Ticket #877 — the loop-guard depth of the automation run that is writing this file (0 for a person). It rides on the
+     *  record_updated event the write emits, so a rule that attaches a PDF cannot re-trigger itself without limit. */
+    depth = 0,
   ) {
     if (fieldId) await this.assertAttachmentField(recordId, fieldId);
     if (file.data.length > env().ATTACHMENT_MAX_BYTES) {
@@ -185,27 +188,35 @@ export class AttachmentsService implements OnModuleInit {
       })
       .returning();
 
-    const key = `${recordId}/${row!.id}/original`;
-    await storage.put(key, file.data, file.mime);
-
+    // A failure between the row insert and the finished write must not leave a 'pending' row behind: it would be an
+    // attachment that exists, has no bytes, and is hidden from every read (ticket #877: "no partial attachment").
+    let updated: typeof row;
     let thumbKey: string | null = null;
-    if (file.mime.startsWith('image/') && file.mime !== 'image/svg+xml') {
-      try {
-        const thumb = await sharp(file.data).resize({ width: THUMB_WIDTH }).jpeg({ quality: 75 }).toBuffer();
-        thumbKey = `${recordId}/${row!.id}/thumb`;
-        await storage.put(thumbKey, thumb, 'image/jpeg');
-      } catch {
-        thumbKey = null; // corrupt/exotic image — the original still uploads fine
+    try {
+      const key = `${recordId}/${row!.id}/original`;
+      await storage.put(key, file.data, file.mime);
+
+      if (file.mime.startsWith('image/') && file.mime !== 'image/svg+xml') {
+        try {
+          const thumb = await sharp(file.data).resize({ width: THUMB_WIDTH }).jpeg({ quality: 75 }).toBuffer();
+          thumbKey = `${recordId}/${row!.id}/thumb`;
+          await storage.put(thumbKey, thumb, 'image/jpeg');
+        } catch {
+          thumbKey = null; // corrupt/exotic image — the original still uploads fine
+        }
       }
+
+      [updated] = await this.db
+        .update(attachments)
+        .set({ storageKey: key, thumbKey })
+        .where(eq(attachments.id, row!.id))
+        .returning();
+    } catch (error) {
+      await this.db.delete(attachments).where(eq(attachments.id, row!.id)).catch(() => undefined);
+      throw error;
     }
 
-    const [updated] = await this.db
-      .update(attachments)
-      .set({ storageKey: key, thumbKey })
-      .where(eq(attachments.id, row!.id))
-      .returning();
-
-    if (fieldId) await this.appendToField(workspaceId, recordId, fieldId, updated!.id, actorId);
+    if (fieldId) await this.appendToField(workspaceId, recordId, fieldId, updated!.id, actorId, depth);
 
     await this.db.insert(activityEvents).values({
       workspaceId,
@@ -256,6 +267,7 @@ export class AttachmentsService implements OnModuleInit {
     fieldId: string,
     attachmentId: string,
     actorId: string | null,
+    depth = 0,
   ) {
     const record = await this.db.query.records.findFirst({ where: eq(records.id, recordId) });
     if (!record) return;
@@ -279,7 +291,7 @@ export class AttachmentsService implements OnModuleInit {
       changedFieldIds: [fieldId],
       changedValues: { [fieldId]: { from: current, to: next } },
       actorId,
-      depth: 0,
+      depth,
     });
   }
 

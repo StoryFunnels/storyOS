@@ -31,6 +31,7 @@ Eleven actions, all available to buttons and rules alike.
 | **Send a webhook** | POSTs to a URL you name, with the standard record payload or your own body. |
 | **Send an email** | A templated 1:1 email through a Resend or SMTP connection. See below. |
 | **Call an API** | Any method, any URL, optional auth, and it can read the response back onto fields. See below. |
+| **Attach a PDF** | Makes a PDF of this record, or of the one record it links to, and attaches it to a file field on this record. It uses the access of the person who created the rule. See [Attaching a PDF](#attaching-a-pdf). |
 | **Run an agent** | Launches an agent from the Agents database against the triggering record. With **On a schedule**, this is how an agent works overnight: it runs once for each record the rule's filter selects. See below. |
 
 Every action supports the `@me` / `@today` / `@now` tokens and `{Field Name}` interpolation.
@@ -271,6 +272,54 @@ What goes wrong, and what you will see:
 - The response body is capped at 1 MB, and the logged result or error at 8 KB.
 - If capture cannot parse the response as JSON, the *request still counts as successful* and the
   run records a separate `capture_error` — the call happened, the fields did not update.
+
+## Attaching a PDF
+
+**Attach a PDF** makes a PDF and puts it in a file field on the record that triggered the rule. A
+later **Send an email** in the same rule can attach that field, so the email carries the PDF without
+anyone downloading it first.
+
+| Setting | What it does |
+|---|---|
+| **Make a PDF of** | **This record**, or the record linked through one relation field. The relation must hold exactly one record: none, or several, fails the run instead of picking one for you. |
+| **Attach it to** | A file field on this database. |
+| **File name** | Merge fields and `{date}` (today, UTC) work. The default is `{title} · {date}`. The name is made safe: no slashes or `..`, at most 120 characters, and it always ends in `.pdf`. |
+| **If a file with that name is already there** | **Skip** (the default), **Replace**, or **Add another**. Skip is why a second firing of the same rule does not attach the file twice. |
+
+The PDF shows the record's title, its fields in the order the record page shows them (a field hidden
+on the record page stays out, and so do empty fields), then its description. Comments and activity are
+not included. Images in the description are read from your workspace's own files; a link to a picture
+elsewhere appears as a placeholder.
+
+**Whose access it uses.** The rule's **owner**: the person who created it, not whoever switched it on.
+Every time the rule runs, StoryOS checks that this person can still read the record being drawn and
+can edit the record the file goes onto. If not, no PDF is made, nothing is attached, and the run fails
+with a sentence such as "No PDF was made: Maya Chen cannot read the linked record, so it was not
+rendered." The sentence names the person and the kind of record, never its contents. A rule whose
+owner has left the workspace, or has no owner, makes nothing. Records in a system database (Members,
+Agents) are never drawn. A button press uses whoever pressed it.
+
+This is stricter than the other actions, which check access when the rule is saved and not on each run.
+
+**When it fails, the rest of the rule stops.** The failed action is recorded on the run and the
+actions after it do not run, so an email that was meant to carry the PDF is never sent without it.
+These are the reasons, each in a sentence on the run:
+
+- The server has no PDF renderer, or it is not answering. A rule with this action also **cannot be
+  switched on** in that state; you can still save it switched off. See
+  [PDF export](/self-hosting/pdf-export/).
+- Rendering took too long, or the renderer could not render the record.
+- The PDF is larger than a file on a record may be.
+- Too many PDFs are waiting. Each workspace queues up to 25 renders, one is made at a time, and the
+  26th is refused with "Too many PDFs are waiting (25); this one was not made", never dropped quietly.
+
+Nothing is half-attached on any of these. A replaced file is removed only after its replacement is in
+place. This action cannot be held for approval and cannot be used in a rule that starts from a
+webhook, because it needs the triggering record.
+
+**Watch for rules that fire on any update.** Attaching a file is itself an update to the record. A rule
+that fires on *every* field change and uses **Add another** attaches again each time it re-fires, up to
+the loop guard. Watch one field instead, or leave the setting on **Skip**.
 
 ## When an agent's write fires a rule
 

@@ -233,6 +233,22 @@ export function resolveActionFieldRefs(
     }
     return { ...action };
   }
+  if (type === 'attach_pdf') {
+    // Ticket #877 — names in, ids out: the attachment field to write to, and (for source.kind "linked_record") the relation to follow.
+    const ref = (action.target_field ?? action.target_field_id) as string | undefined;
+    if (ref === undefined) throw new Error('attach_pdf action needs a "target_field" (an attachment field on this database).');
+    const rest = { ...action };
+    delete rest.target_field;
+    let source = (action.source ?? { kind: 'record' }) as Record<string, unknown>;
+    if (source.kind === 'linked_record') {
+      const rel = (source.relation_field ?? source.relation_field_id) as string | undefined;
+      if (rel === undefined) throw new Error('attach_pdf source {kind:"linked_record"} needs a "relation_field".');
+      const keep = { ...source };
+      delete keep.relation_field;
+      source = { ...keep, relation_field_id: findField(detail.fields, rel, { types: ['relation'], kind: 'relation' }).id };
+    }
+    return { ...rest, source, target_field_id: findField(detail.fields, ref, { types: ['attachment'], kind: 'attachment' }).id };
+  }
   if (type === 'http_request' && Array.isArray(action.capture)) {
     const capture = (action.capture as Array<Record<string, unknown>>).map((c) => {
       const ref = (c.target_field ?? c.target_field_id) as string | undefined;
@@ -282,6 +298,10 @@ export function annotateActions(
     if (typeof a.database_id === 'string') a.database_name = databaseNamesById.get(a.database_id) ?? null;
     if (typeof a.link_via_relation_field_id === 'string')
       a.link_via_relation_field_name = byId.get(a.link_via_relation_field_id)?.displayName ?? null;
+    if (typeof a.target_field_id === 'string' && a.type === 'attach_pdf') a.target_field_name = byId.get(a.target_field_id)?.displayName ?? null;
+    const pdfSource = a.source as Record<string, unknown> | undefined;
+    if (a.type === 'attach_pdf' && pdfSource && typeof pdfSource.relation_field_id === 'string')
+      a.source = { ...pdfSource, relation_field_name: byId.get(pdfSource.relation_field_id)?.displayName ?? null };
     if (Array.isArray(a.capture)) {
       a.capture = (a.capture as Array<Record<string, unknown>>).map((c) =>
         typeof c.target_field_id === 'string'
