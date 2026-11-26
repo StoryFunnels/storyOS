@@ -20,6 +20,7 @@ import { SourceBadge } from './source-badge';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { editorNonceOptions, useStyleNonce } from '@/lib/style-nonce';
+import { EditorMantine } from './editor-mantine';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { BlockChange } from '@storyos/schemas/block-diff';
@@ -257,6 +258,7 @@ export function CommentComposer({
         }}
       >
         <MentionScope ws={ws}>
+          <EditorMantine>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and
                it wins over ours — so the reordered menu in MentionSuggestionMenus
@@ -274,6 +276,7 @@ export function CommentComposer({
           >
             <MentionSuggestionMenus editor={editor as never} ws={ws} agents />
           </BlockNoteView>
+          </EditorMantine>
         </MentionScope>
       </div>
       {toolbarShown && (
@@ -306,7 +309,7 @@ function CommentBlockNoteBody({ ws, doc }: { ws: string; doc: unknown[] }) {
   return (
     <div className="text-reading text-ink-secondary [&_.bn-editor]:bg-transparent [&_.bn-editor]:px-0 [&_.bn-editor]:py-0">
       <MentionScope ws={ws}>
-        <BlockNoteView editor={editor} editable={false} theme={theme} />
+        <EditorMantine><BlockNoteView editor={editor} editable={false} theme={theme} /></EditorMantine>
       </MentionScope>
     </div>
   );

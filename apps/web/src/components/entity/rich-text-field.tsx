@@ -7,6 +7,7 @@ import { BlockNoteView } from '@blocknote/mantine';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/lib/theme';
 import { editorNonceOptions, useStyleNonce } from '@/lib/style-nonce';
+import { EditorMantine } from './editor-mantine';
 import { uploadEditorImage } from '@/lib/editor-upload';
 import type { Field } from '@/components/table-view/use-table-data';
 import { BLOCKNOTE_BODY, LongTextHeader, LongTextMenu } from './long-text-block';
@@ -124,6 +125,7 @@ export function RichTextFieldSection({
       <CollapsibleBody collapsed={collapsed}>
       <div className={BLOCKNOTE_BODY}>
         <MentionScope ws={ws}>
+          <EditorMantine>
           <BlockNoteView
             /* #338: BlockNote mounts its own "/" menu unless this is off, and
                it wins over ours — so the reordered menu in MentionSuggestionMenus
@@ -144,6 +146,7 @@ export function RichTextFieldSection({
           >
             <MentionSuggestionMenus editor={editor as never} ws={ws} />
           </BlockNoteView>
+          </EditorMantine>
         </MentionScope>
       </div>
       </CollapsibleBody>
