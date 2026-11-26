@@ -132,7 +132,7 @@ beforeAll(async () => {
   conns = app.get(ConnectionsService);
   app.get(PostSocialActionService).fetcher = fakeFetch;
   app.get(PostSocialActionService).metaPoll = { intervalMs: 0, maxAttempts: 3, sleep: async () => undefined };
-  app.get(SocialAccountsService).fetcher = (async (url, init) => fakeFetch(url, init as never)) as never;
+  app.get(SocialAccountsService).fetcher = (async (url: string, init: unknown) => fakeFetch(url, init as never)) as never;
 
   admin = await signUpUser(app, 'Meta Admin');
   adminId = (await db.query.user.findFirst({ where: eq(user.email, admin.email) }))!.id;
