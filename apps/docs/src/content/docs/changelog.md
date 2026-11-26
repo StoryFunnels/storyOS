@@ -9,6 +9,7 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **26 Nov** — Every automation action now checks its rule owner's access each time it runs, not only when the rule is saved. If the owner left, was demoted or lost the database, the action is refused with a message naming the person (never a record title), and rules whose owner is gone are flagged **owner missing**. [Who a rule runs for](/concepts/automations/#who-a-rule-runs-for-and-where-it-may-write)
 - **26 Nov** — An automation rule can **Attach a PDF**: it makes a PDF of the record, or of the one record it links to, using the rule owner's access checked on every run, and attaches it to a file field. Without a PDF renderer the rule cannot be switched on. [Attaching a PDF](/concepts/automations/#attaching-a-pdf)
 - **25 Nov** — Settings shows **N connected** beside **Runners**, in the warning colour when a Runner is offline or at its limit. [See your Runners](/guides/adding-and-removing-a-runner/#see-your-runners)
 - **25 Nov** — The catch-up confirmation names the first five waiting records, and the agent's **Runs** list shows each waiting record as a **Not started** row. [Starting an agent on records already waiting](/guides/runner/#starting-an-agent-on-records-already-waiting)

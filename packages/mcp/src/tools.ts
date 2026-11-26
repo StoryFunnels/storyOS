@@ -9185,6 +9185,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       description:
         '#334: the automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
         'enabled state, failure streak and last-run status (ok, error, skipped, running, or awaiting_approval when an action is waiting for a person to approve it, the same word get_runs uses). Automations are an admin surface, so this needs an admin-scoped token. ' +
+        "A rule runs as its OWNER (`created_by`) and every action re-checks that person's access each time it runs: if they left, lost the database or were demoted, the action is refused (the run's error starts with `automation_owner_missing` or `automation_owner_no_access` and names the person and the kind of record, never a title) and nothing after it runs. `owner_missing: true` marks a rule whose owner is gone (null or no longer an active member): it is refused at run time until an admin takes it over. " +
         'Use get_automation for one rule\'s full editable definition.',
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -9223,7 +9224,8 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       title: 'Get automation',
       description:
         "#334: one automation rule's full, editable definition — trigger, condition and actions with human-readable database/field/" +
-        'select names alongside their stable ids, plus enabled state and last-run status. update_automation accepts the same shape.',
+        'select names alongside their stable ids, plus enabled state and last-run status. update_automation accepts the same shape. ' +
+        "`owner_missing: true` means the rule's owner (`created_by`) is gone or no longer a member, so each of its actions is refused at run time (error `automation_owner_missing`, naming the person, never a title) until an admin takes it over; an owner who is still a member but lost access gets `automation_owner_no_access` on the run instead.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
         database: z.string().describe('Database name, api slug, or id.'),
