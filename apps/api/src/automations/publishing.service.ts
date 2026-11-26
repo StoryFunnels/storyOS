@@ -1,4 +1,4 @@
-import { ForbiddenException, HttpException, Inject, Injectable, UnprocessableEntityException } from '@nestjs/common';
+import { ForbiddenException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type {
   DisablePublishingInput,
@@ -11,6 +11,7 @@ import type {
   PublishingSetup,
   PublishingUnmet,
 } from '@storyos/schemas';
+import { codedException } from '../common/coded-exception';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { env } from '../config/env';
@@ -262,14 +263,9 @@ export class PublishingService {
 
   // ── helpers ────────────────────────────────────────────────────────
 
+  /** 422 `publishing_prerequisites_unmet`, with every unmet prerequisite in `error.meta.unmet` (the envelope's structured-facts slot). */
   private refuse(unmet: PublishingUnmet[]): never {
-    throw new UnprocessableEntityException({
-      statusCode: 422,
-      error: 'Unprocessable Entity',
-      code: 'publishing_prerequisites_unmet',
-      message: unmet.map((u) => u.message).join(' '),
-      unmet,
-    });
+    throw codedException(422, 'publishing_prerequisites_unmet', unmet.map((u) => u.message).join(' '), { unmet });
   }
 
   /** The tracked Social Command Center install whose Posts database this is, or null. A database merely NAMED Posts is not it. */
