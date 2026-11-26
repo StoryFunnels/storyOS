@@ -512,6 +512,39 @@ export const actionSchema = z.discriminatedUnion('type', [
     media_field_id: z.uuid().optional(),
     link: z.string().max(500).optional(),
     result_field_id: z.uuid().optional(),
+    /**
+     * Ticket #42 — WHICH account the post goes out as, beyond the connection. A LinkedIn company page is
+     * named by its organization URN (`urn:li:organization:<id>`), chosen from
+     * GET /connections/{id}/social-accounts; `linkedin_org` REQUIRES it (saving one without it is a 422,
+     * and the executor refuses a job without it rather than posting from the member's own profile).
+     * `linkedin_member` posts as the connection's own member and may carry the member URN to pin it;
+     * `x` posts as the connected X account and takes none.
+     */
+    account_id: z.string().min(1).max(200).optional(),
+  }),
+  /**
+   * Ticket #877 — make a PDF of the triggering record (or of ONE record it links to, one hop) and attach it to an attachment
+   * field on the triggering record. Runs INLINE, not through the job queue: a later action in the same rule (a send_email that
+   * attaches that field) must not run if no PDF was made, so a failure here fails the run and stops the list.
+   *
+   * It renders with the RULE OWNER's access, checked at run time (see attach-pdf.action.ts): what the owner cannot read is never
+   * rendered, and a field the owner cannot write is never written. `require_approval` is refused on it; there is nothing to hold.
+   *
+   * `filename_template` takes {Field} tokens plus {date} (today, UTC); the result is sanitised (no path separators, capped) and
+   * given a .pdf extension. Omitted = "{title} · {date}". `if_exists` says what to do when the field already holds a file of
+   * that name: `skip` (the default, so a re-run of the same trigger attaches nothing twice), `replace` (swap that file for the
+   * new render), or `add` (keep both).
+   */
+  z.object({
+    ...gated,
+    type: z.literal('attach_pdf'),
+    source: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('record') }),
+      z.object({ kind: z.literal('linked_record'), relation_field_id: z.uuid() }),
+    ]),
+    target_field_id: z.uuid(),
+    filename_template: z.string().min(1).max(200).optional(),
+    if_exists: z.enum(['skip', 'replace', 'add']).optional(),
   }),
 ]);
 export type AutomationAction = z.infer<typeof actionSchema>;

@@ -33,6 +33,8 @@ export const ACTION_REACH: Readonly<Record<AutomationAction['type'], ActionReach
   send_webhook: 'outward',
   http_request: 'outward',
   post_social: 'outward',
+  // Ticket #877: writes a file onto the triggering record. Nothing leaves the workspace; what it can read is the owner's, checked per run.
+  attach_pdf: 'internal',
   run_agent: 'agent',
 };
 

@@ -13,7 +13,8 @@ Two credentials work everywhere, sent as `Authorization: Bearer <token>`:
    API. A PAT acts as its creator: same role, same [guest scoping](/concepts/access-and-roles/), and the
    same [restricted](/concepts/access-and-roles/#restricting-a-space-or-database) spaces and
    databases, checked on every request.
-   **Shown once at creation.**
+   **Shown once at creation.** Guests cannot create one, in the app or through the API: the request is refused with
+   a `403` saying so. A token a guest already held keeps acting as that guest.
 
 **A personal access token belongs to one workspace.** It is created for a single workspace (note
 the `workspace_id` in the request below) and only works there; if you work in several, make one

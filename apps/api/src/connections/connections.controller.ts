@@ -1,17 +1,22 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { z } from 'zod';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 import { createZodDto } from 'nestjs-zod';
 import { createConnectionSchema, updateConnectionSchema } from '@storyos/schemas';
 import { AuthGuard } from '../auth/auth.guard';
-import { RequiresScope } from '../auth/token-scope.guard';
+import { NoRunCredential, RequiresScope } from '../auth/token-scope.guard';
 import { MinRole, WorkspaceAccessGuard } from '../workspaces/workspace-access.guard';
 import type { WorkspaceRequest } from '../workspaces/workspace-access.guard';
 import { ConnectionsService } from './connections.service';
+import { SocialAccountsService } from './social-accounts.service';
 import { nonceCookie } from './oauth-nonce-cookie';
 
 class CreateConnectionDto extends createZodDto(createConnectionSchema) {}
 class UpdateConnectionDto extends createZodDto(updateConnectionSchema) {}
+/** `refresh=true` skips the few-minute cache of the page list. */
+class SocialAccountsQueryDto extends createZodDto(z.object({ refresh: z.enum(['true', 'false']).optional().transform((v) => v === 'true') })) {}
 
 /** 302 redirect via the raw Fastify reply (Nest passthrough is off under @Res) —
  * same helper as integrations.controller.ts's `redirect`. */
@@ -30,7 +35,10 @@ function redirect(reply: FastifyReply, url: string): void {
 @UseGuards(AuthGuard, WorkspaceAccessGuard)
 @Controller('workspaces/:ws/connections')
 export class ConnectionsController {
-  constructor(private readonly connections: ConnectionsService) {}
+  constructor(
+    private readonly connections: ConnectionsService,
+    private readonly social: SocialAccountsService,
+  ) {}
 
   @Get()
   @RequiresScope('read')
@@ -44,6 +52,19 @@ export class ConnectionsController {
   @ApiOperation({ summary: 'The provider catalog — what can be connected, and how' })
   providers() {
     return this.connections.listProviders();
+  }
+
+  // An agent run's credential must not enumerate accounts through a stored connection credential: this calls the network LIVE.
+  @Get(':id/social-accounts')
+  @RequiresScope('read')
+  @NoRunCredential()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'The accounts a LinkedIn or X connection can post as (profile, company pages, X account): the picker a post names its account from. Workspace admin or the person who connected it. Cached a few minutes; refresh=true asks the network again.',
+  })
+  socialAccounts(@Req() req: WorkspaceRequest, @Param('id') id: string, @Query() query: SocialAccountsQueryDto) {
+    return this.social.list(req.membership, req.user.id, id, query.refresh);
   }
 
   @Post()

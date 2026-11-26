@@ -965,6 +965,10 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   list_source_providers: 'read',
   list_source_runs: 'read',
   list_youtube_channels: 'read',
+  // #42 — the per-record publish state and the account picker are reads; the retry sends a public post again, so it sits at rerun_action's admin ceiling.
+  list_social_publishes: 'read',
+  list_social_accounts: 'read',
+  retry_social_publish: 'admin',
   discover_source_fields: 'write',
   create_source: 'write',
   update_source: 'write',
@@ -8471,6 +8475,81 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
   );
 
   reg(
+    'list_social_publishes',
+    {
+      title: "List a record's social posts",
+      description:
+        "What this record's posts to LinkedIn and X did, one entry per channel with its latest outcome: state (awaiting_approval, sent_back, expired, queued, running, published, failed), the named account it goes out as (connection and, for a LinkedIn page, the organization id), attempt and next_attempt_at while it retries by itself, the post URL once published, and for a failure a safe `error` {code, message} (never the network's own response). Each entry has a `publish_id` (null while it only waits for approval) and `can_retry` for the caller. Read-only.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        record: z.string().describe('Record uuid or public number.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string }>(async ({ workspace, database, record }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes', {
+          params: { path: { ws: ws.id, db: db.id, rec } },
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'retry_social_publish',
+    {
+      title: 'Retry a failed social post',
+      description:
+        "Try ONE failed post again, with its ORIGINAL account and the text that was approved: it never re-picks an account and never asks for a second approval. `publish` is the `publish_id` from list_social_publishes. Idempotent: a post that already went out, is in flight, was superseded by a newer attempt or has used its 5 retries is a 409 and nothing is posted; a post that names no account is a 422. It sends the post publicly. Needs edit on the record.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe('Database name, api slug, or id.'),
+        record: z.string().describe('Record uuid or public number.'),
+        publish: z.string().describe('The publish_id of the failed post, from list_social_publishes.'),
+      },
+    },
+    handle<{ workspace: string; database: string; record: string; publish: string }>(async ({ workspace, database, record, publish }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const rec = await resolveRecordId(ws.id, db.id, record);
+      const res = await unwrap<unknown>(
+        client.POST('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}/social-publishes/{publish}/retry', {
+          params: { path: { ws: ws.id, db: db.id, rec, publish } },
+          body: {},
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_social_accounts',
+    {
+      title: 'List the accounts a social connection can post as',
+      description:
+        "The accounts a LinkedIn or X connection can post as, as `{ id, name, type }` (type member, organization or x_account): the picker a post names its account from. For a LinkedIn page post, put the organization `id` in the action's `account_id`. Reads through to the network with the stored connection (cached a few minutes; refresh true asks again); changes nothing and returns nothing secret. Needs a workspace admin, or the person who connected it.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        connection_id: z.string().describe("The linkedin or x connection's id (from list_connections)."),
+        refresh: z.boolean().optional().describe('Ask the network again instead of using the cached list.'),
+      },
+    },
+    handle<{ workspace: string; connection_id: string; refresh?: boolean }>(async ({ workspace, connection_id, refresh }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/connections/{id}/social-accounts', {
+          params: { path: { ws: ws.id, id: connection_id }, query: refresh ? { refresh: 'true' } : {} },
+        } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
     'discover_source_fields',
     {
       title: 'Discover source fields',
@@ -9253,7 +9332,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create automation',
       short:
-        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Covers every trigger and action shape, templates, top-N sort/limit. [Full notes: get_started section \"TOOL NOTES create_automation\"]",
+        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, attach_pdf, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Covers every trigger and action shape, templates, top-N sort/limit. [Full notes: get_started section \"TOOL NOTES create_automation\"]",
       description:
 /*
          * #393 — the capability sentence comes FIRST, in words.
@@ -9291,6 +9370,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
+        // Ticket #877: the PDF action.
+        'attach_pdf{target_field, source?:{kind:"record"}|{kind:"linked_record", relation_field}, filename_template?, if_exists?:"skip"|"replace"|"add"} — ' +
+        'make a PDF of the triggering record (or of the ONE record it links to through relation_field) and attach it to an ATTACHMENT field on the triggering record; a later send_email can attach that field. ' +
+        'It is made with the RULE OWNER\'s access, checked on every run (the person who created the rule, not who switched it on): what they cannot read is never rendered and a record they cannot edit gets no file, and the run fails with a plain message and the actions after it do not run. ' +
+        'filename_template takes {Field} tokens and {date} (default "{title} · {date}"); the name is made safe and ends .pdf. if_exists: skip (default, so a re-run attaches nothing twice), replace, or add. ' +
+        'Needs the PDF renderer on the server: without it the rule cannot be switched on (saving it switched off is fine) and a run fails loudly. Up to 25 PDFs per workspace wait their turn; more are refused. Not on webhook_received rules (no record), and never held for approval · ' +
         'run_agent{agent, prompt?, target?:"trigger_record", require_approval?, ...} — run an agent (its record uuid or public number, from get_agents) — ' +
         'this is how an agent works on a SCHEDULE or while nobody is signed in: pair it with a schedule trigger and it runs once per ' +
         'record the rule selects (add a condition, or sort/limit, to narrow that — with none, every record in the database up to 500 each tick). ' +
