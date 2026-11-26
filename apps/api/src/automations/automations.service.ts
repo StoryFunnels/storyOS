@@ -46,6 +46,9 @@ import { env } from '../config/env';
 import { presentActionHeaders, restoreActionHeaders } from '../common/webhook-headers';
 import { redactSecrets } from '../common/redact-secrets';
 import { MAX_FAILURES } from './constants';
+import { NotificationsService } from '../notifications/notifications.service';
+import { isAccessRefusal, isFirstRefusal, notifyAdmins, ownerFlags } from './owner-refusal';
+import type { NeedsNewOwnerReason } from './owner-refusal';
 
 interface Trigger {
   type: string;
@@ -144,6 +147,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
     private readonly entitlements: EntitlementsService,
     private readonly approvalsService: ApprovalsService,
     private readonly httpRequestAction: HttpRequestActionService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   onModuleInit() {
@@ -165,7 +169,27 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       orderBy: [desc(automations.createdAt)],
     });
     // Never surface a stored secret webhook header value in the rules list (#249).
-    return { data: rules.map((r) => this.present(r)) };
+    return { data: await this.presentAll(databaseId, rules) };
+  }
+
+  /**
+   * Ticket #1353 — the owner flags on every rule the API returns: `needsNewOwner` (boolean) with `needsNewOwnerReason`
+   * (`missing` | `left` | `lacks_access` | null), and `ownerMissing`, kept for the first two reasons. Derived on each read, never stored;
+   * see owner-refusal.ts. One owner lookup and one last-run lookup for the whole list.
+   */
+  private async presentAll<R extends { id: string; actions: unknown; createdBy: string | null }>(databaseId: string, rules: R[]) {
+    const [db] = await this.db.select({ workspaceId: databases.workspaceId }).from(databases).where(eq(databases.id, databaseId)).limit(1);
+    const reasons = db ? await ownerFlags(this.db, db.workspaceId, rules) : new Map<string, NeedsNewOwnerReason | null>();
+    return rules.map((r) => {
+      const reason = reasons.get(r.id) ?? null;
+      return { ...this.present(r), ownerMissing: reason === 'missing' || reason === 'left', needsNewOwner: reason !== null, needsNewOwnerReason: reason };
+    });
+  }
+
+  /** One rule, with the same shape and flags the list carries. */
+  async get(databaseId: string, ruleId: string) {
+    const rule = await this.getRule(databaseId, ruleId);
+    return (await this.presentAll(databaseId, [rule]))[0]!;
   }
 
   /** Read shape: secret send_webhook header values become the presence flag (#249). */
@@ -237,7 +261,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         ...(input.trigger.type === 'webhook_received' ? this.mintHook() : {}),
       })
       .returning();
-    return this.present(rule!);
+    return (await this.presentAll(databaseId, [rule!]))[0]!;
   }
 
   /**
@@ -346,7 +370,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       })
       .where(eq(automations.id, ruleId))
       .returning();
-    return this.present(updated!);
+    return (await this.presentAll(databaseId, [updated!]))[0]!;
   }
 
   /** Rotate a rule's hook token + secret (MN-254) — the old URL 404s immediately. */
@@ -362,7 +386,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
       .set(this.mintHook())
       .where(eq(automations.id, ruleId))
       .returning();
-    return this.present(updated!);
+    return (await this.presentAll(databaseId, [updated!]))[0]!;
   }
 
   /** The RuleEditor's "last received payload" inspector (MN-254). */
@@ -740,7 +764,29 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
           .where(eq(automations.id, rule.id));
         if (streak >= MAX_FAILURES)
           this.logger.warn(`automation ${rule.id} auto-disabled after ${streak} failures`);
+        await this.noticeAfterFailure(current, workspaceId, runId, message, streak);
       }
+    }
+  }
+
+  /**
+   * Ticket #1353 — no silent failure. The FIRST access refusal in a row tells the workspace's admins the rule needs attention
+   * (person and kind of record, never a title); a rule that switches itself off tells them too, not only the server log.
+   */
+  private async noticeAfterFailure(
+    rule: { id: string; name: string; databaseId: string; createdBy: string | null },
+    workspaceId: string,
+    runId: string,
+    message: string,
+    streak: number,
+  ): Promise<void> {
+    try {
+      if (isAccessRefusal(message) && (await isFirstRefusal(this.db, rule.id, runId))) {
+        await notifyAdmins(this.db, this.notifications, rule, workspaceId, 'refused', message);
+      }
+      if (streak >= MAX_FAILURES) await notifyAdmins(this.db, this.notifications, rule, workspaceId, 'disabled', message);
+    } catch (error) {
+      this.logger.warn(`could not notify admins about rule ${rule.id}: ${String(error)}`);
     }
   }
 
@@ -1027,6 +1073,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         .where(eq(automations.id, ruleId));
       if (streak >= MAX_FAILURES)
         this.logger.warn(`automation ${ruleId} auto-disabled after ${streak} failures`);
+      await this.noticeAfterFailure({ id: ruleId, name: rule.name, databaseId, createdBy: rule.createdBy }, workspaceId, runId, message, streak);
     }
   }
 
@@ -1045,6 +1092,10 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
   private describeActionError(error: unknown): string {
     if (error instanceof HttpException) {
       const response = error.getResponse();
+      // Ticket #1353 — a run-time access refusal reads "<code>: <sentence>", so the run row carries the code a person can search and the
+      // sentence that says who and what KIND of record (never a title).
+      const refusalCode = typeof response === 'object' && response !== null ? (response as { code?: unknown }).code : undefined;
+      if (typeof refusalCode === 'string' && refusalCode.startsWith('automation_owner_')) return `${refusalCode}: ${error.message}`.slice(0, 500);
       if (typeof response === 'object' && response !== null && 'details' in response) {
         const details = (response as { details?: unknown }).details;
         if (Array.isArray(details) && details.length > 0) {

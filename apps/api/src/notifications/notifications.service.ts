@@ -60,6 +60,11 @@ export type NotificationType =
    */
   | 'automation_disabled'
   /**
+   * Ticket #1353 — a rule's FIRST run-time access refusal (its owner left, lost access, or the rule targets a system database): sent to
+   * the workspace's admins, naming the person and the kind of record and never a title. Not an opt-out ping, for the same reason.
+   */
+  | 'automation_owner_refused'
+  /**
    * MN-255 — a `require_approval` automation action is waiting on a human in
    * the Inbox before it runs. Deliberately distinct from `approval_requested`
    * (#210's agent-run gate): that type's Inbox card treats `recordId` AS the

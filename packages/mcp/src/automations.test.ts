@@ -268,6 +268,13 @@ describe('annotate + readableAutomation (#334)', () => {
     expect(JSON.stringify(out)).not.toContain('lastHookPayload');
   });
 
+  it('#1353 — carries owner_missing from the API flag: true only when the API says so, false otherwise', () => {
+    const base = { id: 'r1', name: 'Rule', enabled: true, trigger: { type: 'record_created' }, condition: null, actions: [] };
+    expect(readableAutomation({ ...base, ownerMissing: true }, detail, {}).owner_missing).toBe(true);
+    expect(readableAutomation({ ...base, ownerMissing: false }, detail, {}).owner_missing).toBe(false);
+    expect(readableAutomation(base, detail, {}).owner_missing).toBe(false);
+  });
+
   it('#392 — surfaces sort/limit (schedule-only top-N) in the curated read shape', () => {
     const row = {
       id: 'r1',
