@@ -9,13 +9,15 @@ import type { LinkedinAuth } from './providers/linkedin';
 import { failClosedFetch } from '../common/test-network-guard';
 import type { ConnectionFetcher } from './providers/types';
 import type { XAuth } from './providers/x';
+import type { MetaAuth } from './providers/meta';
+import { ACCOUNTS_FIELDS, metaErrorCodes, metaGraphBase } from './providers/meta';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 /** The LinkedIn API version the posting path pins (see post-social.action.ts); the page list uses the same one. */
 const LINKEDIN_API_VERSION = '202401';
 const CACHE_TTL_MS = 5 * 60_000;
 
-export type SocialAccountType = 'member' | 'organization' | 'x_account';
+export type SocialAccountType = 'member' | 'organization' | 'x_account' | 'facebook_page' | 'instagram_business';
 
 /**
  * One account a connection can post as. `id` is what a `post_social` action stores in `account_id` for a LinkedIn
@@ -67,18 +69,27 @@ export class SocialAccountsService {
     if (membership.role !== 'admin' && row.createdBy !== userId) {
       throw new ForbiddenException('Only a workspace admin or the person who connected this account can list the accounts it posts as');
     }
-    if (row.provider !== 'linkedin' && row.provider !== 'x') {
+    if (row.provider !== 'linkedin' && row.provider !== 'x' && row.provider !== 'meta') {
       throw new UnprocessableEntityException('This connection does not post to a social network');
     }
     if (row.provider === 'linkedin' && !env().LINKEDIN_ACTIONS_ENABLED) {
       throw new UnprocessableEntityException('LinkedIn publishing is not enabled on this deployment yet');
     }
 
+    if (row.provider === 'meta' && !env().META_ACTIONS_ENABLED) {
+      throw new UnprocessableEntityException('Facebook and Instagram publishing is not enabled on this deployment yet');
+    }
+
     const hit = this.cache.get(row.id);
     if (!refresh && hit && Date.now() - hit.at < CACHE_TTL_MS) return { ...hit.list, cached: true };
 
     const { auth } = await this.connections.getDecryptedAuth(membership.workspaceId, row.id);
-    const list = row.provider === 'x' ? await this.listX(auth as Partial<XAuth>) : await this.listLinkedin(auth as Partial<LinkedinAuth>);
+    const list =
+      row.provider === 'x'
+        ? await this.listX(auth as Partial<XAuth>)
+        : row.provider === 'meta'
+          ? await this.listMeta(membership.workspaceId, row.id, auth as Partial<MetaAuth>)
+          : await this.listLinkedin(auth as Partial<LinkedinAuth>);
     this.cache.set(row.id, { at: Date.now(), list });
     return { ...list, cached: false };
   }
@@ -118,6 +129,60 @@ export class SocialAccountsService {
         seen.add(urn);
         data.push({ id: urn, name: detail?.localizedName?.trim() || 'LinkedIn page', type: 'organization', ...(detail?.vanityName ? { handle: detail.vanityName } : {}) });
       }
+    }
+    return { data, warnings };
+  }
+
+  /**
+   * Ticket #51 — the Facebook Pages (and the Instagram business account linked to each) this connection can post as.
+   * Asked of Meta LIVE with the connection's user token, then intersected with the pages whose own tokens are sealed on
+   * the connection: a Page can only be posted to if we hold its token, and a Page that was de-authorized since connecting
+   * is a warning, never an option. The id a person picks is what `post_social` stores in `account_id`; tokens never leave.
+   */
+  private async listMeta(workspaceId: string, connectionId: string, auth: Partial<MetaAuth>): Promise<Omit<SocialAccountList, 'cached'>> {
+    if (!auth.user_token || !Array.isArray(auth.pages)) throw new UnprocessableEntityException('The Meta connection has no access token. Reconnect it.');
+    const res = await this.fetcher(`${metaGraphBase()}/me/accounts?fields=${encodeURIComponent(ACCOUNTS_FIELDS.replace('access_token,', ''))}&limit=100`, {
+      headers: { authorization: `Bearer ${auth.user_token}` },
+    });
+    if (res.status < 200 || res.status >= 300) {
+      const { code } = await metaErrorCodes(res);
+      if (code === 190 || res.status === 401) {
+        await this.connections.flagReconnectRequired(workspaceId, connectionId);
+        throw new UnprocessableEntityException('Meta no longer accepts this connection. Reconnect it.');
+      }
+      throw new BadGatewayException(`Meta refused the Page lookup (HTTP ${res.status})`);
+    }
+    const body = (await res.json()) as { data?: { id?: unknown; name?: unknown; instagram_business_account?: { id?: unknown; username?: unknown } }[] };
+    const live = new Map<string, { name?: string; igId?: string; igName?: string }>();
+    for (const row of body.data ?? []) {
+      if (typeof row.id !== 'string') continue;
+      live.set(row.id, {
+        name: typeof row.name === 'string' ? row.name : undefined,
+        igId: typeof row.instagram_business_account?.id === 'string' ? row.instagram_business_account.id : undefined,
+        igName: typeof row.instagram_business_account?.username === 'string' ? row.instagram_business_account.username : undefined,
+      });
+    }
+    const data: SocialAccount[] = [];
+    let missing = 0;
+    for (const page of auth.pages) {
+      const hit = live.get(page.page_id);
+      if (!hit) {
+        missing += 1;
+        continue;
+      }
+      data.push({ id: page.page_id, name: hit.name?.trim() || page.name, type: 'facebook_page' });
+      // Only an Instagram account that is STILL linked to this Page, and that we hold a token for (the Page's), is offered.
+      if (page.ig_user_id && hit.igId === page.ig_user_id) {
+        const handle = hit.igName ?? page.ig_username;
+        data.push({ id: page.ig_user_id, name: handle ? `@${handle}` : 'Instagram account', type: 'instagram_business', ...(handle ? { handle } : {}) });
+      }
+    }
+    const warnings: SocialAccountList['warnings'] = [];
+    if (missing > 0) {
+      warnings.push({
+        code: 'pages_unavailable',
+        message: `${missing} Page${missing === 1 ? '' : 's'} granted earlier ${missing === 1 ? 'is' : 'are'} no longer available to this connection. Reconnect to choose again.`,
+      });
     }
     return { data, warnings };
   }

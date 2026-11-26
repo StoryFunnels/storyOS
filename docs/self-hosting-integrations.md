@@ -155,6 +155,7 @@ no separate "YouTube" OAuth app to register.)
 |---|---|---|---|---|
 | YouTube | `google` | `GOOGLE_CLIENT_ID` | `GOOGLE_CLIENT_SECRET` | `openid`, `email`, `https://www.googleapis.com/auth/youtube.readonly` |
 | Google Calendar | `google-calendar` | `GOOGLE_CLIENT_ID` | `GOOGLE_CLIENT_SECRET` | `openid`, `email`, `https://www.googleapis.com/auth/calendar` |
+| Facebook & Instagram (publishing) | `meta` | `META_APP_ID` | `META_APP_SECRET` | `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `instagram_basic`, `instagram_content_publish` |
 
 Both request read-oriented Google scopes (YouTube is read-only; Calendar requests
 `auth/calendar`). They are **separate connections on purpose** — connecting
@@ -162,6 +163,32 @@ Calendar must never silently widen the permissions of an unrelated YouTube
 connection — but they read the *same* `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
 A half-configured env (id set, secret blank, or vice-versa) counts as unconfigured
 and keeps the provider operator-only.
+
+### One-time setup (Facebook and Instagram publishing)
+
+Publishing a post to a Facebook Page or an Instagram business account needs a Meta app you own.
+
+1. Create a Meta app with **Facebook Login** and add the products your posts need. Request the
+   permissions in the table above. Meta only lets people outside the app's own testers connect after
+   its own review of `pages_manage_posts` and `instagram_content_publish`.
+2. Register the redirect URI `{API_URL}/api/v1/connections/oauth/callback` as a valid OAuth redirect
+   URI in the app's Facebook Login settings.
+3. Set the app's id and secret, and switch publishing on:
+
+   ```
+   META_APP_ID=your-meta-app-id
+   META_APP_SECRET=your-meta-app-secret
+   META_ACTIONS_ENABLED=true
+   ```
+
+   `META_GRAPH_VERSION` (default `v21.0`) pins the Graph API version StoryOS calls; change it when Meta
+   retires that version.
+4. Restart the `api` container. **Facebook & Instagram** becomes Connectable. Without the id and
+   secret the gallery shows it as one you can turn on, not as a broken button.
+
+Instagram fetches the post's image from the address in `API_URL`, so that address must be reachable from
+the internet. The image is handed over through a short-lived signed link (15 minutes) and is never made
+public. A Facebook photo is uploaded as bytes with the post and needs no public address.
 
 ## Cloud-only (Tier C — hosted StoryOS only)
 

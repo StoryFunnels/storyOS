@@ -4053,6 +4053,30 @@
         ]
       }
     },
+    "/api/v1/attachments/signed/{id}": {
+      "get": {
+        "operationId": "SignedAttachmentController_read",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read one attachment image through a signed, expiring URL (used to hand an image to a network that publishes by fetching it)",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/relations": {
       "post": {
         "operationId": "RelationsController_create",
@@ -16430,7 +16454,9 @@
                       "enum": [
                         "linkedin_org",
                         "linkedin_member",
-                        "x"
+                        "x",
+                        "facebook_page",
+                        "instagram_business"
                       ]
                     },
                     "text": {
@@ -17269,7 +17295,9 @@
                       "enum": [
                         "linkedin_org",
                         "linkedin_member",
-                        "x"
+                        "x",
+                        "facebook_page",
+                        "instagram_business"
                       ]
                     },
                     "text": {

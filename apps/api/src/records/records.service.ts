@@ -3240,7 +3240,9 @@ export class RecordsService implements OnModuleInit {
     if (!keys.includes('tools') && !keys.includes('model') && budgetKeys.length === 0 && scopeKeys.length === 0) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
-    if (source === 'agent' && !approvedByPerson) {
+    // ticket #1352: keyed on the credential the work ORIGINATED with, never on the `source` label alone. A path that writes under another label
+    // (the CSV importer, a bulk job, an automation an agent's write set off) used to reach here as a non-agent and rewrite scopes unchecked.
+    if ((source === 'agent' || this.originatingAgentCreator(source, undefined) !== null) && !approvedByPerson) {
       throw new ForbiddenException('An agent cannot change an agent\'s Tools, Model, budget, scopes or target spaces and databases: they are set by the person who manages the agent.');
     }
     const problems = validateAgentSettings({ tools: values?.['tools'], model: values?.['model'] });
@@ -3249,6 +3251,57 @@ export class RecordsService implements OnModuleInit {
       const problem = budgetWriteProblem(values?.[k]);
       if (problem) throw new UnprocessableEntityException(problem);
     }
+  }
+
+  /**
+   * ticket #1352 — would an UPDATE of these fields on this database be refused because an AGENT credential is behind it? The message the
+   * write itself would throw (a 403), or null. For dry runs and pre-commit checks that must say "refused" instead of previewing a success:
+   * the guard is keyed on field names and the credential, so it can be asked before any row is written.
+   */
+  async agentUpdateRefusal(databaseId: string, keys: string[], source: ChangeSource = 'automation'): Promise<string | null> {
+    try {
+      await this.assertAgentSettingsWritable(databaseId, keys, source, undefined, true);
+      return null;
+    } catch (error) {
+      if (error instanceof ForbiddenException) return error.message;
+      return null; // a validation problem with the values is the write's to report, not this check's
+    }
+  }
+
+  /**
+   * ticket #1352 — the CREATE twin of `agentUpdateRefusal`: would creating a record from `input` be refused because an AGENT credential is
+   * behind it? The message the write itself would throw (a 403), or null. Lets a copy's dry run say "refused" per record.
+   */
+  async agentCreateRefusal(workspaceId: string, databaseId: string, input: Record<string, unknown>, source: ChangeSource = 'automation'): Promise<string | null> {
+    try {
+      await this.assertAgentSettingsWritable(databaseId, Object.keys(input), source, input);
+      await this.assertAgentCreateWithinReach(workspaceId, databaseId, [input], source, undefined);
+      return null;
+    } catch (error) {
+      if (error instanceof ForbiddenException) return error.message;
+      return null; // a validation problem with the values is the write's to report, not this check's
+    }
+  }
+
+  /**
+   * ticket #1338 / #1352 — the AGENT credential a write originated with, or null when it is a person's session or an internal build.
+   * One resolution for both the create guard (assertAgentCreateWithinReach) and the update guard (assertAgentSettingsWritable), so
+   * the two cannot drift. In order:
+   *  1. a run executor acting as an agent (`asActingAgent`), else
+   *  2. the request's own credential when it is an agent's (run credential, agent-bound token, agent-origin token), else
+   *  3. the originating run credential an event or job carried (`currentEventOrigin`: an automation or a job an agent's write set off), else
+   *  4. the agent id a direct caller passed with source 'agent'.
+   * It never reads the per-path `source` label for anything but (4): an importer or a copy writes with 'automation' whatever started it.
+   */
+  private originatingAgentCreator(source: ChangeSource, agentIdParam: string | undefined): AgentCreator | null {
+    const acting = currentActingAgent();
+    const ambient = currentActor();
+    const origin = currentEventOrigin();
+    if (acting) return { agentId: acting.agentId, ceiling: null, resourceScope: undefined };
+    if (ambient?.source === 'agent') return { agentId: ambient.agentId, ceiling: ambient.tokenScope ?? 'read', resourceScope: ambient.resourceScope ?? null };
+    if (origin) return { agentId: origin.agentId, ceiling: null, resourceScope: undefined };
+    if (source === 'agent' && agentIdParam) return { agentId: agentIdParam, ceiling: null, resourceScope: undefined };
+    return null;
   }
 
   /**
@@ -3265,14 +3318,7 @@ export class RecordsService implements OnModuleInit {
    */
   private async assertAgentCreateWithinReach(workspaceId: string, databaseId: string, inputs: Array<Record<string, unknown>>, source: ChangeSource, agentIdParam: string | undefined): Promise<void> {
     if (isApprovedAgentWrite()) return;
-    const acting = currentActingAgent();
-    const ambient = currentActor();
-    const origin = currentEventOrigin();
-    let creator: AgentCreator | null = null;
-    if (acting) creator = { agentId: acting.agentId, ceiling: null, resourceScope: undefined };
-    else if (ambient?.source === 'agent') creator = { agentId: ambient.agentId, ceiling: ambient.tokenScope ?? 'read', resourceScope: ambient.resourceScope ?? null };
-    else if (origin) creator = { agentId: origin.agentId, ceiling: null, resourceScope: undefined };
-    else if (source === 'agent' && agentIdParam) creator = { agentId: agentIdParam, ceiling: null, resourceScope: undefined };
+    const creator = this.originatingAgentCreator(source, agentIdParam);
     if (!creator) return;
     const [db] = await this.db.select({ isSystem: databases.isSystem, systemKey: databases.systemKey }).from(databases).where(eq(databases.id, databaseId)).limit(1);
     if (!db?.isSystem || db.systemKey !== 'agents') return;
@@ -4434,7 +4480,10 @@ export class RecordsService implements OnModuleInit {
   ): Promise<ProjectedRecord> {
     await this.refuseIfAgentGated(workspaceId, databaseId, 'update', source, agentId, 'Restoring a version');
     // #1180: a restore writes old values by field id, so it cannot be key-checked; an agent restoring an agent record could re-set Tools/Model.
-    if (source === 'agent') await this.assertAgentSettingsWritable(databaseId, ['tools', 'target_databases', 'scopes', ...BUDGET_FIELD_NAMES], source, undefined, true);
+    // ticket #1352: any agent-ORIGIN restore, whatever label the path writes under. The origin check is in-memory, so a person's restore costs nothing.
+    if (source === 'agent' || this.originatingAgentCreator(source, agentId) !== null) {
+      await this.assertAgentSettingsWritable(databaseId, ['tools', 'target_databases', 'scopes', ...BUDGET_FIELD_NAMES], source, undefined, true);
+    }
     const version = await this.db.query.recordVersions.findFirst({
       where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
     });

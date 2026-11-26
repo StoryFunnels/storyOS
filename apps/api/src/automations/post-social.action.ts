@@ -11,6 +11,11 @@ import type { LinkedinAuth } from '../connections/providers/linkedin';
 import type { XAuth } from '../connections/providers/x';
 import { RecordsService } from '../records/records.service';
 import { getStorage } from '../attachments/storage';
+import { namesAccount } from './social-targets';
+import { preflightInstagram, publishToMeta } from './post-social-meta';
+import type { MetaPoll } from './post-social-meta';
+import { mintAttachmentUrl } from '../attachments/signed-attachment';
+import type { MetaAuth } from '../connections/providers/meta';
 import { ProviderError } from '../common/provider-error';
 import { failClosedFetch } from '../common/test-network-guard';
 import { JobRunnerService } from './job-runner.service';
@@ -51,24 +56,10 @@ const LINKEDIN_API_VERSION = '202401';
  * CODE plus a short message this file wrote, stored as `[code] message` and parsed back by `social-publishes.service.ts`.
  * Only the HTTP status is carried over from the provider.
  */
-export type PublishFailureCode =
-  | 'no_account'
-  | 'account_mismatch'
-  | 'already_posted'
-  | 'too_long'
-  | 'no_token'
-  | 'wrong_connection'
-  | 'auth_refused'
-  | 'forbidden'
-  | 'not_found'
-  | 'rate_limited'
-  | 'provider_unavailable'
-  | 'rejected'
-  | 'bad_response';
-
-export function publishFailure(code: PublishFailureCode, message: string, retryable: boolean): ProviderError {
-  return new ProviderError(`[${code}] ${message}`, { retryable });
-}
+export { publishFailure } from './publish-failure';
+export type { PublishFailureCode } from './publish-failure';
+import { publishFailure } from './publish-failure';
+import type { PublishFailureCode } from './publish-failure';
 
 /** One HTTP failure from a network, reduced to a code and a sentence that carries the status and nothing else. */
 function httpFailure(network: 'LinkedIn' | 'X', step: string, status: number): ProviderError {
@@ -96,9 +87,7 @@ function httpFailure(network: 'LinkedIn' | 'X', step: string, status: number): P
   return publishFailure(code, `${network} refused the ${step} (HTTP ${status}).${hint}`, retryable);
 }
 
-/** A LinkedIn page is named by its organization URN, and only by that. */
-export const LINKEDIN_ORG_URN = /^urn:li:organization:[0-9]+$/;
-export const LINKEDIN_PERSON_URN = /^urn:li:person:[A-Za-z0-9_-]+$/;
+export { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN } from './social-targets';
 
 export interface PostSocialResult {
   url: string;
@@ -117,6 +106,7 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
 }
 
 interface MediaAsset {
+  attachmentId: string;
   buffer: Buffer;
   mime: string;
   filename: string;
@@ -177,11 +167,22 @@ export class PostSocialActionService implements OnModuleInit {
       }
     }
 
-    // Ticket #42 — NOTHING POSTS FROM AN UNNAMED ACCOUNT. A company-page post names the page; a job without it (a rule
-    // saved before this check existed, or a payload edited by hand) is refused here, before any provider call, rather
-    // than falling back to the member's own profile, which is what this executor used to do for linkedin_org.
-    if (action.target === 'linkedin_org' && !(action.account_id && LINKEDIN_ORG_URN.test(action.account_id))) {
-      throw publishFailure('no_account', 'This post does not name the LinkedIn page it goes out as. Pick the page in the rule and run it again.', false);
+    // Ticket #42/#51 — NOTHING POSTS FROM AN UNNAMED ACCOUNT. A company-page, Facebook Page or Instagram post names the account
+    // it goes out as; a job without it (a rule saved before this check existed, or a payload edited by hand) is refused here,
+    // before any provider call, rather than falling back to a default.
+    if (
+      (action.target === 'linkedin_org' || action.target === 'facebook_page' || action.target === 'instagram_business') &&
+      !namesAccount(action)
+    ) {
+      throw publishFailure(
+        'no_account',
+        action.target === 'linkedin_org'
+          ? 'This post does not name the LinkedIn page it goes out as. Pick the page in the rule and run it again.'
+          : action.target === 'facebook_page'
+            ? 'This post does not name the Facebook Page it goes out as. Pick the Page in the rule and run it again.'
+            : 'This post does not name the Instagram account it goes out as. Pick the account in the rule and run it again.',
+        false,
+      );
     }
 
     // Pre-flight length check (#42): X's weighted-length cap is tighter than
@@ -203,11 +204,18 @@ export class PostSocialActionService implements OnModuleInit {
 
     const media = action.media_field_id && ctx.recordId ? await this.loadMedia(ctx.databaseId, ctx.recordId, action.media_field_id) : null;
 
+    // Ticket #51 — Instagram's image rules are checked before the connection's credential is even opened.
+    if (action.target === 'instagram_business') preflightInstagram(action, media);
+
     const { provider, auth } = await helpers.connectionAuth(action.connection_id);
-    const result =
-      action.target === 'x'
-        ? await this.publishToX(auth as Partial<XAuth>, action, media)
-        : await this.publishToLinkedin(auth as Partial<LinkedinAuth>, action, media, provider);
+    let result: PostSocialResult;
+    if (action.target === 'x') {
+      result = await this.publishToX(auth as Partial<XAuth>, action, media);
+    } else if (action.target === 'facebook_page' || action.target === 'instagram_business') {
+      result = await this.publishToMetaTarget(auth as Partial<MetaAuth>, action, media, provider, ctx.workspaceId);
+    } else {
+      result = await this.publishToLinkedin(auth as Partial<LinkedinAuth>, action, media, provider);
+    }
 
     if (action.result_field_id && ctx.recordId) {
       const field = await this.db.query.fields.findFirst({
@@ -274,7 +282,34 @@ export class PostSocialActionService implements OnModuleInit {
     if (!attachment) return null;
     const stream = await getStorage().getStream(attachment.storageKey);
     const buffer = await streamToBuffer(stream);
-    return { buffer, mime: attachment.mime, filename: attachment.filename };
+    return { attachmentId: attachment.id, buffer, mime: attachment.mime, filename: attachment.filename };
+  }
+
+  // ── Meta (Facebook Pages + Instagram) ──────────────────────────────────
+
+  /** Instagram's container poll: every 3 seconds for up to a minute. Tests replace it so they do not wait. */
+  metaPoll: MetaPoll = { intervalMs: 3000, maxAttempts: 20, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) };
+
+  private async publishToMetaTarget(
+    auth: Partial<MetaAuth>,
+    action: PostSocialAction,
+    media: MediaAsset | null,
+    provider: string,
+    workspaceId: string,
+  ): Promise<PostSocialResult> {
+    if (provider !== 'meta') {
+      throw publishFailure('wrong_connection', 'The connection this post uses is not a Facebook and Instagram connection.', false);
+    }
+    return publishToMeta({
+      auth,
+      action,
+      media,
+      fetcher: this.fetcher,
+      poll: this.metaPoll,
+      mintImageUrl: (attachmentId) => mintAttachmentUrl(attachmentId).url,
+      // Meta said the credential is dead (error 190): flip the connection so the gallery and the creator see it, once.
+      onReconnectRequired: () => this.connections.flagReconnectRequired(workspaceId, action.connection_id),
+    });
   }
 
   // ── LinkedIn ───────────────────────────────────────────────────────────

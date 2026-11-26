@@ -61,7 +61,7 @@ describe('the registry is a complete, honest description of the provider pages',
       expect(id, `${f} declares a ProviderDescriptor with an id`).toBeTruthy();
       ids.add(id!);
     }
-    expect([...ids].sort()).toEqual(['apify', 'google', 'google-calendar', 'http', 'linkedin', 'openai', 'resend', 'shopify', 'smtp', 'x']);
+    expect([...ids].sort()).toEqual(['apify', 'google', 'google-calendar', 'http', 'linkedin', 'meta', 'openai', 'resend', 'shopify', 'smtp', 'x']);
     const covered = coveredConnectionProviders();
     const lost = [...ids].filter((id) => !covered.has(id));
     expect(lost, `API providers with no provider page: ${lost.join(', ')}`).toEqual([]);

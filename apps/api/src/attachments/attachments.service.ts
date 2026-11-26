@@ -1,7 +1,9 @@
 import {
+  GoneException,
   Inject,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -16,6 +18,7 @@ import type { ChangeSource } from '../db/schema';
 import { env } from '../config/env';
 import { DomainEventsService } from '../events/domain-events.service';
 import { getStorage } from './storage';
+import { verifyAttachmentSignature } from './signed-attachment';
 import { guardedFetch, SsrfBlockedError } from '../common/net-guard';
 
 const THUMB_WIDTH = 320;
@@ -42,6 +45,27 @@ export class AttachmentsService implements OnModuleInit {
     /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's attachment delete. */
     private readonly agentDeletes: AgentDeleteHoldService,
   ) {}
+
+  /**
+   * Ticket #51 — the signed-URL read (`GET /attachments/signed/:id?expires&sig`). The signature proves the URL was minted
+   * by this server for THIS attachment and has not expired; nothing else is trusted. A missing attachment and a trashed
+   * record's attachment are the same 404, so the URL never confirms what it no longer serves.
+   */
+  async streamForSignedUrl(id: string, expiresRaw: string | undefined, sig: string | undefined) {
+    if (!expiresRaw || !sig || !verifyAttachmentSignature(id, expiresRaw, sig)) {
+      throw new UnauthorizedException('Invalid or missing signature');
+    }
+    const expires = Number(expiresRaw);
+    if (!Number.isFinite(expires) || expires < Date.now() / 1000) throw new GoneException('This link has expired');
+    const [row] = await this.db
+      .select({ storageKey: attachments.storageKey, mime: attachments.mime })
+      .from(attachments)
+      .innerJoin(records, eq(records.id, attachments.recordId))
+      .where(and(eq(attachments.id, id), isNull(records.deletedAt)))
+      .limit(1);
+    if (!row) throw new NotFoundException('Not found');
+    return { stream: await getStorage().getStream(row.storageKey), mime: row.mime };
+  }
 
   onModuleInit(): void {
     // #1178 — an approved attachment delete runs as the acting member (record access re-checked first), through the same remove().

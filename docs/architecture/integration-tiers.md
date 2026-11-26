@@ -42,7 +42,7 @@ today every `oauth2` provider is `oauth_managed`, but the axes are independent.
 | Tier | Value | Who owns the credential | Works on self-managed? | Current providers |
 |---|---|---|---|---|
 | **A** | `api_key` | The user brings their own key/secret | Yes, always | `apify`, `resend`, `smtp`, `http` |
-| **B** | `oauth_managed` | A verified OAuth app — hosted provides the managed one; a self-managed operator brings their own via env | Yes, once the operator wires their own OAuth app | `google`, `google-calendar` |
+| **B** | `oauth_managed` | A verified OAuth app — hosted provides the managed one; a self-managed operator brings their own via env | Yes, once the operator wires their own OAuth app | `google`, `google-calendar`, `linkedin`, `meta` |
 | **C** | `hosted_only` | Only meaningful on hosted StoryOS | No — cloud only | *reserved; no provider uses it yet* |
 
 Tier B is the interesting one: on hosted, the managed app "just works"; on

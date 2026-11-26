@@ -438,7 +438,10 @@ export class JobRunnerService implements OnModuleInit, OnModuleDestroy {
   private async bumpConnectionErrorStreak(connectionId: string): Promise<void> {
     const [row] = await this.db
       .update(connections)
-      .set({ errorStreak: sql`${connections.errorStreak} + 1`, status: 'error' })
+      // Ticket #51: an `expired` connection stays `expired`. Meta's "token invalidated" (190) flips it to `expired` (reconnect
+      // needed) inside the failing job, and this bump runs right after: it must count the failure but never turn "reconnect
+      // this" back into the vaguer "error", which is what the gallery and the notification key on.
+      .set({ errorStreak: sql`${connections.errorStreak} + 1`, status: sql`(case when ${connections.status} = 'expired' then 'expired' else 'error' end)::connection_status` })
       .where(eq(connections.id, connectionId))
       .returning({ errorStreak: connections.errorStreak });
     if (row && row.errorStreak >= BREAKER_FAILURE_THRESHOLD) {
