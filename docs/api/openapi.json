@@ -10915,7 +10915,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BuildDto"
+                "$ref": "#/components/schemas/TyronBuildDto"
               }
             }
           }
@@ -21638,15 +21638,8 @@
       "BuildDto": {
         "type": "object",
         "properties": {
-          "description": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 2000
-          }
-        },
-        "required": [
-          "description"
-        ]
+          "plan": {}
+        }
       },
       "CreateThreadDto": {
         "type": "object",
@@ -21692,6 +21685,19 @@
         },
         "required": [
           "approve"
+        ]
+      },
+      "TyronBuildDto": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "description"
         ]
       },
       "RunnerToolChoiceDto": {
