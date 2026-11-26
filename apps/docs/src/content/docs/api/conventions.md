@@ -212,7 +212,17 @@ these `error.code` values:
 | Invite past its expiry | 404 | `invite_expired` |
 | Invite revoked by an admin | 404 | `invite_revoked` |
 | Signed in with a different email than the invite | 403 | `invite_email_mismatch` |
+| Signed in as the invited address, but the account's email is not verified | 403 | `invite_email_unverified` |
 | Already a member of that workspace | 409 | `already_a_member` |
+
+The address is checked before verification, so the answer for someone else's invite never depends on whether
+the caller's account is verified. A refusal creates no membership or workspace and does not use the token up.
+An account created through the invite link is verified at creation: send the token as `invite_token` in the
+body of the ordinary `POST /api/v1/auth/sign-up/email`. It counts only when it names a pending invite issued to
+exactly the address signing up (not used, not revoked, not expired); any other value leaves the account
+unverified and the sign-up response unchanged, and a sign-up for an address that already has an account is
+refused as before and verifies nothing. An unverified account verifies by `POST /api/v1/auth/send-verification-email`
+(`{ "email", "callbackURL" }`, signed in) and the link in the email it sends.
 
 ## Errors — one envelope everywhere
 

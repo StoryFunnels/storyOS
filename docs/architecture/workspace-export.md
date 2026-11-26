@@ -63,7 +63,7 @@ space and database (with the in-archive `path` of each database file).
 The database's **schema** and **all of its records**.
 
 - `fields[]` — the full field schema: `id`, `api_name`, `display_name`, `type`,
-  `config` (the raw per-type config JSON), `position`, `is_system`, and — for
+  `config` (the raw per-type config JSON), `description` (the field's help text, `null` when it has none), `position`, `is_system`, and — for
   `select`/`multi_select` — the `options[]` (`id`, `label`, `color`, `position`).
 - `records[]` — every non-trashed record: `id`, `number` (the public per-database
   id), `title`, `position`, `created_by`, `created_at`, `updated_at`, and `values`.

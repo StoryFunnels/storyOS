@@ -253,6 +253,17 @@ agent on them.
 - **You are asked first.** The button opens a confirmation that says how many runs it will start,
   that each one runs on your own computer and subscription, and what the agent asks you before
   doing. **Not now** leaves everything as it was.
+- **The records are named.** The confirmation lists the first five waiting records by title, oldest
+  first, which is the order a click starts them, each with the rule that selected it, such as
+  "Status is Onboarding". Then it says "and 3 more" for the rest you could open. Records you cannot
+  open, which an admin can meet on a colleague's agent, are counted as "2 you cannot open" and never
+  named. With exactly one record, the box above the button names it: "Acme Co (sample) was in
+  Onboarding before the agent could run, so it won't wake it." If the list cannot be read, the
+  words fall back to the count and the rule on one row.
+- **They also show in Runs.** Until you click, each waiting record is a grey **Not started** row at
+  the top of the agent's **Runs** list, with the line "Entered Onboarding before the Runner was
+  added", and it opens the record. Past the names there are one or two lines: "3 more records not
+  started" and "2 you cannot open". The rows go once the click queues the records.
 - **At most 25 per click.** If more are waiting, the button says it starts the first 25, and the
   confirmation says so. After the click, the message says how many were started and how many remain;
   click again for the next batch. A second click never queues a record twice.

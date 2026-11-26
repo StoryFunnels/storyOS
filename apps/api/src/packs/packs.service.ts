@@ -99,6 +99,13 @@ const MAX_SCAN = 200;
 
 const norm = (s: string) => s.trim().toLowerCase();
 
+/**
+ * #704 - the manifest key for a field's description, spread into an exported field. ABSENT (not null, not '') when the field has none, so
+ * an export of every field that was never described is byte-identical to what it was before descriptions existed.
+ */
+const descriptionKey = (field: { description?: string | null }): { description?: string } =>
+  field.description ? { description: field.description } : {};
+
 /** ticket #1218 - the content of a record template that uninstall compares: what a person can edit, not its ids or timestamps. */
 const templateProjection = (t: { name: string; description: string | null; values: unknown; body: string | null }) => ({
   name: t.name,
@@ -232,6 +239,8 @@ interface LiveField {
   type: string;
   isSystem?: boolean;
   config?: Record<string, unknown>;
+  /** #704 - the field's help text; null when it has none. */
+  description?: string | null;
   options?: Array<{ id: string; label: string; color?: string; category?: string | null }>;
 }
 
@@ -428,6 +437,7 @@ export class PacksService {
             database: db.name,
             name: field.displayName,
             type: field.type as PackDerivedField['type'],
+            ...descriptionKey(field), // #704
             // A pack is a *shareable artifact* — it gets committed, emailed and
             // published. A button's `send_webhook` action carries an arbitrary
             // `headers` map (where an `Authorization: Bearer …` lives) and a URL
@@ -445,6 +455,7 @@ export class PacksService {
           states.push({
             database: db.name,
             field: field.displayName,
+            ...descriptionKey(field), // #704
             options: (field.options ?? []).map((o) => ({
               label: o.label,
               color: o.color as PlanState['options'][number]['color'],
@@ -457,6 +468,7 @@ export class PacksService {
         plain.push({
           name: field.displayName,
           type: field.type as PlanDatabase['fields'][number]['type'],
+          ...descriptionKey(field), // #704
           options: field.options?.map((o) => ({
             label: o.label,
             color: o.color as PlanState['options'][number]['color'],
@@ -3213,6 +3225,7 @@ export class PacksService {
       const created = (await this.fields.create(dbId, {
         display_name: planned.name,
         type: planned.type,
+        description: planned.description, // #704
         config: config as Record<string, unknown>,
       })) as unknown as LiveField;
       result.derived_fields.push({ name: label, action: 'created', id: created.id });

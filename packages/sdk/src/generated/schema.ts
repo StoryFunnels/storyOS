@@ -5558,6 +5558,7 @@ export interface components {
             display_name: string;
             /** @enum {string} */
             type: "text" | "rich_text" | "number" | "checkbox" | "date" | "select" | "multi_select" | "workflow" | "url" | "email" | "color" | "user" | "attachment" | "lookup" | "rollup" | "button" | "formula" | "ai";
+            description?: string | null;
             config?: {
                 [key: string]: unknown;
             };
@@ -5598,6 +5599,7 @@ export interface components {
         };
         UpdateFieldDto: {
             display_name?: string;
+            description?: string | null;
             config?: {
                 [key: string]: unknown;
             };
@@ -7618,7 +7620,7 @@ export interface components {
             draft?: unknown;
         };
         BuildDto: {
-            description: string;
+            plan?: unknown;
         };
         CreateThreadDto: {
             first_message?: string;
@@ -7631,6 +7633,9 @@ export interface components {
         };
         ConfirmDto: {
             approve: boolean;
+        };
+        TyronBuildDto: {
+            description: string;
         };
         RunnerToolChoiceDto: {
             tool: string;
@@ -14775,7 +14780,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BuildDto"];
+                "application/json": components["schemas"]["TyronBuildDto"];
             };
         };
         responses: {
