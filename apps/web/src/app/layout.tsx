@@ -29,8 +29,8 @@ import './globals.css';
 // (docker-compose.yml), already passed to the mcp service for the same reason — reused here, not a second source of truth.
 //
 // Ticket #1122 — it must be read per REQUEST, from the container's env. A static `metadata` export is evaluated at BUILD
-// time for every prerendered route (/, /login, /signup, …), and one image is deployed to staging and production, so every
-// image carried whichever origin it was built with (staging's) into production. `connection()` opts the routes into
+// time for every prerendered route (/, /login, /signup, …), and one image is deployed many times, so every
+// image carried whichever origin it was built with into production. `connection()` opts the routes into
 // request-time rendering, so `process.env.WEB_URL` is the running container's. `||`, not `??`: an empty WEB_URL in a
 // compose file must not crash every page on `new URL('')`. scripts/check-built-html.mjs starts the built server with a
 // WEB_URL the build never saw and fails the build if og:image does not follow it.

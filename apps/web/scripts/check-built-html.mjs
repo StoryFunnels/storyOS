@@ -5,9 +5,9 @@
 // `<link rel="preload" as="font">` with NO href (the static import is a URL string under this repo's `next build`, and
 // the code read `.src` off it). A test that reads the repository cannot see that; the served HTML can.
 //
-// Ticket #1122 — one web image is deployed to staging AND production (build once, deploy many), so the public origin
+// Ticket #1122 — one web image is built once and deployed many times, so the public origin
 // must come from the container's runtime WEB_URL, never from the build. Every image used to be built with
-// WEB_URL=https://staging.storyos.dev, and production's link previews pointed at staging. Two checks guard that:
+// one deployment's WEB_URL, and production's link previews pointed at that origin. Two checks guard that:
 //   1. no build output contains a deployment origin (or the build-time WEB_URL, if one was set);
 //   2. the built server, started with a WEB_URL the build never saw, serves og:image on THAT origin.
 // /login is fetched from the running server because it is no longer prerendered to a file.
@@ -33,7 +33,7 @@ const walk = (dir) =>
     : [];
 
 // ── 1. No deployment origin is baked into the build output ──────────────────────────────────────────────────────────
-const forbidden = new Set(['staging.storyos.dev', 'app.storyos.dev']);
+const forbidden = new Set(['app.storyos.dev']);
 const buildWebUrl = process.env.WEB_URL?.trim();
 if (buildWebUrl) {
   try {

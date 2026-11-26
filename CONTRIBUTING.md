@@ -16,12 +16,12 @@ Human or AI agent, **read before you write code.** Most of the rules below exist
 
 ## Trunk-based development
 
-`main` is the trunk and the only long-lived branch. There are no `staging`, `production` or release branches.
+`main` is the trunk and the only long-lived branch. There are no environment or release branches.
 
 - **Branches are short-lived.** Merge within a day or two. A branch that lives for weeks drifts from `main` and turns its merge into a project of its own.
 - **Keep PRs small.** One ticket, one concern. A small diff gets a real review and clears the merge queue fast. If a change keeps growing, split it and land the safe half first.
-- **`main` is always deployable.** Every merge builds the images and deploys that exact commit to staging (`build-images.yml`, the `deploy staging` job) within minutes. Don't merge something you wouldn't want running there.
-- **Production ships when a person decides.** A maintainer runs `Deploy production` with a green `main` sha. Rolling back means running it again with the previous sha. Nothing is promoted through branches.
+- **`main` is always deployable.** Every merge builds and publishes the images for that exact commit (`build-images.yml`). CI and the verification rig are the checks before and after a merge. Don't merge something you wouldn't want shipped.
+- **Production ships when a person decides.** A maintainer runs `Deploy production` with a green `main` sha, and only on Ievgen's explicit yes. Rolling back means running it again with the previous sha. Nothing is promoted through branches.
 
 ### Unfinished work: merge it switched off
 

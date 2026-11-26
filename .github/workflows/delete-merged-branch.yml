@@ -33,8 +33,8 @@ jobs:
     # queue (how everything lands here) is covered.
     #
     # #1127 — no exemptions: the repo is trunk-based (#1085), `main` is the only
-    # long-lived branch, and the `staging` / `production` branches this used to
-    # skip were deleted.
+    # long-lived branch, and the environment branches this used to skip were
+    # deleted.
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository

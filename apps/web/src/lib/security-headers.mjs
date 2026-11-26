@@ -21,7 +21,7 @@ function originOf(url) {
 
 /**
  * The baseline Content-Security-Policy, shipped as Report-Only first: browsers log what it would block (DevTools
- * console) without blocking anything. Once staging shows no violations it can move to the enforced header.
+ * console) without blocking anything. Once the verification rig shows no violations it can move to the enforced header.
  *
  * - `'unsafe-inline'` scripts: the App Router streams inline bootstrap scripts; nonces would make every page dynamic.
  * - `connect-src` adds the API origin (NEXT_PUBLIC_API_URL, inlined at build time) and PostHog when it is set as an

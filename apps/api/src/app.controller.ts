@@ -39,9 +39,8 @@ export class AppController {
    * still answers on a DIRECT hit to this container's own port, e.g. an
    * operator curling `api:3001/` from inside the compose network), which
    * means the catch-all sends every OTHER request — including bare `/` on the
-   * public domain — to the web container instead. Confirmed live against
-   * staging: `GET https://staging.storyos.dev/` returned the web app's cached
-   * HTML, not this JSON.
+   * public domain — to the web container instead. Confirmed live: a GET of the
+   * public root returned the web app's cached HTML, not this JSON.
    *
    * This route has NO explicit path segment excluded from the prefix, so it
    * lands at `/api/v1/build-info` — reachable through the exact same `/api/*`

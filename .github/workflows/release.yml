@@ -2,15 +2,15 @@
 #
 # A `v*` tag on a main commit adds `:<version>` to that commit's three
 # `:<sha>` images, which build-images.yml published when the commit landed.
-# Nothing is rebuilt, so a release is byte-identical to what staging ran and
-# what deploy-production.yml ships by sha.
+# Nothing is rebuilt, so a release is byte-identical to what build-images.yml
+# published and what deploy-production.yml ships by sha.
 #
 # The earlier version REBUILT api and web here and also pushed `:latest`.
 # Its web build had none of build-images.yml's build args (PostHog, WEB_URL,
 # GIT_SHA), it released no mcp image, and build-images.yml re-tags an unchanged
 # service's `:latest` onto every new main commit, so one release would have
-# put that differently-built web image into the next staging and production
-# deploys. `:latest` is written only by build-images.yml.
+# put that differently-built web image into the next production
+# deploy. `:latest` is written only by build-images.yml.
 name: Release
 
 on:

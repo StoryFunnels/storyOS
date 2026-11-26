@@ -22,9 +22,8 @@ ARG NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=
 ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=$NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
 ARG NEXT_PUBLIC_POSTHOG_HOST=
 ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
-# Ticket #1122 — no WEB_URL here. #593 baked it in as a build arg for the prerendered pages, but this one image is
-# deployed to staging AND production, so every image carried the origin it was built with (staging's) into
-# production. The root layout now reads WEB_URL per request from the container env (docker-compose.yml), and
+# Ticket #1122 — no WEB_URL here. #593 baked it in as a build arg for the prerendered pages, but the public origin must
+# not be tied to the build, or an image carries whichever origin it was built with into every deployment. The root layout now reads WEB_URL per request from the container env (docker-compose.yml), and
 # scripts/check-built-html.mjs (run by the build below) fails if a deployment origin ends up in the build output.
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
 COPY packages/config ./packages/config
