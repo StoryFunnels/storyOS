@@ -6243,6 +6243,25 @@ export interface components {
                 /** Format: uuid */
                 result_field_id?: string;
                 account_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "attach_pdf";
+                source: {
+                    /** @enum {string} */
+                    kind: "record";
+                } | {
+                    /** @enum {string} */
+                    kind: "linked_record";
+                    /** Format: uuid */
+                    relation_field_id: string;
+                };
+                /** Format: uuid */
+                target_field_id: string;
+                filename_template?: string;
+                /** @enum {string} */
+                if_exists?: "skip" | "replace" | "add";
             })[];
             /** @default true */
             enabled: boolean;
@@ -6445,6 +6464,25 @@ export interface components {
                 /** Format: uuid */
                 result_field_id?: string;
                 account_id?: string;
+            } | {
+                require_approval?: boolean;
+                condition?: unknown;
+                /** @enum {string} */
+                type: "attach_pdf";
+                source: {
+                    /** @enum {string} */
+                    kind: "record";
+                } | {
+                    /** @enum {string} */
+                    kind: "linked_record";
+                    /** Format: uuid */
+                    relation_field_id: string;
+                };
+                /** Format: uuid */
+                target_field_id: string;
+                filename_template?: string;
+                /** @enum {string} */
+                if_exists?: "skip" | "replace" | "add";
             })[];
             enabled?: boolean;
             approverId?: string | null;

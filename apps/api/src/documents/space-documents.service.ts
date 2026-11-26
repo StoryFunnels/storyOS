@@ -1,16 +1,14 @@
 import { ConflictException, Inject, Injectable, NotFoundException, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
-import { codedException } from '../common/coded-exception';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { normalizeIconInput } from '@storyos/schemas/icons';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { spaceDocuments, spaceFolders, workspaceFiles } from '../db/schema';
+import { spaceDocuments, spaceFolders } from '../db/schema';
 import { extractText } from './documents.service';
 import { blocksToMarkdown } from '@storyos/schemas/markdown';
-import { getStorage } from '../attachments/storage';
-import { blocksToHtml } from './export/blocks-to-html';
 import { PdfRenderer } from './export/pdf-renderer';
+import { renderBlocksToPdf } from './export/render-blocks-pdf';
 import { AccessService } from '../access/access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SpacesService } from '../workspaces/spaces.service';
@@ -18,13 +16,6 @@ import { collectMentions } from '../mentions/mentions.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 const MAX_BYTES = 2 * 1024 * 1024;
-
-/** #262 — a document's HTML (before images) past this is refused rather than sent to a small host's browser. */
-const MAX_PDF_HTML_CHARS = 6_000_000;
-/** Raw image bytes inlined into ONE export. Past it, further images become a visible placeholder. */
-const MAX_PDF_IMAGE_BYTES = 24 * 1024 * 1024;
-/** `/api/v1/files/<uuid>` — how the editor stores an uploaded image (see FilesService.upload). */
-const EDITOR_FILE_PATH = /^\/api\/v1\/files\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /** Standalone space-level documents (MN-095) — rich pages that live in the nav
  * tree next to databases, independent of any record. Single-editor optimistic
@@ -190,46 +181,10 @@ export class SpaceDocumentsService implements OnModuleInit {
     const existing = await this.row(membership.workspaceId, docId);
     await this.assertDocSpace(membership, existing.spaceId, 'viewer');
 
-    let imageBytesLeft = MAX_PDF_IMAGE_BYTES;
-    let inlinedImageChars = 0;
-    const resolveImage = async (url: string): Promise<string | null> => {
-      let fileId: string | undefined;
-      try {
-        fileId = EDITOR_FILE_PATH.exec(new URL(url, 'http://storyos.invalid').pathname)?.[1];
-      } catch {
-        return null;
-      }
-      if (!fileId) return null;
-      const file = await this.db.query.workspaceFiles.findFirst({
-        where: and(eq(workspaceFiles.id, fileId), eq(workspaceFiles.workspaceId, membership.workspaceId)),
-      });
-      if (!file || file.revokedAt) return null;
-      if (!/^image\/[a-z0-9.+-]+$/i.test(file.mime)) return null;
-      if (file.size > imageBytesLeft) return null;
-      const chunks: Buffer[] = [];
-      for await (const chunk of await getStorage().getStream(file.storageKey)) chunks.push(Buffer.from(chunk as Buffer));
-      const data = Buffer.concat(chunks);
-      if (data.length > imageBytesLeft) return null;
-      imageBytesLeft -= data.length;
-      const dataUri = `data:${file.mime};base64,${data.toString('base64')}`;
-      inlinedImageChars += dataUri.length;
-      return dataUri;
-    };
-
-    const { html, skippedImages } = await blocksToHtml(existing.title, existing.content, { resolveImage });
-    // The cap is on the document's own text and structure; image bytes have their own budget above.
-    const measured = html.length - inlinedImageChars;
-    if (measured > MAX_PDF_HTML_CHARS) {
-      // The figures are FIELDS: "too large" without a number is not actionable, and a
-      // client cannot show, compare or localise a number buried in a sentence.
-      throw codedException(
-        413,
-        'document_too_large',
-        `This document is too large to export as a PDF (${measured.toLocaleString('en-US')} characters of content; the limit is ${MAX_PDF_HTML_CHARS.toLocaleString('en-US')}).`,
-        { limit: MAX_PDF_HTML_CHARS, measured, unit: 'characters' },
-      );
-    }
-    const pdf = await this.pdf.render(html);
+    const { pdf, skippedImages } = await renderBlocksToPdf(
+      { db: this.db, pdf: this.pdf },
+      { workspaceId: membership.workspaceId, title: existing.title, blocks: existing.content },
+    );
     return { title: existing.title, pdf, skippedImages };
   }
 

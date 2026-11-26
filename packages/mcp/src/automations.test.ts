@@ -19,6 +19,7 @@ const STATE = '11111111-1111-4111-8111-111111111111';
 const OWNER = '22222222-2222-4222-8222-222222222222';
 const REL = '33333333-3333-4333-8333-333333333333';
 const TASKS_DB = '44444444-4444-4444-8444-444444444444';
+const FILES = '55555555-5555-4555-8555-555555555555';
 const detail: AutoDetail = {
   id: 'db-1',
   name: 'Issues',
@@ -31,6 +32,7 @@ const detail: AutoDetail = {
     { id: OWNER, apiName: 'owner', displayName: 'Owner', type: 'user' },
     { id: REL, apiName: 'project', displayName: 'Project', type: 'relation' },
     { id: 'ttl', apiName: 'title', displayName: 'Title', type: 'title' },
+    { id: FILES, apiName: 'files', displayName: 'Files', type: 'attachment' },
   ],
 };
 
@@ -143,6 +145,34 @@ describe('resolveActionFieldRefs (#334)', () => {
       relation_field_id: REL,
       values: {},
     });
+  });
+
+  // Ticket #877 — the PDF action takes names in and sends ids out, like update_linked, and validates against the real schema.
+  it('resolves attach_pdf target_field and a linked_record relation_field names to ids, and the result validates', () => {
+    const out = resolveActionFieldRefs(
+      { type: 'attach_pdf', target_field: 'Files', source: { kind: 'linked_record', relation_field: 'Project' }, if_exists: 'replace' },
+      detail,
+    );
+    expect(out).toEqual({
+      type: 'attach_pdf',
+      target_field_id: FILES,
+      source: { kind: 'linked_record', relation_field_id: REL },
+      if_exists: 'replace',
+    });
+    const body = { name: 'Send quote', trigger: { type: 'record_created' }, actions: [out] };
+    expect(createAutomationSchema.safeParse(body).success).toBe(true);
+  });
+
+  it('attach_pdf defaults its source to the triggering record, and only an ATTACHMENT field can be the target', () => {
+    expect(resolveActionFieldRefs({ type: 'attach_pdf', target_field: 'files' }, detail)).toMatchObject({ source: { kind: 'record' }, target_field_id: FILES });
+    expect(() => resolveActionFieldRefs({ type: 'attach_pdf', target_field: 'State' }, detail)).toThrow(/attachment field/);
+    expect(() => resolveActionFieldRefs({ type: 'attach_pdf' }, detail)).toThrow(/target_field/);
+    expect(() => resolveActionFieldRefs({ type: 'attach_pdf', target_field: 'Files', source: { kind: 'linked_record', relation_field: 'Owner' } }, detail)).toThrow(/relation field/);
+  });
+
+  it('annotates attach_pdf with the target field name on read, keeping the ids', () => {
+    const [out] = annotateActions([{ type: 'attach_pdf', target_field_id: FILES, source: { kind: 'linked_record', relation_field_id: REL } }], detail) as Array<Record<string, unknown>>;
+    expect(out).toMatchObject({ target_field_id: FILES, target_field_name: 'Files', source: { relation_field_id: REL, relation_field_name: 'Project' } });
   });
 
   it('resolves an http_request capture target_field name → target_field_id', () => {

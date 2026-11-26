@@ -81,6 +81,14 @@ GOTENBERG_API_TIMEOUT=80s
 A document too large to render is refused with `413` and a body that names the limit and the
 document's measured size.
 
+## Rules that attach a PDF
+
+An automation rule's **Attach a PDF** action uses the same renderer. With no renderer set up, or one
+that is not answering, such a rule can be saved switched off but cannot be switched on, and a run of
+an already-on rule fails with a sentence that says so. Renders for rules queue per workspace, 25 at a
+time, one rendered at once; past 25 the run fails instead of waiting without limit. See
+[Attaching a PDF](/concepts/automations/#attaching-a-pdf).
+
 ## Local development
 
 In development the API runs on your machine, which can't reach a container on an internal-only

@@ -27,6 +27,8 @@ import { stringHeadersOnly } from '../common/webhook-headers';
 import { getJsonPath } from '../common/json-path';
 import { JobRunnerService, buildIdempotencyKey } from './job-runner.service';
 import { ApprovalsService } from './approvals.service';
+import { AttachPdfActionService } from './attach-pdf.action';
+import { DEFAULT_FILENAME_TEMPLATE, withDateToken } from './attach-pdf-model';
 import { LINKEDIN_ORG_URN, LINKEDIN_PERSON_URN } from './post-social.action';
 
 /** Full token match — `{payload.a.b.0}`, nothing else in the string. */
@@ -205,6 +207,7 @@ export class AutomationActionsService implements OnModuleInit {
     private readonly webhooksService: WebhooksService,
     private readonly jobs: JobRunnerService,
     private readonly approvals: ApprovalsService,
+    private readonly attachPdf: AttachPdfActionService,
   ) {}
 
   /**
@@ -259,6 +262,11 @@ export class AutomationActionsService implements OnModuleInit {
     if (!target) return null;
     const chips = (record.values[target.field.apiName] as Array<{ id: string }> | undefined) ?? [];
     return { targetDbId: target.targetDbId, linkedIds: chips.map((c) => c.id) };
+  }
+
+  /** Ticket #877: refuse to switch ON a rule that makes PDFs while the renderer is unusable. See AttachPdfActionService. */
+  assertRendererForEnabled(actions: ReadonlyArray<{ type?: unknown }>): Promise<void> {
+    return this.attachPdf.assertRendererForEnabled(actions);
   }
 
   /**
@@ -545,6 +553,10 @@ export class AutomationActionsService implements OnModuleInit {
             throw new UnprocessableEntityException('post_social result_field_id must be a field on this database');
           }
         }
+      }
+
+      if (action.type === 'attach_pdf') {
+        await this.attachPdf.validate(workspaceId, databaseId, action);
       }
 
       // #781 — a class's save-time rule, declared once in action-classes.ts rather than
@@ -951,6 +963,10 @@ export class AutomationActionsService implements OnModuleInit {
         const snapshot = { ...action, ...this.renderHttpRequestTemplates(action, ctx, displayToApi) };
         return { snapshot, previewText: `${action.method} ${snapshot.url}` };
       }
+      case 'attach_pdf':
+        // Ticket #877 — validate() refuses require_approval on it, so this is never reached by a saved rule; present only so the
+        // switch stays exhaustive and a hand-built action cannot fall through to an undefined snapshot.
+        return { snapshot: action, previewText: 'Attach a PDF' };
       case 'post_social': {
         // Ticket #42 — rendered here (once) the same way send_email's body is,
         // whether or not this ends up gated; the executor (post-social.action
@@ -1470,6 +1486,16 @@ export class AutomationActionsService implements OnModuleInit {
             summary: `Slack message failed: ${err instanceof Error ? err.message : 'unknown error'}`,
           });
         }
+      } else if (action.type === 'attach_pdf') {
+        // Ticket #877 — INLINE, and a failure THROWS: the run fails and the actions after this one do not run, so an email that
+        // was meant to carry the PDF is never sent without it. validate() already kept this off a rule with no triggering record.
+        const template = withDateToken(action.filename_template ?? DEFAULT_FILENAME_TEMPLATE);
+        const effect = await this.attachPdf.run(
+          action,
+          { workspaceId: ctx.workspaceId, databaseId: ctx.databaseId, record: ctx.record!, actorId: ctx.actorId, source: ctx.source ?? 'automation', depth: ctx.depth ?? 0 },
+          this.interpolate(template, ctx, displayToApi),
+        );
+        effects.push(effect);
       }
     }
     return effects;
