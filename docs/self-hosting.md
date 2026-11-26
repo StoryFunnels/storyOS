@@ -163,7 +163,11 @@ The audit log and the per-record activity feed read the `activity_events` table.
 | Hosted, Pro plan | 30 days |
 | Hosted, Business plan | 30 days (until a 90-day tier exists) |
 | Hosted, Enterprise plan | 90 days |
-| Self-hosted | `ACTIVITY_EVENTS_RETENTION_DAYS`; unset, `0` or `never` keeps everything |
+| Self-hosted | `ACTIVITY_EVENTS_RETENTION_DAYS`; unset, `0` or `never` keeps everything, a number is that many days (no minimum) |
+
+Setting `STRIPE_SECRET_KEY` is what turns the plan windows on: a deployment with a Stripe key is "hosted", a workspace with no billing row is Free (7 days), and `ACTIVITY_EVENTS_RETENTION_DAYS` is ignored. Without a Stripe key there are no plans and only the variable applies.
+
+The agent's `outward.*` log has no record but does expire like the rest (subject to the current-month floor below); only events that are not about one record and are not `outward.*` are kept forever.
 
 Never deleted, at any window: events that are not about one record (a space, database or view deleted or restricted, a portal link created or revoked, a Runner paired or revoked) and a change that set a person field (My Work's "assigned by" reads it). Also kept past the window: an agent's `outward.*` log for the current calendar month (agent budgets sum it), and any event a webhook subscription has not been delivered yet. The audit log list returns `retention_days`, the window for the workspace (`null` = kept forever). Record version history (restore) is a separate table with its own plan limit and is not affected.
 
