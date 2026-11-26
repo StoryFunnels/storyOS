@@ -25,7 +25,7 @@ export function safePdfFilename(raw: string): string {
     // path separators and the characters a filesystem or a header-quoting refuses
     .replace(/[\\/:*?"<>|]/g, ' ')
     // bidi overrides and zero-width characters: they make `invoice.pdf` read as something else
-    .replace(/[​-‏‪-‮⁦-⁩﻿]/g, '')
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   // A trailing `.pdf` is ours to add exactly once, whatever the template did.

@@ -9232,7 +9232,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create automation',
       short:
-        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Covers every trigger and action shape, templates, top-N sort/limit. [Full notes: get_started section \"TOOL NOTES create_automation\"]",
+        "Create an automation rule: a trigger (record_created, record_updated, record_linked, schedule, webhook_received) + an optional condition + 1-10 actions (set_values, create_record, create_records, add_comment, notify_user, update_linked, send_slack_message, send_webhook, send_email, http_request, attach_pdf, run_agent). A rule CAN REACH OUTSIDE STORYOS: it can send real email, call any public HTTP API and post to Slack, from scheduled and triggered rules alike. run_agent works an agent on a schedule or while nobody is signed in: for an agent on Your own AI, a wake queues and runs when an active, online Runner claims it (a wake nobody serves for 7 days is cancelled). A schedule every:\"minutes\" below 10 is refused. Covers every trigger and action shape, templates, top-N sort/limit. [Full notes: get_started section \"TOOL NOTES create_automation\"]",
       description:
 /*
          * #393 — the capability sentence comes FIRST, in words.
@@ -9270,6 +9270,12 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'update_linked{relation_field, values} · send_slack_message{text, channel?} · ' +
         'send_webhook{url, body_template?, headers?} · send_email{connection_id, to, subject, body_markdown} · ' +
         'http_request{method, url, headers?, body_template?, connection_id?, capture?:[{path, target_field}]} · ' +
+        // Ticket #877: the PDF action.
+        'attach_pdf{target_field, source?:{kind:"record"}|{kind:"linked_record", relation_field}, filename_template?, if_exists?:"skip"|"replace"|"add"} — ' +
+        'make a PDF of the triggering record (or of the ONE record it links to through relation_field) and attach it to an ATTACHMENT field on the triggering record; a later send_email can attach that field. ' +
+        'It is made with the RULE OWNER\'s access, checked on every run (the person who created the rule, not who switched it on): what they cannot read is never rendered and a record they cannot edit gets no file, and the run fails with a plain message and the actions after it do not run. ' +
+        'filename_template takes {Field} tokens and {date} (default "{title} · {date}"); the name is made safe and ends .pdf. if_exists: skip (default, so a re-run attaches nothing twice), replace, or add. ' +
+        'Needs the PDF renderer on the server: without it the rule cannot be switched on (saving it switched off is fine) and a run fails loudly. Up to 25 PDFs per workspace wait their turn; more are refused. Not on webhook_received rules (no record), and never held for approval · ' +
         'run_agent{agent, prompt?, target?:"trigger_record", require_approval?, ...} — run an agent (its record uuid or public number, from get_agents) — ' +
         'this is how an agent works on a SCHEDULE or while nobody is signed in: pair it with a schedule trigger and it runs once per ' +
         'record the rule selects (add a condition, or sort/limit, to narrow that — with none, every record in the database up to 500 each tick). ' +

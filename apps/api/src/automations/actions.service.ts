@@ -1477,7 +1477,7 @@ export class AutomationActionsService implements OnModuleInit {
         const template = withDateToken(action.filename_template ?? DEFAULT_FILENAME_TEMPLATE);
         const effect = await this.attachPdf.run(
           action,
-          { workspaceId: ctx.workspaceId, databaseId: ctx.databaseId, record: ctx.record!, actorId: ctx.actorId, source: ctx.source ?? 'automation' },
+          { workspaceId: ctx.workspaceId, databaseId: ctx.databaseId, record: ctx.record!, actorId: ctx.actorId, source: ctx.source ?? 'automation', depth: ctx.depth ?? 0 },
           this.interpolate(template, ctx, displayToApi),
         );
         effects.push(effect);

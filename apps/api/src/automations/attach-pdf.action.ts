@@ -29,6 +29,8 @@ export interface AttachPdfContext {
   /** The rule's owner (automations.created_by), or the person who pressed a button. */
   actorId: string;
   source: ChangeSource;
+  /** The run's loop-guard depth, forwarded onto the event the attachment write emits. */
+  depth: number;
 }
 
 export interface AttachPdfEffect {
@@ -211,6 +213,7 @@ export class AttachPdfActionService {
       ctx.actorId,
       targetField.id,
       ctx.source,
+      ctx.depth,
     );
     // Only now is the old file let go, so a failed render or upload never costs the field the file it had.
     for (const old of replaced) {
