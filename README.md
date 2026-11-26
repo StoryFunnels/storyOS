@@ -7,7 +7,7 @@
 
 <p align="center">
   <strong>The one place a small business's real things live.</strong><br/>
-  Clients, contacts and projects as linked records, with your own AI working inside them. Open source and self-hostable.
+  Clients, projects and invoices as linked records, with your own AI working inside them. Open source and self-hostable.
 </p>
 
 <!-- PRODUCT GIF SLOT: Dara's product GIF goes here, centred, under the tagline. Not ready yet; add it in a follow-up. -->
@@ -21,7 +21,7 @@
 
 ---
 
-StoryOS is the one place a small business's real things live (clients, contacts, projects), so the owner runs the business and their AI does the work inside it. You define databases, link them with real two-sided relations, and work the same records as a table, a board, a calendar and more.
+StoryOS is the one place a small business's real things live (clients, projects, invoices), so the owner runs the business and their AI does the work inside it. You define databases, link them with real two-sided relations, and work the same records as a table, a board, a calendar and more.
 
 It is built API-first: the web app is one client of a public REST API, and the built-in MCP server lets the Claude or ChatGPT you already use read and change the same records, with your role's permissions. An admin can require a person's approval before an AI deletes records or before a hired agent writes, and changes an AI makes are marked as the AI's.
 
