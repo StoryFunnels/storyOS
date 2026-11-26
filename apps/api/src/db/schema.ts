@@ -418,6 +418,8 @@ export const fields = pgTable(
     apiName: text('api_name').notNull(),
     type: fieldType('type').notNull(),
     config: jsonb('config').notNull().default({}),
+    /** #704 - the field's help text: plain text, at most 200 chars, NULL when there is none (the overwhelming majority of fields). Part of what the field IS, so it is a column and not LAYOUT config. */
+    description: text('description'),
     position: integer('position').notNull().default(0),
     isSystem: boolean('is_system').notNull().default(false),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),

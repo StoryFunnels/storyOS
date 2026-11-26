@@ -28,7 +28,7 @@ afterAll(async () => {
 
 describe('seedFromEnv only seeds a verified account (#1040)', () => {
   it('an unverified sign-up with the admin email is not made platform admin; once verified, the next seed grants it', async () => {
-    const person = await signUpUser(app, 'Would-be operator');
+    const person = await signUpUser(app, 'Would-be operator', { verified: false }); // the point is the UNVERIFIED account
     const account = await db.query.user.findFirst({ where: eq(user.email, person.email) });
     expect(account?.emailVerified).toBe(false);
 

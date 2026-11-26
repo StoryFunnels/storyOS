@@ -23,9 +23,9 @@
  * environments are persistent on purpose; the accumulated data is the
  * instrument, so there is no reset path here at all.
  */
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { records as recordsTable, recordVersions } from '../db/schema';
+import { records as recordsTable, recordVersions, user as userTable } from '../db/schema';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import type { PlannedAttachment, PlannedDatabase, PlannedWorkspace, SeedPlan } from './plan';
@@ -140,6 +140,14 @@ export function injector(app: NestFastifyApplication): Injector {
       return { status: res.statusCode, body: parseBody(res.body), headers };
     }
   };
+}
+
+/**
+ * Ticket #1347 — accepting an invite needs a VERIFIED address. A seeded persona has no mailbox to click a link in, so the seed marks
+ * the account verified directly (it owns these accounts); the invite flow itself is still the real one.
+ */
+export async function markSeedAccountVerified(db: Db, email: string): Promise<void> {
+  await db.update(userTable).set({ emailVerified: true }).where(eq(userTable.email, email.toLowerCase()));
 }
 
 export function ok<T>(res: { status: number; body: unknown }, what: string): T {
@@ -306,7 +314,7 @@ async function applyWorkspace(
   await applyRelations(call, ownerToken, wsId, planned, dbIdByKey, recordIdsByDbKey, result);
   await applyTemplatesAndPacks(call, ownerToken, wsId, planned, spaceIdByKey, result, log);
   await applyPortalRecipients(call, ownerToken, wsId, planned, result, log);
-  await applyGuest(call, ownerToken, guestToken, wsId, planned, plan, spaceIdByKey, result);
+  await applyGuest(db, call, ownerToken, guestToken, wsId, planned, plan, spaceIdByKey, result);
 }
 
 /**
@@ -729,6 +737,7 @@ async function applyRelations(
  * everything, and "everything" never catches a leak.
  */
 async function applyGuest(
+  db: Db,
   call: Injector,
   ownerToken: string,
   guestToken: string | null,
@@ -791,6 +800,7 @@ async function applyGuest(
   const acceptUrl = (invite.body as { accept_url: string }).accept_url;
   const inviteToken = new URL(acceptUrl).searchParams.get('token');
   if (!inviteToken) throw new Error('invite carried no token in accept_url');
+  await markSeedAccountVerified(db, plan.guest.email);
   const accepted = await call('POST', '/invites/accept', { token: inviteToken }, guestToken);
   if (accepted.status >= 300) {
     throw new Error(`guest could not accept the invite (${accepted.status}): ${JSON.stringify(accepted.body)}`);

@@ -312,6 +312,9 @@ export class FormsService {
         type: f.type,
         label: cfgById.get(f.id)?.label || f.displayName,
         help: cfgById.get(f.id)?.help ?? null,
+        // #704 - the FIELD's own help text (plain text, at most 200 chars, authored by a workspace member for exactly this reader). Separate from
+        // `help`, which is this form's override: the renderer shows `help` when the form sets one and the field description otherwise.
+        description: f.description ?? null,
         required: cfgById.get(f.id)?.required ?? false,
         // #263 — rendered keyed by api_name, which is what the renderer matches
         // against its own answer keys. A rule pointing at a field this form

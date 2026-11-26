@@ -7,13 +7,15 @@ import { cspForRequest, generateNonce } from '@/lib/security-headers.mjs';
  * request's own CSP header while it renders and stamps it on its framework scripts, `next/script` and inline styles, so the
  * policy can drop `'unsafe-inline'` for scripts. The policy itself is built in `lib/security-headers.mjs` (unit-tested).
  *
- * Everything is read per REQUEST from the container's env, not from the build: one image is deployed to several origins.
- * `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_POSTHOG_HOST` are the same values the client bundle was built with (they are inlined),
- * `WEB_URL` decides whether `upgrade-insecure-requests` is safe, and `CSP_MODE=report-only` switches enforcement off without a
- * rebuild.
+ * Two kinds of input (ticket #1343 corrected this comment, which said everything is read per request):
+ *  - BUILD-time: `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_POSTHOG_HOST`. Next inlines `NEXT_PUBLIC_*` into this bundle as it does into
+ *    the client's, so these are the values the client was built with. Set them when the image is built: the client can only call the
+ *    origin it was built with, so a value given only to the running container is not supported (policy and client would disagree).
+ *  - REQUEST-time, read from the container's env on every request: `WEB_URL` (decides whether `upgrade-insecure-requests` is
+ *    safe) and `CSP_MODE=report-only` (switches enforcement off without a rebuild).
  */
 export function proxy(request: NextRequest) {
-  const { name, value, nonce, framing } = cspForRequest(
+  const { name, value, nonce } = cspForRequest(
     {
       // Same fallback as src/lib/api.ts: unset means dev's localhost:3001 API; the Docker build passes '' (same-origin).
       apiUrl: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
@@ -34,7 +36,6 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set(name, value);
-  if (framing) response.headers.set(framing.name, framing.value);
   return response;
 }
 

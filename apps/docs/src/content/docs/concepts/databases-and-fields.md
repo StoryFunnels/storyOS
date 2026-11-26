@@ -142,6 +142,24 @@ forward.
 **Setting it is API/MCP-only today** — `update_field` takes `unique` and `unique_normalize` on an
 existing field; there's no toggle in the web field editor yet.
 
+## Field descriptions
+
+A field can carry a **description**: one short piece of help text saying what the field is for and how to
+fill it. It is part of the field, so it is the same wherever the field appears, and a field that was never
+given one has none (it is `null`, not an empty string).
+
+- **Plain text, at most 200 characters** after surrounding whitespace is trimmed. No markdown. A longer one is
+  a `422` that names the limit, and nothing is written.
+- **Optional on create and update.** `POST .../fields` and `PATCH .../fields/{field}` take `description`; an
+  update that does not mention it leaves it alone, and `null` or an empty string removes it. MCP: `add_field` and
+  `update_field` take `description`, and a `build_schema` plan may carry one on a field or a state.
+- **Returned wherever fields are listed.** The database detail (`GET .../databases/{db}`, which the record
+  page reads), MCP `describe_database` (the key is left out when there is none), the public form definition
+  (as `description`, next to the form's own per-field `help`) and the workspace export all carry it.
+- **Copied with the field.** A pack export and install, **Duplicate database** and **Change type** keep it. A
+  pack that never described a field is exported exactly as before.
+- **Same permission as any other schema edit.** Creator access on the database; guests never.
+
 ## Select options are first-class
 
 Options for `select` / `multi_select` / `workflow` fields are **real rows with stable IDs**, never
@@ -311,7 +329,12 @@ Over MCP, `list_record_templates` and `create_record_from_template` do the same 
 - **Rename** — the `display_name` changes freely; the `api_name` is a stable slug (auto-generated,
   admin-editable with a warning) so integrations don't break.
 - **Delete** — soft delete; orphaned values are ignored by reads and lazily cleaned up, so the
-  action never blocks.
+  action never blocks. The confirmation says what you would lose, from the same counts as
+  `get_field_usage`: "This field has values on 12 records. They'll be lost." Nothing is said when no
+  record has a value. A formula, lookup or rollup is worked out from other fields, so its
+  confirmation says that deleting it removes no record data. When some records are hidden from you, it
+  says "at least" that many and that there may be more, and it never claims zero. Deleting a
+  relation says it removes both paired fields and every link, and counts the records that hold links.
 - **Change type** — a small compatibility matrix converts in place, and the same list drives the
   app's dialog and the API. A text field can become a number, date, rich text, **select**,
   **multi-select** or **workflow**; select, multi-select and workflow convert among themselves and

@@ -5,7 +5,7 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { invites } from '../src/db/schema';
+import { invites, user as users } from '../src/db/schema';
 import { EmailService } from '../src/mail/email.service';
 
 /**
@@ -36,9 +36,17 @@ afterAll(async () => {
 const call = (token: string | null, method: string, url: string, payload?: unknown, remoteAddress?: string) =>
   app.inject({ method: method as never, url: `/api/v1${url}`, headers: token ? authed(token) : {}, payload: payload as never, remoteAddress });
 
-/** Sign up with a CHOSEN address (the invitee exists as an address before they exist as an account). */
-async function signUpAs(email: string, name = 'Invited Person') {
-  const res = await app.inject({ method: 'POST', url: '/api/v1/auth/sign-up/email', payload: { email, password: PASSWORD, name } });
+/**
+ * Sign up with a CHOSEN address (the invitee exists as an address before they exist as an account). Pass `inviteToken` to sign up
+ * THROUGH the invite link (what the web does from /invite?token=...): the address is then verified at creation (ticket #1347).
+ * Without it this is an ordinary sign-up, whose address stays unverified until the emailed link is used.
+ */
+async function signUpAs(email: string, name = 'Invited Person', inviteToken?: string) {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/sign-up/email',
+    payload: { email, password: PASSWORD, name, ...(inviteToken === undefined ? {} : { invite_token: inviteToken }) },
+  });
   expect(res.statusCode, res.body).toBe(200);
   return String(res.headers['set-auth-token']);
 }
@@ -54,6 +62,7 @@ async function inviteSomeone(email: string, opts: { inviterName?: string; logo?:
   return { owner, ws, inviteId: body.id, token: new URL(body.accept_url).searchParams.get('token')! };
 }
 
+const code = (r: { json: () => { error?: { code?: string }; code?: string } }) => r.json().error?.code ?? r.json().code;
 const myWorkspaces = async (token: string) => (await call(token, 'GET', '/workspaces')).json() as Array<{ id: string; role: string }>;
 const details = (token: string | undefined, remoteAddress?: string) =>
   call(null, 'GET', `/public/invites/details${token === undefined ? '' : `?token=${encodeURIComponent(token)}`}`, undefined, remoteAddress);
@@ -93,7 +102,7 @@ describe('GET /public/invites/details (no sign-in)', () => {
   it('reads used once accepted and expired once past its date, still naming the workspace and inviter so the screen can say who to ask', async () => {
     const email = `${unique('life')}@test.storyos.dev`;
     const { token, ws } = await inviteSomeone(email, { inviterName: 'Ingrid Inviter' });
-    const person = await signUpAs(email);
+    const person = await signUpAs(email, 'Invited Person', token);
     expect((await call(person, 'POST', '/invites/accept', { token })).statusCode).toBe(201);
     const used = (await details(token)).json();
     expect(used).toMatchObject({ status: 'used', workspace_name: ws.name, inviter_name: 'Ingrid Inviter', invited_email: email });
@@ -153,7 +162,7 @@ describe('an invite token on POST /workspaces joins the workspace and creates no
   it('sign-up with the invited address, then the token: joined as the invited role, no workspace of their own, invite used', async () => {
     const email = `${unique('signup')}@test.storyos.dev`;
     const { token, ws, inviteId } = await inviteSomeone(email);
-    const person = await signUpAs(email);
+    const person = await signUpAs(email, 'Invited Person', token);
     expect(await myWorkspaces(person), 'a fresh account owns nothing').toEqual([]);
 
     const res = await call(person, 'POST', '/workspaces', { invite_token: token });
@@ -186,7 +195,7 @@ describe('an invite token on POST /workspaces joins the workspace and creates no
   it('survives a password reset: reset from the emailed link, sign in with the new password, and the token still joins and creates nothing', async () => {
     const email = `${unique('reset')}@test.storyos.dev`;
     const { token, ws } = await inviteSomeone(email);
-    await signUpAs(email);
+    await signUpAs(email, 'Invited Person', token); // through the link, so the address is verified (ticket #1347)
     send.mockClear();
     const req = await app.inject({ method: 'POST', url: '/api/v1/auth/request-password-reset', payload: { email, redirectTo: 'http://localhost:3000/reset-password' } });
     expect(req.statusCode, req.body).toBe(200);
@@ -234,14 +243,14 @@ describe('an invite token on POST /workspaces joins the workspace and creates no
       expect(await myWorkspaces(person), `${label}: nothing was created and nothing joined`).toEqual([]);
     }
     // A refused mismatch burns nothing: the person it was issued to can still use it.
-    const rightPerson = await signUpAs(`${(await db.query.invites.findFirst({ where: eq(invites.id, other.inviteId) }))!.email}`);
+    const rightPerson = await signUpAs(`${(await db.query.invites.findFirst({ where: eq(invites.id, other.inviteId) }))!.email}`, 'Right Person', other.token);
     expect((await call(rightPerson, 'POST', '/workspaces', { invite_token: other.token })).statusCode).toBe(201);
   });
 
   it('a used token cannot be used again, and a person already in the workspace is told so, not given a second one', async () => {
     const email = `${unique('again')}@test.storyos.dev`;
     const { token, ws, owner } = await inviteSomeone(email);
-    const person = await signUpAs(email);
+    const person = await signUpAs(email, 'Invited Person', token);
     expect((await call(person, 'POST', '/workspaces', { invite_token: token })).statusCode).toBe(201);
 
     const again = await call(person, 'POST', '/workspaces', { invite_token: token });
@@ -265,6 +274,7 @@ describe('an invite token on POST /workspaces joins the workspace and creates no
 
     const res = await call(stranger, 'POST', '/workspaces', { invite_token: token });
     expect(res.statusCode).toBe(403);
+    expect(code(res), 'the address is checked before verification, so the answer never depends on the stranger\'s verification state').toBe('invite_email_mismatch');
     expect(await myWorkspaces(stranger)).toEqual([]);
     expect((await db.query.invites.findFirst({ where: eq(invites.id, inviteId) }))!.acceptedAt, 'the invite is untouched').toBeNull();
     expect((await call(stranger, 'POST', '/invites/accept', { token })).statusCode).toBe(403);
@@ -291,5 +301,150 @@ describe('an invite token on POST /workspaces joins the workspace and creates no
     const tooShort = await call(person.token, 'POST', '/workspaces', { name: 'X', invite_token: 'short' });
     expect([400, 422]).toContain(tooShort.statusCode);
     expect(await myWorkspaces(person.token)).toEqual([]);
+  });
+});
+
+/**
+ * Ticket #1347 — accepting an invite needs a VERIFIED address. An account created THROUGH the invite link is verified at creation
+ * (the link went to that mailbox); every other account must verify first. Each refusal asserts the same three witnesses: the code,
+ * that nothing was created or joined, and that the invite was NOT burned.
+ */
+describe('accepting an invite needs a verified address (ticket #1347)', () => {
+  const verified = async (token: string) => (await call(token, 'GET', '/me')).json().email_verified as boolean;
+  const markVerified = (email: string) => db.update(users).set({ emailVerified: true }).where(eq(users.email, email));
+  const unburned = async (inviteId: string) =>
+    expect((await db.query.invites.findFirst({ where: eq(invites.id, inviteId) }))!.acceptedAt, 'the invite is not burned').toBeNull();
+  const signUpRaw = (email: string, payload: Record<string, unknown> = {}) =>
+    app.inject({ method: 'POST', url: '/api/v1/auth/sign-up/email', payload: { email, password: PASSWORD, name: 'Raw', ...payload } });
+
+  it('a pre-existing account with the invited address but an unverified email is refused on BOTH routes, creates nothing, burns nothing; verifying then lets the same token work', async () => {
+    const email = `${unique('unverified')}@test.storyos.dev`;
+    const { token, inviteId, ws } = await inviteSomeone(email);
+    const person = await signUpAs(email); // an ordinary sign-up: no invite token
+    expect(await verified(person)).toBe(false);
+
+    for (const [label, res] of [
+      ['POST /workspaces', await call(person, 'POST', '/workspaces', { name: 'Should Not Exist', invite_token: token })],
+      ['POST /invites/accept', await call(person, 'POST', '/invites/accept', { token })],
+    ] as const) {
+      expect(res.statusCode, `${label}: ${res.body}`).toBe(403);
+      expect(code(res), label).toBe('invite_email_unverified');
+      expect(res.body, `${label}: the token is never echoed`).not.toContain(token);
+      expect(await myWorkspaces(person), `${label}: nothing was created and nothing joined`).toEqual([]);
+      await unburned(inviteId);
+    }
+
+    // The web's "send verification" button: better-auth's own route, called signed in, with the address the screen shows.
+    send.mockClear();
+    const resend = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/send-verification-email',
+      headers: authed(person),
+      payload: { email, callbackURL: `http://localhost:3000/invite?token=${token}` },
+    });
+    expect(resend.statusCode, resend.body).toBe(200);
+    const mail = send.mock.calls.map((c) => c[0] as { kind: string; url: string }).find((m) => m.kind === 'verify-email');
+    expect(mail, 'the route mails the verification link to a signed-in unverified account').toBeDefined();
+    const link = new URL(mail!.url);
+    const clicked = await app.inject({ method: 'GET', url: `${link.pathname}${link.search}` });
+    expect([200, 302], clicked.body).toContain(clicked.statusCode);
+    expect(await verified(person), 'the emailed link verified the address').toBe(true);
+
+    const joined = await call(person, 'POST', '/invites/accept', { token });
+    expect(joined.statusCode, joined.body).toBe(201);
+    expect((await myWorkspaces(person)).map((w) => w.id), 'the SAME token now works').toEqual([ws.id]);
+  });
+
+  it('an account created through the invite link is verified at creation, sends no verification mail, and joins on BOTH routes', async () => {
+    for (const route of ['/workspaces', '/invites/accept'] as const) {
+      const email = `${unique('link')}@test.storyos.dev`;
+      const { token, ws } = await inviteSomeone(email);
+      send.mockClear();
+      const person = await signUpAs(email, 'Linked Person', token);
+      expect(await verified(person), `${route}: verified by the link`).toBe(true);
+      expect(send.mock.calls.some((c) => (c[0] as { kind: string }).kind === 'verify-email'), `${route}: no pointless verification mail`).toBe(false);
+      const res = await call(person, 'POST', route, route === '/workspaces' ? { invite_token: token } : { token });
+      expect(res.statusCode, `${route}: ${res.body}`).toBe(201);
+      expect((await myWorkspaces(person)).map((w) => w.id)).toEqual([ws.id]);
+    }
+  });
+
+  it('the invited address is matched case-insensitively at sign-up, as it is at accept', async () => {
+    const email = `${unique('mixed')}@test.storyos.dev`;
+    const { token } = await inviteSomeone(email);
+    const person = await signUpAs(email.replace('mixed', 'MiXeD'), 'Mixed Case', token);
+    expect(await verified(person)).toBe(true);
+  });
+
+  it('a WRONG address is refused as a mismatch first, verified or not: the answer never reveals anyone\'s verification state', async () => {
+    const { token, inviteId } = await inviteSomeone(`${unique('invited')}@test.storyos.dev`);
+    const unverifiedStranger = await signUpAs(`${unique('stranger')}@test.storyos.dev`);
+    const verifiedEmail = `${unique('stranger-v')}@test.storyos.dev`;
+    const verifiedStranger = await signUpAs(verifiedEmail);
+    await markVerified(verifiedEmail);
+    for (const [label, who] of [['unverified', unverifiedStranger], ['verified', verifiedStranger]] as const) {
+      for (const res of [await call(who, 'POST', '/workspaces', { invite_token: token }), await call(who, 'POST', '/invites/accept', { token })]) {
+        expect([res.statusCode, code(res)], label).toEqual([403, 'invite_email_mismatch']);
+      }
+      expect(await myWorkspaces(who), label).toEqual([]);
+    }
+    await unburned(inviteId);
+  });
+
+  it('a sign-up whose token names a DIFFERENT address gets an ordinary unverified account, with the same 200 as any sign-up', async () => {
+    const { token } = await inviteSomeone(`${unique('invited')}@test.storyos.dev`);
+    const plain = await signUpRaw(`${unique('plain')}@test.storyos.dev`);
+    const res = await signUpRaw(`${unique('other')}@test.storyos.dev`, { invite_token: token });
+    expect(
+      [res.statusCode, Object.keys(res.json()).sort(), Object.keys(res.json().user).sort()],
+      'same shape as a sign-up with no token',
+    ).toEqual([plain.statusCode, Object.keys(plain.json()).sort(), Object.keys(plain.json().user).sort()]);
+    expect(res.json().user.emailVerified).toBe(false);
+    expect(await verified(String(res.headers['set-auth-token']))).toBe(false);
+  });
+
+  it('a sign-up carrying a revoked, expired, used, unknown or malformed token gets an ordinary unverified account and no error naming the invite\'s state', async () => {
+    type Inv = { inviteId: string; ws: { id: string }; owner: { token: string } };
+    const mk = async (label: string, prepare: (i: Inv) => Promise<unknown>) => {
+      const email = `${unique(label)}@test.storyos.dev`;
+      const inv = await inviteSomeone(email);
+      await prepare(inv);
+      return { label, email, token: inv.token as unknown };
+    };
+    const cases = [
+      await mk('revoked', (i) => call(i.owner.token, 'DELETE', `/workspaces/${i.ws.id}/invites/${i.inviteId}`)),
+      await mk('expired', (i) => db.update(invites).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(invites.id, i.inviteId))),
+      await mk('used', (i) => db.update(invites).set({ acceptedAt: new Date() }).where(eq(invites.id, i.inviteId))),
+      { label: 'unknown', email: `${unique('unknown')}@test.storyos.dev`, token: 'N'.repeat(32) as unknown },
+      { label: 'empty', email: `${unique('empty')}@test.storyos.dev`, token: '' as unknown },
+      { label: 'non-string', email: `${unique('weird')}@test.storyos.dev`, token: { a: 1 } as unknown },
+    ];
+    for (const c of cases) {
+      const res = await signUpRaw(c.email, { invite_token: c.token });
+      expect(res.statusCode, `${c.label}: ${res.body}`).toBe(200);
+      expect(res.json().user.emailVerified, `${c.label}: nothing was verified`).toBe(false);
+      expect(await verified(String(res.headers['set-auth-token'])), c.label).toBe(false);
+    }
+  });
+
+  it('carrying the token never verifies an EXISTING account: signing up again with its address is refused and it stays unverified', async () => {
+    const email = `${unique('squat')}@test.storyos.dev`;
+    const earlier = await signUpAs(email); // an earlier, ordinary sign-up with the invitee's address
+    const { token, inviteId } = await inviteSomeone(email);
+    const again = await signUpRaw(email, { password: 'another-password-789', invite_token: token });
+    expect(again.statusCode, 'the address is taken: the second sign-up is refused').toBeGreaterThanOrEqual(400);
+    expect(await verified(earlier), 'the pre-existing account is NOT upgraded by a token').toBe(false);
+    expect((await call(earlier, 'POST', '/invites/accept', { token })).statusCode).toBe(403);
+    await unburned(inviteId);
+  });
+
+  it('KEPT: a pre-existing account whose address IS verified joins with no token at sign-up', async () => {
+    const email = `${unique('already')}@test.storyos.dev`;
+    const { token, ws } = await inviteSomeone(email);
+    const person = await signUpAs(email);
+    await markVerified(email);
+    const res = await call(person, 'POST', '/invites/accept', { token });
+    expect(res.statusCode, res.body).toBe(201);
+    expect((await myWorkspaces(person)).map((w) => w.id)).toEqual([ws.id]);
   });
 });
