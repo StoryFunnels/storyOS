@@ -9,13 +9,10 @@ const nextConfig = {
   // own schema from apps/api, which the web Docker image does not contain, so the build checks the app without its tests;
   // `pnpm typecheck` (tsconfig.json) still checks the tests.
   typescript: { tsconfigPath: 'tsconfig.build.json' },
-  // Ticket #1042: anti-framing, nosniff, HSTS and a report-only CSP; see src/lib/security-headers.mjs.
+  // Ticket #1042: anti-framing, nosniff and HSTS; see src/lib/security-headers.mjs. The Content-Security-Policy (ticket #1238)
+  // carries a per-request nonce, so src/proxy.ts sets it, not this static list.
   async headers() {
-    return securityHeaders({
-      // Same fallback as src/lib/api.ts, so dev's localhost:3001 API is allowed too.
-      apiUrl: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
-      posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-    });
+    return securityHeaders();
   },
   async rewrites() {
     return [
