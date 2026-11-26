@@ -95,7 +95,7 @@ import {
   WatchMenuItem,
 } from '@/components/entity/record-chrome';
 import { EmptyState } from '@/components/ui/empty-state';
-import { parseRecordParam } from '@/lib/records';
+import { parseRecordParam, recordHandle } from '@/lib/records';
 import {
   clampSidebarWidth,
   SIDEBAR_DEFAULT_W,
@@ -638,7 +638,7 @@ export function RecordDetail({
         members={memberList}
         databaseName={databaseDisplayName(database.data)}
         spaceName={spaceName}
-        recordNumber={record.data.number}
+        recordHandle={recordHandle(record.data)}
         createdAt={record.data.created_at}
         updatedAt={record.data.updated_at}
         myAccess={database.data?.my_access}
@@ -691,11 +691,11 @@ export function RecordDetail({
             <DbMarker icon={database.data?.icon} color={database.data?.color} id={database.data?.id} />
             <span className="truncate">{databaseDisplayName(database.data)}</span>
           </Link>
-          {record.data.number !== null && (
+          {recordHandle(record.data) !== null && (
             <>
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-              <span className="shrink-0 tabular-nums text-muted" title="Public id">
-                #{record.data.number}
+              <span className="shrink-0 tabular-nums text-muted" title={record.data.identifier ? 'Identifier' : 'Public id'} data-testid="record-handle">
+                {recordHandle(record.data)}
               </span>
             </>
           )}
