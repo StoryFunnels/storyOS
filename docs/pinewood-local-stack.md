@@ -1,6 +1,6 @@
 # The standing local Pinewood stack
 
-One StoryOS, running `main`, on one Mac, that every screenshot and check of `main` uses. **Local only**: no staging, no hosted copy. Ticket #1269.
+One StoryOS, running `main`, on one Mac, that every screenshot and check of `main` uses. **Local only**: no hosted copy. Ticket #1269.
 
 Pinewood Studio is the fake marketing agency whose data fills it. Every name in it is synthetic; real client or customer data never goes into the template, the seed or a fixture.
 
