@@ -107,6 +107,11 @@ export class EntitlementsService {
     private readonly email: EmailService,
   ) {}
 
+  /** True where workspaces have plans (Stripe configured: hosted). False on self-hosted, where plan-based limits do not exist. */
+  get hostedPlans(): boolean {
+    return this.stripe.enabled;
+  }
+
   /**
    * Plan limits for a workspace, with any active entitlement override
    * (MN-196) applied field-by-field on top. Precedence: an override field

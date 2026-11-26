@@ -43,6 +43,7 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` and `CONNE
 | `ATTACHMENT_MAX_BYTES` | 20971520 (20 MB) | per-file upload cap |
 | `PDF_RENDERER_URL` | unset | base URL of the optional PDF renderer (`http://gotenberg:3000` with `--profile pdf`). Unset = PDF export is unavailable, which is the normal default. See [PDF export](#pdf-export-optional) |
 | `RATE_LIMIT_PER_MINUTE` | 300 | per token/session |
+| `ACTIVITY_EVENTS_RETENTION_DAYS` | unset (keep everything) | self-hosted only: days of record-level activity (edits, comments, links, the agent outward log) to keep before an hourly job deletes it, so the activity table and your backups stop growing with every write. A whole number of days, or `never` / `0` / unset to keep everything. Hosted StoryOS ignores it and uses the plan values in [Activity retention](#activity-retention). |
 | `STRIPE_SECRET_KEY` | unset | enables paid billing (MN-165). **Unset = billing off**: every workspace is Free and self-host needs none of it. Use a `sk_live_…` key only in production. |
 | `STRIPE_WEBHOOK_SECRET` | unset | `whsec_…` from your Stripe webhook endpoint (`{API_URL}/api/v1/billing/webhook`). Required for plan changes to sync back. |
 | `STRIPE_PRICE_PRO/BUSINESS/SEAT` | unset | price ids from `pnpm --filter @storyos/api billing:seed` (run once per Stripe account/mode) |
@@ -151,6 +152,24 @@ the credential, and that tier — not the auth mechanism — decides what, if an
 Full operator recipe — exact redirect URIs, scopes, and the per-provider env vars — is in
 **[Self-hosting integrations](self-hosting-integrations.md)**. The tier model itself is in
 [integration tiers](architecture/integration-tiers.md).
+
+## Activity retention
+
+The audit log and the per-record activity feed read the `activity_events` table. An hourly job deletes record-level events past a retention window, in small batches (safe with several API nodes). The window depends on the deployment:
+
+| Where | Window |
+|---|---|
+| Hosted, Free plan | 7 days |
+| Hosted, Pro plan | 30 days |
+| Hosted, Business plan | 30 days (until a 90-day tier exists) |
+| Hosted, Enterprise plan | 90 days |
+| Self-hosted | `ACTIVITY_EVENTS_RETENTION_DAYS`; unset, `0` or `never` keeps everything, a number is that many days (no minimum) |
+
+Setting `STRIPE_SECRET_KEY` is what turns the plan windows on: a deployment with a Stripe key is "hosted", a workspace with no billing row is Free (7 days), and `ACTIVITY_EVENTS_RETENTION_DAYS` is ignored. Without a Stripe key there are no plans and only the variable applies.
+
+The agent's `outward.*` log has no record but does expire like the rest (subject to the current-month floor below); only events that are not about one record and are not `outward.*` are kept forever.
+
+Never deleted, at any window: events that are not about one record (a space, database or view deleted or restricted, a portal link created or revoked, a Runner paired or revoked) and a change that set a person field (My Work's "assigned by" reads it). Also kept past the window: an agent's `outward.*` log for the current calendar month (agent budgets sum it), and any event a webhook subscription has not been delivered yet. The audit log list returns `retention_days`, the window for the workspace (`null` = kept forever). Record version history (restore) is a separate table with its own plan limit and is not affected.
 
 ## Data protection & GDPR
 

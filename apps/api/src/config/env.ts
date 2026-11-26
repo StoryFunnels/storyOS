@@ -382,6 +382,19 @@ export const envSchema = z.object({
    * on every scan.
    */
   WEBHOOK_SCAN_LOOKBACK_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
+  /**
+   * Ticket #1024 — SELF-HOSTED only (no Stripe key, so no plans): how many days a record-level `activity_events` row is kept before the
+   * hourly purge deletes it. A whole number of days; unset, empty, `0` or `never` keeps everything (there is no default window and no
+   * minimum). With STRIPE_SECRET_KEY set (hosted) this is ignored and each workspace's plan decides (ACTIVITY_RETENTION_DAYS_BY_PLAN in
+   * activity/activity-retention.service.ts, which also holds what the purge never deletes and the floors). Kept a raw string here and parsed
+   * by `parseRetentionDays`. Garbage refuses to boot, like every other numeric variable, rather than silently meaning "keep forever".
+   */
+  ACTIVITY_EVENTS_RETENTION_DAYS: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || v.trim() === '' || /^(never|\d+)$/i.test(v.trim()), {
+      message: 'ACTIVITY_EVENTS_RETENTION_DAYS must be a whole number of days, 0, or "never"',
+    }),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_PRO: z.string().optional(),

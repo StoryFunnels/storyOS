@@ -932,6 +932,13 @@
       "when": 1794698538229,
       "tag": "0132_invites_revoked_at",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1795650008256,
+      "tag": "0133_activity_events_created_idx",
+      "breakpoints": true
     }
   ]
 }

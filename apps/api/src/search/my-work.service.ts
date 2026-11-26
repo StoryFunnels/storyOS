@@ -45,8 +45,10 @@ export class MyWorkService {
    *
    * Derived from the activity trail (`activity_events`, a `record.updated` event's `payload.diff`), not from a new column and not from
    * `record_field_changes`: that table is plan-gated (Free captures nothing, Pro keeps a day), so the answer would vanish on exactly the
-   * workspaces most likely to ask. The activity trail is written for every update, has no pruning job today, and is indexed by
-   * (record_id, created_at), so one query per database page (at most 50 records) reads it.
+   * workspaces most likely to ask. The activity trail is written for every update, is indexed by (record_id, created_at), so one query per
+   * database page (at most 50 records) reads it, and its retention purge (ticket #1024, activity/activity-retention.service.ts) deliberately
+   * keeps a `record.updated` whose diff touches a person field, which is exactly the event this query reads: change one side and the
+   * other with it (test/activity-retention.test.ts pins it).
    *
    * An event counts when a person field's `to` CONTAINS the user and its `from` did not: the change that put them there, whether the
    * field holds one person or several. `DISTINCT ON (record_id) ... ORDER BY created_at DESC` is the LAST such change, so
