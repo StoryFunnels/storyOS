@@ -969,6 +969,8 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   list_social_publishes: 'read',
   list_social_accounts: 'read',
   retry_social_publish: 'admin',
+  // #456 — the publishing setup read is a read.
+  get_publishing_setup: 'read',
   discover_source_fields: 'write',
   create_source: 'write',
   update_source: 'write',
@@ -8544,6 +8546,27 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         client.GET('/api/v1/workspaces/{ws}/connections/{id}/social-accounts', {
           params: { path: { ws: ws.id, id: connection_id }, query: refresh ? { refresh: 'true' } : {} },
         } as never),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'get_publishing_setup',
+    {
+      title: "Read the Social Command Center's publishing setup",
+      description:
+        "Social Command Center publishing setup: state, rules, channels and unmet reasons. Read only.",
+      inputSchema: {
+        workspace: z.string().describe('Workspace name or id.'),
+        database: z.string().describe("The pack's Posts database: name, api slug, or id."),
+      },
+    },
+    handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const db = await resolveDatabase(client, ws.id, database);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/databases/{db}/publishing', { params: { path: { ws: ws.id, db: db.id } } } as never),
       );
       return text(res);
     }),

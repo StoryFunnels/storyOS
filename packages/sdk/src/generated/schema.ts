@@ -2050,6 +2050,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Publishing setup for the Social Command Center's Posts database: whether a publish rule exists and is on, which connections and networks are available, what blocks turning it on (coded), the pack's field ids and the rule to create. Someone who cannot manage rules gets only `can_manage: false`. */
+        get: operations["PublishingController_setup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn on publishing for ONE network: saves the publish rule (Status becomes Scheduled -> post Text and Media, save Post URL) with the named connection and account, switched on. Idempotent. 422 with every unmet prerequisite as `unmet[].code`. A person only (never a run credential, token or connected AI). Posts nothing itself. */
+        post: operations["PublishingController_enable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/databases/{db}/publishing/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause publishing: switches off the Posts database's publish rules (one network, or all). Idempotent; nothing is deleted, so turning it back on is one call. */
+        post: operations["PublishingController_disable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/webhooks": {
         parameters: {
             query?: never;
@@ -6469,6 +6520,18 @@ export interface components {
         RetrySocialPublishDto: {
             account_id?: unknown;
             connection_id?: unknown;
+        };
+        EnablePublishingDto: {
+            /** Format: uuid */
+            connection_id: string;
+            /** @enum {string} */
+            target: "linkedin_org" | "linkedin_member" | "x";
+            account_id?: string;
+            require_approval?: boolean;
+        };
+        DisablePublishingDto: {
+            /** @enum {string} */
+            target?: "linkedin_org" | "linkedin_member" | "x";
         };
         CreateWebhookDto: {
             /** Format: uri */
@@ -11167,6 +11230,71 @@ export interface operations {
         };
         responses: {
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublishingController_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublishingController_enable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnablePublishingDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PublishingController_disable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                db: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisablePublishingDto"];
+            };
+        };
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
