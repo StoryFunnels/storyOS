@@ -1,11 +1,11 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { parseTweet } from 'twitter-text';
 import type { Readable } from 'node:stream';
 import type { AutomationAction } from '@storyos/schemas';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { attachments, fields } from '../db/schema';
+import { attachments, automationJobs, databases, fields, memberships, spaces } from '../db/schema';
 import { ConnectionsService } from '../connections/connections.service';
 import type { LinkedinAuth } from '../connections/providers/linkedin';
 import type { XAuth } from '../connections/providers/x';
@@ -16,6 +16,10 @@ import { preflightInstagram, publishToMeta } from './post-social-meta';
 import type { MetaPoll } from './post-social-meta';
 import { mintAttachmentUrl } from '../attachments/signed-attachment';
 import type { MetaAuth } from '../connections/providers/meta';
+import type { YoutubeAuth } from '../connections/providers/youtube';
+import { env } from '../config/env';
+import { formatBytes, streamFromOffset, uploadToYoutube } from './post-youtube';
+import type { UploadSession, YoutubeVideo } from './post-youtube';
 import { ProviderError } from '../common/provider-error';
 import { failClosedFetch } from '../common/test-network-guard';
 import { JobRunnerService } from './job-runner.service';
@@ -36,6 +40,8 @@ export interface PostSocialCtx {
 export interface PostSocialJobPayload {
   action: PostSocialAction;
   ctx: PostSocialCtx;
+  /** Ticket #60 — an open YouTube upload session, saved after each chunk so a retry resumes. Holds no credential. */
+  upload?: UploadSession;
 }
 
 /** X's own character cap (#42) — tighter than the zod schema's `.max(3000)`,
@@ -145,6 +151,9 @@ export class PostSocialActionService implements OnModuleInit {
   onModuleInit(): void {
     this.jobs.registerExecutor('post_social', (payload, helpers) => this.run(payload as unknown as PostSocialJobPayload, helpers), {
       timeoutClass: 'long',
+      // Ticket #60 — sending a video takes far longer than a post. The budget is per attempt and a retry resumes, but an hour
+      // for an upload (and 15 minutes for every other post, as before) is chosen from what the job IS.
+      timeoutClassFor: (payload) => ((payload as { action?: { target?: string } }).action?.target === 'youtube_channel' ? 'upload' : undefined),
     });
   }
 
@@ -171,7 +180,7 @@ export class PostSocialActionService implements OnModuleInit {
     // it goes out as; a job without it (a rule saved before this check existed, or a payload edited by hand) is refused here,
     // before any provider call, rather than falling back to a default.
     if (
-      (action.target === 'linkedin_org' || action.target === 'facebook_page' || action.target === 'instagram_business') &&
+      (action.target === 'linkedin_org' || action.target === 'facebook_page' || action.target === 'instagram_business' || action.target === 'youtube_channel') &&
       !namesAccount(action)
     ) {
       throw publishFailure(
@@ -180,7 +189,9 @@ export class PostSocialActionService implements OnModuleInit {
           ? 'This post does not name the LinkedIn page it goes out as. Pick the page in the rule and run it again.'
           : action.target === 'facebook_page'
             ? 'This post does not name the Facebook Page it goes out as. Pick the Page in the rule and run it again.'
-            : 'This post does not name the Instagram account it goes out as. Pick the account in the rule and run it again.',
+            : action.target === 'youtube_channel'
+              ? 'This upload does not name the YouTube channel it goes out to. Pick the channel in the rule and run it again. Nothing was uploaded.'
+              : 'This post does not name the Instagram account it goes out as. Pick the account in the rule and run it again.',
         false,
       );
     }
@@ -202,6 +213,9 @@ export class PostSocialActionService implements OnModuleInit {
       }
     }
 
+    // Ticket #60 — a video is read as the ACTOR, through the shared access check, before the connection's credential is opened.
+    const video = action.target === 'youtube_channel' ? await this.prepareYoutubeVideo(payload) : null;
+
     const media = action.media_field_id && ctx.recordId ? await this.loadMedia(ctx.databaseId, ctx.recordId, action.media_field_id) : null;
 
     // Ticket #51 — Instagram's image rules are checked before the connection's credential is even opened.
@@ -211,6 +225,8 @@ export class PostSocialActionService implements OnModuleInit {
     let result: PostSocialResult;
     if (action.target === 'x') {
       result = await this.publishToX(auth as Partial<XAuth>, action, media);
+    } else if (action.target === 'youtube_channel') {
+      result = await this.publishToYoutubeTarget(payload, helpers, auth as Partial<YoutubeAuth>, video!, provider);
     } else if (action.target === 'facebook_page' || action.target === 'instagram_business') {
       result = await this.publishToMetaTarget(auth as Partial<MetaAuth>, action, media, provider, ctx.workspaceId);
     } else {
@@ -284,6 +300,108 @@ export class PostSocialActionService implements OnModuleInit {
     const buffer = await streamToBuffer(stream);
     return { attachmentId: attachment.id, buffer, mime: attachment.mime, filename: attachment.filename };
   }
+
+  // ── YouTube (ticket #60) ───────────────────────────────────────────────
+
+  /**
+   * Which video goes up, and whether the actor may send it. In this order, and each a refusal that uploads nothing:
+   *  1. the actor (the rule's owner, `ctx.actorId`) is an ACTIVE member of this workspace RIGHT NOW (not when the rule was saved);
+   *  2. the record is in a normal database: never a system database (members, agents) and never personal space;
+   *  3. the actor can READ the record, through the same check the HTTP routes use (RecordsService.assertRecordAccess);
+   *  4. the video field is an attachment field of this database, and its first file is a video within the size limits.
+   * The refusal names no title and no file name: whoever can read the run may not be allowed to read the record.
+   */
+  private async prepareYoutubeVideo(payload: PostSocialJobPayload): Promise<YoutubeVideo> {
+    const { action, ctx } = payload;
+    if (!ctx.recordId || !action.video_field_id) {
+      throw publishFailure('video_missing', 'This upload has no record or no video field to take the video from.', false);
+    }
+    const membership = await this.db.query.memberships.findFirst({
+      where: and(eq(memberships.workspaceId, ctx.workspaceId), eq(memberships.userId, ctx.actorId), eq(memberships.status, 'active')),
+    });
+    if (!membership) {
+      throw publishFailure('no_access', 'This rule has no owner who is an active member of the workspace, so there is no one whose access the video could be read with. Nothing was uploaded.', false);
+    }
+    const [home] = await this.db
+      .select({ isSystem: databases.isSystem, personal: spaces.personal })
+      .from(databases)
+      .innerJoin(spaces, eq(spaces.id, databases.spaceId))
+      .where(and(eq(databases.id, ctx.databaseId), eq(databases.workspaceId, ctx.workspaceId), isNull(databases.deletedAt)))
+      .limit(1);
+    if (!home || home.isSystem || home.personal) {
+      throw publishFailure('no_access', 'Videos are never uploaded from a system database or from personal space. Nothing was uploaded.', false);
+    }
+    try {
+      await this.records.assertRecordAccess(membership, ctx.databaseId, ctx.recordId, 'viewer');
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+        throw publishFailure('no_access', 'The rule owner can no longer read this record, so its video was not uploaded.', false);
+      }
+      throw error;
+    }
+    const field = await this.db.query.fields.findFirst({
+      where: and(eq(fields.id, action.video_field_id), eq(fields.databaseId, ctx.databaseId), isNull(fields.deletedAt)),
+    });
+    if (!field || field.type !== 'attachment') {
+      throw publishFailure('video_missing', 'The video field is gone or is no longer an attachment field. Nothing was uploaded.', false);
+    }
+    const attachment = await this.pickMediaAttachment(ctx.databaseId, ctx.recordId, field.id);
+    if (!attachment) throw publishFailure('video_missing', 'The record has no file in the video field. Nothing was uploaded.', false);
+    if (!/^video\/[a-z0-9.+-]+$/i.test(attachment.mime)) {
+      throw publishFailure('video_unsupported', 'The first file in the video field is not a video. Nothing was uploaded.', false);
+    }
+    const max = env().YOUTUBE_MAX_UPLOAD_BYTES;
+    if (attachment.size <= 0 || attachment.size > max) {
+      throw publishFailure(
+        'video_too_large',
+        `The video is ${attachment.size <= 0 ? 'empty' : `${formatBytes(attachment.size)} and the limit is ${formatBytes(max)}`}. Nothing was uploaded.`,
+        false,
+      );
+    }
+    const storageKey = attachment.storageKey;
+    return {
+      attachmentId: attachment.id,
+      filename: attachment.filename,
+      mime: attachment.mime,
+      size: attachment.size,
+      open: async (offset) => streamFromOffset(await getStorage().getStream(storageKey), offset),
+    };
+  }
+
+  private async publishToYoutubeTarget(
+    payload: PostSocialJobPayload,
+    helpers: JobHelpers,
+    auth: Partial<YoutubeAuth>,
+    video: YoutubeVideo,
+    provider: string,
+  ): Promise<PostSocialResult> {
+    const { action, ctx } = payload;
+    if (provider !== 'youtube') {
+      throw publishFailure('wrong_connection', 'The connection this upload uses is not a YouTube connection.', false);
+    }
+    return uploadToYoutube({
+      auth,
+      action,
+      video,
+      fetcher: this.fetcher,
+      chunkBytes: this.youtubeChunkBytes ?? env().YOUTUBE_UPLOAD_CHUNK_BYTES,
+      session: payload.upload ?? null,
+      // Kept on the job row (its payload), so a retry of THIS job, a manual retry (which copies the payload) and a rerun all
+      // resume. The key is the job's own idempotency key; a job run outside the queue (a test) simply has no row to update.
+      saveSession: async (session) => {
+        await this.db
+          .update(automationJobs)
+          .set({ payload: session ? sql`jsonb_set(${automationJobs.payload}, '{upload}', ${JSON.stringify(session)}::jsonb)` : sql`${automationJobs.payload} - 'upload'` })
+          .where(and(eq(automationJobs.idempotencyKey, helpers.idempotencyKey), eq(automationJobs.kind, 'post_social')));
+      },
+      reloadToken: async () => ((await helpers.connectionAuth(action.connection_id)).auth as Partial<YoutubeAuth>).access_token,
+      onReconnectRequired: () => this.connections.flagReconnectRequired(ctx.workspaceId, action.connection_id),
+      signal: helpers.signal,
+    });
+  }
+
+  /** Bytes per upload chunk. Null means the deployment's setting; a test sets a small one so a few KiB make several chunks. */
+  youtubeChunkBytes: number | null = null;
 
   // ── Meta (Facebook Pages + Instagram) ──────────────────────────────────
 

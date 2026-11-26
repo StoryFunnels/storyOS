@@ -1,23 +1,25 @@
 import { env } from '../config/env';
+import { YOUTUBE_CHANNEL_ID } from '../connections/providers/youtube';
 import type { AutomationAction } from '@storyos/schemas';
 
 type PostSocialAction = Extract<AutomationAction, { type: 'post_social' }>;
 export type SocialTarget = PostSocialAction['target'];
 /** The network a post goes to. A LinkedIn profile and a LinkedIn page are both `linkedin`; `target` tells them apart. */
-export type SocialChannel = 'linkedin' | 'x' | 'facebook' | 'instagram';
-export type SocialProvider = 'linkedin' | 'x' | 'meta';
+export type SocialChannel = 'linkedin' | 'x' | 'facebook' | 'instagram' | 'youtube';
+export type SocialProvider = 'linkedin' | 'x' | 'meta' | 'youtube';
 
 /** A LinkedIn page is named by its organization URN, and only by that. */
 export const LINKEDIN_ORG_URN = /^urn:li:organization:[0-9]+$/;
 export const LINKEDIN_PERSON_URN = /^urn:li:person:[A-Za-z0-9_-]+$/;
 /** A Facebook Page id and an Instagram business account id are numeric Graph ids. */
 export const META_NUMERIC_ID = /^[0-9]{1,30}$/;
+export { YOUTUBE_CHANNEL_ID };
 
 interface TargetInfo {
   provider: SocialProvider;
   channel: SocialChannel;
   /** The deployment kill-switch that must be on before this target can be saved or run, if any. */
-  gate: 'LINKEDIN_ACTIONS_ENABLED' | 'META_ACTIONS_ENABLED' | null;
+  gate: 'LINKEDIN_ACTIONS_ENABLED' | 'META_ACTIONS_ENABLED' | 'YOUTUBE_ACTIONS_ENABLED' | null;
   /** What a person is told when the gate is off. */
   gateMessage: string;
 }
@@ -34,6 +36,7 @@ export const SOCIAL_TARGETS: Record<SocialTarget, TargetInfo> = {
   x: { provider: 'x', channel: 'x', gate: null, gateMessage: '' },
   facebook_page: { provider: 'meta', channel: 'facebook', gate: 'META_ACTIONS_ENABLED', gateMessage: 'Facebook and Instagram publishing is not enabled on this deployment yet.' },
   instagram_business: { provider: 'meta', channel: 'instagram', gate: 'META_ACTIONS_ENABLED', gateMessage: 'Facebook and Instagram publishing is not enabled on this deployment yet.' },
+  youtube_channel: { provider: 'youtube', channel: 'youtube', gate: 'YOUTUBE_ACTIONS_ENABLED', gateMessage: 'YouTube publishing is not enabled on this deployment yet.' },
 };
 
 export function isSocialTarget(value: unknown): value is SocialTarget {
@@ -52,7 +55,7 @@ export function targetEnabled(target: SocialTarget): boolean {
 
 /**
  * Whether the action names the account it posts as. NOTHING POSTS FROM AN UNNAMED ACCOUNT (#42, #51): a LinkedIn page, a
- * Facebook Page and an Instagram business account each REQUIRE one; a LinkedIn member may pin the member; X has no
+ * Facebook Page, an Instagram business account and a YouTube channel each REQUIRE one; a LinkedIn member may pin the member; X has no
  * sub-account to name.
  */
 export function namesAccount(action: { target?: string; account_id?: string }): boolean {
@@ -65,9 +68,23 @@ export function namesAccount(action: { target?: string; account_id?: string }): 
     case 'facebook_page':
     case 'instagram_business':
       return !!id && META_NUMERIC_ID.test(id);
+    case 'youtube_channel':
+      return !!id && YOUTUBE_CHANNEL_ID.test(id);
     case 'x':
       return !id;
     default:
       return false;
   }
+}
+
+/**
+ * Ticket #60 (Otto's ruling) — what a post_social action does when `require_approval` is LEFT UNSET. One gate per risk: LinkedIn,
+ * X and Meta posts are public the moment they go out, so they are held. A YouTube upload's risk is a video going PUBLIC, and
+ * privacy already defaults to private, so an unset rule holds only `public` and `unlisted` uploads and lets a `private` one
+ * (including an unset privacy) go straight through. The same `require_approval` setting applies to every target: `true` is
+ * "hold all" (a private upload too), `false` is "never hold" (a human admin only, the class rule).
+ */
+export function heldWhenUnset(action: { target?: string; privacy?: string }): boolean {
+  if (action.target === 'youtube_channel') return (action.privacy ?? 'private') !== 'private';
+  return true;
 }

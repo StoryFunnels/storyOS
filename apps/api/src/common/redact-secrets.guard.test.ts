@@ -89,6 +89,12 @@ const DECLARED_SAFE: Record<string, string> = {
   // spellings are live at once rather than one superseding the other.
   teamKeys:
     'apps/api/src/integrations/linear-source-adapter.ts (MN-236) — camelCase sibling of team_keys, same non-secret Linear team identifiers',
+  // ticket #60 — the YouTube resumable-upload session. Held on the automation_jobs payload only (never a settings or config blob,
+  // so redactSecrets never sees it), sent only to a googleapis.com host, and never returned by any read: the publish-state read
+  // exposes just {sent_bytes,total_bytes} (post-social-youtube.test.ts asserts no session address appears in it).
+  session: 'ticket #60 — the in-memory/job-payload resume state of one YouTube upload; never a settings blob, never returned by a read',
+  saveSession: 'ticket #60 — the callback that persists the resume state on the job payload; a function name, not a value',
+  session_uri: 'ticket #60 — the resumable-upload address on the job payload only; used solely against googleapis.com and never returned by any read',
   signature: 'an HMAC we compute per delivery; never stored in a settings blob',
   tokenHash: 'sha256 of an invite token — the plaintext never round-trips',
   // #201: a workspace-level boolean feature flag ("gate files behind an access

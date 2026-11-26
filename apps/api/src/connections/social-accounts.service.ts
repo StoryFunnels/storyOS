@@ -12,12 +12,14 @@ import type { XAuth } from './providers/x';
 import type { MetaAuth } from './providers/meta';
 import { ACCOUNTS_FIELDS, metaErrorCodes, metaGraphBase } from './providers/meta';
 import type { Membership } from '../workspaces/workspace-access.guard';
+import { YOUTUBE_CHANNELS_URL, YOUTUBE_CHANNEL_ID } from './providers/youtube';
+import type { YoutubeAuth } from './providers/youtube';
 
 /** The LinkedIn API version the posting path pins (see post-social.action.ts); the page list uses the same one. */
 const LINKEDIN_API_VERSION = '202401';
 const CACHE_TTL_MS = 5 * 60_000;
 
-export type SocialAccountType = 'member' | 'organization' | 'x_account' | 'facebook_page' | 'instagram_business';
+export type SocialAccountType = 'member' | 'organization' | 'x_account' | 'facebook_page' | 'instagram_business' | 'youtube_channel';
 
 /**
  * One account a connection can post as. `id` is what a `post_social` action stores in `account_id` for a LinkedIn
@@ -69,7 +71,7 @@ export class SocialAccountsService {
     if (membership.role !== 'admin' && row.createdBy !== userId) {
       throw new ForbiddenException('Only a workspace admin or the person who connected this account can list the accounts it posts as');
     }
-    if (row.provider !== 'linkedin' && row.provider !== 'x' && row.provider !== 'meta') {
+    if (row.provider !== 'linkedin' && row.provider !== 'x' && row.provider !== 'meta' && row.provider !== 'youtube') {
       throw new UnprocessableEntityException('This connection does not post to a social network');
     }
     if (row.provider === 'linkedin' && !env().LINKEDIN_ACTIONS_ENABLED) {
@@ -78,6 +80,10 @@ export class SocialAccountsService {
 
     if (row.provider === 'meta' && !env().META_ACTIONS_ENABLED) {
       throw new UnprocessableEntityException('Facebook and Instagram publishing is not enabled on this deployment yet');
+    }
+
+    if (row.provider === 'youtube' && !env().YOUTUBE_ACTIONS_ENABLED) {
+      throw new UnprocessableEntityException('YouTube publishing is not enabled on this deployment yet');
     }
 
     const hit = this.cache.get(row.id);
@@ -89,7 +95,9 @@ export class SocialAccountsService {
         ? await this.listX(auth as Partial<XAuth>)
         : row.provider === 'meta'
           ? await this.listMeta(membership.workspaceId, row.id, auth as Partial<MetaAuth>)
-          : await this.listLinkedin(auth as Partial<LinkedinAuth>);
+          : row.provider === 'youtube'
+            ? await this.listYoutube(auth as Partial<YoutubeAuth>)
+            : await this.listLinkedin(auth as Partial<LinkedinAuth>);
     this.cache.set(row.id, { at: Date.now(), list });
     return { ...list, cached: false };
   }
@@ -183,6 +191,34 @@ export class SocialAccountsService {
         code: 'pages_unavailable',
         message: `${missing} Page${missing === 1 ? '' : 's'} granted earlier ${missing === 1 ? 'is' : 'are'} no longer available to this connection. Reconnect to choose again.`,
       });
+    }
+    return { data, warnings };
+  }
+
+  /**
+   * Ticket #60 — the YouTube channel(s) this connection can upload to, asked of YouTube LIVE with the connection's own token.
+   * Usually one: Google binds a token to the channel (or brand account) chosen on its consent screen. The id a person picks is
+   * what `post_social` stores in `account_id`, and the executor asks again before it sends a byte, so a connection that has
+   * since been moved to another channel cannot upload to the old one. Never a token, never the raw provider payload.
+   */
+  private async listYoutube(auth: Partial<YoutubeAuth>): Promise<Omit<SocialAccountList, 'cached'>> {
+    if (!auth.access_token) throw new UnprocessableEntityException('The YouTube connection has no access token. Reconnect it.');
+    const res = await this.fetcher(YOUTUBE_CHANNELS_URL, { headers: { authorization: `Bearer ${auth.access_token}` } });
+    if (res.status === 401) throw new UnprocessableEntityException('YouTube refused the connection. Reconnect it.');
+    if (res.status < 200 || res.status >= 300) throw new BadGatewayException(`YouTube refused the channel lookup (HTTP ${res.status})`);
+    const body = (await res.json()) as { items?: { id?: unknown; snippet?: { title?: unknown; customUrl?: unknown } }[] };
+    const data: SocialAccount[] = [];
+    const seen = new Set<string>();
+    for (const item of body.items ?? []) {
+      if (typeof item.id !== 'string' || !YOUTUBE_CHANNEL_ID.test(item.id) || seen.has(item.id)) continue;
+      seen.add(item.id);
+      const title = typeof item.snippet?.title === 'string' ? item.snippet.title.trim() : '';
+      const handle = typeof item.snippet?.customUrl === 'string' && item.snippet.customUrl.trim() ? item.snippet.customUrl.trim() : undefined;
+      data.push({ id: item.id, name: title || 'YouTube channel', type: 'youtube_channel', ...(handle ? { handle } : {}) });
+    }
+    const warnings: SocialAccountList['warnings'] = [];
+    if (data.length === 0) {
+      warnings.push({ code: 'no_channel', message: 'This Google account has no YouTube channel to upload to. Create one on YouTube, then reconnect.' });
     }
     return { data, warnings };
   }

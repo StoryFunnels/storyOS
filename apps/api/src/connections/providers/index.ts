@@ -9,6 +9,7 @@ import { resendProvider } from './resend';
 import { shopifyProvider } from './shopify';
 import { smtpProvider } from './smtp';
 import { xProvider } from './x';
+import { youtubeProvider } from './youtube';
 import type { ProviderDescriptor } from './types';
 
 export * from './types';
@@ -35,6 +36,8 @@ export { metaProvider, metaGraphBase, metaErrorCodes, META_SCOPES } from './meta
 export type { MetaAuth, MetaPage } from './meta';
 export { xProvider } from './x';
 export type { XAuth } from './x';
+export { youtubeProvider, YOUTUBE_SCOPES, YOUTUBE_CHANNEL_ID } from './youtube';
+export type { YoutubeAuth } from './youtube';
 
 /**
  * The provider registry (MN-252 Step 2). Adding a provider is exactly: a new
@@ -54,5 +57,6 @@ export const PROVIDER_REGISTRY: ReadonlyMap<string, ProviderDescriptor> = new Ma
     linkedinProvider,
     metaProvider,
     xProvider,
+    youtubeProvider,
   ].map((p) => [p.id, p]),
 );

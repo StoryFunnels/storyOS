@@ -134,8 +134,17 @@ export const PROVIDER_PAGES: ReadonlyArray<ProviderPageDef> = [
     id: 'youtube',
     label: 'YouTube',
     blurb: 'Videos, comments and metrics into a database',
-    backing: { kind: 'connections', providers: ['google'], connect: [{ providerId: 'google', label: 'Connect YouTube' }] },
-    disconnectEffect: 'Syncs from YouTube stop. Videos, comments and metrics already imported stay.',
+    // Ticket #60: the second button is the dedicated `youtube` provider (OAuth with upload permission, for uploading a record's video
+    // to a named channel); the first stays the read-only connection the YouTube source uses.
+    backing: {
+      kind: 'connections',
+      providers: ['google', 'youtube'],
+      connect: [
+        { providerId: 'google', label: 'Connect YouTube' },
+        { providerId: 'youtube', label: 'Connect YouTube for uploads' },
+      ],
+    },
+    disconnectEffect: 'Syncs from YouTube stop, and anything else that uses this connection, such as uploading a video to a channel, stops working. Videos, comments and metrics already imported stay.',
   },
   {
     id: 'google-calendar',

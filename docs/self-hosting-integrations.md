@@ -155,6 +155,7 @@ no separate "YouTube" OAuth app to register.)
 |---|---|---|---|---|
 | YouTube | `google` | `GOOGLE_CLIENT_ID` | `GOOGLE_CLIENT_SECRET` | `openid`, `email`, `https://www.googleapis.com/auth/youtube.readonly` |
 | Google Calendar | `google-calendar` | `GOOGLE_CLIENT_ID` | `GOOGLE_CLIENT_SECRET` | `openid`, `email`, `https://www.googleapis.com/auth/calendar` |
+| YouTube (upload) | `youtube` | `YOUTUBE_CLIENT_ID` | `YOUTUBE_CLIENT_SECRET` | `https://www.googleapis.com/auth/youtube.upload`, `https://www.googleapis.com/auth/youtube.readonly` |
 | Facebook & Instagram (publishing) | `meta` | `META_APP_ID` | `META_APP_SECRET` | `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `instagram_basic`, `instagram_content_publish` |
 
 Both request read-oriented Google scopes (YouTube is read-only; Calendar requests
@@ -163,6 +164,36 @@ Calendar must never silently widen the permissions of an unrelated YouTube
 connection — but they read the *same* `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
 A half-configured env (id set, secret blank, or vice-versa) counts as unconfigured
 and keeps the provider operator-only.
+
+### One-time setup (YouTube upload)
+
+Uploading a record's video to a YouTube channel needs a Google OAuth client you own. It is a
+**separate client from the sign-in one** on purpose: `youtube.upload` is a sensitive scope that Google
+verifies per app, and it must not widen the "Continue with Google" consent or the read-only YouTube
+connection the YouTube source uses.
+
+1. In a Google Cloud project, enable the **YouTube Data API v3**, configure the OAuth consent screen and
+   create an OAuth client of type *Web application*.
+2. Register the redirect URI `{API_URL}/api/v1/connections/oauth/callback`, and add the two scopes in
+   the table above. Google only lets people outside the app's own test users connect after it has
+   verified the app for `youtube.upload`.
+3. Set the client id and secret, and switch uploading on:
+
+   ```
+   YOUTUBE_CLIENT_ID=your-youtube-client-id
+   YOUTUBE_CLIENT_SECRET=your-youtube-client-secret
+   YOUTUBE_ACTIONS_ENABLED=true
+   ```
+
+   `YOUTUBE_MAX_UPLOAD_BYTES` (default 8 GB) caps one video; a video is also limited by
+   `ATTACHMENT_MAX_BYTES`. `YOUTUBE_UPLOAD_CHUNK_BYTES` (default 8 MiB, a multiple of 256 KiB) is the size
+   of each piece sent, so an interrupted upload resumes from the last piece rather than starting over.
+4. Restart the `api` container. **YouTube (upload)** becomes Connectable. Without the id and secret the
+   gallery shows it as one you can turn on, not as a broken button.
+
+Every upload spends YouTube API quota (about 1,600 of a project's default 10,000 units a day, so roughly
+six uploads a day until Google raises it). When the quota is used up the upload waits and tries again
+after the daily reset (midnight Pacific time); it does not retry in a loop.
 
 ### One-time setup (Facebook and Instagram publishing)
 

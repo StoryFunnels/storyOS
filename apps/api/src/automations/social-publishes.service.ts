@@ -45,6 +45,8 @@ export interface SocialPublish {
   will_retry: boolean;
   error: PublishFailure | null;
   post_url: string | null;
+  /** Ticket #60 — bytes of a video already sent while an upload is open (running, or waiting to resume), else null. Never a session address. */
+  progress: { sent_bytes: number; total_bytes: number } | null;
   external_id: string | null;
   rule_id: string | null;
   run_id: string | null;
@@ -58,6 +60,15 @@ export interface SocialPublish {
 interface Snapshot {
   action?: Partial<PostSocialAction> & { type?: string };
   ctx?: { databaseId?: string; recordId?: string | null };
+  upload?: { bytes_sent?: unknown; size?: unknown };
+}
+
+/** The upload's progress from the job payload: only the two counts, only when they are sane numbers. */
+function uploadProgress(upload: Snapshot['upload']): SocialPublish['progress'] {
+  const sent = upload?.bytes_sent;
+  const total = upload?.size;
+  if (typeof sent !== 'number' || typeof total !== 'number' || !Number.isFinite(sent) || !Number.isFinite(total) || total <= 0 || sent < 0 || sent > total) return null;
+  return { sent_bytes: sent, total_bytes: total };
 }
 
 
@@ -159,6 +170,7 @@ export class SocialPublishesService {
           will_retry: retryingByItself,
           error: state === 'published' ? null : failure,
           post_url: state === 'published' && typeof artifact.url === 'string' ? artifact.url : null,
+          progress: state === 'running' || state === 'queued' ? uploadProgress((job.payload as Snapshot).upload) : null,
           external_id: state === 'published' && typeof artifact.external_id === 'string' ? artifact.external_id : null,
           rule_id: job.ruleId,
           run_id: job.runId,
@@ -203,6 +215,7 @@ export class SocialPublishesService {
           will_retry: false,
           error: null,
           post_url: null,
+          progress: null,
           external_id: null,
           rule_id: approval.ruleId,
           run_id: approval.runId,
