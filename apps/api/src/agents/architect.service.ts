@@ -339,6 +339,7 @@ export class ArchitectService {
     const created = (await this.fields.create(databaseId, {
       display_name: field.name,
       type: field.type,
+      description: field.description, // #704
       // A plan may carry type config (precision, include_time). The proposer
       // never emits any, but a pack manifest — which is an ArchitectPlan — does,
       // and hardcoding `{}` here silently dropped it.
@@ -481,6 +482,7 @@ export class ArchitectService {
         const created = (await this.fields.create(databaseId, {
           display_name: planned.field,
           type: 'select',
+          description: planned.description, // #704
           config: {},
           // #1105 — a declared category is stored; omitted stays undefined, which a plain select keeps as none (as before)
           options: planned.options.map((o) => ({ label: o.label, color: o.color, category: o.category })),

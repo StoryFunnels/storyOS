@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { architectPlanSchema, planAgentSchema } from './architect';
-import { automationLimitSchema, automationSortSchema, stateCategorySchema } from './fields';
+import { automationLimitSchema, automationSortSchema, fieldDescriptionSchema, stateCategorySchema } from './fields';
 import { skillExampleSchema } from './skills';
 import { viewTypeSchema } from './views';
 
@@ -310,6 +310,8 @@ export const packDerivedFieldSchema = z.object({
   name: nameSchema,
   type: z.enum(['lookup', 'rollup', 'button']),
   config: jsonObjectSchema.default({}),
+  /** #704 - the field's help text (same rules as `planFieldSchema.description`). */
+  description: fieldDescriptionSchema.optional(),
 });
 export type PackDerivedField = z.infer<typeof packDerivedFieldSchema>;
 
