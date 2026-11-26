@@ -138,6 +138,9 @@ export function resolveConnectionsMasterKey(
   return Buffer.from(derived).toString('hex');
 }
 
+/** The value `.env.example` shipped for RESEND_API_KEY before ticket #1337; never a real key. */
+export const RESEND_KEY_PLACEHOLDER = 're_your_resend_api_key_here';
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   /**
@@ -192,7 +195,15 @@ export const envSchema = z.object({
    * emails are logged instead of sent — same "never crash" degrade the mailer
    * has always had.
    */
-  RESEND_API_KEY: z.string().optional(),
+  RESEND_API_KEY: z
+    .string()
+    .optional()
+    // Ticket #1337: a blank value, or the placeholder an older .env.example shipped, means "no key". Otherwise a plain
+    // copy of that file called Resend with a fake key at every sign-up (401, user left unverified, no hint).
+    .transform((v) => {
+      const key = v?.trim();
+      return key && key !== RESEND_KEY_PLACEHOLDER ? key : undefined;
+    }),
   /**
    * MN-256 — send_email automation action daily send cap, per plan. Plain
    * env-tunable numbers (not a PlanDef field in billing/plans.ts) until the

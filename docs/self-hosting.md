@@ -18,7 +18,11 @@ printf 'BETTER_AUTH_SECRET=%s\nCONNECTIONS_MASTER_KEY=%s\n' "$(openssl rand -hex
 docker compose up -d
 ```
 
-Open http://localhost and sign up — the first account creates its own workspace. Migrations run automatically when the API boots.
+**The first run builds three images from source** (api, web, mcp): expect 15 to 20 minutes on a laptop-class machine. Later starts take seconds. Follow the build with `docker compose logs -f`. The product needs only `api` and `web`; `docker compose up -d caddy` builds and starts just postgres, api, web and the proxy, and skips the MCP image. (`mcp` is not behind a profile: `docker compose up -d` starts it, and the production override runs it.)
+
+Open http://localhost and sign up. Sign-up signs you straight in and leads to a **Create your workspace** step (a name, then the Business Pack or **Start empty**); that step is where the workspace is made, sign-up only creates your account. Migrations run automatically when the API boots.
+
+No mail provider is needed to get started: with no `RESEND_API_KEY` and no `SMTP_HOST`, the API logs each email instead of sending it, and an unverified address blocks nothing. Read a verification link with `docker compose logs api | grep "Email delivery not configured"`.
 
 The bundled Caddy proxy serves everything on **one origin** (port 80): the web app at `/` and the API at `/api/*`. For a real deployment, set `API_URL` and `WEB_URL` in `.env` to your public URL (e.g. `https://os.example.com` for both) — auth validates request origins against `WEB_URL`, so a mismatch shows "Invalid origin" at login. TLS: put the domain behind Cloudflare (proxied, SSL mode Flexible) or edit `docker/Caddyfile` to use your domain name and let Caddy issue certificates itself (needs ports 80+443 reachable).
 
