@@ -59,10 +59,13 @@ credentials simply hide the button. Sessions are database-backed for instant rev
 access tokens (`mn_pat_…`) are a separate, workspace-scoped credential; see
 [authentication](/api/authentication/).
 
-### Email (SMTP)
+### Email (Resend or SMTP)
 
-Email is optional. When `SMTP_HOST` is unset, invite links are copyable in the UI and other
-emails are logged rather than sent. Any SMTP provider works — for example Resend:
+Email is optional. When neither `RESEND_API_KEY` nor `SMTP_HOST` is set (the default, and what a plain
+copy of `.env.example` gives you), invite links are copyable in the UI and other emails, verification
+links included, are logged rather than sent: `docker compose logs api | grep "Email delivery not configured"`.
+A blank `RESEND_API_KEY` counts as unset. To send mail, set `RESEND_API_KEY` (Resend's HTTP API, preferred
+when both are set) or an SMTP provider. Any SMTP provider works — for example Resend's relay:
 
 ```bash
 SMTP_HOST=smtp.resend.com

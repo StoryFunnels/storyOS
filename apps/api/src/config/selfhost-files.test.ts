@@ -87,6 +87,31 @@ describe('self-host quickstart files (#1286)', () => {
     });
   });
 
+  describe('a plain copy logs mail instead of calling a mail provider (#1337)', () => {
+    // The quickstart supplies no mail provider. `RESEND_API_KEY=re_your_resend_api_key_here` made the API call Resend with a fake
+    // key at every sign-up (401, user left unverified, nothing in the UI). So a plain copy must carry NO active key,
+    // and no active sender address on somebody else's domain.
+    it('.env.example ships no active RESEND_API_KEY value', () => {
+      expect(envExample).toMatch(/^RESEND_API_KEY=$/m);
+      expect(envExample).not.toMatch(/^RESEND_API_KEY=\S/m);
+    });
+
+    it('.env.example does not pin MAIL_FROM to an address on a domain the self-hoster does not own', () => {
+      expect(envExample).not.toMatch(/^MAIL_FROM=.*@storyos\.dev/m);
+      expect(envExample).not.toMatch(/^MAIL_FROM=/m);
+    });
+
+    it('no active SMTP_HOST either, so the log driver is what runs', () => {
+      expect(envExample).not.toMatch(/^SMTP_HOST=\S/m);
+    });
+
+    it("the file says that blank means 'logged, not sent', and where to find the link", () => {
+      const email = envExample.slice(envExample.indexOf('# --- Email'), envExample.indexOf('# --- Object storage'));
+      expect(email).toMatch(/logged/i);
+      expect(email).toMatch(/docker compose logs api/);
+    });
+  });
+
   describe('docs match the files', () => {
     const overview = read('apps/docs/src/content/docs/self-hosting/overview.md');
     const configuration = read('apps/docs/src/content/docs/self-hosting/configuration.md');
@@ -110,6 +135,27 @@ describe('self-host quickstart files (#1286)', () => {
       expect(repoDoc).toMatch(
         /Only `BETTER_AUTH_SECRET` and `CONNECTIONS_MASTER_KEY` are required/,
       );
+    });
+
+    it('the quickstart documents the create-workspace step, the cold build and the real status of mcp (#1337)', () => {
+      for (const [name, doc] of [['overview', overview], ['repoDoc', repoDoc]] as const) {
+        expect(doc, `${name}: Create your workspace`).toMatch(/Create\s+your\s+workspace/);
+        expect(doc, `${name}: cold build`).toMatch(/builds? three images/i);
+        expect(doc, `${name}: from source`).toMatch(/from source/i);
+        expect(doc, `${name}: build time`).toMatch(/\d+\s*(-|to|–)?\s*\d*\s*minutes/i);
+        expect(doc, `${name}: confirmation mail logged`).toMatch(/docker compose logs api/);
+      }
+    });
+
+    // mcp stays in the default set on purpose: docker-compose.prod.yml overrides its image and the production deploy runs
+    // `docker compose up -d`, so a profile would silently stop deploying it. The docs therefore say it starts by default.
+    it('mcp is not called optional while `docker compose up -d` builds and starts it (#1337)', () => {
+      const mcpBlock = /^ {2}mcp:\n((?: {3,}.*\n|\s*#.*\n|\n)*)/m.exec(compose)?.[1] ?? '';
+      expect(mcpBlock, 'could not find the mcp service block').toContain('image: storyos-mcp:latest');
+      expect(mcpBlock).not.toMatch(/^ {4}profiles:/m);
+      expect(overview).not.toMatch(/\*\*mcp\*\* \*\(optional\)\*/);
+      expect(overview).toMatch(/docker compose up -d caddy/);
+      expect(repoDoc).toMatch(/docker compose up -d caddy/);
     });
 
     it('the default URLs are documented as http://localhost, with the HTTP_PORT caveat', () => {
