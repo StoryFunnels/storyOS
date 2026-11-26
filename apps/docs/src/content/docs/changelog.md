@@ -9,6 +9,13 @@ day the change reached the product.
 
 ## Week of 9 November 2026
 
+- **25 Nov** — An agent's **Target databases** entry binds a user database by name only when exactly one database carries it (the agent's own target spaces first); a system database such as Members needs its id, and an ambiguous name shows as unresolved. [How a database name is read](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
+- **25 Nov** — An agent trigger can carry a condition, so a record that does not match wakes nothing and the skip is listed; the Lead Follow-up pack uses it for Do Not Contact. [Trigger conditions](/concepts/agent-runs/#trigger-conditions)
+- **25 Nov** — An agent can no longer change an existing agent's Target databases or scopes, as it already could not change Target spaces, Tools, Model or budget. [Where an agent works](/guides/runner/#where-an-agent-works-databases-and-whole-spaces)
+- **25 Nov** — An admin no longer sees or restores a member's deleted personal space in Settings → Trash. [Deleting a database, view or space](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space)
+- **25 Nov** — A guest who asks the API for a personal access token is refused with a 403, matching the app. [Authentication](/api/authentication/)
+- **25 Nov** — The API container runs as the `node` user and fixes the ownership of an older attachments volume on first start. [Attachments](/self-hosting/attachments/)
+
 - **25 Nov** — A built-in Shop OS pack: customers, products, orders and order lines, an order board by status, an Unpaid Orders view, and a drafter agent that installs switched off. [The Shop OS pack](/guides/shop-os-pack/)
 - **15 Nov** — The record page's Activity, Comments and About sit under the fields on a window narrower than 900px, Activity reads as "set", "cleared" and "changed" sentences, and a half-typed comment is kept per record. [The record page](/concepts/databases-and-fields/#the-record-page)
 - **15 Nov** — My Work gathers finished rows under a closed **Done · N** group, writes the space on two databases that share a name, and says **Not recorded** when it has no record of who assigned you. [My Work: what is waiting on you](/concepts/mentions-and-notifications/#my-work-what-is-waiting-on-you)
