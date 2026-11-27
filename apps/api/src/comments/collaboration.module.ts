@@ -11,6 +11,7 @@ import { ActivityService } from '../activity/activity.service';
 import { AuditLogController } from '../activity/audit-log.controller';
 import { AuditLogService } from '../activity/audit-log.service';
 import { ActivityRetentionService } from '../activity/activity-retention.service';
+import { VersionHistoryRetentionService } from '../activity/version-history-retention.service';
 import { RecordVersionsController } from '../activity/record-versions.controller';
 import { DatabaseActivityController } from '../activity/database-activity.controller';
 import { SlackService } from '../integrations/slack.service';
@@ -25,7 +26,7 @@ import { CommentsService } from './comments.service';
   // than importing the whole IntegrationsModule: adding that module edge shifts
   // Nest's init order and needlessly reorders the generated OpenAPI. A second
   // stateless instance (config read from DB per call) is harmless.
-  providers: [CommentsService, ActivityService, SlackService, AuditLogService, ActivityRetentionService],
+  providers: [CommentsService, ActivityService, SlackService, AuditLogService, ActivityRetentionService, VersionHistoryRetentionService],
   exports: [CommentsService, ActivityService],
 })
 export class CollaborationModule {}

@@ -35,9 +35,13 @@ export interface PlanDef {
    * No plan uses it today; the capture sites keep the `> 0` guard so a plan
    * that sets it again behaves as before.
    *
-   * Today this value ONLY gates capture. Nothing prunes `record_versions`,
-   * `record_field_changes` or `document_versions`, and the version list and
-   * restore do not filter by it (ticket #1385 found no such code).
+   * Three things read this value (ticket #1386): CAPTURE (a `0` writes
+   * nothing), the version LIST and RESTORE (a version older than the window
+   * is not listed and not restorable), and the daily PURGE of
+   * `record_versions`, `record_field_changes` and `document_versions`
+   * (activity/version-history-retention.service.ts). The last two start on
+   * 2026-12-27 UTC, the activity purge's `PURGE_NOT_BEFORE`; before it
+   * nothing is hidden and nothing is deleted.
    *
    * Note this gates HISTORY/RESTORE only. The `activity_events` trail is a
    * separate feature and stays on for Free, so a Free workspace still sees
