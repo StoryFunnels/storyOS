@@ -173,9 +173,7 @@ export function SlackSubscriptionsDialogContent({
               {isConnectSlackRefusal(problem) && (
                 <>
                   {' '}
-                  <Link href={`/w/${ws}/settings/integrations/slack`} className="font-medium text-primary-text underline">
-                    Open Slack settings
-                  </Link>
+                  <OpenSlackSettingsLink ws={ws} />
                 </>
               )}
             </p>
@@ -184,6 +182,20 @@ export function SlackSubscriptionsDialogContent({
         </form>
       </div>
     </DialogContent>
+  );
+}
+
+/**
+ * "Open Slack settings": goes to the page where the connection is made AND closes this dialog. A dialog left open on top of the page it
+ * links to covers it, so the click looks like it did nothing (found in review).
+ */
+export function OpenSlackSettingsLink({ ws }: { ws: string }) {
+  return (
+    <DialogClose asChild>
+      <Link href={`/w/${ws}/settings/integrations/slack`} className="font-medium text-primary-text underline">
+        Open Slack settings
+      </Link>
+    </DialogClose>
   );
 }
 

@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { SlackSubscriptionDto } from '@/lib/slack-subscriptions';
 import { Dialog } from '@/components/ui/dialog';
-import { SlackDialogFooter, SubscriptionRow } from './slack-subscriptions-dialog';
+import { OpenSlackSettingsLink, SlackDialogFooter, SubscriptionRow } from './slack-subscriptions-dialog';
+import { DialogClose } from '@/components/ui/dialog';
 
 /** Ticket #1388 — a subscription row in every state, and who is offered the screen at all. */
 const sub = (over: Partial<SlackSubscriptionDto> = {}): SlackSubscriptionDto => ({
@@ -133,5 +134,27 @@ describe('#1388 the open dialog keeps itself fresh', () => {
   it('re-reads the list every few seconds while it is open (the hook is only used by the dialog)', () => {
     const q = readFileSync(fileURLToPath(new URL('../lib/slack-subscriptions-queries.ts', import.meta.url)), 'utf8');
     expect(q).toContain('refetchInterval: 5_000');
+  });
+});
+
+describe('#1388 "Open Slack settings" leaves the dialog as it navigates', () => {
+  // The component is a function of its props, so its element tree can be read without a DOM: the link is the child of the dialog's own
+  // close control, which is what makes a click both navigate and close.
+  const tree = OpenSlackSettingsLink({ ws: 'w1' }) as unknown as { type: unknown; props: { asChild?: boolean; children: { props: { href: string; children: string } } } };
+
+  it('is wrapped in the dialog\'s close control, passing its click through to the link', () => {
+    expect(tree.type).toBe(DialogClose);
+    expect(tree.props.asChild).toBe(true);
+  });
+
+  it('still points at the workspace\'s Slack settings', () => {
+    expect(tree.props.children.props.href).toBe('/w/w1/settings/integrations/slack');
+    expect(tree.props.children.props.children).toBe('Open Slack settings');
+  });
+
+  it('renders as a link inside a dialog', () => {
+    const out = renderToStaticMarkup(createElement(Dialog, { open: true }, createElement(OpenSlackSettingsLink, { ws: 'w1' })));
+    expect(out).toContain('href="/w/w1/settings/integrations/slack"');
+    expect(out).toContain('Open Slack settings');
   });
 });
