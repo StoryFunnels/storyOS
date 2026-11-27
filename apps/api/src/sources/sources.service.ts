@@ -9,6 +9,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
+import { runAsImportRun } from '../common/import-run-context';
 import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { currentActor } from '../common/credential-context';
 import { DB } from '../db/db.module';
@@ -538,7 +539,12 @@ export class SourcesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Runs one sync cycle for a source, end to end, and returns the run row. */
-  private async runOne(source: SourceRow): Promise<typeof sourceRuns.$inferSelect> {
+  /** #1377 — a source sync is an import run: the events it causes post nothing to a Slack channel subscription. */
+  private runOne(source: SourceRow): Promise<typeof sourceRuns.$inferSelect> {
+    return runAsImportRun(() => this.runOneInRun(source));
+  }
+
+  private async runOneInRun(source: SourceRow): Promise<typeof sourceRuns.$inferSelect> {
     const startedAt = new Date();
 
     if (!source.connectionId) {

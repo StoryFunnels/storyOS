@@ -98,7 +98,9 @@ describe('the page is wired to the model (source guard)', () => {
     expect(src).toContain('runnerLineState(summary, agent.id)');
     expect(src).toContain('<RunnerUnknownLine');
     expect(src).toContain("runnerState.kind === 'none'");
-    expect(src).toContain('recordsWaiting={recordsWaitingCount(row)}');
+    // Ticket #1276: still `catch_up` only, now through `waitingFacts` (which is also what says nothing for a partly hidden queue).
+    expect(src).toContain('recordsWaiting={queue.recordsWaiting}');
+    expect(readFileSync(fileURLToPath(new URL('./visibility.ts', import.meta.url)), 'utf8')).toContain('recordsWaiting: recordsWaitingCount(row)');
     expect(src).toContain('noun={catchUpWords.noun}');
     expect(src).not.toMatch(/row\?\.runner \?\? null/);
   });

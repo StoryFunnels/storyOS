@@ -6313,6 +6313,124 @@
         "x-min-role": "admin"
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/slack/subscriptions": {
+      "get": {
+        "operationId": "SlackSubscriptionsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List Slack channel subscriptions (which space or database posts to which channel, and how delivery is going)",
+        "tags": [
+          "integrations"
+        ],
+        "x-min-role": "admin"
+      },
+      "post": {
+        "operationId": "SlackSubscriptionsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSlackSubscriptionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Subscribe a Slack channel to record created / status changed / comment added on a space or database",
+        "tags": [
+          "integrations"
+        ],
+        "x-min-role": "admin"
+      }
+    },
+    "/api/v1/workspaces/{ws}/integrations/slack/subscriptions/{id}": {
+      "patch": {
+        "operationId": "SlackSubscriptionsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSlackSubscriptionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change a subscription’s events or channel; the admin who does it becomes its owner and a needs-attention flag clears",
+        "tags": [
+          "integrations"
+        ],
+        "x-min-role": "admin"
+      },
+      "delete": {
+        "operationId": "SlackSubscriptionsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a subscription: its posts stop",
+        "tags": [
+          "integrations"
+        ],
+        "x-min-role": "admin"
+      }
+    },
     "/api/v1/workspaces/{ws}/integrations": {
       "get": {
         "operationId": "IntegrationsDirectoryController_list",
@@ -18014,6 +18132,70 @@
           "body"
         ]
       },
+      "CreateSlackSubscriptionDto": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "channel": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "events": {
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "created",
+                "status_changed",
+                "commented"
+              ]
+            }
+          },
+          "acknowledge_restricted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "events"
+        ]
+      },
+      "UpdateSlackSubscriptionDto": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "maxLength": 100,
+            "nullable": true
+          },
+          "events": {
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "created",
+                "status_changed",
+                "commented"
+              ]
+            }
+          },
+          "acknowledge_restricted": {
+            "type": "boolean"
+          }
+        }
+      },
       "GithubConfigDto": {
         "type": "object",
         "properties": {
@@ -18276,6 +18458,27 @@
               },
               "require_approval_for_agent_comments": {
                 "type": "boolean"
+              }
+            }
+          },
+          "allow_private_teams": {
+            "type": "boolean"
+          },
+          "team_spaces": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "space_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "space_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                }
               }
             }
           }

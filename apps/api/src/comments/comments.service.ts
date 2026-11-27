@@ -24,6 +24,7 @@ import { maskRunnerStamp } from '../runners/runner-identity';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService, escapeSlackText } from '../integrations/slack.service';
+import { SlackSubscriptionsService } from '../integrations/slack-subscriptions.service';
 import { AccessService } from '../access/access.service';
 import { commentDeepLink, commentMentionIds, isBlocknoteCommentBody, renderCommentText, truncateForPreview } from './comment-render';
 
@@ -86,6 +87,8 @@ export class CommentsService implements OnModuleInit {
     private readonly agentWakes: AgentWakesService,
     /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's comment delete. */
     private readonly agentDeletes: AgentDeleteHoldService,
+    /** #1377 — a comment written through the API is one of the three events a Slack channel subscription posts. */
+    private readonly slackSubscriptions: SlackSubscriptionsService,
   ) {}
 
   onModuleInit(): void {
@@ -220,21 +223,32 @@ export class CommentsService implements OnModuleInit {
     doc: unknown[],
     createdAt: Date,
     originalUrl: string,
-  ): Promise<'created' | 'exists'> {
+    /**
+     * Ticket #1367 — the workspace member the source's author maps to (by email), or null. An existing comment imported earlier under the
+     * sync account is RE-AUTHORED, never re-created: the key is the original link, so a second insert would duplicate it.
+     */
+    memberAuthorId: string | null = null,
+  ): Promise<'created' | 'exists' | 'reauthored'> {
     const key = [{ type: 'paragraph', content: [{ type: 'link', href: originalUrl }] }];
     const [existing] = await this.db
-      .select({ id: comments.id })
+      .select({ id: comments.id, authorId: comments.authorId })
       .from(comments)
       .where(and(eq(comments.recordId, recordId), sql`${comments.body} @> ${JSON.stringify({ format: 'blocknote', doc: key })}::jsonb`))
       .limit(1);
-    if (existing) return 'exists';
+    if (existing) {
+      if (memberAuthorId && existing.authorId !== memberAuthorId) {
+        await this.db.update(comments).set({ authorId: memberAuthorId }).where(eq(comments.id, existing.id));
+        return 'reauthored';
+      }
+      return 'exists';
+    }
     const footer = {
       type: 'paragraph',
       content: [{ type: 'link', href: originalUrl, content: [{ type: 'text', text: 'Original comment in Linear', styles: {} }] }],
     };
     await this.db.insert(comments).values({
       recordId,
-      authorId,
+      authorId: memberAuthorId ?? authorId,
       body: { format: 'blocknote', doc: [...doc, footer] },
       mentions: [],
       source: 'automation',
@@ -330,6 +344,8 @@ export class CommentsService implements OnModuleInit {
       snippet,
     });
     this.resyncMentions(workspaceId, recordId, authorId, source);
+    // #1377 — emit-time and best-effort: a Slack subscription's failure never fails or slows the comment someone just wrote.
+    void this.slackSubscriptions.onCommented({ workspaceId, recordId, commentId: created.id, authorId, source }).catch((error) => this.logger.warn(`slack subscription (comment) failed: ${String(error)}`));
     const agentWakes = await this.wakeMentionedAgents(workspaceId, recordId, authorId, created.id, body, source);
     return {
       id: created.id,

@@ -953,6 +953,13 @@
       "when": 1795723265813,
       "tag": "0135_database_identifier_prefix",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1795743567113,
+      "tag": "0136_slack_subscriptions",
+      "breakpoints": true
     }
   ]
 }

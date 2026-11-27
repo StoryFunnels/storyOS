@@ -14,11 +14,12 @@ import { ActivityRetentionService } from '../activity/activity-retention.service
 import { RecordVersionsController } from '../activity/record-versions.controller';
 import { DatabaseActivityController } from '../activity/database-activity.controller';
 import { SlackService } from '../integrations/slack.service';
+import { SlackSubscriptionsModule } from '../integrations/slack-subscriptions.module';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
 
 @Module({
-  imports: [BillingModule, WorkspacesModule, DatabasesModule, RecordsModule, MentionsModule, UsersModule, MembersDbModule],
+  imports: [BillingModule, WorkspacesModule, DatabasesModule, RecordsModule, MentionsModule, UsersModule, MembersDbModule, SlackSubscriptionsModule],
   controllers: [CommentsController, ActivityController, DatabaseActivityController, RecordVersionsController, AuditLogController],
   // #268 — SlackService is provided directly (it only needs the global DB) rather
   // than importing the whole IntegrationsModule: adding that module edge shifts

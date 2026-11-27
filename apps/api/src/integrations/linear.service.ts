@@ -5,7 +5,7 @@ import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { VIA_STORYOS_PATTERN } from './linear-write-back.constants';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { linearCommentPushes, memberships, databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
+import { linearCommentPushes, memberships, user, databases as databasesTable, fields as fieldsTable, relations as relationsTable, selectOptions, spaces as spacesTable, workspaces } from '../db/schema';
 import { env } from '../config/env';
 import { spaceCanHoldDatabases } from '../access/access.service';
 import { DatabasesService } from '../databases/databases.service';
@@ -19,16 +19,38 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { DryRunBuilder } from '../migration-framework/dry-run';
 import { ExternalIdUpsertService } from '../migration-framework/external-id-upsert.service';
+import { runAsImportRun, setImportRunMode } from '../common/import-run-context';
 import { RelationLinkerService } from '../migration-framework/relation-linker.service';
 import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
+import { CROSS_TEAM_RELATION_POLICY, emptyRelationReport, ensureDuplicateStateCategory, ensureRelationFields, fetchTeamRelations, planIssueRelations, relationWarnings } from './linear-relations';
+import type { DuplicateStateReport, LinearIssueRelations, RelationReport } from './linear-relations';
+import { pageAll } from './linear-paging';
+/** One pageAll: it lives in linear-paging.ts; re-exported so linear-milestones.ts and older importers keep their path. */
+export { pageAll };
+import { LinearAttachmentsService } from './linear-attachments.service';
+import {
+  attachmentTallyGap, classifyAttachmentUrl, documentSummaryGap, documentsForTeam, DocumentRun, fetchTeamAttachments, fetchWorkspaceDocuments,
+} from './linear-attachments';
+import type { LinearAttachment } from './linear-attachments';
+import type { PageInfo } from './linear-paging';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
+import { AccessService } from '../access/access.service';
+import { ImportHistoryService } from '../migration-framework/import-history.service';
+import { linearDay, linearIssueNumber, linearTime, MemberMatcher, stateHistoryRows } from './linear-import-support';
+import type { LinearHistoryEntry, LinearPerson } from './linear-import-support';
+import {
+  addTeamMilestones, ensureMilestonesPack, fetchTeamMilestones, milestonePreview, milestoneTargets, newMilestoneSummary, newMilestoneTally, syncTeamMilestones,
+} from './linear-milestones';
+import type { LinearMilestone } from './linear-milestones';
 
 export interface LinearTeam {
   id: string;
   key: string;
   name: string;
+  /** Ticket #1367 — `Team.private`: only its members can see it in Linear, so only they may see it here. Absent reads as public. */
+  private?: boolean;
 }
 
 export interface LinearLabel {
@@ -51,9 +73,10 @@ export interface LinearComment {
   body: string;
   createdAt: string;
   url: string;
-  user: { name: string } | null;
+  /** Ticket #1367 — the email is what maps the author to a workspace member. */
+  user: { id?: string; name: string; email?: string | null } | null;
   botActor: { name: string } | null;
-  externalUser: { name: string } | null;
+  externalUser: { name: string; email?: string | null } | null;
   issue: { id: string } | null;
 }
 
@@ -64,6 +87,8 @@ export interface LinearTeamComplete extends LinearTeamData {
   states: { nodes: LinearState[] };
   /** Linear's own `Team.issueCount`, fetched separately from the walk. Null for an incremental read (#1027), which has no total to compare. */
   issueTotal: number | null;
+  /** Ticket #1364 — every milestone of every project of the team (always read whole, like projects), flattened with its project id. */
+  milestones: LinearMilestone[];
 }
 
 export interface LinearTeamData {
@@ -79,12 +104,22 @@ export interface LinearTeamData {
       url: string;
       estimate: number | null;
       priority: number;
+      /** Ticket #1367 — the public number (`ISSUE-5201` is 5201); the dates are the issue's real ones, not the day it was imported. */
+      number?: number;
+      createdAt?: string;
+      updatedAt?: string;
+      startedAt?: string | null;
+      completedAt?: string | null;
+      /** A timeless date (`2026-12-01`). */
+      dueDate?: string | null;
       state: { type: string; name: string };
       labels: { nodes: LinearLabel[] };
-      assignee: { name: string } | null;
+      assignee: { id?: string; name: string; email?: string | null } | null;
       parent: { id: string } | null;
       cycle: { id: string } | null;
       project: { id: string } | null;
+      /** Ticket #1364 — the issue's milestone (Linear: `Issue.projectMilestone`). Optional so a read that predates it still types. */
+      projectMilestone?: { id: string } | null;
     }>;
   };
 }
@@ -145,6 +180,17 @@ interface LinearSettings {
   /** #907 — push StoryOS comments on mirrored records to Linear. Off until an admin switches it on. */
   write_back?: { enabled: boolean; enabled_at?: string; require_approval_for_agent_comments?: boolean };
   sync_status?: LinearSyncStatus;
+  /**
+   * Ticket #1367 — a PRIVATE Linear team is imported only when an admin has switched this on for the workspace. Off by default and
+   * refused loudly, because restricted content is visible to every admin (ADR-0018) and a workspace's admins are not necessarily the
+   * team's people: a private team must never land in a workspace that was not set up for it.
+   */
+  allow_private_teams?: boolean;
+  /**
+   * Ticket #1367 — per team key: the space it lives in (by id, so a rename never loses it) and the name to give a NEW one. The
+   * mirror used to be found by the name "<Team> (Linear)", and a display name is not an identity (ADR-0017).
+   */
+  team_spaces?: Record<string, { space_id?: string; space_name?: string }>;
 }
 
 export type LinearFetcher = (query: string, variables: Record<string, unknown>, apiKey: string) => Promise<unknown>;
@@ -179,25 +225,29 @@ const SMALL_PAGE_SIZE = 100;
 export const ISSUE_LABELS_CAP = 50;
 
 const PAGE_INFO = 'pageInfo { hasNextPage endCursor }';
-export const TEAMS_QUERY = `query Teams($after: String) { teams(first: 50, after: $after) { nodes { id key name } ${PAGE_INFO} } }`;
+export const TEAMS_QUERY = `query Teams($after: String) { teams(first: 50, after: $after) { nodes { id key name private } ${PAGE_INFO} } }`;
+/** Ticket #1367 — a team's members (documented `Team.members`), read for a PRIVATE team only: they are who gets a grant on its restricted space. */
+export const TEAM_MEMBERS_QUERY = `query TeamMembers($id: String!, $after: String) { team(id: $id) { members(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name email active } ${PAGE_INFO} } } }`;
 export const TEAM_ISSUE_COUNT_QUERY = `query TeamIssueCount($id: String!) { team(id: $id) { issueCount } }`;
 export const TEAM_LABELS_QUERY = `query TeamLabels($id: String!, $after: String) { team(id: $id) { labels(first: ${LABEL_PAGE_SIZE}, after: $after) { nodes { id name color } ${PAGE_INFO} } } }`;
 export const TEAM_CYCLES_QUERY = `query TeamCycles($id: String!, $after: String) { team(id: $id) { cycles(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name number startsAt endsAt } ${PAGE_INFO} } } }`;
 export const TEAM_PROJECTS_QUERY = `query TeamProjects($id: String!, $after: String) { team(id: $id) { projects(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name description state targetDate url } ${PAGE_INFO} } } }`;
 export const TEAM_STATES_QUERY = `query TeamStates($id: String!, $after: String) { team(id: $id) { states(first: ${SMALL_PAGE_SIZE}, after: $after) { nodes { id name type position } ${PAGE_INFO} } } }`;
 /** All comments of one team's issues, as one stream (not nested per issue: nesting would multiply query complexity). */
-export const TEAM_COMMENTS_QUERY = `query TeamComments($id: ID!, $after: String) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } } }) { nodes { id body createdAt url user { name } botActor { name } externalUser { name } issue { id } } ${PAGE_INFO} } }`;
+export const TEAM_COMMENTS_QUERY = `query TeamComments($id: ID!, $after: String) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } } }) { nodes { id body createdAt url user { id name email } botActor { name } externalUser { name email } issue { id } } ${PAGE_INFO} } }`;
 export const TEAM_ISSUES_QUERY = `query TeamIssues($id: String!, $after: String) {
   team(id: $id) {
     issues(first: ${ISSUE_PAGE_SIZE}, after: $after) {
       nodes {
-        id identifier title description url estimate priority
+        id identifier number title description url estimate priority
+        createdAt updatedAt startedAt completedAt dueDate
         state { type name }
         labels(first: ${ISSUE_LABELS_CAP}) { nodes { id name color } ${PAGE_INFO} }
-        assignee { name }
+        assignee { id name email }
         parent { id }
         cycle { id }
         project { id }
+        projectMilestone { id }
       }
       ${PAGE_INFO}
     }
@@ -212,41 +262,7 @@ if (!TEAM_ISSUES_SINCE_QUERY.includes('updatedAt') || !TEAM_ISSUES_SINCE_QUERY.i
   // The derivation above is textual; if the base query is ever reworded it must fail at load, not read everything silently.
   throw new Error('TEAM_ISSUES_SINCE_QUERY no longer derives from TEAM_ISSUES_QUERY');
 }
-export const TEAM_COMMENTS_SINCE_QUERY = `query TeamCommentsSince($id: ID!, $after: String, $since: DateTimeOrDuration!) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } }, updatedAt: { gt: $since } }) { nodes { id body createdAt url user { name } botActor { name } externalUser { name } issue { id } } ${PAGE_INFO} } }`;
-
-interface PageInfo { hasNextPage: boolean; endCursor: string | null }
-
-/**
- * Walk one connection to its end. Never assumes completeness: a response with no `pageInfo`, a `hasNextPage` with no
- * cursor, or a cursor that does not advance is an ERROR, because each of those would otherwise look like "that was
- * everything" — the exact silent partial import this replaces.
- */
-async function pageAll<T>(
-  fetcher: LinearFetcher,
-  apiKey: string,
-  query: string,
-  variables: Record<string, unknown>,
-  pick: (data: never) => { nodes: T[]; pageInfo?: PageInfo } | undefined,
-  what: string,
-): Promise<T[]> {
-  const out: T[] = [];
-  const seen = new Set<string>();
-  let after: string | undefined;
-  for (;;) {
-    const data = await fetcher(query, after ? { ...variables, after } : variables, apiKey);
-    const conn = pick(data as never);
-    if (!conn || !Array.isArray(conn.nodes)) throw new UnprocessableEntityException(`Linear returned no ${what} — refusing to continue with a partial copy`);
-    if (!conn.pageInfo) throw new UnprocessableEntityException(`Linear returned no pageInfo for ${what} — cannot tell whether the list is complete`);
-    out.push(...conn.nodes);
-    if (!conn.pageInfo.hasNextPage) return out;
-    const next = conn.pageInfo.endCursor;
-    if (!next || seen.has(next)) {
-      throw new UnprocessableEntityException(`Linear paging for ${what} stopped advancing after ${out.length} rows — refusing to continue with a partial copy`);
-    }
-    seen.add(next);
-    after = next;
-  }
-}
+export const TEAM_COMMENTS_SINCE_QUERY = `query TeamCommentsSince($id: ID!, $after: String, $since: DateTimeOrDuration!) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } }, updatedAt: { gt: $since } }) { nodes { id body createdAt url user { id name email } botActor { name } externalUser { name email } issue { id } } ${PAGE_INFO} } }`;
 
 export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Promise<LinearTeam[]> {
   return pageAll<LinearTeam>(fetcher, apiKey, TEAMS_QUERY, {}, (d: { teams: { nodes: LinearTeam[]; pageInfo?: PageInfo } }) => d.teams, 'teams');
@@ -263,7 +279,7 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
   // #1027 — incremental: only issues and comments Linear changed after `since`. Labels, cycles, projects and states are
   // small and are always read whole. Nothing here can tell "complete" (no total to compare, a comment may sit on an
   // issue that did not change), so those two checks belong to the full read only.
-  const [labels, cycles, projects, issues, count, states, linearComments] = await Promise.all([
+  const [labels, cycles, projects, issues, count, states, linearComments, milestones] = await Promise.all([
     pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`),
     pageAll<LinearTeamData['cycles']['nodes'][number]>(fetcher, apiKey, TEAM_CYCLES_QUERY, { id }, (d: { team: { cycles: never } }) => d.team?.cycles, `cycles of ${team.key}`),
     pageAll<LinearTeamData['projects']['nodes'][number]>(fetcher, apiKey, TEAM_PROJECTS_QUERY, { id }, (d: { team: { projects: never } }) => d.team?.projects, `projects of ${team.key}`),
@@ -271,6 +287,8 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
     since ? Promise.resolve(undefined) : (fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>),
     pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`),
     pageAll<LinearComment>(fetcher, apiKey, since ? TEAM_COMMENTS_SINCE_QUERY : TEAM_COMMENTS_QUERY, since ? { id, since } : { id }, (d: { comments: never }) => d.comments, `comments of ${team.key}`),
+    // Ticket #1364 — milestones are small and always read whole (an incremental run included), like projects.
+    fetchTeamMilestones(fetcher, apiKey, team),
   ]);
   states.sort((a, b) => a.position - b.position);
   // #904: a status the team's own state list does not contain cannot be given an option, so the copy would have to
@@ -305,7 +323,69 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
       throw new UnprocessableEntityException(`Linear issue ${issue.identifier} has more than ${ISSUE_LABELS_CAP} labels (or its label list is incomplete) — refusing to import it without them`);
     }
   }
-  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, states: { nodes: states }, comments: { nodes: linearComments }, issueTotal: total };
+  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, states: { nodes: states }, comments: { nodes: linearComments }, issueTotal: total, milestones };
+}
+
+/**
+ * Ticket #1367 — issue history is its OWN stream, not nested in the issue query: history is a connection inside a connection, and
+ * nesting it under 50 issues x 50 labels is exactly the query-complexity multiplier the comments stream was made separate to avoid.
+ * Smaller issue pages, a first page of history per issue, and a follow-up query only for an issue whose history is longer.
+ * (Shape follows Linear's documented `IssueHistory`: actor, fromState, toState, createdAt. The live complexity cost is what the
+ * probe script measures before the first real import.)
+ */
+export const HISTORY_ISSUE_PAGE_SIZE = 25;
+export const ISSUE_HISTORY_FIRST_PAGE = 50;
+const HISTORY_NODE = 'id createdAt actor { id name email } fromState { name } toState { name }';
+export const TEAM_ISSUE_HISTORY_QUERY = `query TeamIssueHistory($id: String!, $after: String) {
+  team(id: $id) {
+    issues(first: ${HISTORY_ISSUE_PAGE_SIZE}, after: $after) {
+      nodes { id history(first: ${ISSUE_HISTORY_FIRST_PAGE}) { nodes { ${HISTORY_NODE} } ${PAGE_INFO} } }
+      ${PAGE_INFO}
+    }
+  }
+}`;
+export const TEAM_ISSUE_HISTORY_SINCE_QUERY = TEAM_ISSUE_HISTORY_QUERY
+  .replace('query TeamIssueHistory($id: String!, $after: String)', 'query TeamIssueHistorySince($id: String!, $after: String, $since: DateTimeOrDuration!)')
+  .replace(`issues(first: ${HISTORY_ISSUE_PAGE_SIZE}, after: $after)`, `issues(first: ${HISTORY_ISSUE_PAGE_SIZE}, after: $after, filter: { updatedAt: { gt: $since } })`);
+if (!TEAM_ISSUE_HISTORY_SINCE_QUERY.includes('TeamIssueHistorySince') || !TEAM_ISSUE_HISTORY_SINCE_QUERY.includes('updatedAt')) {
+  throw new Error('TEAM_ISSUE_HISTORY_SINCE_QUERY no longer derives from TEAM_ISSUE_HISTORY_QUERY');
+}
+export const ISSUE_HISTORY_MORE_QUERY = `query IssueHistoryMore($id: String!, $after: String) { issue(id: $id) { history(first: 100, after: $after) { nodes { ${HISTORY_NODE} } ${PAGE_INFO} } } }`;
+
+/**
+ * Every state change of the team's issues (or of those changed since `since`), by issue id. An issue whose history is longer than the
+ * first page is followed to its end with its own query: truncating it would leave a timeline that looks complete and is not.
+ */
+export async function fetchTeamIssueHistory(
+  fetcher: LinearFetcher,
+  apiKey: string,
+  team: LinearTeam,
+  opts: { since?: string } = {},
+): Promise<Map<string, LinearHistoryEntry[]>> {
+  const out = new Map<string, LinearHistoryEntry[]>();
+  type Page = { id: string; history: { nodes: LinearHistoryEntry[]; pageInfo?: PageInfo } };
+  const issues = await pageAll<Page>(
+    fetcher, apiKey, opts.since ? TEAM_ISSUE_HISTORY_SINCE_QUERY : TEAM_ISSUE_HISTORY_QUERY, opts.since ? { id: team.id, since: opts.since } : { id: team.id },
+    (d: { team: { issues: never } }) => d.team?.issues, `issue history of ${team.key}`,
+  );
+  for (const issue of issues) {
+    const entries = [...issue.history.nodes];
+    let more = issue.history.pageInfo;
+    while (more?.hasNextPage && more.endCursor) {
+      const next = (await fetcher(ISSUE_HISTORY_MORE_QUERY, { id: issue.id, after: more.endCursor }, apiKey)) as { issue?: { history?: { nodes: LinearHistoryEntry[]; pageInfo?: PageInfo } } };
+      const page = next.issue?.history;
+      if (!page) throw new UnprocessableEntityException(`Linear returned no history page for an issue of ${team.key} — refusing to import a timeline that may be short`);
+      entries.push(...page.nodes);
+      more = page.pageInfo;
+    }
+    out.set(issue.id, entries);
+  }
+  return out;
+}
+
+/** A team's members (for a private team's grants), paged to the end. */
+export async function fetchTeamMembers(fetcher: LinearFetcher, apiKey: string, team: LinearTeam): Promise<Array<LinearPerson & { active?: boolean }>> {
+  return pageAll<LinearPerson & { active?: boolean }>(fetcher, apiKey, TEAM_MEMBERS_QUERY, { id: team.id }, (d: { team: { members: never } }) => d.team?.members, `members of ${team.key}`);
 }
 
 /** Per team and per Linear project: how many issues a sync will copy (#902 AC3). `project: null` = no project. */
@@ -408,6 +488,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     private readonly relationLinker: RelationLinkerService,
     private readonly commentsService: CommentsService,
     private readonly notifications: NotificationsService,
+    private readonly access: AccessService,
+    private readonly importHistory: ImportHistoryService,
+    private readonly attachmentsAndDocuments: LinearAttachmentsService,
   ) {}
 
   onModuleInit() {
@@ -420,7 +503,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   /** Everything already mirrored in an Issues database, by Linear id (paged read; ids and the three bookkeeping fields). */
   private async loadMirror(issuesDbId: string, actorId: string) {
-    const out = new Map<string, { id: string; linearDescription: string | null; linearStatus: string | null }>();
+    const out = new Map<string, { id: string; number: number; identifier: string | null; linearDescription: string | null; linearStatus: string | null }>();
     let cursor: string | undefined;
     for (;;) {
       const page = await this.recordsService.query(
@@ -428,12 +511,13 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         { filter: { field: 'linear_id', op: 'not_empty' }, sorts: [], limit: 200, cursor } as never,
         actorId,
       );
-      for (const r of page.data as Array<{ id: string; values: Record<string, unknown> }>) {
+      for (const r of page.data as Array<{ id: string; number: number; values: Record<string, unknown> }>) {
         const linearId = r.values['linear_id'];
         if (typeof linearId !== 'string') continue;
         const d = r.values['linear_description'];
         const st = r.values['linear_status'];
-        out.set(linearId, { id: r.id, linearDescription: typeof d === 'string' ? d : null, linearStatus: typeof st === 'string' ? st : null });
+        const ident = r.values['identifier'];
+        out.set(linearId, { id: r.id, number: r.number, identifier: typeof ident === 'string' ? ident : null, linearDescription: typeof d === 'string' ? d : null, linearStatus: typeof st === 'string' ? st : null });
       }
       if (!page.next_cursor) return out;
       cursor = page.next_cursor;
@@ -510,6 +594,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     return {
       team_keys: linear.team_keys ?? [],
       has_key: Boolean(linear.api_key),
+      allow_private_teams: Boolean(linear.allow_private_teams),
+      team_spaces: linear.team_spaces ?? {},
       auto_sync: { enabled, interval_minutes: interval },
       write_back: { enabled: Boolean(linear.write_back?.enabled), require_approval_for_agent_comments: Boolean(linear.write_back?.require_approval_for_agent_comments), ...pushes },
       sync: {
@@ -528,7 +614,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   async saveConfig(
     workspaceId: string,
-    config: { api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number }; write_back?: { enabled?: boolean; require_approval_for_agent_comments?: boolean } },
+    config: {
+      api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number }; write_back?: { enabled?: boolean; require_approval_for_agent_comments?: boolean };
+      allow_private_teams?: boolean; team_spaces?: Record<string, { space_id?: string; space_name?: string }>;
+    },
     actorId?: string,
   ) {
     const existing = await this.readLinear(workspaceId);
@@ -537,6 +626,16 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       api_key: config.api_key !== undefined ? config.api_key : existing.api_key,
       team_keys: config.team_keys !== undefined ? config.team_keys : (existing.team_keys ?? []),
     };
+    if (config.allow_private_teams !== undefined) linear.allow_private_teams = config.allow_private_teams;
+    if (config.team_spaces !== undefined) {
+      // A space id is only ever one of THIS workspace's live spaces that can hold databases: a pasted id from elsewhere must not point the sync there.
+      for (const [key, target] of Object.entries(config.team_spaces)) {
+        if (!target.space_id) continue;
+        const space = await this.db.query.spaces.findFirst({ where: and(eq(spacesTable.id, target.space_id), eq(spacesTable.workspaceId, workspaceId), isNull(spacesTable.deletedAt)) });
+        if (!space || !spaceCanHoldDatabases(space)) throw new UnprocessableEntityException(`team_spaces.${key}.space_id is not a space of this workspace that can hold databases`);
+      }
+      linear.team_spaces = config.team_spaces;
+    }
     if (config.auto_sync) {
       const was = existing.auto_sync;
       const enabled = config.auto_sync.enabled ?? was?.enabled ?? false;
@@ -695,8 +794,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** One space per team, holding Issues + Projects + Sprints + Labels. Idempotent by space name. */
-  private async ensureTeamPack(membership: Membership, team: LinearTeam, states: LinearState[], warnings: string[]) {
-    const spaceName = `${team.name} (Linear)`;
+  private async ensureTeamPack(membership: Membership, team: LinearTeam, states: LinearState[], warnings: string[], settings: LinearSettings = {}) {
+    const mapped = settings.team_spaces?.[team.key];
+    // Ticket #1367 — the name a NEW space gets is the admin's override, else the default; the space is FOUND by the stored id first
+    // (a display name is not an identity), and only then by the default name, which is how every mirror made so far is found.
+    const spaceName = mapped?.space_name ?? `${team.name} (Linear)`;
+    const lookupName = `${team.name} (Linear)`;
     // #959 — LIVE rows only. A trashed mirror (someone deleted the space to re-import fresh) kept being found by name, and its
     // databases' fields are gone, so every sync died on `unknown field "linear_id"`. Newest first: when a restore leaves two
     // live spaces with this name, the sync imports into the newest and says so (see `warnings`).
@@ -706,13 +809,24 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       })
     )
       // Ticket #1173: a personal space (documents and views only) is never the team's mirror home, whatever it is named.
-      .filter((s) => s.name === spaceName && spaceCanHoldDatabases(s))
+      .filter((s) => (s.name === spaceName || s.name === lookupName) && spaceCanHoldDatabases(s))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    let space = liveSpaces[0];
+    // Ticket #1367 — the stored id wins over any name; it is only trusted while it is still one of THIS workspace's live spaces.
+    const byId = mapped?.space_id
+      ? await this.db.query.spaces.findFirst({ where: and(eq(spacesTable.id, mapped.space_id), eq(spacesTable.workspaceId, membership.workspaceId), isNull(spacesTable.deletedAt)) })
+      : undefined;
+    let space = byId && spaceCanHoldDatabases(byId) ? byId : liveSpaces[0];
     if (liveSpaces.length > 1) {
       warnings.push(
-        `team ${team.key}: ${liveSpaces.length} live spaces are named "${spaceName}"; importing into the newest (${space!.id}). Delete or rename the others to stop seeing this.`,
+        `team ${team.key}: ${liveSpaces.length} live spaces are named "${spaceName}"; importing into ${space === liveSpaces[0] ? 'the newest' : 'the one this team is mapped to'} (${space!.id}). Delete or rename the others to stop seeing this.`,
       );
+    }
+    // Ticket #1367 — a private team's space is CLOSED before a single record is written into it. A space that exists open (the team
+    // was public when it was first mirrored, or someone opened it) is closed here, first; it is never left open "until a person
+    // notices", and it is never re-opened by a sync (a team going public again is an admin's decision).
+    if (space && team.private === true && !space.restricted) {
+      await this.spaces.update(membership.workspaceId, space.id, { restricted: true });
+      warnings.push(`team ${team.key} is private in Linear: its space "${space.name}" was open and is now restricted, before anything was written to it.`);
     }
     const allDbs = await this.db.query.databases.findMany({
       where: and(eq(databasesTable.workspaceId, membership.workspaceId), isNull(databasesTable.deletedAt)),
@@ -742,11 +856,11 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           labelsDb = created.labelsDb;
           labelsFieldId = created.labelsFieldId;
         }
-        return { issuesDb, projectsDb, sprintsDb, labelsDb: labelsDb!, labelsFieldId, descriptionHidden };
+        return { space, issuesDb, projectsDb, sprintsDb, labelsDb: labelsDb!, labelsFieldId, descriptionHidden };
       }
     }
     space = space ?? // #221: curated ref rather than an emoji (#251).
-      (await this.spaces.create(membership.workspaceId, { name: spaceName, icon: 'brand:linear' }));
+      (await this.spaces.create(membership.workspaceId, { name: spaceName, icon: 'brand:linear', restricted: team.private === true }));
 
     const projectsDb = await this.databasesService.create(membership, {
       space_id: space.id, name: 'Projects', icon: '🎯',
@@ -805,7 +919,122 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       cardinality: 'one_to_many', field_a_name: 'Parent Issue', field_b_name: 'Sub-issues',
     });
     const { labelsDb, labelsFieldId } = await this.createLabelsPack(membership, space.id, issuesDb.id);
-    return { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden: false };
+    return { space, issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden: false };
+  }
+
+  /**
+   * Ticket #1367 — the Issues fields the dates, the due date and the assignee land in. Idempotent and additive, like the other
+   * incremental upgrades: an older mirror gains them on its next sync. A field that exists under the same name with ANOTHER type
+   * is never converted or overwritten; its key is left out of `writable` (with a warning), so the run says what it did not write.
+   */
+  private async ensureIssueFields(issuesDbId: string, teamKey: string, warnings: string[]): Promise<Set<string>> {
+    const wanted = [
+      { apiName: 'started', display_name: 'Started', type: 'date' },
+      { apiName: 'completed', display_name: 'Completed', type: 'date' },
+      { apiName: 'due_date', display_name: 'Due Date', type: 'date' },
+      { apiName: 'assignee', display_name: 'Assignee', type: 'user' },
+    ] as const;
+    const existing = await this.db.query.fields.findMany({ where: and(eq(fieldsTable.databaseId, issuesDbId), isNull(fieldsTable.deletedAt)) });
+    const writable = new Set<string>();
+    for (const w of wanted) {
+      const found = existing.find((f) => f.apiName === w.apiName);
+      if (!found) {
+        await this.fields.create(issuesDbId, { display_name: w.display_name, type: w.type, config: {} });
+        writable.add(w.apiName);
+      } else if (found.type === w.type) {
+        writable.add(w.apiName);
+      } else {
+        warnings.push(`team ${teamKey}: the Issues field "${found.displayName}" is a ${found.type} field, not ${w.type === 'user' ? 'a person' : 'a date'}; it was left alone and Linear's ${w.display_name.toLowerCase()} was not written to it.`);
+      }
+    }
+    return writable;
+  }
+
+  /** Active members of the workspace, for matching Linear people by email. Guests are members here (ADR-0017). */
+  private async memberDirectory(workspaceId: string) {
+    return this.db
+      .select({ id: user.id, email: user.email, role: memberships.role })
+      .from(memberships)
+      .innerJoin(user, eq(user.id, memberships.userId))
+      .where(and(eq(memberships.workspaceId, workspaceId), eq(memberships.status, 'active')));
+  }
+
+  /**
+   * Ticket #1367 — whether this team's issues can be written under LINEAR'S OWN numbers, and the identifier prefix that goes with it.
+   * Decided from the data, not from a flag that could drift: numbered only while no already-mirrored issue sits on a number other than
+   * Linear's. A mirror made before this existed numbered its records in import order (record 1 is ISSUE-4541), and renumbering six
+   * thousand records people may link to is not what a sync does (ruling, ticket #1362): it stays in import order, says so, and gets
+   * no prefix, because ISSUE-4996 for the issue Linear calls ISSUE-5201 would be a wrong identifier shown with confidence.
+   */
+  private async resolveNumbering(
+    membership: Membership,
+    team: LinearTeam,
+    issuesDb: { id: string; identifierPrefix: string | null },
+    mirrored: Map<string, { number: number; identifier: string | null }>,
+    issues: LinearTeamData['issues']['nodes'],
+    warnings: string[],
+  ): Promise<{ mode: 'linear_numbers' | 'import_order'; identifier_prefix: string | null; note?: string }> {
+    // Judged on EVERY mirrored record, not only the issues this run read: an incremental run reads just what changed, and a new issue
+    // numbered by Linear's number into an import-order mirror would collide with, or silently sit beside, records that are not.
+    let misaligned = 0;
+    const fresh = new Map(issues.map((i) => [i.id, i]));
+    for (const [linearId, prior] of mirrored) {
+      const readNow = fresh.get(linearId);
+      const m = readNow ? null : /^(.+)-(\d+)$/.exec(prior.identifier ?? '');
+      const linearNumber = readNow ? linearIssueNumber(readNow, team.key) : m && m[1]!.toLowerCase() === team.key.toLowerCase() ? Number(m[2]) : null;
+      // A record whose number Linear's identifier cannot confirm counts as misaligned: when in doubt, never number by Linear's.
+      if (linearNumber === null || prior.number !== linearNumber) misaligned++;
+    }
+    if (misaligned > 0) {
+      const note = `${misaligned} already-imported issues of team ${team.key} are numbered in import order, not by Linear's numbers; a sync never renumbers them, so this mirror keeps import-order numbers and gets no identifier prefix. A fresh import (a new space or workspace) numbers by Linear's.`;
+      warnings.push(note);
+      return { mode: 'import_order', identifier_prefix: issuesDb.identifierPrefix, note };
+    }
+    let prefix = issuesDb.identifierPrefix;
+    if (!prefix) {
+      try {
+        const updated = await this.databasesService.update(membership, issuesDb.id, { identifier_prefix: team.key.toUpperCase() });
+        prefix = updated.identifierPrefix;
+      } catch (error) {
+        if (!(error instanceof ConflictException || error instanceof UnprocessableEntityException)) throw error;
+        // A clash (another database already holds the prefix) or a key that is not a valid prefix. The numbers are Linear's either way
+        // and nothing is renamed or taken over; an admin can set a prefix later and every identifier appears.
+        const note = `team ${team.key}: the identifier prefix ${team.key} was not set (${error.message}). Issues keep Linear's numbers; set a prefix on the Issues database when it is free.`;
+        warnings.push(note);
+        return { mode: 'linear_numbers', identifier_prefix: null, note };
+      }
+    }
+    return { mode: 'linear_numbers', identifier_prefix: prefix };
+  }
+
+  /**
+   * Ticket #1367 — a private team's members get the grant that lets them into its restricted space. Matched by email; one that does
+   * not match is LISTED in the run report and gets nothing. Never lowers a grant someone already holds, and an admin needs none.
+   */
+  private async grantPrivateTeam(
+    workspaceId: string, spaceId: string, members: Array<LinearPerson & { active?: boolean }>, matcher: MemberMatcher, directory: Array<{ id: string; role: string }>, actorId: string,
+  ) {
+    const roleOf = new Map(directory.map((d) => [d.id, d.role]));
+    const existing = (await this.access.listGrants(workspaceId)).data.filter((g) => g.space_id === spaceId);
+    const held = new Set(existing.map((g) => g.user_id));
+    let granted = 0;
+    const unmatched: Array<{ name: string; email: string | null }> = [];
+    for (const m of members) {
+      if (m.active === false) continue;
+      const id = matcher.find(m);
+      if (!id) { unmatched.push({ name: m.name, email: m.email ?? null }); continue; }
+      if (roleOf.get(id) === 'admin' || held.has(id)) continue;
+      await this.access.createGrant(workspaceId, { space_id: spaceId, role: 'editor', user_id: id }, actorId);
+      granted++;
+    }
+    return { granted, unmatched_total: unmatched.length, unmatched: unmatched.slice(0, 200) };
+  }
+
+  /** Remember which space a team lives in, by id. Read-modify-write on the settings, so a concurrent status write is not lost. */
+  private async rememberTeamSpace(workspaceId: string, teamKey: string, spaceId: string) {
+    const now = await this.readLinear(workspaceId);
+    if (now.team_spaces?.[teamKey]?.space_id === spaceId) return;
+    await this.writeLinear(workspaceId, { ...now, team_spaces: { ...now.team_spaces, [teamKey]: { ...now.team_spaces?.[teamKey], space_id: spaceId } } });
   }
 
   /** Idempotent re-import by Linear id (MN-066) — now the framework's shared
@@ -817,22 +1046,35 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     linearId: string,
     values: Record<string, unknown>,
     actorId: string,
+    options?: { number?: number; source?: 'import' },
   ): Promise<string> {
-    const { id } = await this.externalIdUpsert.upsert(membership, databaseId, 'linear_id', linearId, values, actorId);
+    const { id } = await this.externalIdUpsert.upsert(membership, databaseId, 'linear_id', linearId, values, actorId, options);
     return id;
   }
 
-  private async fetchTeams(workspaceId: string): Promise<{ teams: LinearTeam[]; apiKey: string }> {
+  private async fetchTeams(workspaceId: string, opts: { forSync?: boolean } = {}): Promise<{ teams: LinearTeam[]; apiKey: string; settings: LinearSettings; notVisible: string[]; blockedPrivate: string[] }> {
     const apiKey = await this.apiKey(workspaceId);
-    const config = await this.getConfig(workspaceId);
-    let teams = await fetchAllTeams(this.fetcher, apiKey);
-    if (config.team_keys.length > 0) {
-      teams = teams.filter((t) => config.team_keys.includes(t.key));
+    const settings = await this.readLinear(workspaceId);
+    const keys = settings.team_keys ?? [];
+    const visible = await fetchAllTeams(this.fetcher, apiKey);
+    let teams = visible;
+    if (keys.length > 0) {
+      teams = teams.filter((t) => keys.includes(t.key));
     }
     if (teams.length === 0) {
       throw new UnprocessableEntityException('No Linear teams matched — check the team keys');
     }
-    return { teams, apiKey };
+    // Ticket #1367 — Linear only returns the private teams the key's own user belongs to, so a configured key that is missing here is
+    // either a typo or a team this key cannot see; either way it would otherwise just never import, silently.
+    const notVisible = keys.filter((k) => !visible.some((t) => t.key === k));
+    // A private team is imported only where an admin has said so. Refused for the WHOLE run, before anything is read or written.
+    const blockedPrivate = settings.allow_private_teams ? [] : teams.filter((t) => t.private === true).map((t) => t.key);
+    if (opts.forSync && blockedPrivate.length > 0) {
+      throw new UnprocessableEntityException(
+        `Linear team ${blockedPrivate.join(', ')} ${blockedPrivate.length > 1 ? 'are' : 'is'} private, and importing private teams is switched off for this workspace — nothing was read or written. Remove ${blockedPrivate.length > 1 ? 'them' : 'it'} from the team keys, or have an admin enable private teams for a workspace that is set up for them (their spaces are restricted, but every admin of this workspace can see restricted content).`,
+      );
+    }
+    return { teams, apiKey, settings, notVisible, blockedPrivate };
   }
 
   /**
@@ -865,23 +1107,40 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   private readonly previewsInFlight = new Set<string>();
 
   private async dryRunUnlocked(membership: Membership) {
-    const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
+    const { teams, apiKey, notVisible, blockedPrivate } = await this.fetchTeams(membership.workspaceId);
+    const matcher = new MemberMatcher(await this.memberDirectory(membership.workspaceId));
     const summary = {
       dry_run: true,
+      /** Ticket #1367 — configured team keys this API key cannot see (a typo, or a private team it does not belong to): they would never import. */
+      teams_not_visible: notVisible,
+      /** Ticket #1367 — private teams among those chosen, and whether a sync would import them (it refuses while private teams are switched off). */
+      private_teams: teams.filter((t) => t.private === true).map((t) => ({ key: t.key, would_import: !blockedPrivate.includes(t.key) })),
       teams: [] as Array<{
         key: string; name: string; issues: number; linear_issue_total: number; comments: number; sprints: number; projects: number; labels: number;
         /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
         issues_by_status: Array<{ status: string; type: string; issues: number }>;
+        /** #1365 — what this team's relations come to: counts only, incl. the ones that cross into another team (not imported). */
+        relations: RelationReport;
       }>,
+      /** #1365 — distinct relations that cross two teams, over all the teams read: the number the cross-team decision waits for. */
+      relations_cross_team_total: 0,
+      relations_cross_team_policy: CROSS_TEAM_RELATION_POLICY as string,
     };
+    const previewCrossTeam = new Map<string, string>();
     // Every read is paged to the end and count-checked (fetchTeamData), so these counts are uncapped and the same
     // numbers the sync will act on. The adapter below is handed the data rather than re-reading it.
     const prefetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) {
       const data = await fetchTeamData(this.fetcher, apiKey, team);
       prefetched.set(team.id, data);
+      // #1365 — a preview reads the relations too (writes nothing): the counts to check against Linear, and the cross-team share.
+      const relationReport = emptyRelationReport();
+      for (const rel of await fetchTeamRelations(this.fetcher, apiKey, team, { expectIssues: data.issues.nodes.length })) {
+        planIssueRelations(rel, team.key, () => true, relationReport, previewCrossTeam);
+      }
+      for (const issue of data.issues.nodes) matcher.match(issue.assignee);
       summary.teams.push({
         key: team.key,
         name: team.name,
@@ -893,8 +1152,24 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         labels: data.labels.nodes.length,
         issues_by_project: issueCountsByProject(data),
         issues_by_status: issueCountsByStatus(data),
+        relations: relationReport,
       });
     }
+    summary.relations_cross_team_total = previewCrossTeam.size;
+
+    // Ticket #1366 — what the attachments and documents would become: counts only, nothing is written.
+    const documents = await fetchWorkspaceDocuments(this.fetcher, apiKey);
+    const attachments: Array<{ key: string; total: number; pull_requests: number; links: number; unusable: number }> = [];
+    for (const team of teams) {
+      const kinds = (await fetchTeamAttachments(this.fetcher, apiKey, team)).map((a) => classifyAttachmentUrl(a.url).kind);
+      attachments.push({ key: team.key, total: kinds.length, pull_requests: kinds.filter((k) => k === 'pull_request').length, links: kinds.filter((k) => k === 'link').length, unusable: kinds.filter((k) => k === 'unusable').length });
+    }
+    const documentsPreview = (() => {
+      const run = new DocumentRun(documents);
+      for (const team of teams) for (const doc of documentsForTeam(documents, new Set(prefetched.get(team.id)!.projects.nodes.map((p) => p.id)))) run.target(doc.id);
+      const s = run.summary();
+      return { total: s.fetched, no_project: s.no_project, project_not_imported: s.project_not_imported, importable: s.fetched - s.no_project - s.project_not_imported };
+    })();
 
     const adapter = new LinearSourceAdapter();
     await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher: this.fetcher, prefetched });
@@ -906,7 +1181,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     }
     const built = report.build();
 
-    return { ...summary, will_create: built.will_create, sample: built.sample, schema };
+    // Ticket #1364 — distinct milestones (compare THIS with Linear's count), per team, and the issues that carry one.
+    const milestones = milestonePreview(teams.map((team) => {
+      const data = prefetched.get(team.id)!;
+      return { team, milestones: data.milestones, issues: data.issues.nodes, projectIds: data.projects.nodes.map((p) => p.id) };
+    }));
+    return { ...summary, members: matcher.report(), will_create: built.will_create, sample: built.sample, schema, milestones, attachments, documents: documentsPreview };
   }
 
   /**
@@ -934,7 +1214,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const before = await this.readLinear(workspaceId);
     await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
     try {
-      const summary = await this.runSync(membership, actorId, { scheduled, status: before.sync_status });
+      // #1377 - the whole run is an import run: Slack channel subscriptions post nothing for a record it creates, and a status change only for an incremental read (runSync sets the mode once it has planned it).
+      const summary = await runAsImportRun(() => this.runSync(membership, actorId, { scheduled, status: before.sync_status }));
       const after = await this.readLinear(workspaceId);
       await this.writeLinear(workspaceId, {
         ...after,
@@ -1066,10 +1347,11 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus } = {}) {
-    const { teams, apiKey } = await this.fetchTeams(membership.workspaceId);
+    const { teams, apiKey, settings, notVisible } = await this.fetchTeams(membership.workspaceId, { forSync: true });
     // #1027 — a manual Import is always a full read; only a scheduled run with a trustworthy cursor reads just the changes.
     const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled));
     const incremental = plan.mode === 'incremental';
+    setImportRunMode(plan.mode); // #1377
     const summary = {
       dry_run: false,
       mode: plan.mode, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
@@ -1085,11 +1367,53 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       description_hidden_in: [] as string[],
       /** #906 — mirrored issues Linear no longer returns (archived, deleted, moved out): marked, never deleted. */
       left_scope: 0,
+      /** #1365 — per team, what the relations came to and what was NOT imported (cross-team, unplaced, unknown type), and the Duplicate state check. */
+      relations: { cross_team_policy: CROSS_TEAM_RELATION_POLICY as string, cross_team_total: 0, per_team: [] as Array<{ key: string; duplicate_state: DuplicateStateReport } & RelationReport> },
+      /** Ticket #1367 — per team: written under Linear's own numbers (with the identifier prefix), or kept in import order, and why. */
+      numbering: [] as Array<{ key: string; mode: 'linear_numbers' | 'import_order'; identifier_prefix: string | null; note?: string }>,
+      /** Ticket #1367 — issues whose created/updated times were set to Linear's. */
+      dates_stamped: 0,
+      /** Ticket #1367 — state changes kept as history rows at their real times (replaces the imported rows of the issues read; people's own are untouched). */
+      history: { issues: 0, rows: 0, skipped_unknown_state: 0, kept: true },
+      /** Ticket #1367 — people matched to members by email; every one that did not match is listed, never dropped. */
+      members: { assignees: null as ReturnType<MemberMatcher['report']> | null, comment_authors: null as ReturnType<MemberMatcher['report']> | null },
+      /** Ticket #1367 — private teams imported into restricted spaces, who got a grant and who could not be matched. */
+      private_teams: [] as Array<{ key: string; space_id: string; granted: number; unmatched_total: number; unmatched: Array<{ name: string; email: string | null }> }>,
+      /** Ticket #1367 — configured team keys this API key cannot see. */
+      teams_not_visible: notVisible,
+      /** Ticket #1367 — comments already imported under the sync account that were re-authored as the member (never re-created). */
+      comments_reauthored: 0,
+      /** Ticket #1364 — milestones read from Linear and written; `distinct` is the number to compare with Linear's own. */
+      milestones: newMilestoneSummary(),
     };
+    const milestonesSeen = new Set<string>();
     // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
     const fetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team, { since: plan.since }));
+    // #1365 — relations are read and verified here too, before anything is written (a full read must cover every issue read).
+    const relationReads = new Map<string, LinearIssueRelations[]>();
+    for (const team of teams) {
+      relationReads.set(team.id, await fetchTeamRelations(this.fetcher, apiKey, team, { since: plan.since, expectIssues: incremental ? undefined : fetched.get(team.id)!.issues.nodes.length }));
+    }
+    const crossTeamEdges = new Map<string, string>();
+    // Ticket #1367 — the rest of what the writes need is read here too, so a failure leaves the workspace untouched: issue history
+    // (when the plan keeps field history at all) and, for a private team, its members.
+    const keepsHistory = await this.importHistory.keepsFieldHistory(membership.workspaceId);
+    summary.history.kept = keepsHistory;
+    const histories = new Map<string, Map<string, LinearHistoryEntry[]>>();
+    const privateMembers = new Map<string, Array<LinearPerson & { active?: boolean }>>();
+    for (const team of teams) {
+      if (keepsHistory) histories.set(team.id, await fetchTeamIssueHistory(this.fetcher, apiKey, team, { since: plan.since }));
+      if (team.private === true) privateMembers.set(team.id, await fetchTeamMembers(this.fetcher, apiKey, team));
+    }
+    const directory = await this.memberDirectory(membership.workspaceId);
+    const assigneeMatcher = new MemberMatcher(directory);
+    const authorMatcher = new MemberMatcher(directory);
+    // Ticket #1366 — attachments (per team) and documents (workspace-wide) are read in the same phase, before anything is written.
+    const attachmentsByTeam = new Map<string, LinearAttachment[]>();
+    for (const team of teams) attachmentsByTeam.set(team.id, await fetchTeamAttachments(this.fetcher, apiKey, team, { since: plan.since }));
+    const extras = new DocumentRun(await fetchWorkspaceDocuments(this.fetcher, apiKey, { since: plan.since }));
     // Failed links used to be silently swallowed (`.catch(() => undefined)`) —
     // every importer had that bug (ADR-0013). RelationLinkerService turns a
     // failure into a warning instead, collected here without changing the
@@ -1102,8 +1426,25 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       currentTeam = team.key;
       const data = fetched.get(team.id)!;
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
-      const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings);
+      const { space, issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings, settings);
       if (descriptionHidden) summary.description_hidden_in.push(`${team.name} (Linear) / ${issuesDb.name} (${issuesDb.id})`);
+      // #1365 — the three self relations (older mirrors have none) and the Duplicate state's category.
+      const relationFields = await ensureRelationFields(this.db, this.relationsService, membership, issuesDb.id, linkWarnings);
+      const duplicateState = await ensureDuplicateStateCategory(this.db, this.fields, issuesDb.id, data.states.nodes);
+      await this.rememberTeamSpace(membership.workspaceId, team.key, space.id);
+      // A private team's members are let in BEFORE any record is written; the space was created (or closed) restricted already.
+      if (team.private === true) {
+        const grants = await this.grantPrivateTeam(membership.workspaceId, space.id, privateMembers.get(team.id) ?? [], assigneeMatcher, directory, actorId);
+        summary.private_teams.push({ key: team.key, space_id: space.id, ...grants });
+      }
+      const writable = await this.ensureIssueFields(issuesDb.id, team.key, linkWarnings);
+      // Ticket #1364 — the team's Milestones database (added to a mirror that predates it) and the Issue → Milestone relation.
+      const milestoneDeps = {
+        db: this.db, databases: this.databasesService, fields: this.fields, records: this.recordsService, relations: this.relationsService, relationLinker: this.relationLinker,
+        upsert: (databaseId: string, linearId: string, values: Record<string, unknown>) => this.upsertByLinearId(membership, databaseId, linearId, values, actorId),
+        describe: (databaseId: string, recordId: string, markdown: string | null) => this.importDescription(membership.workspaceId, databaseId, recordId, markdown, actorId),
+      };
+      const milestonesPack = await ensureMilestonesPack(milestoneDeps, membership, issuesDb, projectsDb);
 
       const issueDefs = await this.recordsService.fieldDefs(issuesDb.id);
       const stateOptions = await this.selectLabelMap(issuesDb.id, 'state');
@@ -1149,33 +1490,74 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         summary.projects++;
       }
 
+      // Ticket #1364 — after the projects (a milestone links to its project), before the issues (an issue links to its milestone).
+      const milestoneResult = await syncTeamMilestones(milestoneDeps, membership, actorId, { team, pack: milestonesPack, milestones: data.milestones, projectIds, warnings: linkWarnings });
+      const milestoneTally = newMilestoneTally();
+
       const relationField = (apiName: string) =>
         issueDefs.find((d) => d.type === 'relation' && d.api_name === apiName);
       const sprintField = relationField('sprint');
       const projectField = relationField('project');
       const parentField = relationField('parent_issue');
+      const milestoneField = relationField('milestone');
       const issuesLabelsField = labelsFieldId ? { id: labelsFieldId } : undefined;
 
       // What is already mirrored (one paged read), for drift detection and for spotting issues that have left scope.
       const mirrored = await this.loadMirror(issuesDb.id, actorId);
+      const numbering = await this.resolveNumbering(membership, team, issuesDb, mirrored, data.issues.nodes, linkWarnings);
+      summary.numbering.push({ key: team.key, ...numbering });
+      const stateFieldId = issueDefs.find((d) => d.api_name === 'state')?.id;
+      const stateHistory: Array<{ recordId: string; changes: Array<{ at: Date; actorUserId: string | null; oldValue: string | null; newValue: string }> }> = [];
       const issueIds = new Map<string, string>();
       for (const issue of data.issues.nodes) {
         const descriptionValues = await this.descriptionValues(mirrored.get(issue.id), issue.description ?? '');
         if (descriptionValues.description_drift === true) summary.drift_flagged++;
+        // Ticket #1367 — Linear owns these until cutover, so each sync sets them to Linear's. A date Linear does not return at all
+        // (undefined, as opposed to null = "none") is left alone.
+        const dated: Record<string, unknown> = {};
+        const day = (key: string, v: string | null | undefined) => {
+          if (v !== undefined && writable.has(key)) dated[key] = linearDay(v);
+        };
+        day('started', issue.startedAt);
+        day('completed', issue.completedAt);
+        day('due_date', issue.dueDate);
+        // The assignee as a MEMBER, by email. A person who cannot be matched is not dropped and not guessed at: the field is cleared
+        // (Linear says someone else holds it) and their name stays in `assignee_name`, and the run report lists them.
+        const person = issue.assignee;
+        const memberId = person ? assigneeMatcher.match(person) : null;
+        const assigned: Record<string, unknown> = !person
+          ? { assignee_name: null, ...(writable.has('assignee') ? { assignee: null } : {}) }
+          : writable.has('assignee')
+            ? { assignee: memberId, assignee_name: memberId ? null : person.name }
+            : { assignee_name: person.name };
         const id = await this.upsertByLinearId(membership, issuesDb.id, issue.id, {
           ...descriptionValues,
+          ...dated,
+          ...assigned,
           name: issue.title,
           identifier: issue.identifier,
           state: statusOptionId(stateOptions, issue.state.name),
           linear_status: issue.state.name,
           priority: issue.priority ? pickOption(priorityOptions, PRIORITY_MAP[issue.priority]) : null,
-          assignee_name: issue.assignee?.name ?? null,
           estimate: issue.estimate,
           url: issue.url,
-        }, actorId);
+        }, actorId, { source: 'import', ...(numbering.mode === 'linear_numbers' ? { number: linearIssueNumber(issue, team.key) } : {}) });
         await this.importDescription(membership.workspaceId, issuesDb.id, id, issue.description, actorId);
         issueIds.set(issue.id, id);
         summary.issues++;
+        // The record's own dates are Linear's, stamped after the write (an update bumps updated_at itself).
+        const createdAt = linearTime(issue.createdAt);
+        const updatedAt = linearTime(issue.updatedAt);
+        if (createdAt || updatedAt) {
+          await this.importHistory.stampTimes(issuesDb.id, id, { createdAt, updatedAt });
+          summary.dates_stamped++;
+        }
+        const entries = histories.get(team.id)?.get(issue.id);
+        if (entries && stateFieldId) {
+          const { rows, skipped } = stateHistoryRows(entries, stateOptions, (p) => assigneeMatcher.find(p));
+          summary.history.skipped_unknown_state += skipped;
+          stateHistory.push({ recordId: id, changes: rows.map((r) => ({ at: r.at, actorUserId: r.actorUserId, oldValue: r.oldValue, newValue: r.newValue })) });
+        }
 
         // #1103 — Linear OWNS these links, so each sync sets them to Linear's set (a dropped label, a changed cycle or project
         // is unlinked). `null` = Linear names something we cannot place (not imported), which is not the same as "none":
@@ -1192,11 +1574,24 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         };
         await own(sprintField, one(issue.cycle?.id, sprintIds));
         await own(projectField, one(issue.project?.id, projectIds));
+        await own(milestoneField, milestoneTargets(issue.projectMilestone?.id, milestoneResult.ids, milestoneTally));
 
         // Link the issue to its label records (many-to-many).
         const labelTargets = issue.labels.nodes.map((l) => labelRecordIds.get(l.id));
         const labelsPlaced = labelTargets.every((v): v is string => Boolean(v));
         await own(issuesLabelsField, labelsPlaced ? (labelTargets as string[]) : null);
+      }
+
+      // Ticket #1367 — the state changes, as history rows at their real times. After the loop, in bulk: replacing a record's imported rows
+      // is one statement per chunk rather than one per issue.
+      if (stateFieldId && stateHistory.length > 0) {
+        summary.history.rows += await this.importHistory.replaceImportedFieldHistory(membership.workspaceId, issuesDb.id, stateFieldId, stateHistory);
+        summary.history.issues += stateHistory.length;
+      }
+
+      addTeamMilestones(summary.milestones, milestonesSeen, team, data.milestones, milestoneResult, milestoneTally);
+      if (milestoneTally.unplaced > 0) {
+        linkWarnings.push(`team ${team.key}: ${milestoneTally.unplaced} issue(s) name ${milestoneTally.unplacedIds.size} milestone(s) this read did not return — their milestone link was left as it was`);
       }
 
       // #906 — an issue we mirrored that Linear no longer returns (archived, deleted, moved out of the chosen teams) is
@@ -1228,11 +1623,17 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         const author = c.user?.name ?? c.botActor?.name ?? c.externalUser?.name ?? 'Unknown author';
+        // Ticket #1367 — a comment by someone who maps to a member (by email) is AUTHORED as them, with no "(from Linear)" header
+        // needed; anyone else (a bot, an external user, an unmatched person) keeps the sync account as author and the header.
+        const person = c.user ?? c.externalUser;
+        const memberId = person ? authorMatcher.match(person) : null;
         const header = { type: 'paragraph', content: [{ type: 'text', text: `${author} · ${c.createdAt.slice(0, 16).replace('T', ' ')} UTC (from Linear)`, styles: { bold: true } }] };
-        const outcome = await this.commentsService.importExternal(recordId, actorId, [header, ...markdownToBlocks(c.body ?? '')], new Date(c.createdAt), c.url);
+        const body = markdownToBlocks(c.body ?? '');
+        const outcome = await this.commentsService.importExternal(recordId, actorId, memberId ? body : [header, ...body], new Date(c.createdAt), c.url, memberId);
         summary.comments.fetched++;
         if (outcome === 'created') summary.comments.created++;
         else summary.comments.already_present++;
+        if (outcome === 'reauthored') summary.comments_reauthored++;
       }
 
       // parents in a second pass — a parent can appear later in the feed
@@ -1246,7 +1647,35 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           if (failure) linkWarnings.push(failure);
         }
       }
+
+      // #1365 — relations, last: every issue of the team now has a record, so both ends of an edge can be placed. Linear OWNS these
+      // links (the #1103 rule): each issue's six fields are SET to what Linear says, so a relation removed in Linear is removed
+      // here and one a person added here that Linear does not have is removed with it. The rest of the plan is in linear-relations.ts.
+      const relationReport = emptyRelationReport();
+      const recordOf = (linearId: string) => issueIds.get(linearId) ?? mirrored.get(linearId)?.id;
+      for (const rel of relationReads.get(team.id) ?? []) {
+        const recordId = recordOf(rel.issueId);
+        if (!recordId) continue;
+        const planned = planIssueRelations(rel, team.key, (id) => Boolean(recordOf(id)), relationReport, crossTeamEdges);
+        for (const role of Object.keys(planned) as Array<keyof typeof planned>) {
+          const fieldId = relationFields[role];
+          if (!fieldId) continue;
+          const failure = await this.relationLinker.set(membership.workspaceId, issuesDb.id, recordId, fieldId, planned[role].map((id) => recordOf(id)!), actorId);
+          if (failure) linkWarnings.push(failure);
+        }
+      }
+      summary.relations.per_team.push({ key: team.key, duplicate_state: duplicateState, ...relationReport });
+      linkWarnings.push(...relationWarnings(team.key, relationReport));
+      // Ticket #1366 — PR links and other attachments, and the project documents. New code, in linear-attachments.service.ts.
+      await this.attachmentsAndDocuments.importTeam({
+        membership, actorId, teamLabel: team.key, issuesDb, projectsDb,
+        issueRecordIds: issueIds, mirrored, projectRecordIds: projectIds,
+        attachments: attachmentsByTeam.get(team.id) ?? [],
+        documents: documentsForTeam(extras.documents, new Set(projectIds.keys())),
+        run: extras,
+      });
     }
+    summary.relations.cross_team_total = crossTeamEdges.size;
     } catch (error) {
       // #959 — the integration page shows this text: name the team, so a raw engine message ("unknown field ...") is never
       // the whole story. The status is kept, and a message that already names the team is not prefixed twice.
@@ -1256,10 +1685,22 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const wrapped = `team ${currentTeam}: ${message}`;
       throw error instanceof HttpException ? new HttpException(wrapped, error.getStatus()) : new Error(wrapped);
     }
+    summary.members = { assignees: assigneeMatcher.report(), comment_authors: authorMatcher.report() };
+    if (notVisible.length > 0) linkWarnings.push(`team keys not visible to this Linear API key (a typo, or a private team it does not belong to): ${notVisible.join(', ')} — they were not imported.`);
     if (summary.comments.fetched !== summary.comments.created + summary.comments.already_present) {
       throw new UnprocessableEntityException(`Comments fetched (${summary.comments.fetched}) do not equal created (${summary.comments.created}) plus already present (${summary.comments.already_present})`);
     }
-    return linkWarnings.length > 0 ? { ...summary, warnings: linkWarnings } : summary;
+    // Ticket #1366 — same discipline as the comments above: every attachment and every document lands in exactly one bucket.
+    const documents = extras.summary();
+    if (attachmentTallyGap(extras.attachments) !== 0) {
+      throw new UnprocessableEntityException(`Attachments fetched (${extras.attachments.fetched}) do not equal those imported, refused and failed (${JSON.stringify(extras.attachments)})`);
+    }
+    if (documentSummaryGap(documents) !== 0) {
+      throw new UnprocessableEntityException(`Documents fetched (${documents.fetched}) do not equal those placed, skipped and failed (${JSON.stringify({ ...documents, oversize: documents.oversize.length })})`);
+    }
+    const withExtras = { ...summary, attachments: extras.attachments, documents };
+    const warnings = [...linkWarnings, ...extras.finish()];
+    return warnings.length > 0 ? { ...withExtras, warnings } : withExtras;
   }
 
   /**

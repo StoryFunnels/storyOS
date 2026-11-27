@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { runAsImportRun } from '../common/import-run-context';
 import { AgentDeleteHoldService } from '../action-gates/agent-delete-hold.service';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { currentActor } from '../common/credential-context';
@@ -265,7 +266,7 @@ export class TemplatesService implements OnModuleInit {
             values[apiName] = raw;
           }
         }
-        const created = await this.recordsService.create(
+        const created = await runAsImportRun(() => this.recordsService.create(
           membership.workspaceId,
           dbIds.get(dbKey)!,
           values,
@@ -274,7 +275,7 @@ export class TemplatesService implements OnModuleInit {
           // #481 — seeded from the template's own manifest, not typed by the
           // person applying it.
           'automation',
-        );
+        ));
         sampleIds.push(created.id);
         if (recordDef.key) recordIds.set(recordDef.key, created.id);
 

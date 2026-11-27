@@ -1,10 +1,17 @@
 import type { LinearFetcher } from '../../src/integrations/linear.service';
+import { serveLinearExtras } from './linear-attachments-fake';
 
 interface FakeTeam {
   id: string;
   key: string;
   name: string;
+  /** Ticket #1367 — `Team.private`. */
+  private?: boolean;
   data: {
+    /** Ticket #1367 — the team's members (`Team.members`), served for a private team's grants. */
+    members?: Array<{ id: string; name: string; email?: string | null; active?: boolean }>;
+    /** Ticket #1367 — issue history by Linear issue id, newest or oldest first as the test likes; the fake pages it like Linear (first page 50, then 100 at a time). */
+    history?: Record<string, Array<Record<string, unknown>>>;
     labels: { nodes: unknown[] };
     cycles: { nodes: unknown[] };
     projects: { nodes: unknown[] };
@@ -13,6 +20,8 @@ interface FakeTeam {
     states?: Array<{ id: string; name: string; type: string; position: number }>;
     /** Comments across the team's issues (#903); the fake serves them as one paged stream like the real query. */
     comments?: Array<Record<string, unknown>>;
+    /** Ticket #1364 — project milestones; each names its owning project by `projectId`. Absent = the team has none. */
+    milestones?: Array<{ id: string; projectId: string; name: string; description?: string | null; targetDate?: string | null; sortOrder?: number }>;
   };
 }
 
@@ -24,10 +33,31 @@ interface FakeTeam {
  * `issueCount` is the separate total (`Team.issueCount`); `calls` records every query so a test can see how many
  * pages were read.
  */
-export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: FakeTeam) => number | undefined } = {}) {
+/**
+ * Ticket #1365 — a relation edge in the shape of Linear's documented `IssueRelation` (`type` blocks / duplicate / related /
+ * similar; `issue` is the source, `relatedIssue` the target). HAND-WRITTEN from the published schema, NOT recorded from a
+ * live Linear: the fake derives each issue's `relations` (edges where it is `issue`) and `inverseRelations` (where it is
+ * `relatedIssue`) from this one list, as Linear does.
+ */
+export interface FakeRelationEdge { id: string; type: string; issue: { id: string }; relatedIssue: { id: string } }
+
+export interface FakeLinearOptions {
+  issueCount?: (t: FakeTeam) => number | undefined;
+  relationEdges?: FakeRelationEdge[];
+  /** Team keys of issues that are in NO fake team (an issue of a team the key does not import). */
+  foreignIssueTeams?: Record<string, string>;
+  /** Issue ids whose nested relation lists claim another page (`hasNextPage`), to prove an incomplete list fails the read. */
+  relationsIncomplete?: Set<string>;
+  /** Issue ids the relations stream leaves out (the relation read disagreeing with the issue read). */
+  relationsOmit?: Set<string>;
+}
+
+export function makeLinearFetcher(teams: FakeTeam[], opts: FakeLinearOptions = {}) {
   const calls: string[] = [];
   const fetcher: LinearFetcher = async (query, variables) => {
     calls.push(String(query.match(/query (\w+)/)?.[1]));
+    const extras = serveLinearExtras(query, variables, teams as never); // ticket #1366: attachments and documents
+    if (extras !== undefined) return extras;
     /** #1027 — an `updatedAt > since` filter, as the incremental queries send. A node with no `updatedAt` always counts as changed. */
     const sinceOnly = <T extends Record<string, unknown>>(all: T[]) => {
       const since = variables['since'];
@@ -41,18 +71,62 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
       const end = start + nodes.length;
       return { nodes, pageInfo: { hasNextPage: end < all.length, endCursor: String(end) } };
     };
-    if (query.includes('query Teams(')) return { teams: page(teams.map(({ id, key, name }) => ({ id, key, name }))) };
+    if (query.includes('query Teams(')) return { teams: page(teams.map(({ id, key, name, private: isPrivate }) => ({ id, key, name, private: isPrivate === true }))) };
     if (query.includes('query TeamComments')) {
       const t = teams.find((x) => x.id === variables['id']);
       if (!t) throw new Error('fake Linear: no such team for comments');
       return { comments: page(sinceOnly(t.data.comments ?? [])) };
     }
+    if (query.includes('query IssueHistoryMore')) {
+      const all = teams.map((t) => t.data.history?.[variables['id'] as string]).find(Boolean) ?? [];
+      const start = Number(variables['after'] ?? 0);
+      const nodes = all.slice(start, start + 100);
+      return { issue: { history: { nodes, pageInfo: { hasNextPage: start + nodes.length < all.length, endCursor: String(start + nodes.length) } } } };
+    }
+    if (query.includes('query ProjectMilestonesPaged')) {
+      const all = teams.flatMap((t) => t.data.milestones ?? []).filter((m) => m.projectId === variables['id']);
+      return { project: { projectMilestones: page(all.map(({ projectId: _p, ...m }) => m)) } };
+    }
     const team = teams.find((t) => t.id === variables['id']);
     if (!team) throw new Error(`fake Linear: no team ${String(variables['id'])}`);
+    if (query.includes('query TeamRelations')) {
+      const teamOf = (id: unknown) => teams.find((t) => t.data.issues.nodes.some((n) => n['id'] === id))?.key ?? opts.foreignIssueTeams?.[String(id)] ?? null;
+      const edges = opts.relationEdges ?? [];
+      const nodes = team.data.issues.nodes.filter((n) => !opts.relationsOmit?.has(String(n['id']))).map((n) => {
+        // `i2` makes both lists claim another page; `in:i2` only the incoming one.
+        const done = { hasNextPage: opts.relationsIncomplete?.has(String(n['id'])) ?? false, endCursor: null };
+        const doneIn = { hasNextPage: done.hasNextPage || (opts.relationsIncomplete?.has(`in:${String(n['id'])}`) ?? false), endCursor: null };
+        return {
+          id: n['id'], updatedAt: n['updatedAt'],
+          relations: { nodes: edges.filter((e) => e.issue.id === n['id']).map((e) => ({ id: e.id, type: e.type, relatedIssue: { id: e.relatedIssue.id, team: { key: teamOf(e.relatedIssue.id) } } })), pageInfo: done },
+          inverseRelations: { nodes: edges.filter((e) => e.relatedIssue.id === n['id']).map((e) => ({ id: e.id, type: e.type, issue: { id: e.issue.id, team: { key: teamOf(e.issue.id) } } })), pageInfo: doneIn },
+        };
+      });
+      return { team: { issues: page(sinceOnly(nodes)) } };
+    }
     if (query.includes('TeamIssueCount')) {
       if (variables['since'] !== undefined) throw new Error('fake Linear: an incremental read must not ask for the total');
     }
+    if (query.includes('TeamMembers')) return { team: { members: page(team.data.members ?? []) } };
+    if (query.includes('TeamIssueHistory')) {
+      const firstHistory = Number(query.match(/history\(first: (\d+)/)?.[1] ?? 50);
+      const withHistory = sinceOnly(team.data.issues.nodes).map((n) => {
+        const all = team.data.history?.[n['id'] as string] ?? [];
+        const nodes = all.slice(0, firstHistory);
+        return { id: n['id'], history: { nodes, pageInfo: { hasNextPage: nodes.length < all.length, endCursor: String(nodes.length) } } };
+      });
+      return { team: { issues: page(withHistory) } };
+    }
     if (query.includes('TeamIssueCount')) return { team: { issueCount: opts.issueCount ? opts.issueCount(team) : team.data.issues.nodes.length } };
+    if (query.includes('query TeamProjectMilestones')) {
+      // projects(first: N) pages; each project's milestones are the NESTED first page, with its own pageInfo — as Linear does it.
+      const nested = Number(query.match(/projectMilestones\(first: (\d+)/)?.[1] ?? 50);
+      const projects = (team.data.projects.nodes as Array<{ id: string }>).map((p) => {
+        const mine = (team.data.milestones ?? []).filter((m) => m.projectId === p.id).map(({ projectId: _p, ...m }) => m);
+        return { id: p.id, projectMilestones: { nodes: mine.slice(0, nested), pageInfo: { hasNextPage: mine.length > nested, endCursor: mine.length > nested ? String(nested) : null } } };
+      });
+      return { team: { projects: page(projects) } };
+    }
     if (query.includes('TeamLabels')) return { team: { labels: page(team.data.labels.nodes) } };
     if (query.includes('TeamCycles')) return { team: { cycles: page(team.data.cycles.nodes) } };
     if (query.includes('TeamProjects')) return { team: { projects: page(team.data.projects.nodes) } };
@@ -63,6 +137,8 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
     }
     if (query.includes('TeamIssues')) {
       const withInfo = team.data.issues.nodes.map((n) => ({
+        // Linear always reports `number`; a fixture that only wrote an identifier gets the number the identifier carries.
+        number: Number(String(n['identifier']).match(/(\d+)$/)?.[1]),
         ...n,
         labels: { ...(n['labels'] as { nodes: unknown[] }), pageInfo: { hasNextPage: false, endCursor: null } },
       }));

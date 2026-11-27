@@ -358,6 +358,11 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/workspaces/:ws/integrations/linear/sync': adminOnly(),
   'POST /api/v1/workspaces/:ws/integrations/shopify/catalogue': workspaceLevel('UNAUDITED: no access primitive referenced in integrations/ — audit whether it can return scoped content'),
   'POST /api/v1/workspaces/:ws/integrations/slack': adminOnly(),
+  // #1377 — channel subscriptions: management is admin-only (the list names databases and the channels their titles go to)
+  'GET /api/v1/workspaces/:ws/integrations/slack/subscriptions': adminOnly(),
+  'POST /api/v1/workspaces/:ws/integrations/slack/subscriptions': adminOnly(),
+  'PATCH /api/v1/workspaces/:ws/integrations/slack/subscriptions/:id': adminOnly(),
+  'DELETE /api/v1/workspaces/:ws/integrations/slack/subscriptions/:id': adminOnly(),
   'POST /api/v1/workspaces/:ws/integrations/slack/disconnect': adminOnly(),
   'POST /api/v1/workspaces/:ws/integrations/slack/test': adminOnly(),
   'POST /api/v1/workspaces/:ws/invites': adminOnly(),
