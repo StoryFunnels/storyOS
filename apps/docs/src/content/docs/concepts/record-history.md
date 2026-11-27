@@ -170,8 +170,9 @@ history, not a workspace backup** — it won't bring back a deleted database; se
 Everything above is scoped to one record. `GET /workspaces/{ws}/audit-log` (the MCP
 `list_audit_log` tool) reads the same underlying data, plus the events below. Its field-change rows come
 from version history, so they end at your history window (Free 14 days), while record events follow the
-activity window below (Free 30 days). Until the first purge on or after 27 December 2026, older rows
-still show. It is admin-only,
+activity window below (Free 30 days). An agent's activity read ends at the history window too, so a
+Free admin sees 14 days of field changes there while the activity log itself keeps 30. Until the first
+purge on or after 27 December 2026, older rows still show. It is admin-only,
 across every user and every record in the workspace, and filterable by actor, by one entity (a record,
 space, database or view id), by event type, by the kind of actor (`source`: human, agent, automation
 or mcp), and by date range (default: the last 30 days).
