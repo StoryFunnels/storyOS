@@ -845,6 +845,54 @@ export const linearCommentPushes = pgTable(
 );
 
 /**
+ * Ticket #1377 - a Slack CHANNEL SUBSCRIPTION: "post into this channel when a record of this space or database is created, has its
+ * status changed, or is commented on". One row is one setting, so it is not an automation per event.
+ *
+ * A subscription has a space XOR a database, never both and never neither (the `views_owner_xor` / `access_grants_scope_xor` shape:
+ * the controller rejects it with a message, the CHECK is the backstop). `channel` is null for a workspace whose Slack connection is
+ * an incoming webhook (the hook fixes the channel) or one that relies on its default channel.
+ *
+ * `created_by` is whose authority the posting rests on: it is an admin when written, and it is RE-CHECKED at emit time, never
+ * trusted from the row. When that admin has since been demoted or removed the subscription stops posting and says why in
+ * `needs_attention` (ADR-0018 section 5: it fails visibly, it neither keeps working nor skips silently). Taking it over (a PATCH by
+ * a current admin) clears the flag. `failed_count`/`last_error` are the delivery counters; a failed post never blocks a record write.
+ */
+export const slackSubscriptions = pgTable(
+  'slack_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
+    databaseId: uuid('database_id').references(() => databases.id, { onDelete: 'cascade' }),
+    channel: text('channel'),
+    /** A non-empty subset of created | status_changed | commented. */
+    events: text('events').array().notNull(),
+    /** Plain text like every other user reference (the auth `user` table is not in this schema). */
+    createdBy: text('created_by').notNull(),
+    /** Why it is not posting right now: `creator_left` | `creator_not_admin`. null = fine. */
+    needsAttention: text('needs_attention'),
+    sentCount: integer('sent_count').notNull().default(0),
+    failedCount: integer('failed_count').notNull().default(0),
+    lastError: text('last_error'),
+    lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
+    lastSentAt: timestamp('last_sent_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('slack_subscriptions_workspace_idx').on(t.workspaceId),
+    index('slack_subscriptions_space_idx').on(t.spaceId),
+    index('slack_subscriptions_database_idx').on(t.databaseId),
+    /** One subscription per (scope, channel): a second one would double-post to the channel. */
+    uniqueIndex('slack_subscriptions_database_channel_uq').on(t.databaseId, sql`coalesce(${t.channel}, '')`).where(sql`${t.databaseId} IS NOT NULL`),
+    uniqueIndex('slack_subscriptions_space_channel_uq').on(t.spaceId, sql`coalesce(${t.channel}, '')`).where(sql`${t.spaceId} IS NOT NULL`),
+    check('slack_subscriptions_scope_xor', sql`(${t.databaseId} IS NULL) <> (${t.spaceId} IS NULL)`),
+    check('slack_subscriptions_events_valid', sql`cardinality(${t.events}) >= 1 AND ${t.events} <@ ARRAY['created', 'status_changed', 'commented']::text[]`),
+  ],
+);
+
+/**
  * MN-134: a token's power ceiling. read = look only; write = read + create/update/
  * delete records, links, comments, attachments, run buttons; admin = + schema
  * (databases, fields, relations, views) and everything else. Enforced server-side

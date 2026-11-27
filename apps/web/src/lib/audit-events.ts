@@ -134,6 +134,7 @@ const PHRASES: Record<string, PhraseFn> = {
   'outward.calendar_sync': (p) => sentence('Synced to the calendar', { detail: str(p.summary) }),
   'outward.linear_comment': (p) => sentence('Posted a comment to Linear', { detail: str(p.summary) }),
   'outward.ai_field': (p) => sentence('Recomputed an AI field', { detail: str(p.summary) }),
+  'outward.slack_subscription': (p) => sentence('Posted an update to a Slack channel', { detail: str(p.summary) }),
 };
 
 /** The non-structural event codes this table has a sentence for (the test compares it with what the API can emit). */

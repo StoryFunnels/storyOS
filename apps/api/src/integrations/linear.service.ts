@@ -19,6 +19,7 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { DryRunBuilder } from '../migration-framework/dry-run';
 import { ExternalIdUpsertService } from '../migration-framework/external-id-upsert.service';
+import { runAsImportRun, setImportRunMode } from '../common/import-run-context';
 import { RelationLinkerService } from '../migration-framework/relation-linker.service';
 import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
@@ -1198,7 +1199,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const before = await this.readLinear(workspaceId);
     await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
     try {
-      const summary = await this.runSync(membership, actorId, { scheduled, status: before.sync_status });
+      // #1377 - the whole run is an import run: Slack channel subscriptions post nothing for a record it creates, and a status change only for an incremental read (runSync sets the mode once it has planned it).
+      const summary = await runAsImportRun(() => this.runSync(membership, actorId, { scheduled, status: before.sync_status }));
       const after = await this.readLinear(workspaceId);
       await this.writeLinear(workspaceId, {
         ...after,
@@ -1334,6 +1336,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // #1027 — a manual Import is always a full read; only a scheduled run with a trustworthy cursor reads just the changes.
     const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled));
     const incremental = plan.mode === 'incremental';
+    setImportRunMode(plan.mode); // #1377
     const summary = {
       dry_run: false,
       mode: plan.mode, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
