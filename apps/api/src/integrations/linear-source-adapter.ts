@@ -89,6 +89,15 @@ export class LinearSourceAdapter implements SourceAdapter<LinearSourceConfig> {
           fields: { state: project.state, target_date: project.targetDate, url: project.url, description: project.description },
         });
       }
+      // Ticket #1364 — the preview's will_create counts milestones too (one per team database, as the sync writes them).
+      for (const milestone of data.milestones) {
+        out.push({
+          sourceId: milestone.id,
+          container: 'milestone',
+          title: milestone.name,
+          fields: { target_date: milestone.targetDate, sort_order: milestone.sortOrder, description: milestone.description },
+        });
+      }
       for (const issue of data.issues.nodes) {
         out.push({
           sourceId: issue.id,
@@ -115,9 +124,11 @@ export class LinearSourceAdapter implements SourceAdapter<LinearSourceConfig> {
     const out: SourceRelationLink[] = [];
     for (const team of this.teams) {
       const data = await this.fetchTeam(team);
+      for (const milestone of data.milestones) out.push({ fromSourceId: milestone.id, fieldKey: 'project', toSourceIds: [milestone.projectId] });
       for (const issue of data.issues.nodes) {
         if (issue.cycle) out.push({ fromSourceId: issue.id, fieldKey: 'sprint', toSourceIds: [issue.cycle.id] });
         if (issue.project) out.push({ fromSourceId: issue.id, fieldKey: 'project', toSourceIds: [issue.project.id] });
+        if (issue.projectMilestone) out.push({ fromSourceId: issue.id, fieldKey: 'milestone', toSourceIds: [issue.projectMilestone.id] });
         if (issue.parent) out.push({ fromSourceId: issue.id, fieldKey: 'parent_issue', toSourceIds: [issue.parent.id] });
         if (issue.labels.nodes.length) {
           out.push({ fromSourceId: issue.id, fieldKey: 'labels', toSourceIds: issue.labels.nodes.map((l) => l.id) });
