@@ -252,6 +252,7 @@ const SENTENCES: Record<string, [payload: unknown, sentence: string]> = {
   'portal_recipient.created': [named('Acme'), 'Created a portal link for “Acme”'],
   'portal_recipient.rotated': [named('Acme'), 'Replaced the portal link for “Acme”'],
   'portal_recipient.revoked': [named('Acme'), 'Revoked the portal link for “Acme”'],
+  'linear_ownership.changed': [{ object: { kind: 'linear_team', id: 'ENG', name: 'Linear team ENG' }, to: 'storyos' }, 'Handed ownership to StoryOS for the Linear team “ENG”'],
   'publishing.enabled': [named('Post scheduled posts to X: @acme'), 'Turned on publishing: “Post scheduled posts to X: @acme”'],
   'publishing.disabled': [named('Post scheduled posts to X: @acme'), 'Paused publishing: “Post scheduled posts to X: @acme”'],
   'automation.taken_over': [named('Nightly digest'), 'Took over the automation rule “Nightly digest”'],
