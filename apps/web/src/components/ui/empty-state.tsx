@@ -48,7 +48,7 @@ export type EmptyStateProps = Omit<HTMLAttributes<HTMLDivElement>, 'title'> & {
   quill?: ReactNode;
   /** `big` only: fill the pane and centre the box in it (a database view), instead of sitting in the page flow. */
   fill?: boolean;
-  /** `filtered` only: replaces the filter glyph. */
+  /** `filtered`: replaces the filter glyph. `big`: a glyph in a grey circle where Quill would stand (ticket #1276: when Quill's "Yes, chef" would be false); ignored when `quill` is given. */
   icon?: ReactNode;
   /** `big` only: more content under the action (the skills page's template cards). */
   children?: ReactNode;
@@ -112,7 +112,7 @@ export function EmptyState({ variant, title, body, description, action, quill, f
       )}
       {...rest}
     >
-      {quill}
+      {quill ?? (icon && <span aria-hidden className="grid h-14 w-14 place-items-center rounded-full bg-hover text-muted">{icon}</span>)}
       <h3 className="m-0 text-prose font-bold leading-[normal] text-ink">{title}</h3>
       {description && <p className="m-0 max-w-sm text-body text-ink-secondary">{description}</p>}
       {body && <p className="m-0 max-w-sm text-body text-muted">{body}</p>}
