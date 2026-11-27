@@ -37,6 +37,16 @@ strictest rule StoryOS has for showing a record's title in a place whose readers
 A link to a record that is hidden, trashed or does not exist gets the same result: no card. Nobody
 can tell the three apart from Slack.
 
+## Decisions
+
+- **Restricted spaces and databases never get a card, and there is no opt-in** for now. An admin cannot
+  switch one on.
+- **Two StoryOS workspaces holding a token for the same Slack workspace: neither gets cards.** Nobody can
+  say which one installed the app.
+- **Anyone in the Slack workspace who sees the link sees the card, Slack guests included.** That is
+  accepted: cards come only from spaces open to every member and carry a title and a state, never field
+  content.
+
 ## Setting it up
 
 The person who runs the server does this once, in the Slack app and in the server's environment.
