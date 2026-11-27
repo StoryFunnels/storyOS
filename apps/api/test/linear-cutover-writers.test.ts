@@ -22,7 +22,7 @@ const TEAM = { id: 'team-ms', key: 'MS', name: 'Milestones' };
 const prj = (n: number, name = `Project ${n}`) => ({ id: `prj-${n}`, name, description: null, state: 'started', targetDate: null, url: `https://linear.app/acme/project/p${n}` });
 const ms = (n: number, projectId: string, name = `Milestone ${n}`) => ({ id: `ms-${n}`, projectId, name, description: null, targetDate: '2026-12-01', sortOrder: n * 10 + 0.5 });
 const issue = (n: number, extra: Record<string, unknown> = {}) => ({ ...manyIssues(1)[0]!, id: `i${n}`, identifier: `MS-${n}`, title: `Issue ${n}`, updatedAt: OLD, ...extra });
-const comment = (n: number, issueId: string) => ({ id: `c${n}`, body: `Comment ${n}`, createdAt: '2026-11-01T09:00:00.000Z', updatedAt: OLD, url: `https://linear.app/acme/issue/MS-1#comment-c${n}`, user: { name: 'Tyron Dizon' }, botActor: null, externalUser: null, issue: { id: issueId } });
+const comment = (n: number, issueId: string): Record<string, unknown> => ({ id: `c${n}`, body: `Comment ${n}`, createdAt: '2026-11-01T09:00:00.000Z', updatedAt: OLD, url: `https://linear.app/acme/issue/MS-1#comment-c${n}`, user: { name: 'Tyron Dizon' }, botActor: null, externalUser: null, issue: { id: issueId } });
 
 const { db: rawDb } = connectTestDb();
 let app: NestFastifyApplication;
@@ -31,7 +31,7 @@ let admin: { token: string };
 let ws: string;
 const adm = (m: string, u: string, p?: unknown) => call(app, admin.token, m, u, p);
 const rows = async (q: ReturnType<typeof sql>) => (await rawDb.execute(q)).rows as Array<Record<string, unknown>>;
-const linearSide = (over: { projects: unknown[]; milestones: ReturnType<typeof ms>[]; issues: unknown[]; comments?: unknown[] }) => {
+const linearSide = (over: { projects: unknown[]; milestones: ReturnType<typeof ms>[]; issues: unknown[]; comments?: Array<Record<string, unknown>> }) => {
   linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { labels: { nodes: [] }, cycles: { nodes: [] }, projects: { nodes: over.projects }, issues: { nodes: over.issues as never }, milestones: over.milestones, comments: over.comments } }]).fetcher;
 };
 /** Everything the team's space holds, in one comparable value. */
