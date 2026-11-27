@@ -33,7 +33,7 @@ The filters are under **Filter**, a closed section that says how many are applie
 a record or object ID, and a From and To date (typed as `2026-10-27`, `jul 15` or `yesterday`). See
 [record history](/concepts/record-history/) for what the log records. The log shows only what your
 plan keeps: record events older than 30 days on Free, 1 year on Pro and 3 years on Business are
-deleted, and Enterprise keeps them forever. Nothing is deleted before 27 December 2026
+deleted, and Enterprise keeps them forever. Field changes follow the shorter version-history window instead (Free 14 days). Nothing is deleted before 27 December 2026
 ([how long it keeps events](/concepts/record-history/#how-long-the-audit-log-keeps-record-events)).
 
 ## You
