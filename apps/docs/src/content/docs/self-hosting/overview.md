@@ -10,7 +10,7 @@ The whole product, on your machine, free forever. One Postgres, two containers, 
 ## Requirements
 
 - Docker with Compose v2
-- 1 GB RAM / 1 vCPU is plenty for a small team
+- **Memory:** we have not measured a minimum for running StoryOS, so there is no "1 GB is enough" promise. The reference deployment has 4 GB. **Building** the images on the host needs more memory than running them: on a small host, build one at a time (`docker compose build api && docker compose build web && docker compose build mcp`) before `docker compose up -d`.
 - (Optional) a domain + reverse proxy with TLS for real deployments
 
 ## Quickstart
