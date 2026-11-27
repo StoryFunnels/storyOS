@@ -218,6 +218,58 @@ A workspace's admins can see restricted content, so only switch it on in a works
 - Linear only returns private teams that the API key's own user belongs to. The preview lists any chosen team key
   the key cannot see, because a team it cannot see would otherwise never import.
 
+## Cutover: making StoryOS the master
+
+During a parallel run both tools hold the same issues, and until you say otherwise Linear owns
+what it maps: an edit made in StoryOS is replaced by the next sync. **Cutover** is the one switch
+that ends that, **per team**. Each team is owned by either **Linear** (the default, exactly what
+this page described above) or **StoryOS** (cut over).
+
+**Throwing the switch** (a workspace admin only) does this, in order:
+
+1. Runs one last **full read of that team** from Linear, count-checked against Linear's own
+   total like any full read. If that read fails, nothing changes and the team stays with Linear.
+2. Records that StoryOS owns the team, when, and who did it.
+3. Moves the Issues database's number counter **50 numbers past its highest number** (you can send
+   a different `counter_headroom`, 0 to 10,000). StoryOS then numbers new issues after that gap, so an
+   issue someone still creates in Linear during the run shows as a gap instead of reusing a number
+   StoryOS has handed out.
+4. Writes an entry to the **audit log**: who, when, which team.
+
+From then on **no sync writes that team's records**: not the manual Import, not the schedule, not
+the incremental run. Nothing is overwritten, no issue Linear created later appears, and an issue
+Linear no longer returns is not marked as having left scope. The team is not even read, so it costs no
+Linear API budget. Other teams in the same workspace keep syncing as before. **Preview** still reads a
+cut-over team and shows `owner: "storyos"` and `sync_writes: false`, so you can see what Linear holds
+without anything being written.
+
+**Handing a team back to Linear** is an admin action too, and it asks first: if records were edited in
+StoryOS since the cutover, the request is refused with how many, and says the next sync overwrites
+them. Send `confirm_overwrite: true` to go ahead. It is logged the same way.
+
+Where it lives: `PUT /workspaces/{ws}/integrations/linear/teams/{team_key}/ownership` with
+`{"owner": "storyos"}` or `{"owner": "linear", "confirm_overwrite": true}`. Anyone in the workspace
+can read the state with `GET /workspaces/{ws}/linear/ownership` (a team in a space you cannot see is
+not listed), and agents can read it with the `get_linear_ownership` tool. **Flipping it is
+deliberately not a tool**: handing a team over, or giving it back and overwriting people's edits,
+is a decision for a person.
+
+**What it also controls.** GitHub pull-request linking reads the same state: a PR still links to an
+issue of a mirrored team, but only moves its status once StoryOS owns the team (while Linear owns it,
+the next sync would put the status back).
+
+**What it does not do.**
+
+- It does **not** write status changes to Linear. Comment write-back is unchanged and still optional;
+  after a cutover, StoryOS keeps writing nothing else to Linear. Writing status to Linear is not built.
+- It does **not** stop people creating issues in Linear, and it does not import comments made in Linear
+  after the cutover (nothing inbound is written for that team).
+- It does **not** show a banner on the records yet; the state is available to read, and a banner is a
+  separate piece of work.
+- Slack does not read the state yet.
+- It has **not been run against a live Linear workspace**: it is tested with fixtures written from
+  Linear's documented API.
+
 ## What is intentionally NOT imported
 
 - **Linear's issue history other than state changes.** Edits to titles, priorities, assignees and so on are not

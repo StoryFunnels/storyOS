@@ -22,6 +22,7 @@ import {
   IntegrationsController,
   IntegrationsDirectoryController,
   LinearIntegrationsController,
+  LinearOwnershipController,
   ShopifyIntegrationsController,
   SlackIntegrationsController,
 } from './integrations.controller';
@@ -55,6 +56,7 @@ import { SettingsSecretsBackfillSubscriber } from './settings-secrets-backfill.s
     GithubWebhookController,
     GithubOAuthController,
     LinearIntegrationsController,
+    LinearOwnershipController,
     SlackIntegrationsController,
     ShopifyIntegrationsController,
     ShopifyWebhookController,

@@ -6974,6 +6974,41 @@
         "x-min-role": "admin"
       }
     },
+    "/api/v1/workspaces/{ws}/integrations/linear/teams/{key}/ownership": {
+      "put": {
+        "operationId": "LinearIntegrationsController_setOwnership",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinearOwnershipDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Cutover: set who owns a Linear team's records (linear = mirrored, storyos = cut over). Admin only; logged in the audit log.",
+        "tags": [
+          "integrations"
+        ],
+        "x-min-role": "admin"
+      }
+    },
     "/api/v1/workspaces/{ws}/integrations/linear/disconnect": {
       "post": {
         "operationId": "LinearIntegrationsController_disconnect",
@@ -6988,6 +7023,21 @@
           "integrations"
         ],
         "x-min-role": "admin"
+      }
+    },
+    "/api/v1/workspaces/{ws}/linear/ownership": {
+      "get": {
+        "operationId": "LinearOwnershipController_read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Who owns each Linear team's records: linear (mirrored, edits are overwritten) or storyos (cut over)",
+        "tags": [
+          "integrations"
+        ]
       }
     },
     "/api/v1/workspaces/{ws}/integrations/slack": {
@@ -18301,6 +18351,29 @@
             }
           }
         }
+      },
+      "LinearOwnershipDto": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "enum": [
+              "linear",
+              "storyos"
+            ]
+          },
+          "confirm_overwrite": {
+            "type": "boolean"
+          },
+          "counter_headroom": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "owner"
+        ]
       },
       "SlackConfigDto": {
         "type": "object",

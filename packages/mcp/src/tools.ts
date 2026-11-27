@@ -966,6 +966,7 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   // start) stays unreachable at any scope; see coverage.ts.
   list_connections: 'read',
   list_connection_providers: 'read',
+  get_linear_ownership: 'read',
   list_sources: 'read',
   list_source_providers: 'read',
   list_source_runs: 'read',
@@ -4371,7 +4372,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'delete_view',
     {
       title: 'Delete view',
-      description: '#37 — soft delete: recoverable via restore_view (see list_views_trash). 409 if it is the last shared view on the database.',
+      description: 'Soft delete: recoverable via restore_view (see list_views_trash). 409 if it is the last shared view on the database.',
       inputSchema: { workspace: z.string(), database: z.string(), view: z.string() },
     },
     handle<{ workspace: string; database: string; view: string }>(async ({ workspace, database, view }) => {
@@ -4392,7 +4393,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_views_trash',
     {
       title: 'List deleted views',
-      description: '#37 — deleted views on this database. A deleted view no longer resolves by name via list_views/get_database, so the ids restore_view takes are found here.',
+      description: 'Deleted views on this database. A deleted view no longer resolves by name via list_views/get_database, so the ids restore_view takes are found here.',
       inputSchema: { workspace: z.string(), database: z.string() },
     },
     handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
@@ -4409,7 +4410,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'restore_view',
     {
       title: 'Restore view',
-      description: '#37 — bring a deleted view back (see list_views_trash for the id). Only for a view deleted on its own; a view that went with its whole database or space comes back with restore_database/restore_space.',
+      description: 'Bring a deleted view back (see list_views_trash for the id). Only for a view deleted on its own; a view that went with its whole database or space comes back with restore_database/restore_space.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -5853,7 +5854,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete space',
       description:
-        '#453/#37 — soft delete: the space, every database and record inside it. Recoverable via restore_space (see list_spaces_trash) as long as it stays undone — this tool does not warn "irreversible" the way it used to, because it no longer is one. Guardrail: `confirm` must equal the space name exactly, the same rule delete_database enforces for a smaller action. An empty space needs no confirm.',
+        'Soft delete: the space, every database and record inside it. Recoverable via restore_space (see list_spaces_trash) as long as it stays undone — this tool does not warn "irreversible" the way it used to, because it no longer is one. Guardrail: `confirm` must equal the space name exactly, the same rule delete_database enforces for a smaller action. An empty space needs no confirm.',
       inputSchema: {
         workspace: z.string(),
         space: z.string().describe('Space name, slug or id.'),
@@ -5892,7 +5893,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_spaces_trash',
     {
       title: 'List deleted spaces',
-      description: '#37 — deleted spaces in this workspace. A deleted space no longer resolves by name anywhere else, so the ids restore_space takes are found here.',
+      description: 'Deleted spaces in this workspace. A deleted space no longer resolves by name anywhere else, so the ids restore_space takes are found here.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -5908,7 +5909,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'restore_space',
     {
       title: 'Restore space',
-      description: '#37 — bring a deleted space back, along with every database (and its fields/records/views) that was deleted WITH it (see list_spaces_trash for the id). A database independently deleted BEFORE the space was deleted stays in trash — restore that separately via restore_database.',
+      description: 'Bring a deleted space back, along with every database (and its fields/records/views) that was deleted WITH it (see list_spaces_trash for the id). A database independently deleted BEFORE the space was deleted stays in trash — restore that separately via restore_database.',
       inputSchema: { workspace: z.string(), space: z.string().describe('Space id (from list_spaces_trash) — a deleted space has no live name/slug to resolve by.') },
     },
     handle<{ workspace: string; space: string }>(async ({ workspace, space }) => {
@@ -5927,7 +5928,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update workspace',
       description:
-        'Rename the workspace, set its description, or set the logo/accent colour shown on the public portal page (#539) — the top-level "what this company is doing here" line that list_workspaces returns, or an agency\'s own brand on the pages it shares with clients. Only the fields you pass change.',
+        'Rename the workspace, set its description, or set the logo/accent colour shown on the public portal page — the top-level "what this company is doing here" line that list_workspaces returns, or an agency\'s own brand on the pages it shares with clients. Only the fields you pass change.',
       inputSchema: {
         workspace: z.string(),
         rename_to: z.string().optional(),
@@ -6000,7 +6001,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'delete_database',
     {
       title: 'Delete database',
-      description: '#453/#37 — soft delete: the database and all its records. Recoverable via restore_database (see list_databases_trash), unless sever_relations is set — that part IS irreversible (it hard-deletes the relation and its paired field on the other database, along with every link). Guardrail: `confirm` must equal the database name exactly.',
+      description: 'Soft delete: the database and all its records. Recoverable via restore_database (see list_databases_trash), unless sever_relations is set — that part IS irreversible (it hard-deletes the relation and its paired field on the other database, along with every link). Guardrail: `confirm` must equal the database name exactly.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -6027,7 +6028,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_databases_trash',
     {
       title: 'List deleted databases',
-      description: '#37 — deleted databases in this workspace. A deleted database no longer resolves by name anywhere else, so the ids restore_database takes are found here.',
+      description: 'Deleted databases in this workspace. A deleted database no longer resolves by name anywhere else, so the ids restore_database takes are found here.',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
@@ -6043,7 +6044,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'restore_database',
     {
       title: 'Restore database',
-      description: '#37 — bring a deleted database back, along with whatever fields/records/views were deleted with it (see list_databases_trash for the id). A record independently trashed BEFORE the database was deleted stays in trash — restore that separately via restore_records.',
+      description: 'Bring a deleted database back, along with whatever fields/records/views were deleted with it (see list_databases_trash for the id). A record independently trashed BEFORE the database was deleted stays in trash — restore that separately via restore_records.',
       inputSchema: { workspace: z.string(), database: z.string().describe('Database id (from list_databases_trash) — a deleted database has no live name/slug to resolve by.') },
     },
     handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
@@ -8028,7 +8029,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List approvals',
       description:
-        'MN-255: list this workspace\'s require_approval gate items (pending/approved/rejected/expired) — the preview text, status and approver of each, and the automation rule asking: `rule_label` is its current name when you may read that database\'s automations (then `rule_id`/`rule_name` are set too), else a neutral "A rule in <database>" with `rule_id`/`rule_name` null; all three null when no rule wrote it (an agent proposal) or the rule was deleted. ' +
+        'List this workspace\'s require_approval gate items (pending/approved/rejected/expired) — the preview text, status and approver of each, and the automation rule asking: `rule_label` is its current name when you may read that database\'s automations (then `rule_id`/`rule_name` are set too), else a neutral "A rule in <database>" with `rule_id`/`rule_name` null; all three null when no rule wrote it (an agent proposal) or the rule was deleted. ' +
         'Returns { approvals, total }: the list is capped at 100 rows, `total` is the exact number matching (status=pending counts only those still waiting: pending and not expired). ' +
         'A row whose stored details cannot be read (an older or hand-made one) is still listed, as `unknown: true` with preview_text "Unknown request" and a null action_snapshot; nobody can approve or reject it (422 approval_unreadable), it expires on its own. `unknown` is false on every other row. ' +
         'Read-only: approving or rejecting happens in the app Inbox, not via MCP, so a human always makes that call.',
@@ -8211,7 +8212,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List validation rules',
       description:
-        '#231: the validation rules on a database. A rule REFUSES a record write (yours included: there is no bypass for any writer) when its condition is not met, and returns the rule\'s own message (these are the rules behind a refused write). Each rule has a trigger (create, update, or transition to a status), the condition that must hold, the message, `dangling` (it names a deleted field and is skipped) and `violation_count` (how many stored records break it now). A rule fires only when a field it references changes, so a record can already be invalid without being blocked. Read-only: changing a rule is an admin act, not reachable via MCP.',
+        'The validation rules on a database. A rule REFUSES a record write (yours included: there is no bypass for any writer) when its condition is not met, and returns the rule\'s own message (these are the rules behind a refused write). Each rule has a trigger (create, update, or transition to a status), the condition that must hold, the message, `dangling` (it names a deleted field and is skipped) and `violation_count` (how many stored records break it now). A rule fires only when a field it references changes, so a record can already be invalid without being blocked. Read-only: changing a rule is an admin act, not reachable via MCP.',
       inputSchema: { workspace: z.string(), database: z.string() },
     },
     handle<{ workspace: string; database: string }>(async ({ workspace, database }) => {
@@ -8229,7 +8230,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List records that already break a validation rule',
       description:
-        '#231: the stored records that ALREADY break a validation rule (a rule only fires when a field it references changes, so existing violations persist and are otherwise invisible). It reports on data quality and finds records to fix; fixing one is an ordinary update. Returns a count, a page of record ids/numbers/titles, and `next_cursor` (pass it as `after`). Admin only.',
+        'The stored records that ALREADY break a validation rule (a rule only fires when a field it references changes, so existing violations persist and are otherwise invisible). It reports on data quality and finds records to fix; fixing one is an ordinary update. Returns a count, a page of record ids/numbers/titles, and `next_cursor` (pass it as `after`). Admin only.',
       inputSchema: {
         workspace: z.string(),
         database: z.string(),
@@ -8254,7 +8255,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get runs',
       description:
-        "MN-264: this is how you answer \"why didn't my automation fire / post go out?\" — every automation rule run in the " +
+        "This is how you answer \"why didn't my automation fire / post go out?\" — every automation rule run in the " +
         'workspace, newest first, with status (ok = Succeeded, error = Failed, running, skipped, skipped_quota = Skipped (quota), awaiting_approval = at least one action is waiting for a person to approve it; awaiting_approval_count says how many), the triggering record, and a per-action ' +
         "summary (kind + status of each external action attempted). NOTE: this covers RULE runs only — a workspace's source syncs " +
         "(#239) aren't unioned in yet, so this can't yet answer questions about a source's sync history — see list_sources for " +
@@ -8328,6 +8329,21 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const res = await unwrap<{ data?: unknown[] }>(
         client.GET('/api/v1/workspaces/{ws}/connections/providers', { params: { path: { ws: ws.id } } } as never),
       );
+      return text(res.data ?? []);
+    }),
+  );
+
+  // Ticket #1370 - read-only; flipping the switch is human-only (coverage.ts). Kept short: the description budget is full.
+  reg(
+    'get_linear_ownership',
+    {
+      title: 'Get Linear ownership',
+      description: 'Per Linear team: "linear" (sync overwrites edits) or "storyos" (cut over). Read-only; only an admin can switch it.',
+      inputSchema: { workspace: z.string().describe('Workspace name or id.') },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<{ data?: unknown[] }>(client.GET('/api/v1/workspaces/{ws}/linear/ownership', { params: { path: { ws: ws.id } } } as never));
       return text(res.data ?? []);
     }),
   );
@@ -9319,7 +9335,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'List automations',
       description:
-        '#334: the automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
+        'The automation rules on one database — each with its trigger (field/relation names resolved), condition, actions, ' +
         'enabled state, failure streak and last-run status (ok, error, skipped, running, or awaiting_approval when an action is waiting for a person to approve it, the same word get_runs uses). Automations are an admin surface, so this needs an admin-scoped token. ' +
         "A rule runs as its OWNER (`created_by`) and every action re-checks that person's access each time it runs: if they left, lost the database or were demoted, the action is refused (the run's error starts with `automation_owner_missing` or `automation_owner_no_access` and names the person and the kind of record, never a title) and nothing after it runs. `needs_new_owner: true` with `needs_new_owner_reason` (`missing`, `left` or `lacks_access`) marks a rule whose owner has to change; it is read from the owner's access NOW (not from the latest run), so it shows on a disabled rule and on one that has not fired since the owner lost access, and clears the moment access is restored or someone runs take_over_automation. The workspace's admins are notified at the first refused run and again if the rule switches itself off, and `owner_missing` is true for the first two reasons. " +
         'Use get_automation for one rule\'s full editable definition.',
@@ -9359,7 +9375,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Get automation',
       description:
-        "#334: one automation rule's full, editable definition — trigger, condition and actions with human-readable database/field/" +
+        "One automation rule's full, editable definition — trigger, condition and actions with human-readable database/field/" +
         'select names alongside their stable ids, plus enabled state and last-run status. update_automation accepts the same shape. ' +
         "`needs_new_owner: true` with `needs_new_owner_reason` (`missing`: no owner; `left`: not a member any more; `lacks_access`: still a member but would be refused if the rule ran now, which includes a rule that has not fired since the demotion and a disabled one) means the rule needs a different owner: fix it with take_over_automation. Each action is refused at run time (error `automation_owner_missing` or `automation_owner_no_access`, naming the person, never a title); `owner_missing` is true for the first two reasons.",
       inputSchema: {
@@ -9412,7 +9428,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
         'CALL ANY HTTP API (http_request — any method, templated URL and body, optional auth via a connection, and it can capture JSON from the response back onto fields), ' +
         'and POST TO SLACK (send_slack_message). These work from SCHEDULED and TRIGGERED rules, not only from buttons — a button and a rule share one action schema, so anything one can do the other can. ' +
         'Private and internal addresses are refused on http_request (SSRF guard); public ones are fine. ' +
-        '#334: create an automation rule = trigger + optional condition + 1–10 actions. TRIGGERS: ' +
+        'Create an automation rule = trigger + optional condition + 1–10 actions. TRIGGERS: ' +
         '{type:"record_created"} · {type:"record_updated", field?:"<name>"} · ' +
         // #297: `direction` shipped in #270 but was undocumented AND silently dropped.
         '{type:"record_linked", relation_field:"<name>", direction?:"link"|"unlink"} (omit direction to fire on both) · ' +
@@ -9528,7 +9544,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Update automation',
       description:
-        '#334: edit an existing rule — rename, enable/disable, or replace its trigger / condition / actions. Every field is ' +
+        'Edit an existing rule — rename, enable/disable, or replace its trigger / condition / actions. Every field is ' +
         'optional; omit what you are not changing. To disable a rule pass { enabled: false }. Trigger and action shapes match ' +
         'create_automation (names/labels resolve server-side), INCLUDING record_linked\'s direction:"link"|"unlink" and each ' +
         // #297: get_automation → update_automation used to ERASE the direction on a
@@ -9646,7 +9662,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Delete automation',
       description:
-        '#334: permanently delete an automation rule. Requires explicit confirmation: pass confirm=true. Reports the deleted ' +
+        'Permanently delete an automation rule. Requires explicit confirmation: pass confirm=true. Reports the deleted ' +
         "rule's name, trigger and action summary so the caller can see exactly what was removed. Its run history goes with it.",
       inputSchema: {
         workspace: z.string().describe('Workspace name or id.'),
@@ -9776,7 +9792,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     {
       title: 'Create a portal recipient',
       description:
-        'Names a new external party for the portal (#534) — never creates a user, sends no invitation, and never counts toward billable seats. Returns a signed token (#602 — id.version.hmac, not a bare opaque value); what content it can reach is not yet wired to anything (row scoping ships separately).',
+        'Names a new external party for the portal — never creates a user, sends no invitation, and never counts toward billable seats. Returns a signed token (#602 — id.version.hmac, not a bare opaque value); what content it can reach is not yet wired to anything (row scoping ships separately).',
       inputSchema: {
         workspace: z.string(),
         label: z.string().describe('Display name for this recipient, e.g. a client\'s company name.'),

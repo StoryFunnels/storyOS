@@ -180,6 +180,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'GET /workspaces/:ws/databases/:db/publishing': { verdict: 'internal', why: 'read: the Posts database\'s publish setup, returned to the caller only; connections are listed by id and name, never a credential, and a caller who cannot manage rules gets none of it' },
   'GET /workspaces/:ws/connections': { verdict: 'internal', why: 'connections list never returns auth material (connections.service.ts present)' },
   'GET /workspaces/:ws/connections/providers': { verdict: 'internal', why: 'read: returns data to the caller only' },
+  'GET /workspaces/:ws/linear/ownership': { verdict: 'internal', why: 'read: per-team owner state (ticket #1370), filtered to the spaces the caller can see; returns data to the caller only' },
   'GET /connections/oauth/callback': { verdict: 'public', why: 'OAuth callback, bound to a signed state' },
   'POST /providers/resend/webhook/:connectionId': { verdict: 'public', why: 'inbound Resend/Svix webhook, verified by signature' },
   'GET /workspaces/:ws/databases/:db/sources': { verdict: 'internal', why: 'read: returns data to the caller only' },
