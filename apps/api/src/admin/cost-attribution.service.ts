@@ -14,6 +14,7 @@ import {
 } from '../db/schema';
 import { AccessService } from '../access/access.service';
 import type { PlanId } from '../billing/plans';
+import { isLiveBilling } from './live-billing';
 import { currentMonthPeriodStart, AUTOMATION_RUN_METRIC, EMAIL_SEND_METRIC } from '../billing/usage-metering';
 import {
   blendMarginByPlan,
@@ -59,12 +60,24 @@ export class CostAttributionService {
     private readonly access: AccessService,
   ) {}
 
-  private async workspaceRoster(): Promise<{ id: string; name: string; plan: PlanId }[]> {
+  private async workspaceRoster(): Promise<{ id: string; name: string; plan: PlanId; billingLive: boolean }[]> {
     const rows = await this.db
-      .select({ id: workspaces.id, name: workspaces.name, plan: billingSubscriptions.plan })
+      .select({
+        id: workspaces.id,
+        name: workspaces.name,
+        plan: billingSubscriptions.plan,
+        livemode: billingSubscriptions.livemode,
+        stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId,
+        status: billingSubscriptions.status,
+      })
       .from(workspaces)
       .leftJoin(billingSubscriptions, eq(billingSubscriptions.workspaceId, workspaces.id));
-    return rows.map((r) => ({ id: r.id, name: r.name, plan: (r.plan ?? 'free') as PlanId }));
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      plan: (r.plan ?? 'free') as PlanId,
+      billingLive: isLiveBilling(r.plan === null ? null : r),
+    }));
   }
 
   private async usageCounterByWorkspace(metric: string): Promise<Map<string, number>> {
@@ -131,6 +144,7 @@ export class CostAttributionService {
           workspaceId: w.id,
           name: w.name,
           plan: w.plan,
+          billingLive: w.billingLive,
           billableSeats,
           automationRunsThisMonth: automationRuns.get(w.id) ?? 0,
           storageBytes: storageBytes.get(w.id) ?? 0,

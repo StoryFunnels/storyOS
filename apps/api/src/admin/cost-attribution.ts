@@ -67,6 +67,8 @@ export interface WorkspaceUsageInputs {
   workspaceId: string;
   name: string;
   plan: PlanId;
+  /** Whether this workspace is paying through a live-mode Stripe subscription (live-billing.ts). Revenue is zero when it is not. */
+  billingLive: boolean;
   billableSeats: number;
   /** Real count: usage_counters(metric='automation_runs'), this period. */
   automationRunsThisMonth: number;
@@ -121,7 +123,7 @@ export function estimatedRevenueCents(plan: PlanId, billableSeats: number): numb
 }
 
 export function computeWorkspaceCost(input: WorkspaceUsageInputs): WorkspaceCostRow {
-  const revenueCents = estimatedRevenueCents(input.plan, input.billableSeats);
+  const revenueCents = input.billingLive ? estimatedRevenueCents(input.plan, input.billableSeats) : 0;
   const hostedCallsCostCents = Math.round(
     input.automationRunsThisMonth * HOSTED_CALL_COST_USD_PER_CALL * 100,
   );

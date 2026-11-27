@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { isLiveBilling } from './live-billing';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { billingSubscriptions, databases, records, user, workspaces } from '../db/schema';
@@ -11,9 +12,6 @@ import { PLANS, seatOverage, SEAT_PRICE_USD, type PlanId } from '../billing/plan
  *  #317: keyed off the `is_system` flag, not the display name, so a user's own
  *  database called "Runs" still counts as the user content it is. */
 const NOT_SYSTEM_DATABASE = eq(databases.isSystem, false);
-
-/** Subscription statuses that count toward MRR. `trialing` is left out on purpose: a trial has not paid yet. */
-const LIVE_BILLING_STATUSES: Array<'active' | 'past_due'> = ['active', 'past_due'];
 
 export interface AdminOverview {
   totalWorkspaces: number;
@@ -63,27 +61,23 @@ export class AdminOverviewService {
     return new Map(rows.map((r) => [r.workspaceId, r.count]));
   }
 
-  private async planByWorkspace(): Promise<Map<string, PlanId>> {
+  private async planByWorkspace(): Promise<Map<string, { plan: PlanId; live: boolean }>> {
     const rows = await this.db
-      .select({ workspaceId: workspaces.id, plan: billingSubscriptions.plan })
+      .select({
+        workspaceId: workspaces.id,
+        plan: billingSubscriptions.plan,
+        livemode: billingSubscriptions.livemode,
+        stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId,
+        status: billingSubscriptions.status,
+      })
       .from(workspaces)
       .leftJoin(billingSubscriptions, eq(billingSubscriptions.workspaceId, workspaces.id));
-    return new Map(rows.map((r) => [r.workspaceId, (r.plan ?? 'free') as PlanId]));
-  }
-
-  /** Workspaces whose subscription is a live-mode Stripe one that is billing right now (`active`, or `past_due` — still owed). */
-  private async liveStripeSubscriptionWorkspaces(): Promise<Set<string>> {
-    const rows = await this.db
-      .select({ workspaceId: billingSubscriptions.workspaceId })
-      .from(billingSubscriptions)
-      .where(
-        and(
-          eq(billingSubscriptions.livemode, true),
-          isNotNull(billingSubscriptions.stripeSubscriptionId),
-          inArray(billingSubscriptions.status, LIVE_BILLING_STATUSES),
-        ),
-      );
-    return new Set(rows.map((r) => r.workspaceId));
+    return new Map(
+      rows.map((r) => [
+        r.workspaceId,
+        { plan: (r.plan ?? 'free') as PlanId, live: isLiveBilling(r.plan === null ? null : r) },
+      ]),
+    );
   }
 
   async getOverview(): Promise<AdminOverview> {
@@ -105,14 +99,13 @@ export class AdminOverviewService {
       PlanId,
       number
     >;
-    for (const plan of planByWs.values()) workspacesByPlan[plan]++;
+    for (const { plan } of planByWs.values()) workspacesByPlan[plan]++;
 
     // Est. MRR is what live Stripe subscriptions bill: not sandbox ones, not trials, not plans an admin granted by hand
     // (those have no Stripe subscription at all). A trial that has not converted has paid nothing yet.
-    const payingLive = await this.liveStripeSubscriptionWorkspaces();
     let estimatedMrrUsd = 0;
-    for (const [workspaceId, plan] of planByWs) {
-      if (plan === 'free' || !payingLive.has(workspaceId)) continue;
+    for (const [workspaceId, { plan, live }] of planByWs) {
+      if (plan === 'free' || !live) continue;
       const billable = (await this.access.billableUserIds(workspaceId)).length;
       estimatedMrrUsd += PLANS[plan].priceUsd + seatOverage(plan, billable) * SEAT_PRICE_USD;
     }
