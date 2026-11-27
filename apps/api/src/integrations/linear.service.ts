@@ -24,6 +24,8 @@ import { RelationLinkerService } from '../migration-framework/relation-linker.se
 import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
+import { CROSS_TEAM_RELATION_POLICY, emptyRelationReport, ensureDuplicateStateCategory, ensureRelationFields, fetchTeamRelations, planIssueRelations, relationWarnings } from './linear-relations';
+import type { DuplicateStateReport, LinearIssueRelations, RelationReport } from './linear-relations';
 import { pageAll } from './linear-paging';
 /** One pageAll: it lives in linear-paging.ts; re-exported so linear-milestones.ts and older importers keep their path. */
 export { pageAll };
@@ -1125,14 +1127,25 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
         issues_by_status: Array<{ status: string; type: string; issues: number }>;
+        /** #1365 — what this team's relations come to: counts only, incl. the ones that cross into another team (not imported). */
+        relations: RelationReport;
       }>,
+      /** #1365 — distinct relations that cross two teams, over all the teams read: the number the cross-team decision waits for. */
+      relations_cross_team_total: 0,
+      relations_cross_team_policy: CROSS_TEAM_RELATION_POLICY as string,
     };
+    const previewCrossTeam = new Map<string, string>();
     // Every read is paged to the end and count-checked (fetchTeamData), so these counts are uncapped and the same
     // numbers the sync will act on. The adapter below is handed the data rather than re-reading it.
     const prefetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) {
       const data = await fetchTeamData(this.fetcher, apiKey, team);
       prefetched.set(team.id, data);
+      // #1365 — a preview reads the relations too (writes nothing): the counts to check against Linear, and the cross-team share.
+      const relationReport = emptyRelationReport();
+      for (const rel of await fetchTeamRelations(this.fetcher, apiKey, team, { expectIssues: data.issues.nodes.length })) {
+        planIssueRelations(rel, team.key, () => true, relationReport, previewCrossTeam);
+      }
       for (const issue of data.issues.nodes) matcher.match(issue.assignee);
       summary.teams.push({
         key: team.key,
@@ -1148,8 +1161,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         labels: data.labels.nodes.length,
         issues_by_project: issueCountsByProject(data),
         issues_by_status: issueCountsByStatus(data),
+        relations: relationReport,
       });
     }
+    summary.relations_cross_team_total = previewCrossTeam.size;
 
     // Ticket #1366 — what the attachments and documents would become: counts only, nothing is written.
     const documents = await fetchWorkspaceDocuments(this.fetcher, apiKey);
@@ -1465,6 +1480,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       description_hidden_in: [] as string[],
       /** #906 — mirrored issues Linear no longer returns (archived, deleted, moved out): marked, never deleted. */
       left_scope: 0,
+      /** #1365 — per team, what the relations came to and what was NOT imported (cross-team, unplaced, unknown type), and the Duplicate state check. */
+      relations: { cross_team_policy: CROSS_TEAM_RELATION_POLICY as string, cross_team_total: 0, per_team: [] as Array<{ key: string; duplicate_state: DuplicateStateReport } & RelationReport> },
       /** Ticket #1367 — per team: written under Linear's own numbers (with the identifier prefix), or kept in import order, and why. */
       numbering: [] as Array<{ key: string; mode: 'linear_numbers' | 'import_order'; identifier_prefix: string | null; note?: string }>,
       /** Ticket #1367 — issues whose created/updated times were set to Linear's. */
@@ -1487,6 +1504,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
     const fetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team, { since: plan.since }));
+    // #1365 — relations are read and verified here too, before anything is written (a full read must cover every issue read).
+    const relationReads = new Map<string, LinearIssueRelations[]>();
+    for (const team of teams) {
+      relationReads.set(team.id, await fetchTeamRelations(this.fetcher, apiKey, team, { since: plan.since, expectIssues: incremental ? undefined : fetched.get(team.id)!.issues.nodes.length }));
+    }
+    const crossTeamEdges = new Map<string, string>();
     // Ticket #1367 — the rest of what the writes need is read here too, so a failure leaves the workspace untouched: issue history
     // (when the plan keeps field history at all) and, for a private team, its members.
     const keepsHistory = await this.importHistory.keepsFieldHistory(membership.workspaceId);
@@ -1524,6 +1547,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
       const { space, issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings, settings);
       if (descriptionHidden) summary.description_hidden_in.push(`${team.name} (Linear) / ${issuesDb.name} (${issuesDb.id})`);
+      // #1365 — the three self relations (older mirrors have none) and the Duplicate state's category.
+      const relationFields = await ensureRelationFields(this.db, this.relationsService, membership, issuesDb.id, linkWarnings);
+      const duplicateState = await ensureDuplicateStateCategory(this.db, this.fields, issuesDb.id, data.states.nodes);
       await this.rememberTeamSpace(membership.workspaceId, team.key, space.id);
       // A private team's members are let in BEFORE any record is written; the space was created (or closed) restricted already.
       if (team.private === true) {
@@ -1741,6 +1767,24 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
+      // #1365 — relations, last: every issue of the team now has a record, so both ends of an edge can be placed. Linear OWNS these
+      // links (the #1103 rule): each issue's six fields are SET to what Linear says, so a relation removed in Linear is removed
+      // here and one a person added here that Linear does not have is removed with it. The rest of the plan is in linear-relations.ts.
+      const relationReport = emptyRelationReport();
+      const recordOf = (linearId: string) => issueIds.get(linearId) ?? mirrored.get(linearId)?.id;
+      for (const rel of relationReads.get(team.id) ?? []) {
+        const recordId = recordOf(rel.issueId);
+        if (!recordId) continue;
+        const planned = planIssueRelations(rel, team.key, (id) => Boolean(recordOf(id)), relationReport, crossTeamEdges);
+        for (const role of Object.keys(planned) as Array<keyof typeof planned>) {
+          const fieldId = relationFields[role];
+          if (!fieldId) continue;
+          const failure = await this.relationLinker.set(membership.workspaceId, issuesDb.id, recordId, fieldId, planned[role].map((id) => recordOf(id)!), actorId);
+          if (failure) linkWarnings.push(failure);
+        }
+      }
+      summary.relations.per_team.push({ key: team.key, duplicate_state: duplicateState, ...relationReport });
+      linkWarnings.push(...relationWarnings(team.key, relationReport));
       // Ticket #1366 — PR links and other attachments, and the project documents. New code, in linear-attachments.service.ts.
       await this.attachmentsAndDocuments.importTeam({
         membership, actorId, teamLabel: team.key, issuesDb, projectsDb,
@@ -1750,6 +1794,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         run: extras,
       });
     }
+    summary.relations.cross_team_total = crossTeamEdges.size;
     } catch (error) {
       // #959 — the integration page shows this text: name the team, so a raw engine message ("unknown field ...") is never
       // the whole story. The status is kept, and a message that already names the team is not prefixed twice.

@@ -69,6 +69,8 @@ describe('Linear importer (MN-066)', () => {
       // #902 AC3: the preview says how many issues each Linear project will bring, and how many have none
       issues_by_project: [{ project_id: null, name: '(no project)', issues: 2 }, { project_id: 'proj-1', name: 'Sharing flow', issues: 1 }],
       issues_by_status: [{ status: 'In Progress', type: 'started', issues: 1 }, { status: 'Triage', type: 'triage', issues: 1 }, { status: 'Canceled', type: 'canceled', issues: 1 }],
+      // #1365: the preview also reads relations (this fixture has none); the full shape is asserted in linear-relations.test.ts
+      relations: expect.objectContaining({ blocks: 0, duplicate: 0, related: 0, cross_team: {} }),
     }]);
     const spaces = (await inject('GET', `/workspaces/${wsId}/spaces`)).json();
     expect(spaces.some((s: { name: string }) => s.name.includes('Linear'))).toBe(false);
