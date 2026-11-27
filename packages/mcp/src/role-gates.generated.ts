@@ -40,6 +40,7 @@ export const TOOL_MIN_ROLE: Record<string, 'member' | 'admin'> = {
   list_portal_activity: 'admin',
   list_portal_recipients: 'admin',
   list_runners: 'member',
+  list_slack_subscriptions: 'admin',
   list_source_runs: 'admin',
   list_spaces_trash: 'admin',
   list_validation_rules: 'admin',

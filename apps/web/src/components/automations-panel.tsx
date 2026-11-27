@@ -16,13 +16,15 @@ import type { Field } from '@/components/table-view/use-table-data';
 import { DateOperandEditor, opsForField, SortButton } from '@/components/views/view-toolbar';
 import type { SortSpec } from '@/components/views/sort-config';
 import { FlowDiagram } from '@/components/automations/flow-diagram';
-import { triggerLabel } from '@/components/automations/flow-diagram-model';
+import { triggerLabel, weekdaysLabel } from '@/components/automations/flow-diagram-model';
 import type { DiagramCondition, DiagramRule, DiagramTrigger } from '@/components/automations/flow-diagram-model';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { minutesDraft } from '@/lib/schedule-form';
+import { ScheduleCadenceControls } from '@/components/automations/schedule-cadence-controls';
 import { Label } from '@/components/ui/label';
 import { Segmented } from '@/components/ui/segmented';
 import { cn } from '@/lib/utils';
@@ -105,6 +107,8 @@ export function buildAutomationTrigger(params: {
   linkDirection: '' | 'link' | 'unlink';
   every: string;
   at: string;
+  /** Ticket #1318 — the interval the editor's own box holds, for `every: 'minutes'`. Absent: the saved one is kept (#1317). */
+  minutes?: number;
   /**
    * #1317 — schedule settings the editor has no control for (API/MCP-created
    * rules carry them). Passed back through so a save never widens the rule.
@@ -114,7 +118,7 @@ export function buildAutomationTrigger(params: {
    */
   preserved?: Pick<ScheduleSettings, 'minutes' | 'weekday' | 'weekdays' | 'between' | 'timezone'>;
 }): DiagramTrigger & Record<string, unknown> {
-  const { triggerType, triggerFieldId, relationFieldId, linkDirection, every, at, preserved } = params;
+  const { triggerType, triggerFieldId, relationFieldId, linkDirection, every, at, minutes, preserved } = params;
   if (triggerType === 'schedule') {
     return {
       type: 'schedule',
@@ -122,7 +126,7 @@ export function buildAutomationTrigger(params: {
       // The editor hides the time for an hourly rule, and an hourly/minutes rule
       // saved without one must not gain a stray "09:00" from the form's default.
       ...(every === 'hour' || every === 'minutes' ? {} : { at }),
-      ...(preserved?.minutes !== undefined && every === 'minutes' ? { minutes: preserved.minutes } : {}),
+      ...(every === 'minutes' && (minutes ?? preserved?.minutes) !== undefined ? { minutes: minutes ?? preserved?.minutes } : {}),
       ...(preserved?.weekday !== undefined && every === 'week' ? { weekday: preserved.weekday } : {}),
       ...(preserved?.weekdays !== undefined && every !== 'week' ? { weekdays: preserved.weekdays } : {}),
       ...(preserved?.between !== undefined ? { between: preserved.between } : {}),
@@ -149,19 +153,22 @@ export function buildAutomationTrigger(params: {
  * is `triggerLabel`'s, not a second copy.
  */
 export function SavedScheduleSettings({ trigger }: { trigger?: Rule['trigger'] }) {
+  // Ticket #1318 — the interval has its own box now, so it is no longer listed here: only what the editor still has NO control for.
   if (
     !trigger ||
     trigger.type !== 'schedule' ||
-    (trigger.weekdays === undefined &&
-      trigger.between === undefined &&
-      trigger.timezone === undefined &&
-      trigger.minutes === undefined)
+    (trigger.weekdays === undefined && trigger.between === undefined && trigger.timezone === undefined)
   ) {
     return null;
   }
+  const parts = [
+    trigger.weekdays?.length ? weekdaysLabel(trigger.weekdays) : null,
+    trigger.between ? `between ${trigger.between.from} and ${trigger.between.to}` : null,
+    trigger.timezone ?? null,
+  ].filter((p): p is string => p !== null);
   return (
-    <span className="text-xs text-text-muted" data-testid="saved-schedule-settings">
-      Saved schedule (kept as is): {triggerLabel(trigger, [])}
+    <span className="basis-full text-label text-muted" data-testid="saved-schedule-settings">
+      Also set outside this editor, and kept when you save: {parts.join(' · ')}
     </span>
   );
 }
@@ -506,6 +513,10 @@ function RuleEditor({
   );
   const [every, setEvery] = useState(rule?.trigger.every ?? 'day');
   const [at, setAt] = useState(rule?.trigger.at ?? '09:00');
+  // Ticket #1318 — the interval box. Text, so it can be emptied while typing; `minutesCheck` is the API's own rule applied to it.
+  const [minutesText, setMinutesText] = useState(rule?.trigger.minutes !== undefined ? String(rule.trigger.minutes) : '');
+  const minutesCheck = minutesDraft(minutesText);
+  const scheduleBlocked = triggerType === 'schedule' && every === 'minutes' && minutesCheck.error !== null;
   // #392/#583 — top-N selection, schedule-only. `limit` is a free-text string
   // so a user can clear it back to "no cap" (empty string), rather than a
   // number input silently coercing an empty field to 0.
@@ -643,6 +654,7 @@ function RuleEditor({
       linkDirection,
       every,
       at,
+      minutes: every === 'minutes' ? (minutesCheck.value ?? undefined) : undefined,
       preserved: rule?.trigger,
     });
     // Webhook rules have no triggering record for a condition to evaluate
@@ -821,23 +833,15 @@ function RuleEditor({
           )}
           {triggerType === 'schedule' && (
             <>
-              <Select
-                size="sm"
-                value={every}
-                onChange={(e) => setEvery(e.target.value)}
-              >
-                <option value="hour">every hour</option>
-                <option value="day">every day</option>
-                <option value="week">every week</option>
-              </Select>
-              {every !== 'hour' && (
-                <Input
-                  className="h-8 w-24"
-                  value={at}
-                  onChange={(e) => setAt(e.target.value)}
-                  placeholder="09:00"
-                />
-              )}
+              <ScheduleCadenceControls
+                trigger={rule?.trigger}
+                every={every}
+                onEvery={setEvery}
+                at={at}
+                onAt={setAt}
+                minutesText={minutesText}
+                onMinutesText={setMinutesText}
+              />
               <SavedScheduleSettings trigger={rule?.trigger} />
             </>
           )}
@@ -1151,6 +1155,7 @@ function RuleEditor({
           size="sm"
           disabled={
             busy ||
+            scheduleBlocked ||
             !name.trim() ||
             actions.length === 0 ||
             actions.some((a) => a.type === 'run_agent' && !(a as { agent?: string }).agent) ||

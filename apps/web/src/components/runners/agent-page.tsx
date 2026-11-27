@@ -12,7 +12,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog';
 import { useMembers } from '@/components/table-view/use-table-data';
 import { apiErrorMessage } from '@/lib/api';
 import { asksBeforeLine, asksBeforePhrases, summaryFor } from '@/lib/runners/agents';
-import { queuedRunsLine, recordsWaitingCount, runnerLineState } from '@/lib/runners/runner-state';
+import { runnerLineState } from '@/lib/runners/runner-state';
 import type { AgentView } from '@/lib/runners/agents';
 import { useAgentBudget, useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
 import { canSeeRunnerDetails, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
@@ -25,7 +25,8 @@ import { AGENT_SYSTEM_LABELS, agentSystemDatabases } from '@/lib/system-database
 import { canChangeRunsOn, ownerRunners } from '@/lib/runners/runs-on';
 import { canEditAgentSettings } from '@/lib/runners/agent-settings';
 import { clockTime, limitBrand, shortDate, toolName } from '@/lib/runners/words';
-import { catchUpCount, offersCatchUp } from '@/lib/runners/catch-up';
+import { offersCatchUp } from '@/lib/runners/catch-up';
+import { QUEUE_HIDDEN, isLimited, waitingFacts } from '@/lib/runners/visibility';
 import { CATCH_UP_FAILED, startedToast } from '@/lib/runners/catch-up-copy';
 import { useCatchUp, useCatchUpScope } from '@/lib/runners/use-catch-up';
 import { useCatchUpList } from '@/lib/runners/use-catch-up-list';
@@ -78,7 +79,9 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   // Ticket #1152: the count is the server's (`catch_up` in the summary, null for anyone but the owner or an admin); the words
   // (noun, state) are read only once there is a box to word, and fall back to "record" if they cannot be.
   const catchUpRow = summaryFor(summary.data, agentId);
-  const catchUp = catchUpCount(catchUpRow);
+  // Ticket #1276: a queue the API says is partly hidden from this viewer gets no count at all (not "waiting 0"), and no catch-up box.
+  const queue = waitingFacts(catchUpRow);
+  const catchUp = queue.catchUp;
   const catchUpWords = useCatchUpScope(ws, agentId, catchUp !== null);
   const catchUpMutation = useCatchUp(ws);
   // Ticket #1224: the names behind the count. Asked only where the count is told (non-null, so never for a guest or another member)
@@ -215,14 +218,23 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
             (isOwner ? (
               <FirstRunCard
                 agentName={agent.name}
-                recordsWaiting={recordsWaitingCount(row)}
+                recordsWaiting={queue.recordsWaiting}
                 noun={catchUpWords.noun}
                 onAdd={goAdd}
               />
             ) : (
               <p className="m-0 text-body text-muted" data-testid="owner-must-add">
                 {agent.name} hasn’t started work yet. {ownerName === 'its owner' ? 'Its owner' : ownerName} needs to add a Runner for it.
-                {row && row.waiting > 0 ? ` ${queuedRunsLine(row.waiting)}.` : ''}
+                {queue.hidden ? (
+                  <span className="text-muted" data-testid="queue-hidden">
+                    {' '}
+                    Its queue: {QUEUE_HIDDEN}.
+                  </span>
+                ) : queue.queued ? (
+                  ` ${queue.queued}.`
+                ) : (
+                  ''
+                )}
               </p>
             ))}
         </>
@@ -272,7 +284,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
           runWithoutAi={mayRunWithoutAi ? { onSwitch: runWithoutAi, pending: aiMode.switchBack.isPending } : undefined}
         />
       )}
-      <RunList budgetHref={budget.data ? '#budget' : undefined} masked={masked} ws={ws} notStarted={catchUp !== null && offersCatchUp({ usesRunner, hasRunner: Boolean(assigned), mayLearnMachine: !masked, count: catchUp }) ? waitingList : null} notStartedWords={catchUpWords} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
+      <RunList budgetHref={budget.data ? '#budget' : undefined} masked={masked} limited={isLimited(wakes.data?.visibility)} agentName={agent.name} ws={ws} notStarted={catchUp !== null && offersCatchUp({ usesRunner, hasRunner: Boolean(assigned), mayLearnMachine: !masked, count: catchUp }) ? waitingList : null} notStartedWords={catchUpWords} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
       <SystemTables ws={ws} databases={databases.data ?? []} />
     </div>
   );

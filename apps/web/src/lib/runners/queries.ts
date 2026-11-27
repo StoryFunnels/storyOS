@@ -13,7 +13,7 @@ import { readRunnerCounts } from './connected-count';
 import { toAgentView } from './agents';
 import type { AgentRecordLike, AgentView } from './agents';
 import type { BudgetDto } from './budget';
-import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, RunnerSharingPatch, WakeDto, WakeSummary } from './types';
+import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, RunnerSharingPatch, WakeDto, WakeSummary, WakesPage } from './types';
 
 /**
  * Ticket #1139 — every Runner read and write the screens make, on the REAL endpoints (ADR-0021 §11). No fake data lives here:
@@ -107,7 +107,7 @@ export function useAgentWakes(ws: string, agentId: string | undefined) {
   return useQuery({
     queryKey: runnerKeys.wakes(ws, agentId ?? ''),
     queryFn: async () =>
-      unwrap<{ data: WakeDto[]; next_cursor: string | null }>(
+      unwrap<WakesPage>(
         await api.GET('/api/v1/workspaces/{ws}/agent-wakes', { params: { path: { ws }, query: { agent: agentId, limit: 50 } } } as never),
       ),
     enabled: Boolean(agentId),

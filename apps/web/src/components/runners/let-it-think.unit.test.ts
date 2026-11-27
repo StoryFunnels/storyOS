@@ -230,7 +230,11 @@ describe('the page wires the gates it is tested against', () => {
   });
   it('the catch-up box (ticket #1152) replaced the hook comment, and is drawn only through the named predicates', () => {
     expect(src).not.toContain('HOOK, ticket #1152');
-    expect(src).toContain('catchUpCount(catchUpRow)');
+    // Ticket #1276: the count still comes from the summary row through `catchUpCount`, now inside `waitingFacts` so a queue the API
+    // says is partly hidden gets no count at all. The page must use that one function, not call the predicate beside it.
+    expect(src).toContain('waitingFacts(catchUpRow)');
+    expect(src).toContain('const catchUp = queue.catchUp;');
+    expect(readFileSync(fileURLToPath(new URL('../../lib/runners/visibility.ts', import.meta.url)), 'utf8')).toContain('catchUp: catchUpCount(row)');
     expect(src).toMatch(/offersCatchUp\(\{ usesRunner, hasRunner: Boolean\(assigned\), mayLearnMachine: !masked, count: catchUp \}\)/);
     // Under "Runs on", before the first-time card and the Run now row's neighbours.
     expect(src.indexOf('<RunsOnLine')).toBeLessThan(src.indexOf('<CatchUpBox'));
