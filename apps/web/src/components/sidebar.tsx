@@ -9,6 +9,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
 import { dropEdge, dropGroupId, holdUnderPointer } from '@/lib/space-drag';
+import { spaceHeaderClass } from '@/lib/space-header-class';
 import { atLeast } from '@/lib/access';
 import { EXPAND_SPACE_EVENT, spaceCollapseKey } from '@/lib/pack-landing';
 import { Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, MoreHorizontal, Plus, Search, Settings, Star, UserRound, X} from 'lucide-react';
@@ -1855,14 +1856,11 @@ function SpaceSection({
         // Ticket #1346 — no transform, no transition (nothing slides), and no `sticky` while a drag is on: a pinned header that is
         // also moved is what painted over the rows below it. The vacated slot and the drop line are the shared drag presentation.
         style={{ top: spaceDrag.dragging ? undefined : stickyTop }}
-        className={cn(
-          'group sticky z-20 h-6 cursor-grab touch-manipulation bg-frame active:cursor-grabbing',
-          // `cn` merges, so each of these REPLACES the base it names. Not pinned while a space is dragged; and the landing flash is
-          // the hover tint in place of the panel colour (it does not animate under reduced motion).
-          spaceDrag.dragging && 'static',
-          spaceDrag.flashId === space.id && 'bg-hover motion-safe:transition-colors',
-          vacatedSlotClass(isDragging),
-        )}
+        className={spaceHeaderClass('group sticky z-20 h-6 cursor-grab touch-manipulation bg-frame active:cursor-grabbing', {
+          dragging: spaceDrag.dragging,
+          flash: spaceDrag.flashId === space.id,
+          isDragging,
+        })}
         indicator={
           <DropIndicator
             active={isOver && !isDragging && spaceDrag.activeId !== null}
@@ -1887,7 +1885,7 @@ function SpaceSection({
                 onClick={toggleCollapsed}
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
-                aria-expanded={!collapsed}
+                aria-expanded={!shut}
               >
                 <ChevronRight
                   className={cn('h-3 w-3 shrink-0 transition-transform', !shut && 'rotate-90')}
