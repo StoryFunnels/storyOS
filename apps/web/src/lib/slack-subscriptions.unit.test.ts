@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CONNECT_SLACK_PREFIX,
   DUPLICATE_CHANNEL_LINE,
-  RESTRICTED_REFUSAL_PREFIX,
+  RESTRICTED_ACK_CODE,
   addDraft,
   attentionLine,
   channelInSentence,
@@ -119,16 +119,25 @@ describe('#1388 addDraft', () => {
 });
 
 describe('#1388 the restricted refusal', () => {
-  it("is recognised by the API's own opening words, and ordinary refusals are not mistaken for it", () => {
-    expect(isRestrictedRefusal(`${RESTRICTED_REFUSAL_PREFIX}: its titles go to a channel...`)).toBe(true);
-    expect(isRestrictedRefusal('Connect Slack first')).toBe(false);
-    expect(isRestrictedRefusal(undefined)).toBe(false);
+  const refusal = (code: string, message = 'This space or database is restricted. …') => ({ error: { code, message } });
+
+  it("is recognised by the API's code, whatever the words say", () => {
+    expect(isRestrictedRefusal(refusal(RESTRICTED_ACK_CODE))).toBe(true);
+    expect(isRestrictedRefusal(refusal(RESTRICTED_ACK_CODE, 'reworded entirely'))).toBe(true);
   });
 
-  // The API has no code for this refusal today, so the screen matches its wording. If the wording moves, this fails instead of the notice silently never appearing.
-  it("the prefix is in the API's source", () => {
+  it('is not mistaken for other refusals, even one that opens with the same words', () => {
+    expect(isRestrictedRefusal(refusal('validation_failed'))).toBe(false);
+    expect(isRestrictedRefusal(refusal('validation_failed', 'This space or database is restricted. Send acknowledge_restricted'))).toBe(false);
+    expect(isRestrictedRefusal(refusal('conflict'))).toBe(false);
+    expect(isRestrictedRefusal({ message: 'This space or database is restricted' })).toBe(false);
+    expect(isRestrictedRefusal(undefined)).toBe(false);
+    expect(isRestrictedRefusal(null)).toBe(false);
+  });
+
+  it('the code is the API\'s', () => {
     const api = readFileSync(fileURLToPath(new URL('../../../api/src/integrations/slack-subscriptions.service.ts', import.meta.url)), 'utf8');
-    expect(api).toContain(RESTRICTED_REFUSAL_PREFIX);
+    expect(api).toContain(`RESTRICTED_ACK_CODE = '${RESTRICTED_ACK_CODE}'`);
   });
 });
 
