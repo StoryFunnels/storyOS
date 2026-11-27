@@ -404,10 +404,22 @@ nothing is ever written to it.
   result of every sync. Members see counts per team on `GET /workspaces/{ws}/linear/ownership`.
   Switching the team's write-back off and on again puts the dead letters and the unmapped ones back
   in the queue.
-- **Only what changes after you switch it on.** Turning it on never replays earlier edits; and the
-  moment a team is cut over counts as the start, so what the final read wrote is not sent back.
-  After a status is written, a later Linear sync cannot apply it as a foreign change (a StoryOS-owned
-  team is never written by the sync) and it is not queued again.
+- **Only records touched after you switch it on, and no backfill.** Turning it on does not go back
+  through earlier edits: a record is considered only if it was changed after the switch was turned on
+  (and after the cutover). Anything that already differed from Linear before that is **not** pushed
+  in bulk, and nothing reports it. One consequence to know: StoryOS compares the status it holds
+  with what Linear holds, it does not ask what changed, so editing *any* field of such a record
+  later (a title-only edit, say) also sends its status if the two still differ. The moment a team
+  is cut over counts as the start, so what the final read wrote is not sent back. After a status
+  is written, a later Linear sync cannot apply it as a foreign change (a StoryOS-owned team is never
+  written by the sync) and it is not queued again.
+- **No notification when it gives up.** A dead letter is shown in the counts above and nowhere
+  else: nobody is emailed or notified. Check the counts, or the sync summary, while it is on.
+- **The ownership check is not atomic with the send.** StoryOS checks that the team is StoryOS-owned
+  and the switch is on, then calls Linear; nothing holds the settings still in between. A hand-back
+  or switch-off that lands in that window (milliseconds) can let one write through that was allowed
+  when it was checked; the next pass cancels the rest. A damaged or unreadable ownership state never
+  allows a write: the team must say exactly "StoryOS" and the switch exactly "on".
 - **People and agents.** A status set by an agent counts the same as one set by a person; the row
   keeps who changed it (human, agent, automation, MCP) and an agent's change is logged in the audit log as
   `outward.linear_status` with the agent and its run. Turning the switch on or off is an audit log entry too.

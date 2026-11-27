@@ -66,12 +66,17 @@ export function teamOwnership(settings: OwnershipSettings | null | undefined, te
 /**
  * Ticket #1390 - THE guard for writing a status to Linear: the team is StoryOS-owned AND an admin switched status write-back on for it.
  * A team Linear owns never passes, whatever else is stored (a hand-back switches it off, but this does not rely on that). Anything that
- * decides whether to send a status asks this and nothing else; damaged ownership reads `storyos` (see `teamOwnership`), damaged
- * write-back state reads OFF, the safe side of each.
+ * decides whether to send a status asks this and nothing else.
+ *
+ * FAIL CLOSED FOR AN OUTWARD WRITE: `teamOwnership` reads damaged state as `storyos`, which is right for protecting StoryOS edits from
+ * an inbound overwrite and WRONG here, where `storyos` is the permission to change someone's Linear. So this does not use it: the
+ * ownership entry must exist, be an object and say exactly `owner: 'storyos'`, and the switch must be exactly `enabled: true`.
+ * Anything else (bogus, null, a string, `{}`) is not allowed.
  */
 export function statusWriteBack(settings: OwnershipSettings | null | undefined, teamKey: string): { allowed: boolean; enabled_at?: string } {
-  if (teamOwnership(settings, teamKey).owner !== 'storyos') return { allowed: false };
   const wanted = teamKey.toLowerCase();
+  const owned = Object.entries(settings?.team_ownership ?? {}).find(([key]) => key.toLowerCase() === wanted)?.[1];
+  if (!owned || typeof owned !== 'object' || (owned as { owner?: unknown }).owner !== 'storyos') return { allowed: false };
   const found = Object.entries(settings?.status_write_back ?? {}).find(([key]) => key.toLowerCase() === wanted);
   const entry = found?.[1];
   if (!entry || typeof entry !== 'object' || entry.enabled !== true) return { allowed: false };

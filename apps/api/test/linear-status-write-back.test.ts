@@ -45,6 +45,11 @@ describe('statusWriteBack guard (pure)', () => {
       expect(statusWriteBack({ team_ownership: owned, status_write_back: bad } as unknown as OwnershipSettings, 'ENG').allowed).toBe(false);
     }
   });
+  it('DAMAGED OWNERSHIP never allows an outward write, even with the switch on (teamOwnership reads these as storyos: right for protecting inbound edits, wrong for an outward write)', () => {
+    for (const bad of [{ owner: 'bogus' }, null, 'x', {}, { owner: 'STORYOS' }, { owner: undefined }]) {
+      expect(statusWriteBack({ team_ownership: { ENG: bad }, status_write_back: on } as unknown as OwnershipSettings, 'ENG').allowed, JSON.stringify(bad)).toBe(false);
+    }
+  });
   it('matches the team key case-insensitively', () => {
     expect(statusWriteBack({ team_ownership: owned, status_write_back: on }, 'eng').allowed).toBe(true);
   });
@@ -72,6 +77,8 @@ let failWith = 'Linear API 500 — check the API key';
 let loseResponseOnce = false;
 /** Runs while an issueUpdate is in flight (after Linear accepted it, before the answer is back): a change made in StoryOS at that moment. */
 let duringUpdate: (() => Promise<void>) | null = null;
+/** The workflow states Linear answers with for the issue's own team; null = the standard three. */
+let teamStates: Array<{ id: string; name: string; type: string }> | null = null;
 const as = (token: string, method: string, url: string, payload?: unknown) => call(app, token, method, url, payload);
 const adm = (method: string, url: string, payload?: unknown) => as(admin.token, method, url, payload);
 const rows = async (q: ReturnType<typeof sql>) => (await rawDb.execute(q)).rows as Array<Record<string, unknown>>;
@@ -88,7 +95,7 @@ const use = (teams: Array<{ team: typeof ENG; issues: Array<Record<string, unkno
       const name = linearState.get(String(variables['id']));
       if (name === undefined) return { issue: null };
       const state = WORKFLOW_STATES.find((s) => s.name === name)!;
-      return { issue: { id: variables['id'], state: { id: state.id, name }, team: { id: 'team-x', key: 'X', states: { nodes: WORKFLOW_STATES.map(({ id, name: n, type }) => ({ id, name: n, type })), pageInfo: { hasNextPage: false, endCursor: null } } } } };
+      return { issue: { id: variables['id'], state: { id: state.id, name }, team: { id: 'team-x', key: 'X', states: { nodes: (teamStates ?? WORKFLOW_STATES).map(({ id, name: n, type }) => ({ id, name: n, type })), pageInfo: { hasNextPage: false, endCursor: null } } } } };
     }
     if (query === ISSUE_STATUS_UPDATE_MUTATION) {
       expect(key).toBe(KEY);
@@ -133,7 +140,7 @@ const setLinearSettings = async (patch: Record<string, unknown>) =>
   rawDb.execute(sql`update workspaces set settings = jsonb_set(settings, '{linear}', (settings->'linear') || ${JSON.stringify(patch)}::jsonb) where id = ${ws}`);
 const turnOn = async (key: string) => { const r = await adm('PUT', urls.writeBack(key), { enabled: true }); expect(r.statusCode, r.body).toBe(200); await sleep(15); };
 const cutOver = async (key: string) => { const r = await adm('PUT', urls.owner(key), { owner: 'storyos' }); expect(r.statusCode, r.body).toBe(200); };
-const resetOutbox = async () => { await rawDb.execute(sql`delete from linear_status_pushes where workspace_id = ${ws}`); updates = []; reads = []; failUpdates = 0; loseResponseOnce = false; duringUpdate = null; };
+const resetOutbox = async () => { await rawDb.execute(sql`delete from linear_status_pushes where workspace_id = ${ws}`); updates = []; reads = []; failUpdates = 0; loseResponseOnce = false; duringUpdate = null; teamStates = null; };
 const HOUR = 3_600_000;
 const later = (hours: number) => new Date(Date.now() + hours * HOUR);
 
@@ -432,5 +439,81 @@ describe('the guard holds at send time too, and a read of our own write is never
     expect(updates).toEqual([]);
     expect((await rows(sql`select count(*)::int as n from linear_status_pushes where team_key = 'QUA'`))[0]!.n).toBe(0);
     expect((await rows(sql`select count(*)::int as n from records where database_id = ${await issuesDbOf('QUA')} and values::text like '%Done%'`))[0]!.n, 'the sync did write the Linear change into QUA').toBeGreaterThan(0);
+  });
+});
+
+describe('the state is matched by EXACT name, in the issue\'s own team workflow, and nothing else', () => {
+  const near = [
+    { id: 'st-x1', name: 'In Progress (QA)', type: 'started' },
+    { id: 'st-x2', name: 'in progress', type: 'started' },
+    { id: 'st-x3', name: 'In Progress ', type: 'started' },
+    { id: 'st-x4', name: 'Progress', type: 'started' },
+    { id: 'st-todo', name: 'Todo', type: 'unstarted' },
+  ];
+  it('a near miss, a different case and a trailing space are NOT the state: unmapped, nothing written, no guess', async () => {
+    // one near miss at a time: with several the lookup would be ambiguous and refuse for that reason, hiding a loose match
+    for (const miss of near.slice(0, 4)) {
+      await resetOutbox();
+      teamStates = [miss, near[4]!];
+      await setStatus('ENG', 2, 'Done');
+      await setStatus('ENG', 2, 'In Progress');
+      await svc.tick(later(70));
+      expect(updates, miss.name).toEqual([]);
+      expect(await outbox('ENG', 2), miss.name).toMatchObject({ status: 'unmapped', target_label: 'In Progress' });
+    }
+  });
+
+  it('a state of that name that exists only in ANOTHER team is not used: the read answers with the issue\'s own team workflow, which has none', async () => {
+    await resetOutbox();
+    // the other team (QUA) has a state called In Progress; ENG-2's own workflow does not, and the lookup never leaves ENG-2's team
+    teamStates = [{ id: 'st-todo', name: 'Todo', type: 'unstarted' }, { id: 'st-done', name: 'Done', type: 'completed' }];
+    await setStatus('ENG', 2, 'Done');
+    await setStatus('ENG', 2, 'In Progress');
+    await svc.tick(later(71));
+    expect(updates).toEqual([]);
+    expect(await outbox('ENG', 2)).toMatchObject({ status: 'unmapped' });
+  });
+
+  it('the exact name still maps among the near misses (control)', async () => {
+    await resetOutbox();
+    teamStates = [...near, { id: 'st-prog', name: 'In Progress', type: 'started' }];
+    await setStatus('ENG', 2, 'Done');
+    await setStatus('ENG', 2, 'In Progress');
+    await svc.tick(later(72));
+    expect(updates.map((u) => u.input)).toEqual([{ stateId: 'st-prog' }]);
+  });
+});
+
+describe('damaged ownership state never writes outward, at the enqueue site and at the send site', () => {
+  const damaged: unknown[] = [{ owner: 'bogus' }, null, 'x', {}];
+  const entryOf = async () => (await rows(sql`select settings->'linear'->'team_ownership'->'ENG' as e from workspaces where id = ${ws}`))[0]!['e'];
+  const setOwnershipRaw = (v: unknown) => setLinearSettings({ team_ownership: { ENG: v } });
+
+  it('enqueue site: with the switch on, none of the four damaged values queues anything', async () => {
+    for (const bad of damaged) {
+      await resetOutbox();
+      const entry = await entryOf();
+      await setStatus('ENG', 4, 'In Progress');
+      await setOwnershipRaw(bad);
+      expect(await svc.enqueueEligible(ws, later(80)), JSON.stringify(bad)).toBe(0);
+      expect(await outboxRows()).toBe(0);
+      await setOwnershipRaw(entry);
+      await setStatus('ENG', 4, 'Todo');
+    }
+  });
+
+  it('send site: a row queued while the team was fine is cancelled, not sent, once the state is damaged', async () => {
+    for (const bad of damaged) {
+      await resetOutbox();
+      const entry = await entryOf();
+      await setStatus('ENG', 4, 'In Progress');
+      expect(await svc.enqueueEligible(ws, later(81))).toBeGreaterThanOrEqual(1);
+      await setOwnershipRaw(bad);
+      await svc.tick(later(82));
+      expect(updates, JSON.stringify(bad)).toEqual([]);
+      expect(await outbox('ENG', 4)).toMatchObject({ status: 'cancelled' });
+      await setOwnershipRaw(entry);
+      await setStatus('ENG', 4, 'Todo');
+    }
   });
 });

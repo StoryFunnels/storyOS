@@ -36,6 +36,8 @@ const BATCH = 20;
  *    from the `linear_status` the importer last read). Field history is off on a plan with no retention and pruned on the others, so
  *    a trigger built on it would silently never fire there. Comparing state also coalesces for free: ten changes are one row aimed at
  *    the latest status, and Todo -> Done -> Todo queues nothing.
+ *    Consequence, documented in the guide: it compares, it does not ask what changed, so a title-only edit of a record whose status
+ *    already differed from Linear's pushes that status. Narrowing it needs field history, which a plan can have off.
  *  - ONE row per record. `generation` is the monotonic change id: it goes up when the target changes, a send claims one generation,
  *    and its outcome is stored only if that generation is still current, so a slow send never buries a newer change.
  *  - Exactly once: every attempt READS Linear first and sends nothing when the issue already has the status, so a retry after a lost
@@ -162,6 +164,10 @@ export class LinearStatusWriteBackService implements OnModuleInit, OnModuleDestr
    * THE guard, asked before anything leaves: the record's database is a Linear team's mirror, StoryOS owns that team, and an admin
    * switched status write-back on for it. Read fresh from the settings every time. Returns the reason when not, or the team and the
    * record's facts when so.
+   *
+   * Not atomic with the send, and it cannot be: the guard is read, then Linear is called, with nothing holding the settings still in
+   * between. A hand-back or switch-off that lands in that window (milliseconds, around two requests) can still let ONE write through that
+   * was allowed when it was checked. It is bounded to the rows of that batch and the next tick cancels the rest.
    */
   private async mayWrite(workspaceId: string, recordId: string): Promise<{ ok: false; reason: string } | { ok: true; teamKey: string; linearId: string; label: string }> {
     const record = await this.db.query.records.findFirst({ where: eq(records.id, recordId), columns: { databaseId: true, values: true, deletedAt: true } });
@@ -170,7 +176,7 @@ export class LinearStatusWriteBackService implements OnModuleInit, OnModuleDestr
     if (!owner) return { ok: false, reason: 'This record is not part of a Linear team mirror.' };
     if (owner.owner !== 'storyos') return { ok: false, reason: `${owner.team_key} is owned by Linear: StoryOS never writes to it.` };
     const settings = await this.linear.readLinearSettings(workspaceId);
-    if (!statusWriteBack(settings, owner.team_key).allowed) return { ok: false, reason: `Status write-back is switched off for ${owner.team_key}.` };
+    if (!statusWriteBack(settings, owner.team_key).allowed) return { ok: false, reason: `Status write-back is not on for ${owner.team_key}, or its ownership state is not exactly StoryOS.` };
     const f = await this.fieldIds(record.databaseId);
     const values = (record.values ?? {}) as Record<string, unknown>;
     const linearId = f.linearId ? values[f.linearId] : null;
