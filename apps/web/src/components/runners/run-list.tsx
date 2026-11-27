@@ -27,6 +27,7 @@ export function RunList({
   error,
   tz,
   masked = false,
+  budgetHref,
   notStarted = null,
   notStartedWords = null,
 }: {
@@ -39,6 +40,8 @@ export function RunList({
   tz?: TimeOpts;
   /** The viewer may not be told machine or tool names (a guest). */
   masked?: boolean;
+  /** Ticket #1268: where the agent's budget card is on this page (`#budget`), set only when the card is drawn. A run waiting on the budget links to it. */
+  budgetHref?: string;
   /**
    * Ticket #1224: the records waiting in the trigger state that catch-up has not queued yet, one grey "Not started" row each. Null
    * (a guest, a refusal, a failed read) draws nothing. The rows go when the click queues them: the list is re-read after it.
@@ -102,6 +105,11 @@ export function RunList({
             return (
               <RunRowFrame key={w.id} title={title} href={href} sub={line.sub}>
                 <StatusMark tone={line.tone}>{line.label}</StatusMark>
+                {w.run_state.state === 'waiting_for_budget' && budgetHref && (
+                  <a href={budgetHref} className="text-label font-medium text-primary-text underline" data-testid="budget-link">
+                    See budget
+                  </a>
+                )}
                 {line.action === 'review' && (
                   <Link
                     href={`/w/${ws}/runs`}
