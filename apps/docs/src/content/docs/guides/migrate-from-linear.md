@@ -19,7 +19,7 @@ is the whole contract. Details for each line follow below.
 
 | | What | When |
 |---|---|---|
-| **Linear → StoryOS** | Teams, issues, cycles, projects, project milestones, labels, workflow statuses and comments, written into the mirrored space. | When you press **Import**, and on the schedule if an admin turned it on. |
+| **Linear → StoryOS** | Teams, issues (with Linear's own numbers, dates and status history), cycles, projects, project milestones, labels, workflow statuses, people and comments, written into the mirrored space. | When you press **Import**, and on the schedule if an admin turned it on. |
 | **StoryOS → Linear** | **Comments only**, and only if an admin turned write-back on. Each is signed `<author> · via StoryOS`. | A comment is queued once, picked up within about a minute, and retried only if delivery fails (30 seconds, 2 minutes, 10 minutes, 1 hour, then it is marked as not delivered). |
 | **Everything else** | Nothing. The only thing the write-back writes to Linear is a new comment; it never edits an issue's title, status, assignee or any other field. (A retry also reads the issue's comments, see below.) | |
 
@@ -94,8 +94,10 @@ edited a field, so it does not stop an agent or a person from editing any field 
 does is below.
 
 **Written again from Linear on every issue the sync reads:** Name, Identifier, State, Linear Status,
-Priority, Assignee (name), Estimate and URL, plus Linear ID on first creation. A value cleared in
-Linear (no priority, no assignee, no estimate) is written as empty. So an edit in StoryOS to one of
+Priority, **Assignee** and Assignee (name), Estimate, URL, **Started**, **Completed** and **Due Date**, plus
+Linear ID on first creation. The record's own **created and last-updated times** are set to Linear's
+too, and so is the imported **State history** (see below). A value cleared in
+Linear (no priority, no assignee, no estimate, no due date) is written as empty. So an edit in StoryOS to one of
 those fields lasts only until Linear's copy of that issue is next read (on a scheduled run, an
 issue Linear has not changed is not read, so it is not rewritten until the daily full read).
 
@@ -119,6 +121,9 @@ keeps the link it had, and the run counts it and says so.
   database.
 - Comments already imported, and everything written to Linear (see *Comment write-back*).
 
+**State history** is replaced as a set on every issue the sync reads: the rows the importer wrote (marked
+as an import) are rewritten from Linear's history, and every row a person, an agent or an automation wrote is left alone.
+
 **Description Drift** is the one bookkeeping flag the sync writes. It ticks it when Linear's text changed, and leaves it unticked on a new record or one whose description is still blank. It does not untick a flag on a record that has a description.
 
 State options: each sync adds an option for every Linear status, keeps Linear's order, and sets the
@@ -129,15 +134,18 @@ reports. It adds options and never deletes them.
 
 | Linear | StoryOS |
 |---|---|
-| Team | Space `"<Team name> (Linear)"` with Issues + Sprints + Projects + Milestones databases |
-| Issue | Record in **Issues** |
+| Team | Space `"<Team name> (Linear)"` (or the name you chose, see [Choosing a team's space](#choosing-a-teams-space)) with Issues + Sprints + Projects + Milestones databases. A **private** team gets a **restricted** space, see [Private teams](#private-teams). |
+| Issue | Record in **Issues**, numbered with Linear's own number where the database allows it (see [Numbers and identifiers](#numbers-and-identifiers)) |
+| Issue created / updated | The record's own created and last-updated times: Linear's, not the day of the import |
+| Issue started / completed / due | **Started**, **Completed** and **Due Date** date fields (the day, in UTC) |
+| Issue history (state changes) | Rows in the record's field history on **State**, at their real times, marked as an import, with the person as the actor when they match a member |
 | Issue title / identifier / URL | Name / Identifier / URL |
 | Issue / project description (markdown) | Record description (rich text) — headings, lists, links, code preserved. Only written when the record has no description yet, so re-imports never overwrite edits. |
 | Workflow state | **State** select with **your team's own Linear statuses**, named as in Linear and in Linear's order, so *Ready For Staging* and *Deployed* stay distinct. The status name is also kept in a **Linear Status** text field. |
 | Priority (1–4) | Priority select: Urgent / High / Medium / Low (no priority → empty) |
 | Labels | **Labels database** (name + color) with a many-to-many relation on Issues — reusable, filterable, colorable. Idempotent by Linear label id. |
 | Estimate | Estimate (number) |
-| Assignee | **Assignee (name)** — plain text. Users aren't matched automatically: invite your team first, then reassign. Nothing is lost. |
+| Assignee | The workspace **member with the same email** goes in the **Assignee** person field. Someone who matches no member is kept by name in **Assignee (name)** and listed in the import report, never dropped. See [People](#people). |
 | Parent / sub-issues | Parent Issue self-relation (Sub-issues on the other side) |
 | Cycle | Record in **Sprints** (number, start/end dates) + Sprint relation on the issue |
 | Project | Record in **Projects** (state, target date, URL) + Project relation on the issue |
@@ -148,17 +156,72 @@ reports. It adds options and never deletes them.
 ## Comments
 
 Comments come across as native StoryOS comments on each record, so they show where people already
-look. Each opens with a header naming the Linear author (or the bot or external user), the time and
-*(from Linear)*, keeps its original timestamp, and ends with a link to the original comment. They
-are marked as not written by a person, and importing them sends no notifications. Reactions, file
+look. A comment whose Linear author has the same email as a workspace member is written **as that
+member**. Anyone else (a bot, an external user, a person who is not a member) is written under the
+importing account, and the comment opens with a header naming the Linear author, the time and
+*(from Linear)*. Either way it keeps its original timestamp and ends with a link to the original
+comment. They are marked as not written by a person, and importing them sends no notifications.
+If the author joins the workspace later, the next run **re-authors** the comment already imported as them: it
+never imports it a second time. Reactions, file
 attachments (images stay as links), @mentions as StoryOS mentions, reply threading and later edits in
 Linear are not carried: comments are flat, in time order, and a comment already imported is not
 updated.
 
+## People
+
+Linear people are matched to workspace members **by email address, and by nothing else**. A display name
+is not an identity: two people share one, and one person changes theirs.
+
+- A matched assignee goes in the **Assignee** person field and **Assignee (name)** is cleared.
+- A person who matches no member is not guessed at and not dropped: the issue's **Assignee** is empty, their
+  name is kept in **Assignee (name)**, and the import report lists every one of them with their email and how
+  many issues (or comments) they have. Invite them, run the import again, and they are matched.
+- **Invite your team before the first import.** Matching happens against who is in the workspace when the run
+  reads it. Guests count as members.
+- This needs Linear to return people's emails to your API key. If it does not, nothing matches and the report
+  says so.
+
+## Numbers and identifiers
+
+A database can carry an identifier prefix (see [Identifiers](/concepts/record-identifiers/)). On a **fresh** import
+the Issues database is written under **Linear's own numbers**, so the record Linear calls `ISSUE-5201` is
+number 5201 and answers to `ISSUE-5201` here, and records made in StoryOS afterwards continue after the highest
+imported number. The team key becomes the prefix.
+
+- If another database in the workspace already holds that prefix, it is **not** taken: the report names the
+  holder, the issues keep Linear's numbers, and an admin can set a prefix on the Issues database once one is free.
+- If a record already holds a number Linear's issue needs (a hand-made one), the import **stops and names
+  it**. It never overwrites or renumbers a record.
+- **A mirror made before this existed is not renumbered.** Its records were numbered in import order, which does
+  not match Linear's numbers, so a sync keeps them as they are, says so in the report, and sets no prefix
+  (the identifier would be wrong with confidence). To get Linear's numbers, import into a new space or workspace.
+
+## Choosing a team's space
+
+By default each team lands in a space named `"<Team name> (Linear)"`. In the Linear settings an admin can give a
+team key its own space name (used when the space is created) or point it at an existing space. Once a team has
+a space, the sync remembers it **by id**, so renaming the space later does not lose it and does not create a
+second one.
+
+## Private teams
+
+A private team in Linear is imported only where an admin has switched **private teams** on for the workspace.
+While it is off, a sync that includes a private team is refused before anything is read or written, naming the team.
+A workspace's admins can see restricted content, so only switch it on in a workspace set up for that team.
+
+- The team's space is created **restricted**, before the first record is written into it, and its members (matched
+  by email) are granted editor access. Anyone else, including other members and guests, does not see the space,
+  its databases or its records. The members who could not be matched are listed in the report and get nothing.
+- A space that already exists open for a team that is now private is **restricted first**, before the sync writes
+  to it. A sync never opens a restricted space again, even if the team becomes public.
+- Removing someone from a private team in Linear does **not** revoke their access here. Remove their grant in the space's sharing settings.
+- Linear only returns private teams that the API key's own user belongs to. The preview lists any chosen team key
+  the key cannot see, because a team it cannot see would otherwise never import.
+
 ## What is intentionally NOT imported
 
-- **Members** — deliberate. Assignee names are preserved as text so nothing
-  silently maps to the wrong account.
+- **Linear's issue history other than state changes.** Edits to titles, priorities, assignees and so on are not
+  replayed; the state timeline is. On a plan that keeps no field history, no history is imported and the report says so.
 
 ## Limits
 

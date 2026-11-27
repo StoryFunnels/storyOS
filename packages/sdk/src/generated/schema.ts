@@ -6782,6 +6782,14 @@ export interface components {
                 enabled?: boolean;
                 require_approval_for_agent_comments?: boolean;
             };
+            allow_private_teams?: boolean;
+            team_spaces?: {
+                [key: string]: {
+                    /** Format: uuid */
+                    space_id?: string;
+                    space_name?: string;
+                };
+            };
         };
         SlackConfigDto: {
             bot_token?: string;

@@ -220,21 +220,32 @@ export class CommentsService implements OnModuleInit {
     doc: unknown[],
     createdAt: Date,
     originalUrl: string,
-  ): Promise<'created' | 'exists'> {
+    /**
+     * Ticket #1367 — the workspace member the source's author maps to (by email), or null. An existing comment imported earlier under the
+     * sync account is RE-AUTHORED, never re-created: the key is the original link, so a second insert would duplicate it.
+     */
+    memberAuthorId: string | null = null,
+  ): Promise<'created' | 'exists' | 'reauthored'> {
     const key = [{ type: 'paragraph', content: [{ type: 'link', href: originalUrl }] }];
     const [existing] = await this.db
-      .select({ id: comments.id })
+      .select({ id: comments.id, authorId: comments.authorId })
       .from(comments)
       .where(and(eq(comments.recordId, recordId), sql`${comments.body} @> ${JSON.stringify({ format: 'blocknote', doc: key })}::jsonb`))
       .limit(1);
-    if (existing) return 'exists';
+    if (existing) {
+      if (memberAuthorId && existing.authorId !== memberAuthorId) {
+        await this.db.update(comments).set({ authorId: memberAuthorId }).where(eq(comments.id, existing.id));
+        return 'reauthored';
+      }
+      return 'exists';
+    }
     const footer = {
       type: 'paragraph',
       content: [{ type: 'link', href: originalUrl, content: [{ type: 'text', text: 'Original comment in Linear', styles: {} }] }],
     };
     await this.db.insert(comments).values({
       recordId,
-      authorId,
+      authorId: memberAuthorId ?? authorId,
       body: { format: 'blocknote', doc: [...doc, footer] },
       mentions: [],
       source: 'automation',
