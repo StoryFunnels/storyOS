@@ -69,6 +69,11 @@ export const EXCLUDED: CoverageRule[] = [
       "#885 — it advertises which OPTIONAL server capabilities are currently usable, so a web client can decline to offer a control that would only fail. Its one entry today is PDF export, which is itself EXCLUDED from MCP (a binary result an MCP client cannot use — see the export/pdf rule above), so an agent has nothing to do with the answer. This is a reason tied to what the endpoint reports TODAY, not a standing claim that agents never need it: the day an entry lands here for a capability MCP CAN use (an optional integration an agent would call), this rule must be removed and a tool added — the endpoint exists precisely so that capabilities gain an entry, not a route.",
   },
   {
+    match: /(POST|PATCH|DELETE) .*\/integrations\/slack\/subscriptions(\/|$)/,
+    reason:
+      "ticket #1377 (Otto's ruling on the Slack plan: creating, changing or deleting a subscription is human-only; an agent may only list them) - a subscription decides WHERE A WORKSPACE'S RECORDS ARE SENT: the title, state and author of every new record, status change and comment go into a Slack channel whose membership StoryOS does not control. An agent that could create one could route data out of the product on its own, which is the line #441 draws for grants and #1131 for Runners. The API enforces it too: these routes need an admin-scoped token, which an agent's per-run credential never has. The read half IS a tool (list_slack_subscriptions, admin scope like its route): an agent an admin trusted with that can see what posts where, and whether a subscription has stopped because its creator lost access.",
+  },
+  {
     match: /(POST|DELETE|PATCH) .*\/(grants|invites|members)(\/|$)/,
     reason:
       /*
@@ -227,7 +232,9 @@ export const EXCLUDED: CoverageRule[] = [
       'Irreversible erasure of a person\'s data, and an export of everything held about them. Both are decisions with legal weight that a human takes deliberately.',
   },
   {
-    match: /\/api\/v1\/workspaces\/\{ws\}\/integrations(\/|$)/,
+    // #1377 narrowed it (the shape #491 gave /connections): the Slack channel SUBSCRIPTIONS list is not a credential, it says which space or
+    // database posts to which channel, and it is the tool list_slack_subscriptions. Its writes have their own rule above.
+    match: /\/api\/v1\/workspaces\/\{ws\}\/integrations(\/(?!slack\/subscriptions(\/|$))|$)/,
     reason:
       'Credential-bearing third-party configuration (Slack tokens, GitHub installations, Linear keys) and provider-specific surfaces such as submitting PR reviews. Storing or rotating someone else\'s credential, and speaking on their behalf on another platform, are separate trust decisions from working inside StoryOS.',
   },

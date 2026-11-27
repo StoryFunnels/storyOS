@@ -5,6 +5,7 @@ import type { NotificationsService } from '../notifications/notifications.servic
 import type { MentionsService } from '../mentions/mentions.service';
 import type { PreferencesService } from '../users/preferences.service';
 import type { AccessService } from '../access/access.service';
+import type { SlackSubscriptionsService } from '../integrations/slack-subscriptions.service';
 import type { SlackService } from '../integrations/slack.service';
 import { DEFAULT_PREFERENCES } from '../users/preferences.constants';
 import type { AgentWakesService } from '../runners/agent-wakes.service';
@@ -75,6 +76,7 @@ function buildService(opts: {
     { isClosedToSomeMembers: vi.fn().mockResolvedValue(false) } as unknown as AccessService,
     { enqueue: vi.fn() } as unknown as AgentWakesService, // ticket #1130: this test never writes an agent mention
     {} as unknown as AgentDeleteHoldService, // #1178: this test never deletes
+    { onCommented: vi.fn() } as unknown as SlackSubscriptionsService, // #1377: this test never calls create()
   );
   return { service, sent, preferences, slackPosts };
 }

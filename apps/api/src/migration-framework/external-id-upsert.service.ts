@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import type { ChangeSource } from '../db/schema';
 import { RecordsService } from '../records/records.service';
+import { runAsImportRun } from '../common/import-run-context';
 import type { Membership } from '../workspaces/workspace-access.guard';
 
 export interface UpsertResult {
@@ -35,7 +36,12 @@ export interface UpsertOptions {
 export class ExternalIdUpsertService {
   constructor(private readonly recordsService: RecordsService) {}
 
-  async upsert(
+  /**
+   * Ticket #1377 - every write below is part of an import run, so the events it emits say so (`DomainEvent.importRun`) and a Slack
+   * channel subscription posts nothing for a record an import created. An importer that knows it is incremental sets its mode on the
+   * run it is already inside (the Linear sync does); one that does not is `full`, which is the quiet default.
+   */
+  upsert(
     membership: Membership,
     databaseId: string,
     identityField: string,
@@ -43,6 +49,18 @@ export class ExternalIdUpsertService {
     values: Record<string, unknown>,
     actorId: string,
     options: UpsertOptions = {},
+  ): Promise<UpsertResult> {
+    return runAsImportRun(() => this.upsertInRun(membership, databaseId, identityField, identityValue, values, actorId, options));
+  }
+
+  private async upsertInRun(
+    membership: Membership,
+    databaseId: string,
+    identityField: string,
+    identityValue: string,
+    values: Record<string, unknown>,
+    actorId: string,
+    options: UpsertOptions,
   ): Promise<UpsertResult> {
     const source = options.source ?? 'automation';
     const existing = await this.recordsService.query(

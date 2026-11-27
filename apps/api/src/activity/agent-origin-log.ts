@@ -23,7 +23,9 @@ export type AgentOutwardChannel =
   // approval) is held instead: see calendar-sync.service.ts `assertNoInvitees` and linear-write-back.service.ts `holdIfRequired`.
   | 'calendar_sync'
   | 'linear_comment'
-  | 'ai_field';
+  | 'ai_field'
+  // #1377 — a Slack channel subscription: its destination (the channel) was fixed by an admin, so it runs as configured and is logged.
+  | 'slack_subscription';
 
 export async function logAgentOriginOutward(
   db: Db,

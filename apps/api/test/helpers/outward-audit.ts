@@ -251,6 +251,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'PUT /workspaces/:ws/runner-assignments/:agent': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },
   'POST /runner/v1/pair': { verdict: 'public', why: 'POST /runner/v1/pair is authenticated by the one-time pairing code, not by any token' },
   'GET /workspaces/:ws/agent-wakes': { verdict: 'internal', why: 'read: returns data to the caller only' },
+  'GET /workspaces/:ws/integrations/slack/subscriptions': { verdict: 'internal', why: 'read (#1377): returns which space or database posts to which channel to an admin; nothing leaves StoryOS. The writes need an admin-scoped token, which a run credential (write-capped) never has' },
   'GET /workspaces/:ws/agent-wakes/summary': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /templates': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'POST /workspaces/:ws/templates/:slug/apply': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
@@ -336,6 +337,7 @@ const P1179 = 'run-credential-outward-part2.test.ts';
 export const FANOUT_CONSUMERS: Record<string, FanoutEntry> = {
   'automations/automations.service.ts': { verdict: 'held', why: `outward automation actions are staged when an agent caused the event. Proof: ${P1174}` },
   'sources/write-back.subscriber.ts': { verdict: 'held', why: `a push on a source that opted in to approval is held; one that opted out is logged with the agent. Proof: ${P1174}` },
+  'integrations/slack-subscriptions.service.ts': { verdict: 'logged', why: `#1377: the channel is fixed by an admin who must still be an admin on every event; the post carries title, state, actor and link only and says via agent; logged as outward.slack_subscription with the agent and the run. Proof: run-credential-slack-subscription.test.ts` },
   'webhooks/webhooks.service.ts': { verdict: 'logged', why: `outbound webhook subscriptions are admin-fixed; the delivery carries caused_by. Proof: ${P1174}` },
   'calendar-sync/calendar-sync.service.ts': { verdict: 'logged', why: `the bound calendar is admin-fixed: logged as outward.calendar_sync; an event can never carry guests (assertNoInvitees tripwire). Proof: ${P1179}` },
   'integrations/linear-write-back.service.ts': { verdict: 'held', why: `an agent's comment is posted as the agent and logged; held when write_back.require_approval_for_agent_comments is on. Proof: ${P1179}` },

@@ -24,6 +24,7 @@ import { maskRunnerStamp } from '../runners/runner-identity';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService, escapeSlackText } from '../integrations/slack.service';
+import { SlackSubscriptionsService } from '../integrations/slack-subscriptions.service';
 import { AccessService } from '../access/access.service';
 import { commentDeepLink, commentMentionIds, isBlocknoteCommentBody, renderCommentText, truncateForPreview } from './comment-render';
 
@@ -86,6 +87,8 @@ export class CommentsService implements OnModuleInit {
     private readonly agentWakes: AgentWakesService,
     /** #1178 — the agent's own `delete` approval_policy, applied to a run credential's comment delete. */
     private readonly agentDeletes: AgentDeleteHoldService,
+    /** #1377 — a comment written through the API is one of the three events a Slack channel subscription posts. */
+    private readonly slackSubscriptions: SlackSubscriptionsService,
   ) {}
 
   onModuleInit(): void {
@@ -330,6 +333,8 @@ export class CommentsService implements OnModuleInit {
       snippet,
     });
     this.resyncMentions(workspaceId, recordId, authorId, source);
+    // #1377 — emit-time and best-effort: a Slack subscription's failure never fails or slows the comment someone just wrote.
+    void this.slackSubscriptions.onCommented({ workspaceId, recordId, commentId: created.id, authorId, source }).catch((error) => this.logger.warn(`slack subscription (comment) failed: ${String(error)}`));
     const agentWakes = await this.wakeMentionedAgents(workspaceId, recordId, authorId, created.id, body, source);
     return {
       id: created.id,
