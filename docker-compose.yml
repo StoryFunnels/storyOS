@@ -66,6 +66,26 @@ services:
       YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
       YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
       YOUTUBE_ACTIONS_ENABLED: ${YOUTUBE_ACTIONS_ENABLED:-}
+      # Ticket #1360: pass-through for every variable docs/self-hosting-integrations.md tells an operator to set in
+      # `.env`. Compose only hands the container what is listed here, so an unlisted one is silently dropped.
+      # scripts/compose-env-passthrough.test.mjs fails when a documented variable is missing from this block.
+      # LinkedIn publishing (Tier B). Off until an operator sets the pair and turns the switch on.
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID:-}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET:-}
+      LINKEDIN_ACTIONS_ENABLED: ${LINKEDIN_ACTIONS_ENABLED:-}
+      # Facebook & Instagram publishing (Tier B). META_GRAPH_VERSION defaults to the API's own v21.0, not empty:
+      # an empty value fails the API's `^v[0-9]+\.[0-9]+$` check and the container would not boot.
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_ACTIONS_ENABLED: ${META_ACTIONS_ENABLED:-}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v21.0}
+      # Numeric caps carry the API's own defaults: an empty string coerces to 0 and fails `.positive()` at boot.
+      YOUTUBE_MAX_UPLOAD_BYTES: ${YOUTUBE_MAX_UPLOAD_BYTES:-8589934592}
+      YOUTUBE_UPLOAD_CHUNK_BYTES: ${YOUTUBE_UPLOAD_CHUNK_BYTES:-8388608}
+      ATTACHMENT_MAX_BYTES: ${ATTACHMENT_MAX_BYTES:-20971520}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}
+      SMTP_ALLOW_PRIVATE_CIDRS: ${SMTP_ALLOW_PRIVATE_CIDRS:-}
+      SHOPIFY_WEBHOOK_SECRET: ${SHOPIFY_WEBHOOK_SECRET:-}
       # Managed StoryOS AI (agent runs + Architect proposals). Leave the key
       # empty to keep managed AI disabled; BYO-AI over MCP does not use it.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
