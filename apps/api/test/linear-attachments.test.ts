@@ -359,7 +359,7 @@ describe('an unreadable team space fails closed', () => {
     const pulls = (await dbNamed('GitHub Pull Requests'))!;
     const before = (await rowsOf(pulls.id)).length;
     const svc = app.get(LinearAttachmentsService);
-    const spy = vi.spyOn(svc as never, 'loadSpace').mockResolvedValue(undefined as never);
+    const spy = vi.spyOn(svc as unknown as { loadSpace: () => Promise<undefined> }, 'loadSpace').mockResolvedValue(undefined);
     try {
       attachments = [att('z1', 'i1', 'https://github.com/acme/api/pull/777', { title: 'Unreadable-space PR' })];
       const s = await sync();
