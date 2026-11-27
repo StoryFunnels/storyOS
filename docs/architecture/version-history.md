@@ -278,11 +278,41 @@ the user separately erased) are the design risk to nail in C5.
 
 > **Amended 2026-11-27 (ticket #1385, Ievgen).** The windows below replace the
 > original ones (Free none / Pro 1 day / Business 7 days / Enterprise 30 days).
-> Free is now **capture ON** with a 14-day window. As of that change nothing
-> prunes `record_versions`, `record_field_changes` or `document_versions` (the
-> pruning job described below was never built) and the version list/restore do
-> not filter by the window: the value only gates capture. Prose below that talks
+> Free is now **capture ON** with a 14-day window. Prose below that talks
 > about "tiny" windows or Free being capture-off describes the original decision.
+>
+> **Built 2026-11-27 (ticket #1386).** The window now applies on the read side
+> and the pruning job below exists:
+>
+> - **List and restore filter by the window.** A version or field change older
+>   than the workspace's window is not listed, not previewed and not restorable;
+>   a restore of one is the SAME 404 as a version that never existed (it must not
+>   reveal that it was there). Applies to `record_versions`,
+>   `record_field_changes` and `document_versions`.
+>   `activity/history-window.ts`.
+> - **A daily purge** (`activity/version-history-retention.service.ts`) deletes
+>   those three tables' rows older than the window, per plan, **Enterprise
+>   included at its own 1825 days (not forever, unlike its activity events)**.
+>   Batched, `FOR UPDATE SKIP LOCKED`, counts-only logging. Self-hosted (no plan
+>   notion) keeps everything.
+> - **Neither starts before 2026-12-27 UTC**: the filter and the purge share the
+>   activity purge's `PURGE_NOT_BEFORE`. Hiding is not deleting, but it is what a
+>   person sees, so before that date nothing changes for anyone.
+> - **The newest `record_versions` row of a record and the newest
+>   `document_versions` row of a document are never purged** (the restore
+>   baseline), even past the window. They are not listed either: nothing reads
+>   one once it is outside the window. One row per record, and the single line
+>   to drop if that ruling changes.
+> - **Readers that list a field change for as long as it exists** (the audit log's
+>   `field_change` rows, an agent's activity) now lose them at the HISTORY window,
+>   not the activity window: Free 14 days against 30 for its events. The audit
+>   log's `retention_days` describes the events.
+> - **Imported history is aged by its source date.** An import replays the
+>   source's own transitions as `record_field_changes` with their real, old
+>   dates (ticket #1367), so imported history older than the window is hidden and
+>   then purged like any other.
+> - **Demo/sample data** back-dates its `record_versions` the same way and is
+>   subject to the same window.
 
 History is a **paid feature**. Windows, gated by plan:
 

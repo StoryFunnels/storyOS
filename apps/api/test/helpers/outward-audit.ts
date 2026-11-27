@@ -352,6 +352,7 @@ export const FANOUT_CONSUMERS: Record<string, FanoutEntry> = {
   'integrations/shopify-catalogue.subscriber.ts': { verdict: 'none', why: 'refreshes a local catalogue cache; no push to Shopify' },
   'workspaces/workspace-activation-events.service.ts': { verdict: 'none', why: 'internal activation bookkeeping; does not act on an agent write' },
   'workspaces/invites.service.ts': { verdict: 'none', why: 'an hourly purge of revoked-invite tombstones older than 30 days (#1304): deletes only invites rows inside StoryOS; sends nothing, and no agent or run credential is ever the actor' },
+  'activity/version-history-retention.service.ts': { verdict: 'none', why: 'a daily purge of old record_versions, record_field_changes and document_versions rows (#1386): deletes rows inside StoryOS; sends nothing, and no agent or run credential is ever the actor' },
   'activity/activity-retention.service.ts': { verdict: 'none', why: 'an hourly purge of old activity_events rows (#1024): deletes rows inside StoryOS; sends nothing, and no agent or run credential is ever the actor' },
   'workspaces/onboarding-nudge.service.ts': { verdict: 'none', why: 'a timer nudge to members, not caused by an agent write' },
   'integrations/github.service.ts': { verdict: 'none', why: 'inbound GitHub sync on a timer; not caused by an agent write' },

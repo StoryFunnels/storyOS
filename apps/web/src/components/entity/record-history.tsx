@@ -14,6 +14,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { useMembers } from '@/components/table-view/use-table-data';
 import type { Field } from '@/components/table-view/use-table-data';
 import { blockPlainText } from './entity-field-utils';
+import { HISTORY_RETENTION_NOTE } from './record-history-copy';
 import { USER_ID_FIELD_TYPES, formatActivityValue } from './activity-format';
 import { EmptyState } from '@/components/ui/empty-state';
 
@@ -458,11 +459,13 @@ export function RecordHistoryDialog({
               states the POLICY rather than fetching a number most viewers of
               this dialog aren't allowed to read. Flagged on the ticket as a
               real gap if the exact count matters enough for its own endpoint.
+              Ticket #1386: the wording lives in record-history-copy.ts, with the
+              reasoning for what it may and may not promise.
               PR #838 review: text-muted, not text-faint — this is informative
               prose someone needs to actually read, not decoration (globals.css
               reserves faint for decorative/non-text content). */}
           <p className="text-meta text-muted">
-            History is retained for a window set by your workspace's plan — older changes are pruned automatically.
+            {HISTORY_RETENTION_NOTE}
           </p>
 
           <div className="flex justify-end">
