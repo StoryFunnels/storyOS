@@ -11,6 +11,7 @@ import {
   workspaces,
 } from '../db/schema';
 import { env } from '../config/env';
+import { notDeleted } from '../db/soft-delete';
 import { RecordsService } from '../records/records.service';
 import { RelationsService } from '../relations/relations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
@@ -20,7 +21,8 @@ import type { RawComment } from './github-reviews.service';
 import { BACKLINK_COMMENT_API, DEFAULT_STATE_AUTOMATION, GithubService } from './github.service';
 import type { GithubConfig, GithubStateAutomation } from './github.service';
 import { resolveGithubActor } from './github-actor';
-import { extractRecordNumbers } from './git-refs';
+import { extractIdentifiers, extractRecordNumbers } from './git-refs';
+import { linkDatabaseFor } from './github-link-database';
 import { openSetting } from '../common/settings-secret';
 
 /**
@@ -317,7 +319,7 @@ export class GithubWebhookService {
     const actorId = membership.userId;
 
     const { branch, text } = this.subject(event, payload);
-    const linked = await this.resolveRecord(workspaceId, config, branch, text);
+    const linked = await this.resolveRecord(workspaceId, config, repo, branch, text);
     if (!linked) {
       // AC 2: an unmatched branch is a no-op 200, not a 4xx. Logged so a
       // mis-typed branch is diagnosable rather than silently inert.
@@ -360,24 +362,24 @@ export class GithubWebhookService {
   }
 
   /**
-   * AC 2's two linking rules, in order:
-   *  1. the magic branch name `story-<n>` → record #n in the configured database;
+   * AC 2's linking rules, in order:
+   *  1. the magic branch name `story-<n>` → record #n in THE REPO'S link database (ticket #1368: per repo, not per workspace);
    *  2. a StoryOS record URL in the PR body/title (or a commit message) — which
-   *     names its own database, so it works without any linking config at all.
+   *     names its own database, so it works without any linking config at all;
+   *  3. a record IDENTIFIER (`feat/issue-5201`, `ISSUE-5201`), only in the repo's link database;
+   *  4. the repo's own number convention (lane branch, "ticket #N"), likewise.
    */
   private async resolveRecord(
     workspaceId: string,
     config: GithubConfig,
+    repo: string,
     branch: string,
     text: string,
   ): Promise<{ databaseId: string; recordId: string } | null> {
+    const linkDatabaseId = linkDatabaseFor(config, repo);
     const branchMatch = branch.match(BRANCH_RE);
-    if (branchMatch && config.link_database_id) {
-      const found = await this.byNumber(
-        workspaceId,
-        config.link_database_id,
-        Number(branchMatch[1]),
-      );
+    if (branchMatch && linkDatabaseId) {
+      const found = await this.byNumber(workspaceId, linkDatabaseId, Number(branchMatch[1]));
       if (found) return found;
     }
 
@@ -401,16 +403,43 @@ export class GithubWebhookService {
       if (trailing) return this.byNumber(workspaceId, databaseId, Number(trailing[1]));
     }
 
+    if (!linkDatabaseId) return null;
+    const [titleLine = '', ...rest] = text.split('\n');
+    const parts = { branch, title: titleLine, body: rest.join('\n') };
+
+    // Ticket #1368 — an identifier. Its prefix names a database; only the repo's own link database counts, so an identifier that
+    // belongs to another database of the workspace (or a look-alike such as CVE-2024-1234) links nothing instead of being guessed
+    // at. A link database without a prefix has no identifiers to match.
+    const byId = await this.byIdentifier(workspaceId, linkDatabaseId, extractIdentifiers(parts));
+    if (byId) return byId;
+
     // Ticket #1219 — the repo's own convention: a `<lane>/<n>-slug` branch or
     // "ticket #<n>" / "issue #<n>" in the title/body. Numbers are per-database,
-    // so this resolves ONLY against the configured link database; unconfigured
+    // so this resolves ONLY against the repo's link database; unconfigured
     // means no match (never a guess). A bare #<n> is never matched: see git-refs.ts.
-    if (config.link_database_id) {
-      const [titleLine = '', ...rest] = text.split('\n');
-      for (const n of extractRecordNumbers({ branch, title: titleLine, body: rest.join('\n') })) {
-        const found = await this.byNumber(workspaceId, config.link_database_id, n);
-        if (found) return found;
-      }
+    for (const n of extractRecordNumbers(parts)) {
+      const found = await this.byNumber(workspaceId, linkDatabaseId, n);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /**
+   * The first identifier (branch, then title, then body) whose prefix is the link database's own and whose number exists in it. The
+   * database is read scoped to the workspace and not deleted, so a stale or foreign id in the settings resolves to nothing.
+   */
+  private async byIdentifier(workspaceId: string, databaseId: string, refs: Array<{ prefix: string; number: number }>) {
+    if (refs.length === 0) return null;
+    const database = await this.db.query.databases.findFirst({
+      where: and(eq(databasesTable.id, databaseId), eq(databasesTable.workspaceId, workspaceId), notDeleted(databasesTable.deletedAt)),
+      columns: { id: true, identifierPrefix: true },
+    });
+    const prefix = database?.identifierPrefix?.toUpperCase();
+    if (!database || !prefix) return null;
+    for (const ref of refs) {
+      if (ref.prefix !== prefix) continue;
+      const record = await this.recordsService.getByNumber(database.id, ref.number).catch(() => null);
+      if (record) return { databaseId: database.id, recordId: record.id };
     }
     return null;
   }

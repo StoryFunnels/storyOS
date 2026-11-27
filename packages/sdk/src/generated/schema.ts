@@ -6707,6 +6707,9 @@ export interface components {
             webhook_secret?: string;
             /** Format: uuid */
             link_database_id?: string;
+            link_databases?: {
+                [key: string]: string | null;
+            };
             state_automation?: {
                 opened?: string | null;
                 reopened?: string | null;

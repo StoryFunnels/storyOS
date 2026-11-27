@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
 import { databases as databasesTable, fields as fieldsTable, selectOptions, workspaces } from '../db/schema';
+import { notDeleted } from '../db/soft-delete';
 import { env } from '../config/env';
 import { DatabasesService } from '../databases/databases.service';
 import { FieldsService } from '../fields/fields.service';
@@ -12,6 +13,7 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { GithubAppService } from './github-app.service';
 import { resolveGithubActor } from './github-actor';
+import { withLinkDatabases } from './github-link-database';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 
 interface GithubIssue {
@@ -109,8 +111,16 @@ export interface GithubConfig {
    * never to a synthetic superuser.
    */
   webhook_actor_id?: string;
-  /** Which database `story-<n>` branch numbers resolve against (numbers are per-database). */
+  /**
+   * LEGACY single link database: which database `story-<n>` branch numbers resolve against (numbers are per-database). Applies to every
+   * repo until the first per-repo save, which migrates it into `link_databases` and drops it (ticket #1368, github-link-database.ts).
+   */
   link_database_id?: string;
+  /**
+   * Ticket #1368: the link database PER REPO, keyed by lower-case `owner/name`. Once present (even empty) only a repo's own entry counts;
+   * a repo with none links nothing by number or identifier. Database ids, not secrets.
+   */
+  link_databases?: Record<string, string>;
   state_automation?: GithubStateAutomation;
   /** Code & reviews settings (#43) — account-level, not a secret. */
   reviews_settings?: GithubReviewSettings;
@@ -347,6 +357,7 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
       repos?: string[];
       webhook_secret?: string;
       link_database_id?: string;
+      link_databases?: Record<string, string | null>;
       state_automation?: GithubStateAutomation;
     },
     actorId?: string,
@@ -354,6 +365,7 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
     const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) });
     const settings = (ws?.settings ?? {}) as Record<string, unknown>;
     const existing = (settings.github as GithubConfig) ?? {};
+    const links = await this.linkConfigFor(workspaceId, existing, config);
     const github: GithubConfig = {
       token: config.token !== undefined ? config.token : existing.token,
       repos: config.repos !== undefined ? config.repos : (existing.repos ?? []),
@@ -365,8 +377,8 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
       // follows the secret. Existing actor is kept when the secret isn't touched.
       webhook_actor_id:
         config.webhook_secret !== undefined && actorId ? actorId : existing.webhook_actor_id,
-      link_database_id:
-        config.link_database_id !== undefined ? config.link_database_id : existing.link_database_id,
+      link_database_id: links.link_database_id,
+      link_databases: links.link_databases,
       state_automation:
         config.state_automation !== undefined ? config.state_automation : existing.state_automation,
       // #828: the tally is not an input, so a save must not wipe it — but a repo
@@ -378,6 +390,44 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
       .set({ settings: { ...settings, github: sealFields(github, SEALED_SETTING_FIELDS.github) } })
       .where(eq(workspaces.id, workspaceId));
     return this.present(github);
+  }
+
+  /**
+   * Ticket #1368: the link-database half of a save. Each per-repo entry must be a live database of THIS workspace (a foreign or missing
+   * id is a 422 that says the same thing for both, so it cannot be used to probe other tenants). The first per-repo save migrates the
+   * legacy single value into entries for the watched repos; with no watched repos there is nothing to migrate it onto, so that save is
+   * refused rather than silently dropping a working connection. After that the old single field is refused too: two settings that
+   * can disagree is the defect this replaces.
+   */
+  private async linkConfigFor(
+    workspaceId: string,
+    existing: GithubConfig,
+    patch: { repos?: string[]; link_database_id?: string; link_databases?: Record<string, string | null> },
+  ): Promise<{ link_database_id: string | undefined; link_databases: Record<string, string> | undefined }> {
+    if (patch.link_databases === undefined) {
+      if (patch.link_database_id !== undefined && existing.link_databases !== undefined) {
+        throw new UnprocessableEntityException('This connection links per repository: set link_databases instead of link_database_id');
+      }
+      return {
+        link_database_id: patch.link_database_id !== undefined ? patch.link_database_id : existing.link_database_id,
+        link_databases: existing.link_databases,
+      };
+    }
+    const wanted = [...new Set(Object.values(patch.link_databases).filter((v): v is string => v !== null))];
+    for (const databaseId of wanted) {
+      const found = await this.db.query.databases.findFirst({
+        where: and(eq(databasesTable.id, databaseId), eq(databasesTable.workspaceId, workspaceId), notDeleted(databasesTable.deletedAt)),
+        columns: { id: true },
+      });
+      if (!found) throw new UnprocessableEntityException('link_databases must name databases of this workspace');
+    }
+    const watched = patch.repos ?? existing.repos ?? [];
+    if (existing.link_databases === undefined && existing.link_database_id && watched.length === 0) {
+      throw new UnprocessableEntityException(
+        'Select the repositories to watch first: the existing workspace-wide link database is carried over onto them when a repository gets its own',
+      );
+    }
+    return withLinkDatabases({ ...existing, repos: watched }, patch.link_databases);
   }
 
   /**
@@ -513,6 +563,8 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
       has_token: Boolean(github.token),
       has_webhook_secret: Boolean(github.webhook_secret),
       link_database_id: github.link_database_id ?? null,
+      // Ticket #1368: null = the legacy workspace-wide setting is still in force; an object = per-repo, and only its entries count.
+      link_databases: github.link_databases ?? null,
       state_automation: { ...DEFAULT_STATE_AUTOMATION, ...(github.state_automation ?? {}) },
       // App connect state (#247). The installation id is not a secret; the token
       // it mints is, and never appears here. Lets the UI show

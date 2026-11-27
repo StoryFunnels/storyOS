@@ -49,6 +49,44 @@ const LANE_BRANCH_RE = new RegExp(`^(?:${BRANCH_LANES.join('|')})/(\\d+)(?:-|$)`
  */
 const MENTION_RE = /(?<![\w/-])(?:ticket|issue)s?\s+#(\d{1,9})(?!\d)/gi;
 
+/**
+ * A record IDENTIFIER (ticket #1363/#1368): `<PREFIX>-<n>`, where PREFIX is a database's identifier prefix and n its record number.
+ *
+ * In a BRANCH it may sit after a `type/` or `user/` segment or open the name, in either case (`feat/issue-5201`, `fix/ISSUE-5201-x`,
+ * `dana/sp-77-widen`): branches are lower-cased by habit. In PROSE (title, body) only the upper-case form counts, because
+ * `issue-5` in a sentence is just words while `ISSUE-5201` is what trackers print. The match is deliberately generic about the prefix
+ * and the CALLER narrows it to the link database's own prefix, so this file stays pure and a look-alike (`CVE-2024-1234`) is dropped
+ * there, not guessed at here. The number is capped like `parseIdentifier` caps it.
+ */
+const BRANCH_IDENTIFIER_RE = /(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]{1,9})-(\d{1,10})(?![A-Za-z0-9])/g;
+const TEXT_IDENTIFIER_RE = /(?<![A-Za-z0-9/.-])([A-Z][A-Z0-9]{1,9})-(\d{1,10})(?![A-Za-z0-9])/g;
+const MAX_RECORD_NUMBER = 2_147_483_647;
+
+export interface IdentifierRef {
+  prefix: string;
+  number: number;
+}
+
+/** Branch first (strongest signal), then the title, then the body. Upper-cased prefix, deduped, ordered. */
+export function extractIdentifiers(input: {
+  branch?: string | null;
+  title?: string | null;
+  body?: string | null;
+}): IdentifierRef[] {
+  const out: IdentifierRef[] = [];
+  const add = (prefix: string, digits: string) => {
+    const number = Number.parseInt(digits, 10);
+    if (!Number.isSafeInteger(number) || number < 1 || number > MAX_RECORD_NUMBER) return;
+    const p = prefix.toUpperCase();
+    if (!out.some((r) => r.prefix === p && r.number === number)) out.push({ prefix: p, number });
+  };
+  for (const m of (input.branch ?? '').matchAll(BRANCH_IDENTIFIER_RE)) add(m[1]!, m[2]!);
+  for (const text of [input.title ?? '', input.body ?? '']) {
+    for (const m of text.matchAll(TEXT_IDENTIFIER_RE)) add(m[1]!, m[2]!);
+  }
+  return out;
+}
+
 /** Branch first (strongest signal), then mentions in title, then body. Deduped, ordered. */
 export function extractRecordNumbers(input: {
   branch?: string | null;

@@ -44,22 +44,64 @@ boundary when there is one past the midpoint). For example, `api/1219-git-branch
   maintainer tool, so it is only offered on the internal profile (`?profile=internal`), not on a customer's
   connection; everyone else uses the API route above.
 
-**How a pull request links.** When a `pull_request` delivery arrives, StoryOS looks for a record
-number in this order and links the first one that exists:
+**How a pull request links.** When a `pull_request` delivery arrives, StoryOS looks for a record in this
+order and links the first one that exists:
 
-1. The branch, if it starts with a lane and a number: `docs/`, `mcp/`, `api/`, `web/` or `fix/`
+1. The branch `story-<N>`, a record number in the repository's link database.
+2. A link to a StoryOS record in the title or description. The link names its own database, so it works
+   from any repository.
+3. A record **identifier** (see below), in the branch, then the title, then the description.
+4. The branch, if it starts with a lane and a number: `docs/`, `mcp/`, `api/`, `web/` or `fix/`
    followed by digits, then a hyphen or the end (`web/1234-fix-title` or `web/1234`).
-2. The words **`ticket #N`** or **`issue #N`** (plural and any capitals accepted) in the pull request
+5. The words **`ticket #N`** or **`issue #N`** (plural and any capitals accepted) in the pull request
    title, then its description. Only the number counts, never the slug.
+
+**Linking by identifier.** A database can carry an identifier prefix (for example `ISSUE`), so its
+records answer to `ISSUE-5201`. A pull request links to that record when the identifier appears as:
+
+- a branch such as `feat/issue-5201`, `bugfix/issue-5201`, `fix/issue-5201` or `release/issue-5201`, or
+  `issue-5201-short-title` or `dana/issue-5201-short-title`, in any capitals (the part after the last
+  slash may carry a short title after the number);
+- `ISSUE-5201` in the pull request title or description, in capitals. A lower-case `issue-5` in a
+  sentence is just words and does not link.
+
+The identifier is read as the database's prefix plus the record's number, never as an internal id, so the
+pull request moves the record with that identifier. Only the prefix of the repository's own link database
+counts. An identifier from another database in the workspace, or text that merely looks like one (such
+as `CVE-2024-1234`), links nothing, and a prefix belongs to one database in a workspace, so one identifier
+never names two. A link database with no identifier prefix cannot be reached this way. When a pull request
+names several identifiers of the link database, the branch wins, then the title, then the description.
+
+**A link database for each repository.** Record numbers and prefixes belong to one database, so each
+repository says which database its pull requests link into. On the GitHub integration page, **Link
+database per repository** lists every repository you watch with a menu of databases. This is what lets
+two repositories each have their own tickets: a `story-3` branch on one repository can never move a
+record in the other repository's database.
+
+- A connection set up before this existed has one workspace-wide link database, which still applies to
+  every repository. The first time you choose a database for a repository, StoryOS copies the
+  workspace-wide one onto each repository you watch and then only the per-repository choices count.
+  Select the repositories to watch first: with none selected, there is nothing to copy it onto and the
+  change is refused.
+- Once a connection is per repository, a repository with no database of its own links nothing by branch
+  number or identifier. Choose **No link database** to take a repository's choice away. A link to a
+  StoryOS record in the description still works.
+- **API:** `POST /api/v1/workspaces/:ws/integrations/github` takes `link_databases`, a map from
+  `owner/name` to a database id (or `null` to remove it); `GET` returns it, or `null` while the old
+  workspace-wide `link_database_id` is still in force. Every id must be a database of this workspace
+  (otherwise a 422), and once the connection is per repository `link_database_id` is refused. Only
+  admins can read or change it. There is no MCP tool for it, as for the rest of the integration
+  settings.
 
 A bare `#N` never links, even when N is a real record, because pull request numbers and record
 numbers share the same range. A number with no matching record is ignored without an error, and a
-redelivery of the same pull request does not create a second one. The older `story-<N>` branch form
-and a link to a StoryOS record in the description still work.
+redelivery of the same pull request does not create a second one. A pull request that links also gets
+the one backlink comment and the state moves you set for opened, merged and the other events, whichever
+rule found the record.
 
-**What it needs.** The webhook must send **pull requests** events, and the integration must have a
-link database configured. Numbers belong to one database, so branch and `ticket #N` matches resolve
-only against that database; with none configured they do not link, and only a record URL in the
+**What it needs.** The webhook must send **pull requests** events, and each repository must have a link
+database. Numbers and prefixes belong to one database, so branch, identifier and `ticket #N` matches
+resolve only against that repository's database; with none they do not link, and only a record URL in the
 description does.
 
 ## Choosing repositories
