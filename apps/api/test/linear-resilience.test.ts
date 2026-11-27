@@ -16,6 +16,10 @@ import { pageAll } from '../src/integrations/linear-paging';
 const KEY = 'lin_api_FAKEKEYFAKEKEY';
 const NOW = Date.UTC(2026, 10, 27, 14, 0, 0);
 const body = (code: string, message: string, extra: Record<string, unknown> = {}) => JSON.stringify({ errors: [{ message, extensions: { code, ...extra } }] });
+const failure = async (attempt: Promise<unknown>): Promise<LinearApiError> => {
+  try { await attempt; } catch (e) { return e as LinearApiError; }
+  throw new Error('expected the call to reject');
+};
 const headers = (h: Record<string, string>) => ({ get: (n: string) => Object.entries(h).find(([k]) => k.toLowerCase() === n.toLowerCase())?.[1] ?? null });
 
 describe('#1392 the default fetcher reads Linear\'s body instead of blaming the key', () => {
@@ -25,7 +29,7 @@ describe('#1392 the default fetcher reads Linear\'s body instead of blaming the 
 
   it('a 400 RATELIMITED is a rate limit with Linear\'s code, never "check the API key" (this was the bug)', async () => {
     answer(400, body('RATELIMITED', 'Rate limit exceeded'), { 'X-RateLimit-Requests-Remaining': '0', 'X-RateLimit-Requests-Reset': String(NOW + 90_000) });
-    const err = await defaultFetcher('query Teams { x }', {}, KEY).catch((e) => e as LinearApiError);
+    const err = await failure(defaultFetcher('query Teams { x }', {}, KEY));
     expect(err).toBeInstanceOf(LinearApiError);
     expect(err.kind).toBe('rate_limited');
     expect(err.message).toContain('RATELIMITED');
@@ -37,31 +41,31 @@ describe('#1392 the default fetcher reads Linear\'s body instead of blaming the 
     answer(429, body('RATELIMITED', 'slow down'), { 'Retry-After': '30' });
     expect(await defaultFetcher('q', {}, KEY).catch((e) => e)).toMatchObject({ kind: 'rate_limited' });
     answer(400, body('GRAPHQL_VALIDATION_FAILED', 'Query too complex: complexity 12000 exceeds the maximum of 10000'));
-    const complex = await defaultFetcher('q', {}, KEY).catch((e) => e as LinearApiError);
+    const complex = await failure(defaultFetcher('q', {}, KEY));
     expect(complex.kind).toBe('complexity');
     expect(complex.message).not.toMatch(/API key/);
     answer(503, '<html>Service Unavailable</html>');
-    const server = await defaultFetcher('q', {}, KEY).catch((e) => e as LinearApiError);
+    const server = await failure(defaultFetcher('q', {}, KEY));
     expect(server.kind).toBe('server');
     expect(server.message).not.toMatch(/API key/);
   });
 
   it('only a real 401 says the key is wrong; a 403 says the key is valid but refused; another 4xx shows Linear\'s own message', async () => {
     answer(401, body('AUTHENTICATION_ERROR', 'Authentication required, not authenticated'));
-    const auth = await defaultFetcher('q', {}, KEY).catch((e) => e as LinearApiError);
+    const auth = await failure(defaultFetcher('q', {}, KEY));
     expect(auth.kind).toBe('auth');
     expect(auth.message).toMatch(/rejected the API key.*check that the key is valid/);
     answer(403, body('FORBIDDEN', 'The key does not have the read scope'));
-    const forbidden = await defaultFetcher('q', {}, KEY).catch((e) => e as LinearApiError);
+    const forbidden = await failure(defaultFetcher('q', {}, KEY));
     expect(forbidden.kind).toBe('forbidden');
     expect(forbidden.message).toMatch(/refused this request/);
     expect(forbidden.message).not.toMatch(/rejected the API key/);
     answer(400, body('INVALID_INPUT', 'Argument Validation Error: filter is malformed'));
-    const bad = await defaultFetcher('q', {}, KEY).catch((e) => e as LinearApiError);
+    const bad = await failure(defaultFetcher('q', {}, KEY));
     expect(bad.message).toContain('Argument Validation Error: filter is malformed');
     expect(bad.message).not.toMatch(/API key/);
     answer(404, '');
-    expect((await defaultFetcher('q', {}, KEY).catch((e) => e as LinearApiError)).kind).toBe('not_found');
+    expect((await failure(defaultFetcher('q', {}, KEY))).kind).toBe('not_found');
   });
 
   it('the CODE decides, not Linear\'s wording: RATELIMITED with a message that never says "rate limit" is still a rate limit', async () => {
@@ -73,7 +77,7 @@ describe('#1392 the default fetcher reads Linear\'s body instead of blaming the 
     answer(200, body('RATELIMITED', 'Rate limit exceeded'));
     expect(await defaultFetcher('q', {}, KEY).catch((e) => e)).toMatchObject({ kind: 'rate_limited' });
     vi.stubGlobal('fetch', async () => { throw new TypeError('fetch failed'); });
-    const net = await defaultFetcher('q', {}, KEY).catch((e) => e as LinearApiError);
+    const net = await failure(defaultFetcher('q', {}, KEY));
     expect(net.kind).toBe('network');
     expect(net.message).toContain('Could not reach Linear');
   });
@@ -123,7 +127,7 @@ describe('#1392 the retry policy (injected clock, no real sleeping)', () => {
   it('a reset further away than one run may wait ends as PAUSED with the time, not as a failure to import; the total is bounded too', async () => {
     const c = clock();
     const f = withLinearResilience(async () => { throw limited(40 * 60_000); }, { ...c.options });
-    const err = await f('q', {}, KEY).catch((e) => e as LinearApiError);
+    const err = await failure(f('q', {}, KEY));
     expect(err.paused).toBe(true);
     expect(err.message).toMatch(/Paused: Linear's rate limit is used up until 14:40 UTC \(RATELIMITED\)/);
     expect(err.message).toMatch(/already imported is kept/);
@@ -131,7 +135,7 @@ describe('#1392 the retry policy (injected clock, no real sleeping)', () => {
 
     const total = clock();
     const g = withLinearResilience(async () => { throw new LinearApiError('limited', { kind: 'rate_limited', status: 400, code: 'RATELIMITED', resetAtMs: total.state.now + 9 * 60_000 }); }, { ...total.options, maxTotalWaitMs: 20 * 60_000 });
-    const second = await g('q', {}, KEY).catch((e) => e as LinearApiError);
+    const second = await failure(g('q', {}, KEY));
     expect(second.paused).toBe(true);
     expect(total.state.sleeps.length, 'two 9-minute waits fit in 20, the third does not').toBe(2);
   });
@@ -152,7 +156,7 @@ describe('#1392 the retry policy (injected clock, no real sleeping)', () => {
 
     const down = withLinearResilience(async () => { calls++; throw server; }, { ...clock().options });
     calls = 0;
-    const err = await down('q', {}, KEY).catch((e) => e as LinearApiError);
+    const err = await failure(down('q', {}, KEY));
     expect(calls).toBe(4);
     expect(err.message).toMatch(/gave up after 4 attempts; nothing is wrong with the API key/);
 
