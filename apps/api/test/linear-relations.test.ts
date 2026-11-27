@@ -103,8 +103,8 @@ afterAll(async () => { await app.close(); });
 describe('planIssueRelations (pure)', () => {
   const rel = (outgoing: Array<[string, string, string, string | null]>, incoming: Array<[string, string, string, string | null]> = []) => ({
     issueId: 'me',
-    outgoing: outgoing.map(([id, type, other, teamKey]) => ({ id, type, other: { id: other, teamKey } })),
-    incoming: incoming.map(([id, type, other, teamKey]) => ({ id, type, other: { id: other, teamKey } })),
+    outgoing: outgoing.map(([id, type, other, team]) => ({ id, type, other: { id: other, team } })),
+    incoming: incoming.map(([id, type, other, team]) => ({ id, type, other: { id: other, team } })),
   });
   const plan = (r: ReturnType<typeof rel>, placeable: (id: string) => boolean = () => true) => {
     const report = emptyRelationReport();

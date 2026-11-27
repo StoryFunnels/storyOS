@@ -59,7 +59,7 @@ export interface LinearRelationEdge {
   id: string;
   type: string;
   /** The OTHER issue: `relatedIssue` on an outgoing edge, `issue` on an incoming one. Only its id and team key are read. */
-  other: { id: string; teamKey: string | null };
+  other: { id: string; team: string | null };
 }
 
 /** One issue's relations in both directions, as read. */
@@ -100,8 +100,8 @@ export async function fetchTeamRelations(
     }
     out.push({
       issueId: n.id,
-      outgoing: (n.relations.nodes ?? []).filter((r) => r.relatedIssue).map((r) => ({ id: r.id, type: r.type, other: { id: r.relatedIssue!.id, teamKey: r.relatedIssue!.team?.key ?? null } })),
-      incoming: (n.inverseRelations.nodes ?? []).filter((r) => r.issue).map((r) => ({ id: r.id, type: r.type, other: { id: r.issue!.id, teamKey: r.issue!.team?.key ?? null } })),
+      outgoing: (n.relations.nodes ?? []).filter((r) => r.relatedIssue).map((r) => ({ id: r.id, type: r.type, other: { id: r.relatedIssue!.id, team: r.relatedIssue!.team?.key ?? null } })),
+      incoming: (n.inverseRelations.nodes ?? []).filter((r) => r.issue).map((r) => ({ id: r.id, type: r.type, other: { id: r.issue!.id, team: r.issue!.team?.key ?? null } })),
     });
   }
   if (opts.expectIssues !== undefined && out.length !== opts.expectIssues) {
@@ -157,7 +157,7 @@ export interface PlannedLinks {
  */
 export function planIssueRelations(
   rel: LinearIssueRelations,
-  teamKey: string,
+  teamCode: string,
   placeable: (linearId: string) => boolean,
   report: RelationReport,
   crossTeam: Map<string, string>,
@@ -172,8 +172,8 @@ export function planIssueRelations(
     }
     if (edge.other.id === rel.issueId) { if (outgoing) report.self_relation++; return; }
     // Unknown team = Linear did not say; treated as foreign rather than guessed to be this one.
-    if (edge.other.teamKey !== teamKey) {
-      const pair = outgoing ? `${teamKey}→${edge.other.teamKey ?? '?'}` : `${edge.other.teamKey ?? '?'}→${teamKey}`;
+    if (edge.other.team !== teamCode) {
+      const pair = outgoing ? `${teamCode}→${edge.other.team ?? '?'}` : `${edge.other.team ?? '?'}→${teamCode}`;
       if (!crossTeam.has(edge.id)) crossTeam.set(edge.id, pair);
       report.cross_team[pair] = (report.cross_team[pair] ?? 0) + 1;
       return;
@@ -195,15 +195,15 @@ export function planIssueRelations(
 }
 
 /** Human-readable lines for the sync warnings; empty when there is nothing to say. */
-export function relationWarnings(teamKey: string, r: RelationReport): string[] {
+export function relationWarnings(teamCode: string, r: RelationReport): string[] {
   const out: string[] = [];
   const cross = Object.entries(r.cross_team);
-  if (cross.length) out.push(`team ${teamKey}: ${cross.reduce((n, [, c]) => n + c, 0)} relations to issues of another team were NOT imported (${cross.map(([p, c]) => `${p}: ${c}`).join(', ')}) — cross-team relations are not built yet (ticket #1365 decision point)`);
-  if (r.unplaced) out.push(`team ${teamKey}: ${r.unplaced} relations point at issues that are not in the mirror and were not imported`);
+  if (cross.length) out.push(`team ${teamCode}: ${cross.reduce((n, [, c]) => n + c, 0)} relations to issues of another team were NOT imported (${cross.map(([p, c]) => `${p}: ${c}`).join(', ')}) — cross-team relations are not built yet (ticket #1365 decision point)`);
+  if (r.unplaced) out.push(`team ${teamCode}: ${r.unplaced} relations point at issues that are not in the mirror and were not imported`);
   const unknown = Object.entries(r.unknown_types);
-  if (unknown.length) out.push(`team ${teamKey}: relations of an unknown type were not imported (${unknown.map(([t, c]) => `${t}: ${c}`).join(', ')})`);
-  if (r.duplicate_of_extra_ignored) out.push(`team ${teamKey}: ${r.duplicate_of_extra_ignored} issues are marked a duplicate of more than one issue; only the first was linked`);
-  if (r.self_relation) out.push(`team ${teamKey}: ${r.self_relation} relations of an issue to itself were ignored`);
+  if (unknown.length) out.push(`team ${teamCode}: relations of an unknown type were not imported (${unknown.map(([t, c]) => `${t}: ${c}`).join(', ')})`);
+  if (r.duplicate_of_extra_ignored) out.push(`team ${teamCode}: ${r.duplicate_of_extra_ignored} issues are marked a duplicate of more than one issue; only the first was linked`);
+  if (r.self_relation) out.push(`team ${teamCode}: ${r.self_relation} relations of an issue to itself were ignored`);
   return out;
 }
 
