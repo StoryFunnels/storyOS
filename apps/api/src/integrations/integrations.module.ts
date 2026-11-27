@@ -28,6 +28,10 @@ import {
 import { LinearService } from './linear.service';
 import { LinearWriteBackService } from './linear-write-back.service';
 import { SlackService } from './slack.service';
+import { SlackEventsController } from './slack-events.controller';
+import { SlackEventsService } from './slack-events.service';
+import { SlackApiClient, SLACK_INSTALLATION_PROVIDER, WorkspaceSettingsInstallationProvider } from './slack-installations';
+import { SlackUnfurlService } from './slack-unfurl.service';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyCatalogueSubscriber } from './shopify-catalogue.subscriber';
 import { ShopifyWebhookController } from './shopify-webhook.controller';
@@ -56,6 +60,7 @@ import { SettingsSecretsBackfillSubscriber } from './settings-secrets-backfill.s
     GithubOAuthController,
     LinearIntegrationsController,
     SlackIntegrationsController,
+    SlackEventsController,
     ShopifyIntegrationsController,
     ShopifyWebhookController,
   ],
@@ -67,6 +72,11 @@ import { SettingsSecretsBackfillSubscriber } from './settings-secrets-backfill.s
     LinearService,
     LinearWriteBackService,
     SlackService,
+    SlackApiClient,
+    // Ticket #1379: the one line ticket #1378 changes, to read installations from its own table instead of the saved bot token.
+    { provide: SLACK_INSTALLATION_PROVIDER, useClass: WorkspaceSettingsInstallationProvider },
+    SlackUnfurlService,
+    SlackEventsService,
     SettingsSecretsBackfillSubscriber,
     ShopifyCatalogueService,
     ShopifyCatalogueSubscriber,

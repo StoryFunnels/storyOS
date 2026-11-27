@@ -159,6 +159,7 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'GET /workspaces/:ws/integrations/github/reviews/:owner/:repo/:number/comments': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'POST /workspaces/:ws/integrations/github/reviews/:owner/:repo/:number/comments/sync': { verdict: 'internal', why: 'reads review comments FROM GitHub into the local cache with the workspace credential; the four routes that WRITE to GitHub are @NoRunCredential' },
   'POST /integrations/github/webhook': { verdict: 'public', why: 'inbound GitHub webhook, verified by signature' },
+  'POST /integrations/slack/events': { verdict: 'public', why: 'inbound Slack Events API receiver, verified by the X-Slack-Signature HMAC (fails closed without SLACK_SIGNING_SECRET); its one outbound call is chat.unfurl to slack.com with a title and a state (ticket #1379)' },
   'GET /integrations/github/oauth/callback': { verdict: 'public', why: 'OAuth callback, bound to a signed state' },
   'POST /workspaces/:ws/integrations/shopify/catalogue': { verdict: 'internal', why: 'creates databases, relations and Shopify SOURCES with config {} (write_back off), so the only third-party call is a read with the workspace connection (SourcesService.create in shopify-catalogue.service.ts:155-166); nothing is pushed' },
   'POST /providers/shopify/webhook/:connectionId': { verdict: 'public', why: 'inbound Shopify webhook, verified by HMAC' },

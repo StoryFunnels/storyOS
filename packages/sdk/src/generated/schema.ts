@@ -2777,6 +2777,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/slack/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Slack Events API receiver (link previews) - signature-verified, unauthenticated by design */
+        post: operations["SlackEventsController_receive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations/shopify/catalogue": {
         parameters: {
             query?: never;
@@ -12425,6 +12442,26 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackEventsController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-slack-signature": string;
+                "x-slack-request-timestamp": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
