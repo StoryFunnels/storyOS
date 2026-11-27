@@ -7048,7 +7048,7 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
     'list_slack_subscriptions',
     {
       title: 'List Slack channel subscriptions (admin, read-only)',
-      description: 'Slack channel subscriptions and their delivery state.',
+      description: 'Slack channel subscriptions (read-only).',
       inputSchema: { workspace: z.string() },
     },
     handle<{ workspace: string }>(async ({ workspace }) => {
