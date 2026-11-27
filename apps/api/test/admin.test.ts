@@ -4,7 +4,8 @@ import { createTestApp } from './helpers/app';
 import { authed, signUpUser } from './helpers/users';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
-import { platformAdmins } from '../src/db/schema';
+import { billingSubscriptions, platformAdmins } from '../src/db/schema';
+import { PLANS } from '../src/billing/plans';
 
 let app: NestFastifyApplication;
 let db: Db;
@@ -57,6 +58,46 @@ describe('GET /admin/overview — MN-104', () => {
     expect(body.totalUsers).toBeGreaterThanOrEqual(2);
     expect(body.workspacesByPlan).toHaveProperty('free');
     expect(typeof body.estimatedMrrUsd).toBe('number');
+  });
+});
+
+describe('GET /admin/overview — Est. MRR counts live-mode Stripe subscriptions only (#1391)', () => {
+  // Stripe subscription ids are unique in the table, so a fixed id would fail the second run on a reused database.
+  const subId = (label: string) => `sub_${label}_1391_${Math.random().toString(36).slice(2, 10)}`;
+  const mrr = async () => (await as(operator.token, 'GET', '/admin/overview')).json().estimatedMrrUsd as number;
+
+  /** A fresh one-member workspace carrying exactly this subscription row. The overview is global, so each case is read as a DELTA. */
+  async function withSubscription(name: string, row: Partial<typeof billingSubscriptions.$inferInsert>) {
+    const created = await as(operator.token, 'POST', '/workspaces', { name });
+    expect(created.statusCode, created.body).toBe(201);
+    const workspaceId = created.json().id as string;
+    const values = { workspaceId, plan: 'pro' as const, status: 'active' as const, ...row };
+    await db.insert(billingSubscriptions).values(values).onConflictDoUpdate({ target: billingSubscriptions.workspaceId, set: values });
+    return workspaceId;
+  }
+
+  it('ignores a sandbox subscription, a live trial, a hand-granted plan, and a live-but-canceled one; counts a live active one', async () => {
+    const base = await mrr();
+
+    await withSubscription('Sandbox Pro', { stripeSubscriptionId: subId('sandbox'), livemode: false });
+    expect(await mrr(), 'a sandbox subscription is not revenue').toBe(base);
+
+    await withSubscription('Trial Pro', { stripeSubscriptionId: subId('trial'), livemode: true, status: 'trialing' });
+    expect(await mrr(), 'a trial has not paid yet').toBe(base);
+
+    // A plan with no Stripe subscription behind it (how an admin grant is stored). livemode and status both say "billing" here,
+    // so only the missing subscription id can be what keeps it out.
+    await withSubscription('Comp Pro', { stripeSubscriptionId: null, livemode: true, status: 'active' });
+    expect(await mrr(), 'a plan granted by hand bills nothing').toBe(base);
+
+    await withSubscription('Canceled Pro', { stripeSubscriptionId: subId('canceled'), livemode: true, status: 'canceled' });
+    expect(await mrr(), 'a canceled subscription bills nothing').toBe(base);
+
+    await withSubscription('Live Pro', { stripeSubscriptionId: subId('live'), livemode: true });
+    expect(await mrr(), 'a live active subscription is counted at the plan price').toBe(base + PLANS.pro.priceUsd);
+
+    await withSubscription('Live Late Pro', { stripeSubscriptionId: subId('late'), livemode: true, status: 'past_due' });
+    expect(await mrr(), 'past_due is still owed, so still counted').toBe(base + 2 * PLANS.pro.priceUsd);
   });
 });
 

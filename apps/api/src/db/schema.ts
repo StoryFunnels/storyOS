@@ -1633,6 +1633,13 @@ export const billingSubscriptions = pgTable('billing_subscriptions', {
   /** null until a Stripe subscription exists (a no-card trial has none yet). */
   status: subscriptionStatus('status'),
   stripeSubscriptionId: text('stripe_subscription_id').unique(),
+  /**
+   * Whether that Stripe subscription is a live-mode one (Stripe's own `livemode` flag), written by the webhook reconcile.
+   * False for sandbox subscriptions, for rows written before this column existed (their mode was never recorded), and for
+   * admin-granted plans. The operator's Est. MRR counts only rows where this is true, so an unrecorded row is left out
+   * rather than guessed live.
+   */
+  livemode: boolean('livemode').notNull().default(false),
   /** Billable seats charged as the $12 overage line — 0 while within the included tier. */
   seats: integer('seats').notNull().default(0),
   cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
