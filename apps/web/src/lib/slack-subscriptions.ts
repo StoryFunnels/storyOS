@@ -64,11 +64,11 @@ export function attentionLine(code: SlackNeedsAttention | null, creatorName: str
   return null;
 }
 
-/** The API's refusal for a closed target that was not acknowledged starts with this (it has no code today). A drift test reads the API source. */
-export const RESTRICTED_REFUSAL_PREFIX = 'This space or database is restricted';
+/** The API's code for a closed target that was not acknowledged (`error.code`). A drift test reads the API source for it. */
+export const RESTRICTED_ACK_CODE = 'restricted_acknowledgement_required';
 
-export function isRestrictedRefusal(message: string | null | undefined): boolean {
-  return typeof message === 'string' && message.startsWith(RESTRICTED_REFUSAL_PREFIX);
+export function isRestrictedRefusal(error: unknown): boolean {
+  return errorCode(error) === RESTRICTED_ACK_CODE;
 }
 
 /**
