@@ -128,7 +128,6 @@ describe('hosted detection is real: a Stripe key turns the plan windows on', () 
   it('the SCHEDULER passes through the not-before gate: a tick on a clock before 2026-12-27 deletes nothing, one after it deletes per plan (ticket #1385)', async () => {
     const e = env() as unknown as Record<string, string | undefined>;
     const free = await newWs(null);
-    const fake = { toFake: ['setTimeout', 'setInterval', 'Date'] } as const;
     const purge = vi.spyOn(service, 'purge');
     const before = e.NODE_ENV;
     e.NODE_ENV = 'production';
@@ -136,7 +135,7 @@ describe('hosted detection is real: a Stripe key turns the plan windows on', () 
       for (const [clock, expectGone] of [[new Date('2026-12-26T12:00:00Z'), false], [new Date('2026-12-28T12:00:00Z'), true]] as const) {
         // Seeded 40 days before the fake clock, so Free's 30 days has passed in both runs. `seed` counts back from the real clock.
         const row = await seed(free.ws, free.rec, (Date.now() - clock.getTime()) / DAY + 40);
-        vi.useFakeTimers(fake);
+        vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'Date'] });
         vi.setSystemTime(clock);
         purge.mockClear();
         await withEnv({ ACTIVITY_EVENTS_RETENTION_DAYS: undefined }, async () => {
