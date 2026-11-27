@@ -3828,7 +3828,7 @@ export class RecordsService implements OnModuleInit {
     // MN-080: resolved before the transaction — a bad target must not half-apply.
     const linkPlans = validated.links ? await this.planLinks(databaseId, defs, validated.links, membership) : [];
     // #31: resolved OUTSIDE the transaction — a plan lookup must not hold a row
-    // lock, and it cannot change mid-write. 0 ⇒ Free ⇒ capture nothing.
+    // lock, and it cannot change mid-write. 0 ⇒ capture nothing (no plan is 0 since ticket #1385; Free is 14).
     const historyDays = await this.historyRetentionDays(workspaceId);
 
     const before = row.values as Record<string, unknown>;
@@ -3947,10 +3947,11 @@ export class RecordsService implements OnModuleInit {
            * the history UI is actually built around. Same transaction, so a
            * captured change always corresponds to a write that landed.
            *
-           * `historyDays === 0` is Free: capture NOTHING rather than
+           * `historyDays === 0` means capture NOTHING rather than
            * capture-then-prune. The window is zero, so those rows could never be
            * read by anyone — pure write amplification plus pruning load
-           * (docs/architecture/version-history.md, "Retention").
+           * (docs/architecture/version-history.md, "Retention"). No plan has a
+           * zero window since ticket #1385 (Free is 14), so this guard is dormant.
            */
           if (historyDays > 0) {
             const rows = Object.entries(diff).map(([key, change]) => ({

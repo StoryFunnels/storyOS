@@ -11,6 +11,7 @@ import { EntitlementsService } from '../src/billing/entitlements.service';
 import {
   ActivityRetentionService,
   ACTIVITY_RETENTION_DAYS_BY_PLAN,
+  PURGE_NOT_BEFORE,
   parseRetentionDays,
 } from '../src/activity/activity-retention.service';
 
@@ -37,6 +38,8 @@ let titleFieldId: string;
 const DAY = 24 * 60 * 60 * 1000;
 /** The injected clock: fixed for the whole file, taken at start so rows the app writes during the run are never "old" to it. */
 const NOW = new Date();
+/** Existing tests are about WHAT the purge deletes; the not-before gate (PURGE_NOT_BEFORE, ticket #1385) has its own describe below and runs with the real default. */
+const OPEN = new Date(0);
 const ago = (days: number, extraMs = 0) => new Date(NOW.getTime() - days * DAY - extraMs);
 const as = (token: string, method: string, url: string, payload?: unknown) => call(app, token, method, url, payload);
 const mk = async (name: string, values: Record<string, unknown> = {}) =>
@@ -48,8 +51,8 @@ async function seed(recordId: string | null, type: string, createdAt: Date, payl
 }
 const present = async (ids: string[]) => new Set((await raw.select({ id: activityEvents.id }).from(activityEvents).where(inArray(activityEvents.id, ids))).map((r) => r.id));
 /** Most tests pin ONE value for everyone (`retentionDays: 90`) so they test a rule, not a plan; the per-plan tests pass `perPlan: true`. */
-const run = (opts: Parameters<ActivityRetentionService['purge']>[0] = {}) => service.purge({ now: NOW, pauseMs: 0, retentionDays: 90, ...opts });
-const perPlan = (opts: Parameters<ActivityRetentionService['purge']>[0] = {}) => service.purge({ now: NOW, pauseMs: 0, retentionDays: undefined, perPlan: true, ...opts });
+const run = (opts: Parameters<ActivityRetentionService['purge']>[0] = {}) => service.purge({ now: NOW, pauseMs: 0, notBefore: OPEN, retentionDays: 90, ...opts });
+const perPlan = (opts: Parameters<ActivityRetentionService['purge']>[0] = {}) => service.purge({ now: NOW, pauseMs: 0, notBefore: OPEN, retentionDays: undefined, perPlan: true, ...opts });
 type Plan = keyof typeof ACTIVITY_RETENTION_DAYS_BY_PLAN;
 /** A fresh workspace with a record, on `plan` (free = no billing row at all, which is how a Free workspace really looks). */
 async function newWs(plan: Plan | null): Promise<{ ws: string; rec: string }> {
@@ -93,8 +96,12 @@ afterAll(async () => {
 });
 
 describe('the setting', () => {
-  it('the per-plan values are the ruling: Free 7, Pro 30, Business 30, Enterprise 90', () => {
-    expect(ACTIVITY_RETENTION_DAYS_BY_PLAN).toEqual({ free: 7, pro: 30, business: 30, enterprise: 90 });
+  it('the per-plan values are the ruling (ticket #1385): Free 30, Pro 365, Business 1095, Enterprise kept forever (null)', () => {
+    expect(ACTIVITY_RETENTION_DAYS_BY_PLAN).toEqual({ free: 30, pro: 365, business: 1095, enterprise: null });
+  });
+
+  it('the purge may not start before 2026-12-27 00:00 UTC', () => {
+    expect(PURGE_NOT_BEFORE.toISOString()).toBe('2026-12-27T00:00:00.000Z');
   });
 
   it('the self-hosted variable: unset, empty, never and 0 keep everything; a whole number is days; anything else is refused', () => {
@@ -150,7 +157,7 @@ describe('what expires and what survives', () => {
 
   it('is idempotent: a second run over the same data deletes nothing', async () => {
     const again = await run();
-    expect(again).toMatchObject({ deleted: 0, batches: 0, capped: false, disabled: false });
+    expect(again).toMatchObject({ deleted: 0, batches: 0, capped: false, disabled: false, held: false });
   });
 });
 
@@ -180,7 +187,7 @@ describe('the cutoff', () => {
     const rec = await mk('forever');
     const e = await seed(rec, 'comment.created', ago(900));
     const out = await run({ retentionDays: null });
-    expect(out).toEqual({ deleted: 0, batches: 0, capped: false, disabled: true });
+    expect(out).toEqual({ deleted: 0, batches: 0, capped: false, disabled: true, held: false });
     expect((await present([e])).size).toBe(1);
     await run({ retentionDays: 90 });
     expect((await present([e])).size, 'and is purged the moment a retention is set').toBe(0);
@@ -190,11 +197,13 @@ describe('the cutoff', () => {
 describe('per plan (hosted)', () => {
   const plans: Plan[] = ['free', 'pro', 'business', 'enterprise'];
 
-  it('every plan deletes exactly at its own boundary and keeps what is newer, in ONE pass over mixed workspaces', async () => {
+  const finitePlans = plans.filter((p) => ACTIVITY_RETENTION_DAYS_BY_PLAN[p] !== null);
+
+  it('every plan with a window deletes exactly at its own boundary and keeps what is newer, in ONE pass over mixed workspaces', async () => {
     const seeded = new Map<Plan, { ws: string; older: string; exactly: string; younger: string; structural: string }>();
-    for (const plan of plans) {
+    for (const plan of finitePlans) {
       const { ws: w, rec } = await newWs(plan === 'free' ? null : plan);
-      const days = ACTIVITY_RETENTION_DAYS_BY_PLAN[plan];
+      const days = ACTIVITY_RETENTION_DAYS_BY_PLAN[plan]!;
       seeded.set(plan, {
         ws: w,
         older: await seed(rec, 'comment.created', ago(days, 1), {}, w),
@@ -206,9 +215,9 @@ describe('per plan (hosted)', () => {
     const all = [...seeded.values()].flatMap((r) => [r.older, r.exactly, r.younger, r.structural]);
     expect((await present(all)).size, 'premise: all seeded').toBe(all.length);
     const out = await perPlan();
-    expect(out.deleted).toBeGreaterThanOrEqual(plans.length);
+    expect(out.deleted).toBeGreaterThanOrEqual(finitePlans.length);
     const left = await present(all);
-    for (const plan of plans) {
+    for (const plan of finitePlans) {
       const r = seeded.get(plan)!;
       expect(left.has(r.older), `${plan}: a millisecond past ${ACTIVITY_RETENTION_DAYS_BY_PLAN[plan]} days is gone`).toBe(false);
       expect(left.has(r.exactly), `${plan}: exactly at the boundary is kept`).toBe(true);
@@ -217,11 +226,31 @@ describe('per plan (hosted)', () => {
     }
   });
 
-  it('a workspace is judged by ITS plan, not its neighbour\'s: the same 20-day-old row goes on Free and stays on Pro', async () => {
+  it('ENTERPRISE (null) is never purged: an event of any age and class survives a pass that deletes a Free workspace\'s in the same run', async () => {
+    const ent = await newWs('enterprise');
+    const free = await newWs(null);
+    const old = ago(5000);
+    const kept = {
+      comment: await seed(ent.rec, 'comment.created', old, {}, ent.ws),
+      updated: await seed(ent.rec, 'record.updated', old, { diff: { [titleFieldId]: { from: 'a', to: 'b' } } }, ent.ws),
+      outwardOldMonth: await seed(null, 'outward.ai_field', old, {}, ent.ws),
+      created: await seed(ent.rec, 'record.created', old, {}, ent.ws),
+    };
+    const control = await seed(free.rec, 'comment.created', old, {}, free.ws);
+    const all = [...Object.values(kept), control];
+    expect((await present(all)).size, 'premise: all seeded').toBe(all.length);
+    const out = await perPlan();
+    expect(out.deleted, 'the pass really ran and deleted the Free control').toBeGreaterThanOrEqual(1);
+    const left = await present(all);
+    expect(left.has(control), 'Free: 5000 days is purged').toBe(false);
+    for (const [label, id] of Object.entries(kept)) expect(left.has(id), `Enterprise ${label} is kept forever`).toBe(true);
+  });
+
+  it('a workspace is judged by ITS plan, not its neighbour\'s: the same 40-day-old row goes on Free and stays on Pro', async () => {
     const free = await newWs(null);
     const pro = await newWs('pro');
-    const f = await seed(free.rec, 'comment.created', ago(20), {}, free.ws);
-    const p = await seed(pro.rec, 'comment.created', ago(20), {}, pro.ws);
+    const f = await seed(free.rec, 'comment.created', ago(40), {}, free.ws);
+    const p = await seed(pro.rec, 'comment.created', ago(40), {}, pro.ws);
     await perPlan();
     expect((await present([f])).size).toBe(0);
     expect((await present([p])).size).toBe(1);
@@ -230,15 +259,15 @@ describe('per plan (hosted)', () => {
   it('a plan the map does not know deletes NOTHING for that workspace (no ELSE in the CASE), while the others are still purged', async () => {
     const free = await newWs(null);
     const pro = await newWs('pro');
-    const f = await seed(free.rec, 'comment.created', ago(20), {}, free.ws);
-    const p = await seed(pro.rec, 'comment.created', ago(200), {}, pro.ws);
-    const map = ACTIVITY_RETENTION_DAYS_BY_PLAN as Record<string, number>;
+    const f = await seed(free.rec, 'comment.created', ago(40), {}, free.ws);
+    const p = await seed(pro.rec, 'comment.created', ago(500), {}, pro.ws);
+    const map = ACTIVITY_RETENTION_DAYS_BY_PLAN as Record<string, number | null>;
     const saved = map.pro!;
     delete map.pro;
     try {
       await perPlan();
     } finally {
-      map.pro = saved;
+      map.pro = saved!;
     }
     expect((await present([f])).size, 'Free is still purged').toBe(0);
     expect((await present([p])).size, 'the workspace on the unknown plan is left alone').toBe(1);
@@ -270,8 +299,9 @@ describe('per plan (hosted)', () => {
     expect(await withEnv('45', () => auditOf(pro.ws))).toBe(45);
     const hosted = vi.spyOn(EntitlementsService.prototype, 'hostedPlans', 'get').mockReturnValue(true);
     try {
-      expect(await auditOf(pro.ws)).toBe(30);
-      expect(await auditOf((await newWs(null)).ws)).toBe(7);
+      expect(await auditOf(pro.ws)).toBe(365);
+      expect(await auditOf((await newWs(null)).ws)).toBe(30);
+      expect(await auditOf((await newWs('enterprise')).ws), 'Enterprise: kept forever').toBeNull();
     } finally {
       hosted.mockRestore();
     }
@@ -279,23 +309,27 @@ describe('per plan (hosted)', () => {
 });
 
 describe('the system floor holds below the plan value', () => {
-  /** A June clock so "this month" and "last month" are unambiguous whatever day the suite runs. */
-  const CLOCK = new Date(Date.UTC(2026, 5, 20, 12));
+  /**
+   * 31 July 12:00 UTC: Free keeps 30 days, so its cutoff is 1 July 12:00, and an event from the first half-day of July is BOTH
+   * past the plan window and inside the current month. A mid-month clock could never exercise the month floor against a 30-day window.
+   */
+  const CLOCK = new Date(Date.UTC(2026, 6, 31, 12));
   const back = (days: number, extraMs = 0) => new Date(CLOCK.getTime() - days * DAY - extraMs);
   const sub = (workspaceId: string, cursorAt: Date, enabled = true) =>
     raw.insert(webhookSubscriptions).values({ workspaceId, url: 'https://example.test/hook', secret: 's', events: ['record.updated'], enabled, cursorAt });
   const onClock = (opts = {}) => perPlan({ now: CLOCK, ...opts });
 
-  it('FLOOR 1: on Free (7 days) an outward.* row from THIS calendar month survives, one from LAST month is purged', async () => {
+  it('FLOOR 1: on Free (30 days) an outward.* row from THIS calendar month survives, one from LAST month is purged', async () => {
     const f = await newWs(null);
-    const thisMonth = await seed(null, 'outward.ai_field', back(15), { usage: { tokens_in: 1, tokens_out: 1 } }, f.ws); // 5 June
-    const lastMonth = await seed(null, 'outward.ai_field', back(26), {}, f.ws); // 25 May
-    const monthStart = await seed(null, 'outward.mention_email', new Date(Date.UTC(2026, 5, 1)), {}, f.ws);
-    const beforeMonthStart = await seed(null, 'outward.mention_email', new Date(Date.UTC(2026, 4, 31, 23, 59, 59, 999)), {}, f.ws);
-    const control = await seed(f.rec, 'comment.created', back(15), {}, f.ws); // the plan value itself still applies to everything else
+    const earlyJuly = new Date(Date.UTC(2026, 6, 1, 6)); // 30.25 days before the clock: past the plan window, inside the month
+    const thisMonth = await seed(null, 'outward.ai_field', earlyJuly, { usage: { tokens_in: 1, tokens_out: 1 } }, f.ws);
+    const lastMonth = await seed(null, 'outward.ai_field', new Date(Date.UTC(2026, 5, 5)), {}, f.ws);
+    const monthStart = await seed(null, 'outward.mention_email', new Date(Date.UTC(2026, 6, 1)), {}, f.ws);
+    const beforeMonthStart = await seed(null, 'outward.mention_email', new Date(Date.UTC(2026, 5, 30, 23, 59, 59, 999)), {}, f.ws);
+    const control = await seed(f.rec, 'comment.created', earlyJuly, {}, f.ws); // the plan value itself still applies to everything else
     await onClock();
     const left = await present([thisMonth, lastMonth, monthStart, beforeMonthStart, control]);
-    expect(left.has(thisMonth), 'this month\'s agent-budget evidence survives a 7-day plan').toBe(true);
+    expect(left.has(thisMonth), 'this month\'s agent-budget evidence survives a 30-day plan').toBe(true);
     expect(left.has(monthStart), 'the first instant of the month is this month').toBe(true);
     expect(left.has(lastMonth), 'last month is purged at the plan value').toBe(false);
     expect(left.has(beforeMonthStart), 'a millisecond before the month began is last month').toBe(false);
@@ -307,14 +341,14 @@ describe('the system floor holds below the plan value', () => {
     const caught = await newWs(null);
     const off = await newWs(null);
     const none = await newWs(null);
-    await sub(lagging.ws, back(10)); // the dispatcher is 10 days behind
+    await sub(lagging.ws, back(35)); // the dispatcher is 35 days behind
     await sub(caught.ws, new Date(CLOCK.getTime() - 3_600_000)); // up to date
-    await sub(off.ws, back(10), false); // disabled: the dispatcher skips it
-    const unpassed = await seed(lagging.rec, 'record.updated', back(8), {}, lagging.ws); // after its cursor, older than 7 days
-    const passed = await seed(lagging.rec, 'record.updated', back(12), {}, lagging.ws); // before its cursor
-    const caughtUp = await seed(caught.rec, 'record.updated', back(8), {}, caught.ws);
-    const disabled = await seed(off.rec, 'record.updated', back(8), {}, off.ws);
-    const noSub = await seed(none.rec, 'record.updated', back(8), {}, none.ws);
+    await sub(off.ws, back(35), false); // disabled: the dispatcher skips it
+    const unpassed = await seed(lagging.rec, 'record.updated', back(32), {}, lagging.ws); // after its cursor, older than 30 days
+    const passed = await seed(lagging.rec, 'record.updated', back(40), {}, lagging.ws); // before its cursor
+    const caughtUp = await seed(caught.rec, 'record.updated', back(32), {}, caught.ws);
+    const disabled = await seed(off.rec, 'record.updated', back(32), {}, off.ws);
+    const noSub = await seed(none.rec, 'record.updated', back(32), {}, none.ws);
     await onClock();
     const left = await present([unpassed, passed, caughtUp, disabled, noSub]);
     expect(left.has(unpassed), 'an undelivered event is never purged').toBe(true);
@@ -326,8 +360,8 @@ describe('the system floor holds below the plan value', () => {
 
   it('FLOOR 2 follows the dispatcher as it advances: once it passes the row, the next purge deletes it', async () => {
     const w = await newWs(null);
-    await sub(w.ws, back(10));
-    const e = await seed(w.rec, 'record.updated', back(8), {}, w.ws);
+    await sub(w.ws, back(35));
+    const e = await seed(w.rec, 'record.updated', back(32), {}, w.ws);
     await onClock();
     expect((await present([e])).size, 'held while undelivered').toBe(1);
     await raw.update(webhookSubscriptions).set({ cursorAt: new Date(CLOCK.getTime() - 1000) }).where(eq(webhookSubscriptions.workspaceId, w.ws));
@@ -340,20 +374,20 @@ describe('the system floor holds below the plan value', () => {
     await sub(w.ws, back(10));
     const outward = await seed(null, 'outward.ai_field', back(15), {}, w.ws);
     const undelivered = await seed(w.rec, 'record.updated', back(8), {}, w.ws);
-    await service.purge({ now: CLOCK, pauseMs: 0, retentionDays: 1 });
+    await service.purge({ now: CLOCK, pauseMs: 0, notBefore: OPEN, retentionDays: 1 });
     expect((await present([outward, undelivered])).size).toBe(2);
   });
 });
 
 describe('self-hosted: no plan, the variable decides', () => {
-  const selfHosted = (opts = {}) => service.purge({ now: NOW, pauseMs: 0, retentionDays: undefined, perPlan: false, ...opts });
+  const selfHosted = (opts = {}) => service.purge({ now: NOW, pauseMs: 0, notBefore: OPEN, retentionDays: undefined, perPlan: false, ...opts });
 
   it('unset, 0 and never keep everything, however old', async () => {
     const rec = await mk('selfhost keep');
     const e = await seed(rec, 'comment.created', ago(900));
     for (const v of [undefined, '0', 'never']) {
       const out = await withEnv(v, () => selfHosted());
-      expect(out, String(v)).toEqual({ deleted: 0, batches: 0, capped: false, disabled: true });
+      expect(out, String(v)).toEqual({ deleted: 0, batches: 0, capped: false, disabled: true, held: false });
     }
     expect((await present([e])).size).toBe(1);
     await run();
@@ -370,7 +404,7 @@ describe('self-hosted: no plan, the variable decides', () => {
 
   it('a hosted deployment ignores the variable: the plan decides', async () => {
     const free = await newWs(null);
-    const e = await seed(free.rec, 'comment.created', ago(10), {}, free.ws);
+    const e = await seed(free.rec, 'comment.created', ago(40), {}, free.ws);
     await withEnv('1000', () => perPlan());
     expect((await present([e])).size).toBe(0);
   });
@@ -378,7 +412,7 @@ describe('self-hosted: no plan, the variable decides', () => {
   it('with no options at all a self-hosted run reads the variable (unset: nothing is deleted)', async () => {
     const rec = await mk('default path');
     const e = await seed(rec, 'comment.created', ago(900));
-    const out = await withEnv(undefined, () => service.purge({ now: NOW, pauseMs: 0 }));
+    const out = await withEnv(undefined, () => service.purge({ now: NOW, pauseMs: 0, notBefore: OPEN }));
     expect(out.disabled).toBe(true);
     expect((await present([e])).size).toBe(1);
     await run();
@@ -517,5 +551,56 @@ describe('readers tolerate a purged event', () => {
     const out = await run();
     expect(out.deleted, 'the purge ran over this record (its record.created event went)').toBeGreaterThan(0);
     expect(await assignedBy(), 'and still reads Bea after').toMatchObject({ id: bea.id });
+  });
+});
+
+describe('the purge may not start before 2026-12-27 (ticket #1385)', () => {
+  // These run with the REAL gate (no `notBefore`), and go last: a run dated Dec 27 judges every older row in the shared database.
+  const before = new Date(PURGE_NOT_BEFORE.getTime() - 1);
+  const on = PURGE_NOT_BEFORE;
+  const at = (iso: string) => new Date(iso);
+
+  it('a run dated one millisecond before it deletes nothing and says so; the same data goes on the first instant of the day', async () => {
+    const rec = await mk('gate');
+    const old = await seed(rec, 'comment.created', at('2026-09-01T00:00:00Z'));
+    const heldRun = await service.purge({ now: before, pauseMs: 0, retentionDays: 90 });
+    expect(heldRun).toEqual({ deleted: 0, batches: 0, capped: false, disabled: false, held: true });
+    expect((await present([old])).size, 'still there: the row is 117 days old at a 90-day window, so only the gate kept it').toBe(1);
+    const open = await service.purge({ now: on, pauseMs: 0, retentionDays: 90 });
+    expect(open).toMatchObject({ held: false });
+    expect(open.deleted).toBeGreaterThanOrEqual(1);
+    expect((await present([old])).size, 'deleted on 2026-12-27 00:00:00 UTC').toBe(0);
+  });
+
+  it('holds every path: the per-plan run, a pinned retention and the self-hosted variable', async () => {
+    const free = await newWs(null);
+    const rec = await mk('gate paths');
+    const f = await seed(free.rec, 'comment.created', at('2026-09-01T00:00:00Z'), {}, free.ws);
+    const p = await seed(rec, 'comment.created', at('2026-09-01T00:00:00Z'));
+    const runs = [
+      await service.purge({ now: before, pauseMs: 0, retentionDays: undefined, perPlan: true }),
+      await service.purge({ now: before, pauseMs: 0, retentionDays: 1 }),
+      await withEnv('1', () => service.purge({ now: before, pauseMs: 0, retentionDays: undefined, perPlan: false })),
+      await service.purge({ now: new Date(0), pauseMs: 0 }),
+    ];
+    for (const out of runs) expect(out).toMatchObject({ deleted: 0, held: true });
+    expect((await present([f, p])).size).toBe(2);
+  });
+
+  it('on and after the date it deletes per plan: Free 30 days goes, Pro 365 and Enterprise stay', async () => {
+    const free = await newWs(null);
+    const pro = await newWs('pro');
+    const ent = await newWs('enterprise');
+    const fOld = await seed(free.rec, 'comment.created', at('2026-11-26T23:59:59Z'), {}, free.ws); // 30 days + 1 s at the cutoff of 2026-11-27 00:00
+    const fNew = await seed(free.rec, 'comment.created', at('2026-12-10T00:00:00Z'), {}, free.ws);
+    const pOld = await seed(pro.rec, 'comment.created', at('2026-09-01T00:00:00Z'), {}, pro.ws);
+    const eOld = await seed(ent.rec, 'comment.created', at('2020-01-01T00:00:00Z'), {}, ent.ws);
+    const out = await service.purge({ now: at('2026-12-28T12:00:00Z'), pauseMs: 0, retentionDays: undefined, perPlan: true });
+    expect(out.held).toBe(false);
+    const left = await present([fOld, fNew, pOld, eOld]);
+    expect(left.has(fOld), 'Free: past 30 days').toBe(false);
+    expect(left.has(fNew), 'Free: inside 30 days').toBe(true);
+    expect(left.has(pOld), 'Pro: 118 days is inside 365').toBe(true);
+    expect(left.has(eOld), 'Enterprise: never').toBe(true);
   });
 });

@@ -14,9 +14,10 @@ retention, capture path, and build order. No feature code lands with it.
 > **debounced rich-text snapshots** (`document_versions`). Keep the existing
 > MN-231 whole-record `record_versions` snapshots as the **restore substrate**
 > (whole-record restore ships first; per-field revert is a cheap fast-follow off
-> the event log). Retention is **plan-gated and tiny**: Free retains nothing,
-> Pro 1 day, Business 7 days, Enterprise 1 month — so storage stays small and
-> write-amplification risk is bounded by the pruning window, not by traffic.
+> the event log). Retention is **plan-gated**: ~~Free retains nothing, Pro 1 day,
+> Business 7 days, Enterprise 1 month~~ — **changed 2026-11-27 (ticket #1385):
+> Free 14 days, Pro 270, Business 730, Enterprise 1825**; see "Retention" below,
+> whose reasoning about tiny windows predates that decision.
 > Structural undelete extends the #229 trash to `databases` / `views` / `spaces`.
 > This is history + restore, **not** point-in-time workspace backup (#320/#322).
 
@@ -275,18 +276,26 @@ the user separately erased) are the design risk to nail in C5.
 
 ## Retention (LOCKED — founder decision)
 
+> **Amended 2026-11-27 (ticket #1385, Ievgen).** The windows below replace the
+> original ones (Free none / Pro 1 day / Business 7 days / Enterprise 30 days).
+> Free is now **capture ON** with a 14-day window. As of that change nothing
+> prunes `record_versions`, `record_field_changes` or `document_versions` (the
+> pruning job described below was never built) and the version list/restore do
+> not filter by the window: the value only gates capture. Prose below that talks
+> about "tiny" windows or Free being capture-off describes the original decision.
+
 History is a **paid feature**. Windows, gated by plan:
 
 | Plan | History retained | Rich-text history |
 |---|---|---|
-| **Free** | **none** (feature off) | none |
-| **Pro** | **1 day** | 1 day |
-| **Business** | **7 days** | 7 days |
-| **Enterprise** | **1 month** (30 days) | 30 days |
+| **Free** | **14 days** | 14 days |
+| **Pro** | **270 days** | 270 days |
+| **Business** | **730 days** | 730 days |
+| **Enterprise** | **1825 days** | 1825 days |
 | Self-hosted (`!stripe.enabled`) | unlimited (no pruning) | unlimited |
 
 Encode as `historyRetentionDays` on each `PlanDef` in `plans.ts`
-(`free: 0, pro: 1, business: 7, enterprise: 30`). Resolve per workspace through
+(`free: 14, pro: 270, business: 730, enterprise: 1825`). Resolve per workspace through
 the existing `BillingService.getStatus` → plan → window, reusing the
 `EntitlementsService` self-host short-circuit for unlimited.
 

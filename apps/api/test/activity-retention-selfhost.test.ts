@@ -22,6 +22,8 @@ let rec: string;
 let ownerId: string;
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date();
+/** Existing tests are about WHAT the purge deletes; the not-before gate (PURGE_NOT_BEFORE, ticket #1385) has its own describe below and runs with the real default. */
+const OPEN = new Date(0);
 const ago = (days: number) => new Date(NOW.getTime() - days * DAY);
 
 const seed = async (days: number) =>
@@ -41,7 +43,7 @@ async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => P
 const schedules = (value: string | undefined, nodeEnv = 'production') =>
   withEnv({ ACTIVITY_EVENTS_RETENTION_DAYS: value, NODE_ENV: nodeEnv }, async () => {
     vi.useFakeTimers();
-    const purge = vi.spyOn(service, 'purge').mockResolvedValue({ deleted: 0, batches: 0, capped: false, disabled: false });
+    const purge = vi.spyOn(service, 'purge').mockResolvedValue({ deleted: 0, batches: 0, capped: false, disabled: false, held: false });
     try {
       service.onModuleInit();
       vi.advanceTimersByTime(61_000);
@@ -75,7 +77,7 @@ describe('self-hosted (real detection)', () => {
   it('purge() with no options reads the variable: N days applies', async () => {
     const old = await seed(61);
     const fresh = await seed(59);
-    await withEnv({ ACTIVITY_EVENTS_RETENTION_DAYS: '60' }, () => service.purge({ now: NOW, pauseMs: 0 }));
+    await withEnv({ ACTIVITY_EVENTS_RETENTION_DAYS: '60' }, () => service.purge({ now: NOW, pauseMs: 0, notBefore: OPEN }));
     expect((await present([old])).size).toBe(0);
     expect((await present([fresh])).size).toBe(1);
   });
@@ -83,7 +85,7 @@ describe('self-hosted (real detection)', () => {
   it('purge() with no options and the variable unset, 0 or never deletes nothing', async () => {
     const e = await seed(900);
     for (const v of [undefined, '0', 'never']) {
-      const out = await withEnv({ ACTIVITY_EVENTS_RETENTION_DAYS: v }, () => service.purge({ now: NOW, pauseMs: 0 }));
+      const out = await withEnv({ ACTIVITY_EVENTS_RETENTION_DAYS: v }, () => service.purge({ now: NOW, pauseMs: 0, notBefore: OPEN }));
       expect(out, String(v)).toMatchObject({ deleted: 0, disabled: true });
     }
     expect((await present([e])).size).toBe(1);
