@@ -4,7 +4,13 @@ interface FakeTeam {
   id: string;
   key: string;
   name: string;
+  /** Ticket #1367 — `Team.private`. */
+  private?: boolean;
   data: {
+    /** Ticket #1367 — the team's members (`Team.members`), served for a private team's grants. */
+    members?: Array<{ id: string; name: string; email?: string | null; active?: boolean }>;
+    /** Ticket #1367 — issue history by Linear issue id, newest or oldest first as the test likes; the fake pages it like Linear (first page 50, then 100 at a time). */
+    history?: Record<string, Array<Record<string, unknown>>>;
     labels: { nodes: unknown[] };
     cycles: { nodes: unknown[] };
     projects: { nodes: unknown[] };
@@ -62,11 +68,17 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: FakeLinearOptions = {
       const end = start + nodes.length;
       return { nodes, pageInfo: { hasNextPage: end < all.length, endCursor: String(end) } };
     };
-    if (query.includes('query Teams(')) return { teams: page(teams.map(({ id, key, name }) => ({ id, key, name }))) };
+    if (query.includes('query Teams(')) return { teams: page(teams.map(({ id, key, name, private: isPrivate }) => ({ id, key, name, private: isPrivate === true }))) };
     if (query.includes('query TeamComments')) {
       const t = teams.find((x) => x.id === variables['id']);
       if (!t) throw new Error('fake Linear: no such team for comments');
       return { comments: page(sinceOnly(t.data.comments ?? [])) };
+    }
+    if (query.includes('query IssueHistoryMore')) {
+      const all = teams.map((t) => t.data.history?.[variables['id'] as string]).find(Boolean) ?? [];
+      const start = Number(variables['after'] ?? 0);
+      const nodes = all.slice(start, start + 100);
+      return { issue: { history: { nodes, pageInfo: { hasNextPage: start + nodes.length < all.length, endCursor: String(start + nodes.length) } } } };
     }
     if (query.includes('query ProjectMilestonesPaged')) {
       const all = teams.flatMap((t) => t.data.milestones ?? []).filter((m) => m.projectId === variables['id']);
@@ -92,6 +104,16 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: FakeLinearOptions = {
     if (query.includes('TeamIssueCount')) {
       if (variables['since'] !== undefined) throw new Error('fake Linear: an incremental read must not ask for the total');
     }
+    if (query.includes('TeamMembers')) return { team: { members: page(team.data.members ?? []) } };
+    if (query.includes('TeamIssueHistory')) {
+      const firstHistory = Number(query.match(/history\(first: (\d+)/)?.[1] ?? 50);
+      const withHistory = sinceOnly(team.data.issues.nodes).map((n) => {
+        const all = team.data.history?.[n['id'] as string] ?? [];
+        const nodes = all.slice(0, firstHistory);
+        return { id: n['id'], history: { nodes, pageInfo: { hasNextPage: nodes.length < all.length, endCursor: String(nodes.length) } } };
+      });
+      return { team: { issues: page(withHistory) } };
+    }
     if (query.includes('TeamIssueCount')) return { team: { issueCount: opts.issueCount ? opts.issueCount(team) : team.data.issues.nodes.length } };
     if (query.includes('query TeamProjectMilestones')) {
       // projects(first: N) pages; each project's milestones are the NESTED first page, with its own pageInfo — as Linear does it.
@@ -112,6 +134,8 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: FakeLinearOptions = {
     }
     if (query.includes('TeamIssues')) {
       const withInfo = team.data.issues.nodes.map((n) => ({
+        // Linear always reports `number`; a fixture that only wrote an identifier gets the number the identifier carries.
+        number: Number(String(n['identifier']).match(/(\d+)$/)?.[1]),
         ...n,
         labels: { ...(n['labels'] as { nodes: unknown[] }), pageInfo: { hasNextPage: false, endCursor: null } },
       }));

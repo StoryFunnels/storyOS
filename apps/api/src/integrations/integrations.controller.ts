@@ -177,6 +177,10 @@ class LinearConfigDto extends createZodDto(
       .optional(),
     /** #907 — push StoryOS comments on mirrored records to Linear (needs a key that can write comments). Off by default. */
     write_back: z.object({ enabled: z.boolean().optional(), /** #1179 — hold a comment an agent wrote for a person's approval before it goes to Linear. Off by default. */ require_approval_for_agent_comments: z.boolean().optional() }).optional(),
+    /** Ticket #1367 — import PRIVATE teams too (into restricted spaces). Off by default; refused loudly while off. */
+    allow_private_teams: z.boolean().optional(),
+    /** Ticket #1367 — per team key: the space to use (by id) and the name to give a NEW one; replaces the lookup by "<Team> (Linear)". */
+    team_spaces: z.record(z.string().min(1).max(20), z.object({ space_id: z.string().uuid().optional(), space_name: z.string().trim().min(1).max(100).optional() })).optional(),
   }),
 ) {}
 
