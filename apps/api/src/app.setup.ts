@@ -17,6 +17,7 @@ import { BILLING_WEBHOOK_PATH } from './billing/billing.controller';
 import { HOOKS_PATH_PREFIX } from './automations/hooks.controller';
 import { RESEND_WEBHOOK_PATH_PREFIX } from './connections/resend-webhook.controller';
 import { SHOPIFY_WEBHOOK_PATH_PREFIX } from './integrations/shopify-webhook.controller';
+import { SLACK_EVENTS_PATH } from './integrations/slack-events.service';
 
 /**
  * Routes that need the untouched request bytes, because a signature was
@@ -27,7 +28,7 @@ import { SHOPIFY_WEBHOOK_PATH_PREFIX } from './integrations/shopify-webhook.cont
  * for every route would be a memory and blast-radius mistake, so raw bytes are
  * kept only where an HMAC is actually verified.
  */
-const RAW_BODY_PATHS = new Set<string>([GITHUB_WEBHOOK_PATH, BILLING_WEBHOOK_PATH]);
+const RAW_BODY_PATHS = new Set<string>([GITHUB_WEBHOOK_PATH, BILLING_WEBHOOK_PATH, SLACK_EVENTS_PATH]);
 
 /**
  * `RAW_BODY_PATHS` is exact-match, but MN-254's inbound hook route carries

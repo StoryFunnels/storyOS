@@ -7230,6 +7230,38 @@
         "x-min-role": "admin"
       }
     },
+    "/api/v1/integrations/slack/events": {
+      "post": {
+        "operationId": "SlackEventsController_receive",
+        "parameters": [
+          {
+            "name": "x-slack-signature",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-slack-request-timestamp",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Slack Events API receiver (link previews) - signature-verified, unauthenticated by design",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{ws}/integrations/shopify/catalogue": {
       "post": {
         "operationId": "ShopifyIntegrationsController_createCatalogue",

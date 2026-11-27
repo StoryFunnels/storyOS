@@ -249,6 +249,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/billing/webhook': publicRoute('BillingWebhookController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'POST /api/v1/hooks/:workspaceSlug/:hookToken': publicRoute('HooksController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
   'POST /api/v1/integrations/github/webhook': publicRoute('GithubWebhookController: no AuthGuard — by design (webhook, health, docs or public share); signature/token checked in the handler'),
+  'POST /api/v1/integrations/slack/events': publicRoute('SlackEventsController (ticket #1379): no AuthGuard — by design (Slack holds no session). The X-Slack-Signature HMAC over the raw body is the only credential and fails closed without SLACK_SIGNING_SECRET; the handler can only make the app ask Slack to unfurl the TITLE and STATE of a record that is open to every member, in the installing workspace'),
   'POST /api/v1/invites/accept': workspaceLevel('account-level: the caller\'s own data, no workspace content'),
   'POST /api/v1/oauth/consent': workspaceLevel('account-level: the caller\'s own decision on their own pending OAuth request, session only; it names a workspace the caller is already a member of'),
   'POST /api/v1/me/gdpr/erase': workspaceLevel('account-level: erases the caller\'s own account everywhere; session only (refused for a token or AI connection), touches no workspace content on its own'),
