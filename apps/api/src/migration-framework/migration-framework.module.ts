@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { RecordsModule } from '../records/records.module';
 import { RelationsModule } from '../relations/relations.module';
 import { ChunkedApplyService } from './chunked-apply.service';
+import { ImportHistoryService } from './import-history.service';
 import { ExternalIdUpsertService } from './external-id-upsert.service';
 import { RelationLinkerService } from './relation-linker.service';
 
@@ -11,8 +13,8 @@ import { RelationLinkerService } from './relation-linker.service';
  * importer (CSV, Linear, and the four planned competitor importers) builds on.
  */
 @Module({
-  imports: [RecordsModule, RelationsModule],
-  providers: [ChunkedApplyService, ExternalIdUpsertService, RelationLinkerService],
-  exports: [ChunkedApplyService, ExternalIdUpsertService, RelationLinkerService],
+  imports: [RecordsModule, RelationsModule, BillingModule],
+  providers: [ChunkedApplyService, ExternalIdUpsertService, RelationLinkerService, ImportHistoryService],
+  exports: [ChunkedApplyService, ExternalIdUpsertService, RelationLinkerService, ImportHistoryService],
 })
 export class MigrationFrameworkModule {}

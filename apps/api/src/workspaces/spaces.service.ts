@@ -49,7 +49,8 @@ export class SpacesService {
 
   async create(
     workspaceId: string,
-    input: { name: string; icon?: string; color?: string; description?: string },
+    /** `restricted` (ticket #1367): born closed, never created open and flipped, so there is no window in which a member could see it. */
+    input: { name: string; icon?: string; color?: string; description?: string; restricted?: boolean },
   ) {
     const existing = await this.db.query.spaces.findMany({
       where: eq(spaces.workspaceId, workspaceId),
@@ -72,6 +73,7 @@ export class SpacesService {
         // build spaces by calling this service, bypassing createSpaceSchema.
         description: normalizeDescription(input.description) ?? null,
         position,
+        ...(input.restricted ? { restricted: true } : {}),
       })
       .returning();
     return space!;
