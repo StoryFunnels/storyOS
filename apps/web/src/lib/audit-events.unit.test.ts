@@ -267,6 +267,7 @@ const SENTENCES: Record<string, [payload: unknown, sentence: string]> = {
   'outward.calendar_sync': [{ summary: 'S' }, 'Synced to the calendar · S'],
   'outward.linear_comment': [{ summary: 'S' }, 'Posted a comment to Linear · S'],
   'outward.ai_field': [{ summary: 'S' }, 'Recomputed an AI field · S'],
+  'outward.slack_subscription': [{ summary: 'S' }, 'Posted an update to a Slack channel · S'],
 };
 for (const kind of ['space', 'database', 'view']) {
   SENTENCES[`${kind}.deleted`] = [named('X'), `Deleted the ${kind} “X”`];

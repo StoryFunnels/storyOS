@@ -1,4 +1,5 @@
 import { ConflictException, HttpException, Inject, Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
+import { runAsImportRun } from '../common/import-run-context';
 import { stripPublicSharing } from '../views/view-sharing';
 import { DocumentsService } from '../documents/documents.service';
 import { createHash } from 'node:crypto';
@@ -3485,7 +3486,7 @@ export class PacksService {
           });
         }
       }
-      const created = await this.records.create(
+      const created = await runAsImportRun(() => this.records.create(
         membership.workspaceId,
         dbId,
         values,
@@ -3494,7 +3495,7 @@ export class PacksService {
         // #481 — seeded from the pack's own manifest template, not typed by the
         // person installing it.
         'automation',
-      );
+      ));
       // #1147 — the record's body, written once at creation (a reused record above is left exactly as the person has it).
       if (planned.description) {
         await this.documents.put(membership.workspaceId, dbId, created.id, markdownToBlocks(planned.description), 0, membership.userId, 'automation');

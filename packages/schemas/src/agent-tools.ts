@@ -156,6 +156,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'list_runners',
   'list_skill_templates',
   'list_skills',
+  'list_slack_subscriptions',
   'list_social_accounts',
   'list_social_publishes',
   'list_source_providers',

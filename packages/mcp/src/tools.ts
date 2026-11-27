@@ -938,6 +938,8 @@ export const TOOL_SCOPE: Record<string, ToolScope> = {
   get_run_quota: 'read',
   // #1008 — read-only: names and dates of the caller's connected AI clients. Disconnecting is human-only and is not a tool (coverage.ts).
   list_ai_connections: 'read',
+  // #1377 — read-only, but the route is admin-role so it needs an admin-scoped token (#1049): which space/database posts to which Slack channel. Creating, changing and deleting one are human-only and are not tools (coverage.ts).
+  list_slack_subscriptions: 'admin',
   get_staged_action: 'read',
   setup_agents: 'admin',
   run_agent: 'admin',
@@ -7038,6 +7040,22 @@ export function registerTools(server: McpServer, ctx: Ctx, effective: EffectiveS
       const ws = await resolveWorkspace(client, workspace);
       const res = await unwrap<unknown>(
         client.GET('/api/v1/me/ai-connections', { params: { query: { workspace_id: ws.id } } as never }),
+      );
+      return text(res);
+    }),
+  );
+
+  reg(
+    'list_slack_subscriptions',
+    {
+      title: 'List Slack channel subscriptions (admin, read-only)',
+      description: 'Slack channel subscriptions (read-only).',
+      inputSchema: { workspace: z.string() },
+    },
+    handle<{ workspace: string }>(async ({ workspace }) => {
+      const ws = await resolveWorkspace(client, workspace);
+      const res = await unwrap<unknown>(
+        client.GET('/api/v1/workspaces/{ws}/integrations/slack/subscriptions', { params: { path: { ws: ws.id } } as never }),
       );
       return text(res);
     }),

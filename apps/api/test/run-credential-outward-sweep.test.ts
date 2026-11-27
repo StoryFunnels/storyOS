@@ -151,7 +151,7 @@ describe('1. every live route and every MCP tool is classified', () => {
       expect(Object.keys(FANOUT_CONSUMERS).filter((f) => !live.includes(f)), 'stale entries').toEqual([]);
     });
     it('held and logged entries name their proof file, and the three #1179 paths are listed', () => {
-      for (const [f, e] of Object.entries(FANOUT_CONSUMERS)) if (e.verdict !== 'none') expect(e.why, f).toMatch(/Proof: run-credential-outward-(staging|part2)\.test\.ts/);
+      for (const [f, e] of Object.entries(FANOUT_CONSUMERS)) if (e.verdict !== 'none') expect(e.why, f).toMatch(/Proof: run-credential-(outward-(staging|part2)|slack-subscription)\.test\.ts/);
       for (const f of ['calendar-sync/calendar-sync.service.ts', 'integrations/linear-write-back.service.ts', 'records/ai-field.subscriber.ts']) expect(FANOUT_CONSUMERS[f]!.why).toContain('run-credential-outward-part2.test.ts');
     });
   });
