@@ -1,6 +1,6 @@
 ---
 title: Migrate from Linear
-description: Import your Linear workspace through the Linear GraphQL API, then optionally keep it in sync on a schedule and write StoryOS comments back. Teams become spaces; issues, sprints, projects and comments come across with a full field mapping table.
+description: Import your Linear workspace through the Linear GraphQL API, then optionally keep it in sync on a schedule and write StoryOS comments back. Teams become spaces; issues, sprints, projects, comments, GitHub pull request links, other attachments and project documents come across with a full field mapping table.
 sidebar:
   order: 4
 ---
@@ -19,7 +19,7 @@ is the whole contract. Details for each line follow below.
 
 | | What | When |
 |---|---|---|
-| **Linear → StoryOS** | Teams, issues (with Linear's own numbers, dates and status history), cycles, projects, project milestones, labels, workflow statuses, people and comments, written into the mirrored space. | When you press **Import**, and on the schedule if an admin turned it on. |
+| **Linear → StoryOS** | Teams, issues (with Linear's own numbers, dates and status history), cycles, projects, project milestones, labels, workflow statuses, people, comments, attachments (GitHub pull request links and other links) and project documents, written into the mirrored space. | When you press **Import**, and on the schedule if an admin turned it on. |
 | **StoryOS → Linear** | **Comments only**, and only if an admin turned write-back on. Each is signed `<author> · via StoryOS`. | A comment is queued once, picked up within about a minute, and retried only if delivery fails (30 seconds, 2 minutes, 10 minutes, 1 hour, then it is marked as not delivered). |
 | **Everything else** | Nothing. The only thing the write-back writes to Linear is a new comment; it never edits an issue's title, status, assignee or any other field. (A retry also reads the issue's comments, see below.) | |
 
@@ -115,6 +115,13 @@ project's). A milestone that Linear no longer returns (deleted or archived there
 named in the run's warnings, never deleted. An issue that names a milestone the read did not return
 keeps the link it had, and the run counts it and says so.
 
+**Attachments and documents** (see [Attachments and project documents](#attachments-and-project-documents)):
+a Links record's Name, URL, Source Type and Subtitle, and its link to the issue, are written again from
+Linear on every read of that issue. A pull request record is created when it is missing and **never
+rewritten from a Linear attachment**, and its link to an issue is only ever added. A Documents record's
+Name, Author (name), dates, URL and Project link are written again; its **body is written only while the
+record has none** (a later change in Linear is flagged, not applied).
+
 **Not written by a sync once they exist:**
 
 - The record's **description**. It is written only when the record has none yet.
@@ -155,6 +162,9 @@ lists a Duplicate status; the sync summary says which it was.
 | Project | Record in **Projects** (state, target date, URL) + Project relation on the issue |
 | Project milestone | Record in **Milestones** (a database in the team's space, beside Projects) with Name, Target Date, Sort Order (Linear's own order) and the description as the record body, linked to its **Project** (a project's Milestones are listed on the project). An issue's milestone becomes its **Milestone** link. A mirror imported before this gains the Milestones database on its next sync. |
 | Project state | State select under the names Linear shows: backlog → Backlog, planned → Planned, started → In Progress, paused → Paused, completed → Completed, canceled → Canceled, coloured like Linear's (gray, blue, gold, orange, green, red in that order). A database imported earlier keeps its raw-named options as they are; the sync still matches them. |
+| Attachment whose URL is a GitHub pull request | A record in the workspace's **GitHub Pull Requests** database, found by repository **and** number, linked to the issue |
+| Any other attachment (merge commit, Figma file, ...) | A record in the team's **Links** database (title, URL, source type, subtitle) with an Issue relation |
+| Project document | A record in the team's **Documents** database (title, author name, Linear created and updated, URL), related to its project; the Markdown is the record's description |
 | Issue ID (internal) | Linear ID text field — the idempotency key; don't edit it |
 
 ## Relations
@@ -195,6 +205,73 @@ database, created on the first sync that reads them (an older mirror gets them a
 - **Moving an issue to Duplicate.** In Linear, marking an issue a duplicate moves it to the Duplicate status.
   While Linear is the source, StoryOS reads the status Linear gives the issue and does not move it. Making StoryOS
   do that once it owns the issues is not built yet and is tracked as ticket #1387.
+
+## Attachments and project documents
+
+**What an attachment is comes from its URL, never from Linear's label.** Anyone can attach any URL to an
+issue, so a `github` label proves nothing, and a pull request pasted by hand has no label at all.
+
+- An **https URL on github.com shaped `/owner/repo/pull/N`** is a pull request. It becomes a record in the
+  **GitHub Pull Requests** database (the one the [GitHub integration](/guides/github/) fills), found by
+  repository and number together: the same number in another repository is another pull request. The record
+  is linked to the issue through the same *Linked Record* relation the GitHub webhook uses, so when GitHub
+  later sends that pull request, the webhook updates this record instead of creating a second one. The same
+  pull request on two issues is one record linked to both. If the record already exists (from the webhook or
+  an earlier run) it is not changed; a new one gets Linear's title, repository, number and canonical URL, and
+  a state only when Linear's attachment names one (otherwise the state stays empty until GitHub reports it).
+  Linking a pull request never removes another link, and an attachment deleted in Linear does not unlink it.
+  If the workspace has no GitHub pack yet, the first pull request attachment creates it: a **GitHub** space
+  with the **GitHub Issues** and **GitHub Pull Requests** databases, exactly as connecting GitHub would (no
+  connection to GitHub is made).
+- **Any other http(s) URL** (a merge commit, a Figma file, a GitHub Enterprise pull request, a pull request
+  on `http://`) becomes a record in the team's own **Links** database, keeping Linear's title, URL, source
+  type and subtitle, with an **Issue** relation. Re-running updates it by its Linear id. An attachment
+  deleted in Linear is not deleted here.
+- A URL that is **not http(s)** (`javascript:`, `data:`, `file:`), is not a URL, or is over 2,048 characters
+  is **not imported**. It is counted as `unusable` and named in the run's warnings.
+- **A URL is data and is never opened.** The import does not fetch, follow or preview any attachment URL.
+- An attachment on an issue the run did not place (the issue was created after the run read the team) is
+  counted as `unplaced` and picked up by the next run. A write that fails is counted as `failed` and named,
+  and does not stop the sync.
+
+**A restricted team keeps its pull requests to itself.** The GitHub Pull Requests database lives in the GitHub
+space, which can be open to people the team's space is not. If the team's space or its Issues database is
+[restricted](/concepts/access-and-roles/), its pull request attachments are **not** written there: they go to the team's own
+Links database instead (counted as `kept_in_team_space`), which is as private as the team's space. Pull
+request records written while the space was still open stay where they are.
+
+**Documents.** A Linear project document becomes a record in the team's **Documents** database, related to its
+project, with its Markdown as the record's description (headings, lists, links and code kept). The Documents
+database sits inside the team's space, so the document is visible to exactly the people who can see the
+team's issues, never to more. A project that spans teams brings its documents into each team's database.
+Rules that follow from this:
+
+- Only documents attached to a **project** are imported. Documents attached to an issue, an initiative or
+  nothing are counted as `no_project`; documents of a project that is in none of the imported teams as
+  `project_not_imported`. Neither is dropped silently.
+- The body is written **only while the record has no description**. If the text in Linear changes later,
+  StoryOS keeps what it has and ticks **Changed in Linear** on the record; clearing the box sticks until Linear
+  changes the text again. (The sync compares a hash; it keeps no second copy of the text.)
+- A body over **2 MB** is not truncated: the record is created without a body and the document's title is
+  listed in `oversize` and in the warnings.
+- The author is kept as Linear's name, in **Author (name)**, not matched to a member. Linear's created and
+  updated times are kept in **Linear Created** and **Linear Updated**; the record's own created time is the
+  import's.
+- The importer recognises its own databases by a hidden `Linear ID` field, not by name. If someone already made
+  a database called **Documents** or **Links** in the team space, the importer leaves it alone and uses
+  **Documents (Linear)** or **Links (Linear)**.
+
+**Counts.** The sync response reports `attachments` (fetched, pull_requests, pr_records_created, links,
+kept_in_team_space, unusable, unplaced, failed) and `documents` (fetched, placed, copies, created, body_written,
+drift_flagged, no_project, project_not_imported, oversize, failed). Every attachment and every document lands
+in exactly one bucket, and the sync fails if the buckets do not add up to what was read. **Preview** shows, per
+team, how many attachments would become pull request records, links or unusable, and how many documents are
+importable. Linear reports no total for either, so unlike issues these counts are not checked against a figure
+from Linear.
+
+A scheduled run that reads only what changed reads the attachments of the issues Linear changed since the last
+success; the daily full read covers the rest, so a pull request attached without touching the issue can take up
+to a day to appear.
 
 ## Comments
 

@@ -6,7 +6,7 @@ import { fields as fieldsTable, relations as relationsTable, selectOptions } fro
 import type { FieldsService } from '../fields/fields.service';
 import type { RelationsService } from '../relations/relations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
-import { pageAll } from './linear.service';
+import { pageAll } from './linear-paging';
 import type { LinearFetcher, LinearTeam } from './linear.service';
 
 /**

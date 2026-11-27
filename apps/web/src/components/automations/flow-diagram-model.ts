@@ -94,7 +94,7 @@ const OP_LABELS: Record<string, string> = {
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** [1,2,3,4,5] -> "Mon-Fri"; [1,3] -> "Mon, Wed". Runs of 3+ collapse; the week reads Mon first, Sunday last. */
-function weekdaysLabel(days: number[]): string {
+export function weekdaysLabel(days: number[]): string {
   const pos = [...new Set(days)].filter((d) => d >= 0 && d <= 6).map((d) => (d + 6) % 7).sort((x, y) => x - y);
   const name = (p: number) => DAY_NAMES[(p + 1) % 7] ?? '';
   const parts: string[] = [];
