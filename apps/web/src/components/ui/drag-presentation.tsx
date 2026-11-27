@@ -188,11 +188,20 @@ export function vacatedSlotClass(isDragging: boolean): string {
 export function DropIndicator({
   active,
   orientation = 'horizontal',
+  edge = 'top',
+  indented = false,
 }: {
   /** True when this element is the current `over` target. */
   active: boolean;
   /** `horizontal` = a line BETWEEN rows; `vertical` = between columns. */
   orientation?: 'horizontal' | 'vertical';
+  /**
+   * Ticket #1346 — which side of the target the line sits on. A drop resolves to the target's SLOT, so dragging down lands
+   * AFTER the target and the line belongs on its bottom edge; dragging up lands before it (top, the default).
+   */
+  edge?: 'top' | 'bottom';
+  /** Ticket #1346 — start the line inside the row's gutter, so a drop that lands inside a group reads as nested. */
+  indented?: boolean;
 }) {
   if (!active) return null;
   return (
@@ -200,7 +209,9 @@ export function DropIndicator({
       aria-hidden
       className={cn(
         'pointer-events-none absolute z-20 bg-primary-text',
-        orientation === 'horizontal' ? 'inset-x-0 -top-px h-0.5' : 'inset-y-0 -left-px w-0.5',
+        orientation === 'horizontal'
+          ? cn('h-0.5', indented ? 'left-3.5 right-0' : 'inset-x-0', edge === 'bottom' ? '-bottom-px' : '-top-px')
+          : 'inset-y-0 -left-px w-0.5',
       )}
     />
   );
