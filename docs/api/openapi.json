@@ -7063,13 +7063,26 @@
     "/api/v1/workspaces/{ws}/integrations/linear/dry-run": {
       "post": {
         "operationId": "LinearIntegrationsController_dryRun",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "detail",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "counts",
+                "full"
+              ],
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "201": {
             "description": ""
           }
         },
-        "summary": "Preview import counts per team — writes nothing",
+        "summary": "Preview import counts per team — writes nothing. Reads Linear's own totals only (a handful of requests); `detail=full` walks every issue and comment to check each number (slow, heavy on Linear's rate limit)",
         "tags": [
           "integrations"
         ],

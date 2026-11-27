@@ -68,7 +68,7 @@ afterAll(async () => { await app.close(); });
 describe('#1364 a sync brings milestones, linked to their projects and issues', () => {
   it('the preview counts DISTINCT milestones, per team, and writes nothing', async () => {
     useTeams([team('MS', 'Milestones', [prj(1), prj(2)], [ms(1, 'prj-1'), ms(2, 'prj-1'), ms(3, 'prj-2')], [issue(1, { projectMilestone: { id: 'ms-1' }, project: { id: 'prj-1' } }), issue(2), issue(3, { projectMilestone: { id: 'ms-gone' } })])]);
-    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().milestones).toEqual({
       distinct: 3, projects_on_several_teams: 0,
@@ -200,7 +200,7 @@ describe('#1364 paging and cross-team projects', () => {
       team('OT', 'Other', [shared, other], [ms(70, 'prj-7'), ms(71, 'prj-7'), ms(80, 'prj-8')], [{ ...issue(9), identifier: 'OT-9', project: { id: 'prj-7' }, projectMilestone: { id: 'ms-71' } }]),
     ]);
     expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { team_keys: ['MS', 'OT'] })).statusCode).toBe(201);
-    const preview = (await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`)).json();
+    const preview = (await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`)).json();
     expect(preview.milestones).toMatchObject({ distinct: 3, projects_on_several_teams: 1 });
     const summary = await syncNow();
     expect(summary.milestones).toMatchObject({ distinct: 3, written: 5 }); // 2 + 3 records, 3 distinct ids

@@ -306,7 +306,7 @@ describe('cross-team relations: reported, never silently dropped, never linked',
     teamsData = [{ team: TEAM, issues: [issue('i', 1), issue('i', 2), issue('i', 3), issue('i', 4)] }];
     edges = [edge('e1', 'blocks', 'i1', 'i2'), edge('c1', 'blocks', 'i1', 'x1'), edge('c9', 'related', 'i3', 'x1')];
     use();
-    const res = await as('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const res = await as('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     const body = res.json();
     expect(body.relations_cross_team_total).toBe(2);

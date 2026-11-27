@@ -64,7 +64,7 @@ describe('private teams are off until an admin switches them on', () => {
   it('the preview says which chosen teams are private and that a sync would not import them', async () => {
     const ws = await newWorkspace('Private Preview WS', ['WEB', 'KYIV']);
     use([{ team: PUB, issues: [issueShape(PUB, 1)] }, { team: PRV, private: true, issues: [issueShape(PRV, 1)] }]);
-    const res = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const res = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().private_teams).toEqual([{ key: 'KYIV', would_import: false }]);
   });
@@ -72,7 +72,7 @@ describe('private teams are off until an admin switches them on', () => {
   it('a chosen team key the API key cannot see is reported, not silently skipped', async () => {
     const ws = await newWorkspace('Not Visible WS', ['WEB', 'MAN']);
     use([{ team: PUB, issues: [issueShape(PUB, 1)] }]);
-    const dry = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const dry = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(dry.json().teams_not_visible).toEqual(['MAN']);
     const res = await sync(ws);
     expect(res.statusCode, res.body).toBe(201);

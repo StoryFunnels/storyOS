@@ -98,7 +98,7 @@ describe('a StoryOS-owned team gets ZERO writes from any importer writer', () =>
     expect((await adm('POST', `/workspaces/${ws}/integrations/linear/sync`)).statusCode).toBe(201);
     await adm('POST', `/workspaces/${ws}/integrations/linear`, { auto_sync: { enabled: true } });
     await linear.tick(new Date(Date.now() + 2 * 3_600_000));
-    const preview = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const preview = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(preview.statusCode, preview.body).toBe(201);
     expect(JSON.stringify(await snapshot())).toEqual(JSON.stringify(before));
   });

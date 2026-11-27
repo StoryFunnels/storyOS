@@ -18,7 +18,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { slackWebhookUrlProblem } from './slack.service';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { DB } from '../db/db.module';
@@ -612,9 +612,11 @@ export class LinearIntegrationsController {
   }
 
   @Post('dry-run')
-  @ApiOperation({ summary: 'Preview import counts per team — writes nothing' })
-  dryRun(@Req() req: WorkspaceRequest) {
-    return this.linear.dryRun(req.membership);
+  @ApiOperation({ summary: "Preview import counts per team — writes nothing. Reads Linear's own totals only (a handful of requests); `detail=full` walks every issue and comment to check each number (slow, heavy on Linear's rate limit)" })
+  @ApiQuery({ name: 'detail', required: false, enum: ['counts', 'full'] })
+  dryRun(@Req() req: WorkspaceRequest, @Query('detail') detail?: string) {
+    if (detail !== undefined && detail !== 'counts' && detail !== 'full') throw new BadRequestException("detail must be 'counts' or 'full'");
+    return this.linear.dryRun(req.membership, { detail: detail === 'full' ? 'full' : 'counts' });
   }
 
   @Post('sync')

@@ -61,7 +61,7 @@ describe('#903 importing comments', () => {
 
   it('the preview counts comments per team', async () => {
     use([comment(1, 'iss-0'), comment(2, 'iss-0'), comment(3, 'iss-1')]);
-    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().teams[0].comments).toBe(3);
   });

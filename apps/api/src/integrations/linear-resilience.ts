@@ -163,12 +163,16 @@ export interface ResilienceOptions {
   maxWaitMs?: number;
   /** The most a run may spend waiting on rate limits in total. */
   maxTotalWaitMs?: number;
+  /** Pace: at most this many requests in any 60 seconds (sliding window); the rest wait their turn. Unset = unpaced. */
+  requestsPerMinute?: number;
   /** Tries for a 5xx / dropped connection (the first one included). */
   serverAttempts?: number;
   /** Called when a wait starts and when it ends (null), so the sync health can say what the run is doing. */
   onWait?: (wait: { resumeAtMs: number; code: string | null; message: string } | null) => void | Promise<void>;
 }
 
+/** Linear's API-key limit is 2,500 requests an hour (~41 a minute; Business 2x). 30 a minute leaves headroom for the person's own use of the key. */
+export const DEFAULT_REQUESTS_PER_MINUTE = 30;
 export const DEFAULT_MAX_WAIT_MS = 10 * 60_000;
 export const DEFAULT_MAX_TOTAL_WAIT_MS = 25 * 60_000;
 const DEFAULT_SERVER_ATTEMPTS = 4;
@@ -185,9 +189,22 @@ export function withLinearResilience(inner: LinearFetcher, options: ResilienceOp
   const maxTotal = options.maxTotalWaitMs ?? DEFAULT_MAX_TOTAL_WAIT_MS;
   const serverAttempts = options.serverAttempts ?? DEFAULT_SERVER_ATTEMPTS;
   let waited = 0;
+  const stamps: number[] = [];
+  const pace = async () => {
+    const budget = options.requestsPerMinute;
+    if (!budget) return;
+    for (;;) {
+      const now = options.now();
+      while (stamps.length > 0 && stamps[0]! <= now - 60_000) stamps.shift();
+      if (stamps.length < budget) break;
+      await options.sleep(stamps[0]! + 60_000 - now + Math.floor(options.random() * 500), options.signal);
+    }
+    stamps.push(options.now());
+  };
   return async (query, variables, apiKey) => {
     let serverTries = 0;
     for (let attempt = 0; ; attempt++) {
+      await pace();
       try {
         return await inner(query, variables, apiKey);
       } catch (error) {

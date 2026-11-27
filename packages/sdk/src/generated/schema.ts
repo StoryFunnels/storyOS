@@ -2719,7 +2719,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Preview import counts per team — writes nothing */
+        /** Preview import counts per team — writes nothing. Reads Linear's own totals only (a handful of requests); `detail=full` walks every issue and comment to check each number (slow, heavy on Linear's rate limit) */
         post: operations["LinearIntegrationsController_dryRun"];
         delete?: never;
         options?: never;
@@ -12526,7 +12526,9 @@ export interface operations {
     };
     LinearIntegrationsController_dryRun: {
         parameters: {
-            query?: never;
+            query?: {
+                detail?: "counts" | "full";
+            };
             header?: never;
             path?: never;
             cookie?: never;

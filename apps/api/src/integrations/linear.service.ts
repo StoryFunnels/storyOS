@@ -25,7 +25,7 @@ import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
 import { CROSS_TEAM_RELATION_POLICY, emptyRelationReport, ensureDuplicateStateCategory, ensureRelationFields, fetchTeamRelations, planIssueRelations, relationWarnings } from './linear-relations';
-import type { DuplicateStateReport, LinearIssueRelations, RelationReport } from './linear-relations';
+import type { DuplicateStateReport, RelationReport } from './linear-relations';
 import { pageAll } from './linear-paging';
 /** One pageAll: it lives in linear-paging.ts; re-exported so linear-milestones.ts and older importers keep their path. */
 export { pageAll };
@@ -33,7 +33,6 @@ import { LinearAttachmentsService } from './linear-attachments.service';
 import {
   attachmentTallyGap, classifyAttachmentUrl, documentSummaryGap, documentsForTeam, DocumentRun, fetchTeamAttachments, fetchWorkspaceDocuments,
 } from './linear-attachments';
-import type { LinearAttachment } from './linear-attachments';
 import type { PageInfo } from './linear-paging';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 import { AccessService } from '../access/access.service';
@@ -48,7 +47,7 @@ import {
   addTeamMilestones, ensureMilestonesPack, fetchTeamMilestones, milestonePreview, milestoneTargets, newMilestoneSummary, newMilestoneTally, syncTeamMilestones,
 } from './linear-milestones';
 import type { LinearMilestone } from './linear-milestones';
-import { classifyLinearFailure, DEFAULT_MAX_TOTAL_WAIT_MS, LinearApiError, utcClock, withLinearResilience } from './linear-resilience';
+import { classifyLinearFailure, DEFAULT_REQUESTS_PER_MINUTE, LinearApiError, withLinearResilience } from './linear-resilience';
 
 export interface LinearTeam {
   id: string;
@@ -527,6 +526,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   clock: () => number = () => Date.now();
   sleep: (ms: number, signal?: AbortSignal) => Promise<void> = abortableSleep;
   random: () => number = Math.random;
+  /** Ticket #1392 — a run's own pace, held under Linear's published API-key limit (2,500 an hour is about 41 a minute) with headroom. */
+  requestsPerMinute = env().NODE_ENV === 'test' ? 0 : DEFAULT_REQUESTS_PER_MINUTE; // 0 = unpaced: the suites run every import against fakes in real time
   private readonly shutdown = new AbortController();
 
   constructor(
@@ -680,7 +681,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         /** Ticket #1392 — non-null when the last run stopped on a rate limit; `until` is when Linear says it comes back. Cleared by the next success. */
         paused: status.paused ?? null,
         /** Ticket #1392 — an unfinished import: the teams already imported (they are not read again) out of those chosen. Null once an import completes. */
-        progress: status.resume ? { started_at: status.resume.started_at, teams_done: Object.keys(status.resume.completed), teams_total: status.resume.teams } : null,
+        progress: status.resume ? { started_at: status.resume.started_at, teams_done: status.resume.teams.filter((k) => status.resume!.completed[k]), teams_total: status.resume.teams } : null,
         running: Boolean(status.running_since && now.getTime() - new Date(status.running_since).getTime() < RUN_LOCK_TIMEOUT_MINUTES * 60_000),
       },
     };
@@ -1163,7 +1164,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
    * — additive fields alongside the original per-team breakdown so existing
    * consumers of `.teams` keep working unchanged.
    */
-  async dryRun(membership: Membership) {
+  async dryRun(membership: Membership, opts: { detail?: 'counts' | 'full' } = {}) {
     // #1028 — a Preview reads EVERYTHING from Linear (every issue and comment, to count them against Linear's own totals), exactly
     // like a sync, and a sync on a large workspace takes ~20 minutes. Run together they fight for the same API budget and the person
     // watches "Checking…" for as long as the sync lasts. So a running sync is answered at once, in words, instead of being queued behind.
@@ -1176,7 +1177,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     }
     this.previewsInFlight.add(membership.workspaceId);
     try {
-      return await this.dryRunUnlocked(membership);
+      return opts.detail === 'full' ? await this.dryRunUnlocked(membership) : await this.dryRunCounts(membership);
     } finally {
       this.previewsInFlight.delete(membership.workspaceId);
     }
@@ -1184,6 +1185,51 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
   /** Workspaces with a preview in flight in THIS process (a second one would double the reads for no new information). */
   private readonly previewsInFlight = new Set<string>();
+
+  /**
+   * Ticket #1392 — the DEFAULT preview reads COUNTS ONLY: Linear's own `Team.issueCount`, the workflow states, the labels and (for a
+   * private team) the members. It never walks issues, comments, history, relations or attachments, so five teams cost
+   * 1 (teams) + 3 per team (+1 per private team) requests - 16 for the five-team workspace this was written for. The walk-everything
+   * preview (`detail=full`) is kept for the person who wants to check every number against Linear before a copy, and it is the one that
+   * exhausts a small rate budget. Everything the counts preview does not read is `null` (never 0) and named in `not_read`.
+   */
+  private async dryRunCounts(membership: Membership) {
+    let requests = 0;
+    const base = withLinearResilience(this.fetcher, { sleep: this.sleep, now: this.clock, random: this.random, signal: this.shutdown.signal, maxWaitMs: 45_000, maxTotalWaitMs: 90_000 });
+    const fetcher: LinearFetcher = async (query, variables, key) => { requests++; return base(query, variables, key); };
+    const { teams, apiKey, notVisible, blockedPrivate, settings } = await this.fetchTeams(membership.workspaceId, { fetcher });
+    const outboxByTeam = (await statusPushCounts(this.db, membership.workspaceId)).by_team;
+    const out: Array<Record<string, unknown>> = [];
+    for (const team of teams) {
+      const count = (await fetcher(TEAM_ISSUE_COUNT_QUERY, { id: team.id }, apiKey)) as { team?: { issueCount?: number } };
+      const total = count.team?.issueCount;
+      if (typeof total !== 'number') throw new UnprocessableEntityException(`Linear did not report an issue total for ${team.key} — refusing to preview a number it did not give`);
+      const states = await pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id: team.id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`);
+      const labels = await pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id: team.id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`);
+      const members = team.private === true ? (await fetchTeamMembers(fetcher, apiKey, team)).length : null;
+      out.push({
+        key: team.key, name: team.name,
+        owner: teamOwnership(settings, team.key).owner,
+        sync_writes: teamOwnership(settings, team.key).owner === 'linear',
+        status_write_back: { enabled: statusWriteBack(settings, team.key).allowed, ...pickCounts(outboxByTeam[team.key]) },
+        issues: total, linear_issue_total: total,
+        labels: labels.length,
+        statuses: [...states].sort((a, b) => a.position - b.position).map((st) => ({ name: st.name, type: st.type })),
+        members,
+        comments: null, sprints: null, projects: null,
+      });
+    }
+    return {
+      dry_run: true,
+      counts_only: true,
+      /** What this preview did NOT read; null in the team rows above. Ask for `detail=full` to read them (slow, and heavy on Linear's rate limit). */
+      not_read: ['comments', 'sprints', 'projects', 'issues_by_project', 'issues_by_status', 'relations', 'milestones', 'attachments', 'documents', 'members_matching'],
+      requests,
+      teams_not_visible: notVisible,
+      private_teams: teams.filter((t) => t.private === true).map((t) => ({ key: t.key, would_import: !blockedPrivate.includes(t.key) })),
+      teams: out,
+    };
+  }
 
   private async dryRunUnlocked(membership: Membership) {
     // A preview answers an HTTP request, so it waits out only a short rate limit; a longer one is reported (paused, with the time) rather than held open.
@@ -1323,7 +1369,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const message = error instanceof Error ? error.message : String(error);
       const after = await this.readLinear(workspaceId);
       const failures = (after.sync_status?.consecutive_failures ?? 0) + 1;
-      const { waiting: _ended, paused: _previous, ...kept } = after.sync_status ?? {};
+      const kept: LinearSyncStatus = { ...after.sync_status };
+      delete kept.waiting;
+      delete kept.paused;
       // Ticket #1392 — a run that Linear's rate limit stopped is PAUSED, with the time it comes back (the scheduler does not retry before it);
       // the per-team progress in `resume` stays, so the next run continues rather than starting over.
       const paused = error instanceof LinearApiError && error.paused ? { until: error.resetAtMs !== null ? new Date(error.resetAtMs).toISOString() : null, code: error.code, at: new Date().toISOString() } : undefined;
@@ -1600,9 +1648,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   /** Ticket #1392 — every request of a run goes through the retry policy; the wait is shown in the sync health while it lasts. */
   private runFetcher(workspaceId: string): LinearFetcher {
     return withLinearResilience(this.fetcher, {
-      sleep: this.sleep, now: this.clock, random: this.random, signal: this.shutdown.signal,
+      sleep: this.sleep, now: this.clock, random: this.random, signal: this.shutdown.signal, requestsPerMinute: this.requestsPerMinute,
       onWait: (wait) => this.patchSyncStatus(workspaceId, (status) => {
-        const { waiting: _previous, ...rest } = status;
+        const rest: LinearSyncStatus = { ...status };
+        delete rest.waiting;
         return wait ? { ...rest, waiting: { resume_at: new Date(wait.resumeAtMs).toISOString(), since: new Date(this.clock()).toISOString(), code: wait.code, message: wait.message } } : rest;
       }),
     });

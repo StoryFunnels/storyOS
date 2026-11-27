@@ -114,13 +114,13 @@ describe('#902 through the service: dry-run preview, sync, idempotent re-sync, f
     expect(res.body).toContain('has 601 issues but 600 were fetched');
     const spaces = (await inject('GET', `/workspaces/${ws}/spaces`)).json();
     expect(spaces.some((s: { name: string }) => s.name.includes('Linear')), 'nothing was written').toBe(false);
-    const dry = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const dry = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(dry.statusCode, 'the preview refuses too').toBe(422);
   });
 
   it('the preview shows the true count per team and per Linear project (600, not 250)', async () => {
     useTeam(600);
-    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     const team = res.json().teams[0];
     expect(team).toMatchObject({ key: 'BIG', issues: 600, linear_issue_total: 600 });
