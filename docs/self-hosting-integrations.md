@@ -221,6 +221,45 @@ Instagram fetches the post's image from the address in `API_URL`, so that addres
 the internet. The image is handed over through a short-lived signed link (15 minutes) and is never made
 public. A Facebook photo is uploaded as bytes with the post and needs no public address.
 
+## Slack link previews (operator setup, optional)
+
+A StoryOS record link pasted into your Slack workspace can show the record's **title and state** (and
+nothing else) as a card. It works only for records open to every member: a restricted space or database,
+a trashed record, a personal space and the Members directory never get a card, and a link into another
+StoryOS workspace gets none either. It is **operator-configured**: StoryOS receives Slack's `link_shared`
+events and answers them with `chat.unfurl`, so on a self-managed box the Slack app is yours.
+
+1. **Set the signing secret** (never commit it):
+
+   ```sh
+   SLACK_SIGNING_SECRET=<your Slack app's signing secret>
+   ```
+
+   Slack signs every request with it, and StoryOS verifies `X-Slack-Signature` over the raw body, with a
+   five-minute timestamp window. With the secret unset or blank, **every request is refused** (`401`) and
+   no preview is ever shown: the signature is the only authentication this endpoint has. Restart the API
+   after setting it, before the next step.
+
+2. **In the Slack app** (api.slack.com/apps):
+
+   | Setting | Value |
+   |---|---|
+   | Event Subscriptions, Request URL | `{API_URL}/api/v1/integrations/slack/events` |
+   | Subscribe to bot events | `link_shared` |
+   | App unfurl domains | the host of `WEB_URL`, no scheme or path (for example `os.example.com`) |
+   | Bot token scopes | `links:read`, `links:write` (reinstall the app afterwards) |
+
+   Slack sends a `url_verification` request as soon as the Request URL is saved; StoryOS answers it once
+   the secret is set.
+
+3. **Save the app's bot token** under **Settings → Integrations → Slack** in the workspace that should get
+   previews. StoryOS asks Slack (`auth.test`) which Slack workspace that token belongs to, and only that
+   Slack workspace's links get cards. Two StoryOS workspaces holding a token for the same Slack workspace
+   is ambiguous, and neither gets previews.
+
+The only host StoryOS calls for this is `slack.com`. A one-click OAuth install, which replaces step 3, is
+tracked as ticket #1378.
+
 ## Cloud-only (Tier C — hosted StoryOS only)
 
 **None today.** No integration is reserved to hosted StoryOS Cloud; there is no
