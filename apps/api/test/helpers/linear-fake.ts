@@ -33,7 +33,26 @@ interface FakeTeam {
  * `issueCount` is the separate total (`Team.issueCount`); `calls` records every query so a test can see how many
  * pages were read.
  */
-export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: FakeTeam) => number | undefined } = {}) {
+/**
+ * Ticket #1365 — a relation edge in the shape of Linear's documented `IssueRelation` (`type` blocks / duplicate / related /
+ * similar; `issue` is the source, `relatedIssue` the target). HAND-WRITTEN from the published schema, NOT recorded from a
+ * live Linear: the fake derives each issue's `relations` (edges where it is `issue`) and `inverseRelations` (where it is
+ * `relatedIssue`) from this one list, as Linear does.
+ */
+export interface FakeRelationEdge { id: string; type: string; issue: { id: string }; relatedIssue: { id: string } }
+
+export interface FakeLinearOptions {
+  issueCount?: (t: FakeTeam) => number | undefined;
+  relationEdges?: FakeRelationEdge[];
+  /** Team keys of issues that are in NO fake team (an issue of a team the key does not import). */
+  foreignIssueTeams?: Record<string, string>;
+  /** Issue ids whose nested relation lists claim another page (`hasNextPage`), to prove an incomplete list fails the read. */
+  relationsIncomplete?: Set<string>;
+  /** Issue ids the relations stream leaves out (the relation read disagreeing with the issue read). */
+  relationsOmit?: Set<string>;
+}
+
+export function makeLinearFetcher(teams: FakeTeam[], opts: FakeLinearOptions = {}) {
   const calls: string[] = [];
   const fetcher: LinearFetcher = async (query, variables) => {
     calls.push(String(query.match(/query (\w+)/)?.[1]));
@@ -70,6 +89,21 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
     }
     const team = teams.find((t) => t.id === variables['id']);
     if (!team) throw new Error(`fake Linear: no team ${String(variables['id'])}`);
+    if (query.includes('query TeamRelations')) {
+      const teamOf = (id: unknown) => teams.find((t) => t.data.issues.nodes.some((n) => n['id'] === id))?.key ?? opts.foreignIssueTeams?.[String(id)] ?? null;
+      const edges = opts.relationEdges ?? [];
+      const nodes = team.data.issues.nodes.filter((n) => !opts.relationsOmit?.has(String(n['id']))).map((n) => {
+        // `i2` makes both lists claim another page; `in:i2` only the incoming one.
+        const done = { hasNextPage: opts.relationsIncomplete?.has(String(n['id'])) ?? false, endCursor: null };
+        const doneIn = { hasNextPage: done.hasNextPage || (opts.relationsIncomplete?.has(`in:${String(n['id'])}`) ?? false), endCursor: null };
+        return {
+          id: n['id'], updatedAt: n['updatedAt'],
+          relations: { nodes: edges.filter((e) => e.issue.id === n['id']).map((e) => ({ id: e.id, type: e.type, relatedIssue: { id: e.relatedIssue.id, team: { key: teamOf(e.relatedIssue.id) } } })), pageInfo: done },
+          inverseRelations: { nodes: edges.filter((e) => e.relatedIssue.id === n['id']).map((e) => ({ id: e.id, type: e.type, issue: { id: e.issue.id, team: { key: teamOf(e.issue.id) } } })), pageInfo: doneIn },
+        };
+      });
+      return { team: { issues: page(sinceOnly(nodes)) } };
+    }
     if (query.includes('TeamIssueCount')) {
       if (variables['since'] !== undefined) throw new Error('fake Linear: an incremental read must not ask for the total');
     }
