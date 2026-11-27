@@ -24,6 +24,8 @@ import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
 import { pageAll } from './linear-paging';
+/** One pageAll: it lives in linear-paging.ts; re-exported so linear-milestones.ts and older importers keep their path. */
+export { pageAll };
 import { LinearAttachmentsService } from './linear-attachments.service';
 import {
   attachmentTallyGap, classifyAttachmentUrl, documentSummaryGap, documentsForTeam, DocumentRun, fetchTeamAttachments, fetchWorkspaceDocuments,
@@ -31,6 +33,10 @@ import {
 import type { LinearAttachment } from './linear-attachments';
 import type { PageInfo } from './linear-paging';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
+import {
+  addTeamMilestones, ensureMilestonesPack, fetchTeamMilestones, milestonePreview, milestoneTargets, newMilestoneSummary, newMilestoneTally, syncTeamMilestones,
+} from './linear-milestones';
+import type { LinearMilestone } from './linear-milestones';
 
 export interface LinearTeam {
   id: string;
@@ -71,6 +77,8 @@ export interface LinearTeamComplete extends LinearTeamData {
   states: { nodes: LinearState[] };
   /** Linear's own `Team.issueCount`, fetched separately from the walk. Null for an incremental read (#1027), which has no total to compare. */
   issueTotal: number | null;
+  /** Ticket #1364 — every milestone of every project of the team (always read whole, like projects), flattened with its project id. */
+  milestones: LinearMilestone[];
 }
 
 export interface LinearTeamData {
@@ -92,6 +100,8 @@ export interface LinearTeamData {
       parent: { id: string } | null;
       cycle: { id: string } | null;
       project: { id: string } | null;
+      /** Ticket #1364 — the issue's milestone (Linear: `Issue.projectMilestone`). Optional so a read that predates it still types. */
+      projectMilestone?: { id: string } | null;
     }>;
   };
 }
@@ -205,6 +215,7 @@ export const TEAM_ISSUES_QUERY = `query TeamIssues($id: String!, $after: String)
         parent { id }
         cycle { id }
         project { id }
+        projectMilestone { id }
       }
       ${PAGE_INFO}
     }
@@ -236,7 +247,7 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
   // #1027 — incremental: only issues and comments Linear changed after `since`. Labels, cycles, projects and states are
   // small and are always read whole. Nothing here can tell "complete" (no total to compare, a comment may sit on an
   // issue that did not change), so those two checks belong to the full read only.
-  const [labels, cycles, projects, issues, count, states, linearComments] = await Promise.all([
+  const [labels, cycles, projects, issues, count, states, linearComments, milestones] = await Promise.all([
     pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`),
     pageAll<LinearTeamData['cycles']['nodes'][number]>(fetcher, apiKey, TEAM_CYCLES_QUERY, { id }, (d: { team: { cycles: never } }) => d.team?.cycles, `cycles of ${team.key}`),
     pageAll<LinearTeamData['projects']['nodes'][number]>(fetcher, apiKey, TEAM_PROJECTS_QUERY, { id }, (d: { team: { projects: never } }) => d.team?.projects, `projects of ${team.key}`),
@@ -244,6 +255,8 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
     since ? Promise.resolve(undefined) : (fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>),
     pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`),
     pageAll<LinearComment>(fetcher, apiKey, since ? TEAM_COMMENTS_SINCE_QUERY : TEAM_COMMENTS_QUERY, since ? { id, since } : { id }, (d: { comments: never }) => d.comments, `comments of ${team.key}`),
+    // Ticket #1364 — milestones are small and always read whole (an incremental run included), like projects.
+    fetchTeamMilestones(fetcher, apiKey, team),
   ]);
   states.sort((a, b) => a.position - b.position);
   // #904: a status the team's own state list does not contain cannot be given an option, so the copy would have to
@@ -278,7 +291,7 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
       throw new UnprocessableEntityException(`Linear issue ${issue.identifier} has more than ${ISSUE_LABELS_CAP} labels (or its label list is incomplete) — refusing to import it without them`);
     }
   }
-  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, states: { nodes: states }, comments: { nodes: linearComments }, issueTotal: total };
+  return { labels: { nodes: labels }, cycles: { nodes: cycles }, projects: { nodes: projects }, issues: { nodes: issues }, states: { nodes: states }, comments: { nodes: linearComments }, issueTotal: total, milestones };
 }
 
 /** Per team and per Linear project: how many issues a sync will copy (#902 AC3). `project: null` = no project. */
@@ -894,7 +907,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     }
     const built = report.build();
 
-    return { ...summary, will_create: built.will_create, sample: built.sample, schema, attachments, documents: documentsPreview };
+    // Ticket #1364 — distinct milestones (compare THIS with Linear's count), per team, and the issues that carry one.
+    const milestones = milestonePreview(teams.map((team) => {
+      const data = prefetched.get(team.id)!;
+      return { team, milestones: data.milestones, issues: data.issues.nodes, projectIds: data.projects.nodes.map((p) => p.id) };
+    }));
+    return { ...summary, will_create: built.will_create, sample: built.sample, schema, milestones, attachments, documents: documentsPreview };
   }
 
   /**
@@ -1073,7 +1091,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       description_hidden_in: [] as string[],
       /** #906 — mirrored issues Linear no longer returns (archived, deleted, moved out): marked, never deleted. */
       left_scope: 0,
+      /** Ticket #1364 — milestones read from Linear and written; `distinct` is the number to compare with Linear's own. */
+      milestones: newMilestoneSummary(),
     };
+    const milestonesSeen = new Set<string>();
     // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
     const fetched = new Map<string, LinearTeamComplete>();
@@ -1096,6 +1117,13 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
       const { issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings);
       if (descriptionHidden) summary.description_hidden_in.push(`${team.name} (Linear) / ${issuesDb.name} (${issuesDb.id})`);
+      // Ticket #1364 — the team's Milestones database (added to a mirror that predates it) and the Issue → Milestone relation.
+      const milestoneDeps = {
+        db: this.db, databases: this.databasesService, fields: this.fields, records: this.recordsService, relations: this.relationsService, relationLinker: this.relationLinker,
+        upsert: (databaseId: string, linearId: string, values: Record<string, unknown>) => this.upsertByLinearId(membership, databaseId, linearId, values, actorId),
+        describe: (databaseId: string, recordId: string, markdown: string | null) => this.importDescription(membership.workspaceId, databaseId, recordId, markdown, actorId),
+      };
+      const milestonesPack = await ensureMilestonesPack(milestoneDeps, membership, issuesDb, projectsDb);
 
       const issueDefs = await this.recordsService.fieldDefs(issuesDb.id);
       const stateOptions = await this.selectLabelMap(issuesDb.id, 'state');
@@ -1141,11 +1169,16 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         summary.projects++;
       }
 
+      // Ticket #1364 — after the projects (a milestone links to its project), before the issues (an issue links to its milestone).
+      const milestoneResult = await syncTeamMilestones(milestoneDeps, membership, actorId, { team, pack: milestonesPack, milestones: data.milestones, projectIds, warnings: linkWarnings });
+      const milestoneTally = newMilestoneTally();
+
       const relationField = (apiName: string) =>
         issueDefs.find((d) => d.type === 'relation' && d.api_name === apiName);
       const sprintField = relationField('sprint');
       const projectField = relationField('project');
       const parentField = relationField('parent_issue');
+      const milestoneField = relationField('milestone');
       const issuesLabelsField = labelsFieldId ? { id: labelsFieldId } : undefined;
 
       // What is already mirrored (one paged read), for drift detection and for spotting issues that have left scope.
@@ -1184,11 +1217,17 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         };
         await own(sprintField, one(issue.cycle?.id, sprintIds));
         await own(projectField, one(issue.project?.id, projectIds));
+        await own(milestoneField, milestoneTargets(issue.projectMilestone?.id, milestoneResult.ids, milestoneTally));
 
         // Link the issue to its label records (many-to-many).
         const labelTargets = issue.labels.nodes.map((l) => labelRecordIds.get(l.id));
         const labelsPlaced = labelTargets.every((v): v is string => Boolean(v));
         await own(issuesLabelsField, labelsPlaced ? (labelTargets as string[]) : null);
+      }
+
+      addTeamMilestones(summary.milestones, milestonesSeen, team, data.milestones, milestoneResult, milestoneTally);
+      if (milestoneTally.unplaced > 0) {
+        linkWarnings.push(`team ${team.key}: ${milestoneTally.unplaced} issue(s) name ${milestoneTally.unplacedIds.size} milestone(s) this read did not return — their milestone link was left as it was`);
       }
 
       // #906 — an issue we mirrored that Linear no longer returns (archived, deleted, moved out of the chosen teams) is

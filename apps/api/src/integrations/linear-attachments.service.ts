@@ -19,6 +19,7 @@ import {
   classifyAttachmentUrl,
   contentHash,
   pullStateLabel,
+  teamIsRestricted,
   type DocumentRun,
   type LinearAttachment,
   type LinearDocument,
@@ -82,6 +83,11 @@ export class LinearAttachmentsService {
     if (args.documents.length > 0) await this.importDocuments(args);
   }
 
+  /** The team's space row, or undefined when it cannot be read. Its own method so a test can make it unreadable. */
+  protected async loadSpace(spaceId: string): Promise<{ restricted: boolean } | undefined> {
+    return this.db.query.spaces.findFirst({ where: eq(spacesTable.id, spaceId) });
+  }
+
   // ───────────────────────────────── attachments ─────────────────────────────────
 
   private async importAttachments(a: ImportTeamExtras): Promise<void> {
@@ -89,9 +95,10 @@ export class LinearAttachmentsService {
     const tally = run.attachments;
     tally.fetched += a.attachments.length;
 
-    const space = await this.db.query.spaces.findFirst({ where: eq(spacesTable.id, a.issuesDb.spaceId) });
+    const space = await this.loadSpace(a.issuesDb.spaceId);
     // Fail closed: a space we cannot read counts as restricted (the PR record would otherwise go somewhere wider than we can vouch for).
-    const restricted = !space || space.restricted || a.issuesDb.restricted;
+    const restricted = teamIsRestricted(space, a.issuesDb);
+    if (!space) run.warn('unreadable team space', `team ${a.teamLabel}: its space could not be read, so its pull request attachments are kept in the team's own Links database`);
 
     // Deterministic order, so a rerun writes in the same order and a failure is reproducible.
     const rows = [...a.attachments].sort((x, y) => x.createdAt.localeCompare(y.createdAt) || x.id.localeCompare(y.id));

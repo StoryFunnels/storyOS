@@ -14,6 +14,8 @@ interface FakeTeam {
     states?: Array<{ id: string; name: string; type: string; position: number }>;
     /** Comments across the team's issues (#903); the fake serves them as one paged stream like the real query. */
     comments?: Array<Record<string, unknown>>;
+    /** Ticket #1364 — project milestones; each names its owning project by `projectId`. Absent = the team has none. */
+    milestones?: Array<{ id: string; projectId: string; name: string; description?: string | null; targetDate?: string | null; sortOrder?: number }>;
   };
 }
 
@@ -50,12 +52,25 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
       if (!t) throw new Error('fake Linear: no such team for comments');
       return { comments: page(sinceOnly(t.data.comments ?? [])) };
     }
+    if (query.includes('query ProjectMilestonesPaged')) {
+      const all = teams.flatMap((t) => t.data.milestones ?? []).filter((m) => m.projectId === variables['id']);
+      return { project: { projectMilestones: page(all.map(({ projectId: _p, ...m }) => m)) } };
+    }
     const team = teams.find((t) => t.id === variables['id']);
     if (!team) throw new Error(`fake Linear: no team ${String(variables['id'])}`);
     if (query.includes('TeamIssueCount')) {
       if (variables['since'] !== undefined) throw new Error('fake Linear: an incremental read must not ask for the total');
     }
     if (query.includes('TeamIssueCount')) return { team: { issueCount: opts.issueCount ? opts.issueCount(team) : team.data.issues.nodes.length } };
+    if (query.includes('query TeamProjectMilestones')) {
+      // projects(first: N) pages; each project's milestones are the NESTED first page, with its own pageInfo — as Linear does it.
+      const nested = Number(query.match(/projectMilestones\(first: (\d+)/)?.[1] ?? 50);
+      const projects = (team.data.projects.nodes as Array<{ id: string }>).map((p) => {
+        const mine = (team.data.milestones ?? []).filter((m) => m.projectId === p.id).map(({ projectId: _p, ...m }) => m);
+        return { id: p.id, projectMilestones: { nodes: mine.slice(0, nested), pageInfo: { hasNextPage: mine.length > nested, endCursor: mine.length > nested ? String(nested) : null } } };
+      });
+      return { team: { projects: page(projects) } };
+    }
     if (query.includes('TeamLabels')) return { team: { labels: page(team.data.labels.nodes) } };
     if (query.includes('TeamCycles')) return { team: { cycles: page(team.data.cycles.nodes) } };
     if (query.includes('TeamProjects')) return { team: { projects: page(team.data.projects.nodes) } };

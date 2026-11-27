@@ -17,6 +17,7 @@ import {
   emptyAttachmentTally,
   fetchTeamAttachments,
   pullStateLabel,
+  teamIsRestricted,
 } from './linear-attachments';
 import type { LinearDocument } from './linear-attachments';
 import type { LinearFetcher } from './linear.service';
@@ -52,6 +53,9 @@ describe('classifyAttachmentUrl: a pull request is an https github.com /owner/re
     ['credentials that make the host something else', 'https://github.com@evil.example/acme/api/pull/42'],
     ['credentials on github.com itself', 'https://user:pw@github.com/acme/api/pull/42'],
     ['a port', 'https://github.com:8443/acme/api/pull/42'],
+    ['a suffix look-alike host (notgithub.com)', 'https://notgithub.com/o/r/pull/1'],
+    ['a suffix look-alike host (evil-github.com)', 'https://evil-github.com/o/r/pull/1'],
+    ['a subdomain of github.com', 'https://gist.github.com/o/r/pull/1'],
     ['a dot-dot owner', 'https://github.com/../api/pull/42'],
   ])('%s is a plain LINK, never a PR record', (_name, url) => {
     expect(classifyAttachmentUrl(url).kind).toBe('link');
@@ -203,5 +207,15 @@ describe('the attachment reads', () => {
     await fetchTeamAttachments(fetcher, 'k', team, { since: '2026-02-01T00:00:00.000Z' });
     expect(asked['query']).toBe(TEAM_ATTACHMENTS_SINCE_QUERY);
     expect(asked['since']).toBe('2026-02-01T00:00:00.000Z');
+  });
+});
+
+describe('teamIsRestricted fails closed', () => {
+  it('a space that cannot be read is restricted; otherwise either flag restricts', () => {
+    expect(teamIsRestricted(undefined, { restricted: false })).toBe(true);
+    expect(teamIsRestricted(null, { restricted: false })).toBe(true);
+    expect(teamIsRestricted({ restricted: true }, { restricted: false })).toBe(true);
+    expect(teamIsRestricted({ restricted: false }, { restricted: true })).toBe(true);
+    expect(teamIsRestricted({ restricted: false }, { restricted: false })).toBe(false);
   });
 });

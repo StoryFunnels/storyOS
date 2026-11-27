@@ -312,3 +312,11 @@ export function documentSummaryGap(s: DocumentSummary): number {
 
 /** The most warnings one run reports per kind; the count says how many there were. */
 export const MAX_WARNINGS_PER_KIND = 20;
+
+/**
+ * Whether a team's pull request attachments must stay in the team's own space. FAIL CLOSED: a space that cannot be read counts as restricted,
+ * because the shared PR database could be wider than a space we cannot vouch for.
+ */
+export function teamIsRestricted(space: { restricted: boolean } | null | undefined, issuesDb: { restricted: boolean }): boolean {
+  return !space || space.restricted || issuesDb.restricted;
+}

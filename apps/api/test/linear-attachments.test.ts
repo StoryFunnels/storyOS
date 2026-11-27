@@ -8,6 +8,7 @@ import { makeLinearFetcher, manyIssues } from './helpers/linear-fake';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
 import { LinearService } from '../src/integrations/linear.service';
+import { LinearAttachmentsService } from '../src/integrations/linear-attachments.service';
 
 /**
  * Ticket #1366 — Linear attachments (PR links and other links) and project documents.
@@ -341,6 +342,42 @@ describe('access: both new databases inherit the team space, and a restricted te
     // the control: someone WITH a grant on the space does read them, so the 404s above are the restriction, not a broken route
     expect((await inject(insider.token, 'GET', `/workspaces/${ws}/databases/${docs.id}/records/${secretDoc.id}`)).statusCode).toBe(200);
     expect((await inject(insider.token, 'GET', `/workspaces/${ws}/databases/${links.id}/records/${kept.id}`)).statusCode).toBe(200);
+  });
+});
+
+describe('an unreadable team space fails closed', () => {
+  // The earlier access describe left the team space RESTRICTED, which would hide a fail-open bug: open it for these two.
+  let spaceId: string;
+  beforeAll(async () => {
+    const i = (await dbNamed('Issues'))!;
+    spaceId = (i.spaceId ?? i.space_id)!;
+    await setRestricted(app, admin.token, ws, 'space', spaceId, false);
+  });
+  afterAll(async () => { await setRestricted(app, admin.token, ws, 'space', spaceId, true); });
+
+  it('writes NOTHING to the shared PR database and says so', async () => {
+    const pulls = (await dbNamed('GitHub Pull Requests'))!;
+    const before = (await rowsOf(pulls.id)).length;
+    const svc = app.get(LinearAttachmentsService);
+    const spy = vi.spyOn(svc as never, 'loadSpace').mockResolvedValue(undefined as never);
+    try {
+      attachments = [att('z1', 'i1', 'https://github.com/acme/api/pull/777', { title: 'Unreadable-space PR' })];
+      const s = await sync();
+      expect(s.attachments).toMatchObject({ pull_requests: 0, links: 1, kept_in_team_space: 1 });
+      expect(s.warnings?.some((w) => w.includes('space could not be read'))).toBe(true);
+      expect(await rowsOf(pulls.id)).toHaveLength(before);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a look-alike host (notgithub.com, evil-github.com) is a plain link, never a PR record', async () => {
+    const pulls = (await dbNamed('GitHub Pull Requests'))!;
+    const before = (await rowsOf(pulls.id)).length;
+    attachments = [att('h1', 'i1', 'https://notgithub.com/o/r/pull/1'), att('h2', 'i1', 'https://evil-github.com/o/r/pull/1')];
+    const s = await sync();
+    expect(s.attachments).toMatchObject({ pull_requests: 0, links: 2 });
+    expect(await rowsOf(pulls.id)).toHaveLength(before);
   });
 });
 
