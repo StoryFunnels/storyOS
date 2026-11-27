@@ -80,6 +80,7 @@ over and it posts again.
 
 - A message that fails is retried with a growing wait, three more times, and then counted on the
   subscription: `failed_count` and `last_error` (Slack's own error code, such as `channel_not_found`; any URL or token-like text is replaced).
+  `last_error` shows after the FIRST failed attempt (a dead destination takes about 40 seconds to give up, and `failed_count` counts the message once, at the end). A failure before any send was attempted is counted and shown too, as "Not sent". Host names in an error are replaced as well.
   A failed post never blocks or fails the change to the record.
 - Slack allows about one message a second per channel. A burst beyond a small backlog is folded into
   **one line saying how many updates were held back**, never dropped without a word.
