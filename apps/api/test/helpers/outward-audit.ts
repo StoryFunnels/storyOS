@@ -251,7 +251,6 @@ export const EXPLICIT: Record<string, ExplicitEntry> = {
   'PUT /workspaces/:ws/runner-assignments/:agent': { verdict: 'self_guarded', why: 'assertPerson (runners.controller.ts): session only, a Runner decides where an agent\'s work and data go' },
   'POST /runner/v1/pair': { verdict: 'public', why: 'POST /runner/v1/pair is authenticated by the one-time pairing code, not by any token' },
   'GET /workspaces/:ws/agent-wakes': { verdict: 'internal', why: 'read: returns data to the caller only' },
-  'GET /workspaces/:ws/integrations/slack/subscriptions': { verdict: 'internal', why: 'read (#1377): returns which space or database posts to which channel to an admin; nothing leaves StoryOS. The writes need an admin-scoped token, which a run credential (write-capped) never has' },
   'GET /workspaces/:ws/agent-wakes/summary': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'GET /templates': { verdict: 'internal', why: 'read: returns data to the caller only' },
   'POST /workspaces/:ws/templates/:slug/apply': { verdict: 'internal', why: 'changes StoryOS data the owner may already change; nothing leaves StoryOS' },
