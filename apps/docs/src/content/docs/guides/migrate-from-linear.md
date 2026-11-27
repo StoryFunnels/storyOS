@@ -19,7 +19,7 @@ is the whole contract. Details for each line follow below.
 
 | | What | When |
 |---|---|---|
-| **Linear → StoryOS** | Teams, issues (with Linear's own numbers, dates and status history), cycles, projects, labels, workflow statuses, people and comments, written into the mirrored space. | When you press **Import**, and on the schedule if an admin turned it on. |
+| **Linear → StoryOS** | Teams, issues (with Linear's own numbers, dates and status history), cycles, projects, project milestones, labels, workflow statuses, people and comments, written into the mirrored space. | When you press **Import**, and on the schedule if an admin turned it on. |
 | **StoryOS → Linear** | **Comments only**, and only if an admin turned write-back on. Each is signed `<author> · via StoryOS`. | A comment is queued once, picked up within about a minute, and retried only if delivery fails (30 seconds, 2 minutes, 10 minutes, 1 hour, then it is marked as not delivered). |
 | **Everything else** | Nothing. The only thing the write-back writes to Linear is a new comment; it never edits an issue's title, status, assignee or any other field. (A retry also reads the issue's comments, see below.) | |
 
@@ -101,12 +101,18 @@ Linear (no priority, no assignee, no estimate, no due date) is written as empty.
 those fields lasts only until Linear's copy of that issue is next read (on a scheduled run, an
 issue Linear has not changed is not read, so it is not rewritten until the daily full read).
 
-**Set to Linear's, on every issue the sync reads:** the Labels, Sprint, Project and Parent Issue
+**Set to Linear's, on every issue the sync reads:** the Labels, Sprint, Project, Milestone and Parent Issue
 links. A label dropped, or a cycle, project or parent changed or cleared in Linear, is unlinked in
 StoryOS on that issue's next read, and a link someone added in StoryOS that Linear does not have is
 removed with it. The exception is a link Linear reports to something that was not imported (for
 example a parent outside the chosen teams): the existing link is left as it was rather than
 cleared. A record whose links already match is not written again.
+
+**Milestones** are written the same way: Name, Target Date, Sort Order and the Project link are
+set to Linear's on every sync (a milestone's description is written only while it has none, like a
+project's). A milestone that Linear no longer returns (deleted or archived there) is **kept** and
+named in the run's warnings, never deleted. An issue that names a milestone the read did not return
+keeps the link it had, and the run counts it and says so.
 
 **Not written by a sync once they exist:**
 
@@ -128,7 +134,7 @@ reports. It adds options and never deletes them.
 
 | Linear | StoryOS |
 |---|---|
-| Team | Space `"<Team name> (Linear)"` (or the name you chose, see [Choosing a team's space](#choosing-a-teams-space)) with Issues + Sprints + Projects databases. A **private** team gets a **restricted** space, see [Private teams](#private-teams). |
+| Team | Space `"<Team name> (Linear)"` (or the name you chose, see [Choosing a team's space](#choosing-a-teams-space)) with Issues + Sprints + Projects + Milestones databases. A **private** team gets a **restricted** space, see [Private teams](#private-teams). |
 | Issue | Record in **Issues**, numbered with Linear's own number where the database allows it (see [Numbers and identifiers](#numbers-and-identifiers)) |
 | Issue created / updated | The record's own created and last-updated times: Linear's, not the day of the import |
 | Issue started / completed / due | **Started**, **Completed** and **Due Date** date fields (the day, in UTC) |
@@ -143,6 +149,7 @@ reports. It adds options and never deletes them.
 | Parent / sub-issues | Parent Issue self-relation (Sub-issues on the other side) |
 | Cycle | Record in **Sprints** (number, start/end dates) + Sprint relation on the issue |
 | Project | Record in **Projects** (state, target date, URL) + Project relation on the issue |
+| Project milestone | Record in **Milestones** (a database in the team's space, beside Projects) with Name, Target Date, Sort Order (Linear's own order) and the description as the record body, linked to its **Project** (a project's Milestones are listed on the project). An issue's milestone becomes its **Milestone** link. A mirror imported before this gains the Milestones database on its next sync. |
 | Project state | State select under the names Linear shows: backlog → Backlog, planned → Planned, started → In Progress, paused → Paused, completed → Completed, canceled → Canceled, coloured like Linear's (gray, blue, gold, orange, green, red in that order). A database imported earlier keeps its raw-named options as they are; the sync still matches them. |
 | Issue ID (internal) | Linear ID text field — the idempotency key; don't edit it |
 
@@ -226,6 +233,18 @@ A workspace's admins can see restricted content, so only switch it on in a works
   total to compare with, so it skips that count check; the daily full read is the one that checks.
 - **A status the team's workflow does not list fails the read**, again before anything is written.
 - **An issue with more than 50 labels fails the read** rather than losing labels.
+- **Milestones are counted by distinct Linear id.** A Linear project can sit on more than one team,
+  and a milestone belongs to its project, so the same milestone is written into each of those
+  teams' Milestones databases (an issue is linked to the copy in its own team's database). The
+  preview and the sync report `milestones.distinct`, the number to compare with Linear's own count;
+  the number of records written can be higher. The preview also says how many projects sit on more
+  than one team. A project whose milestone list comes back missing fails the read, and a project
+  with more milestones than one request holds is read again page by page, so a short list never
+  passes for a complete one. Archived milestones are expected to be left out of Linear's list, as
+  archived issues are, and so are not imported; that has not been confirmed against a live workspace.
+- **Milestone import has not been run against a live Linear workspace yet.** It follows Linear's
+  published GraphQL schema (`Project.projectMilestones`, `Issue.projectMilestone`) and is tested
+  against fixtures written from that schema.
 - **Re-running over an older import** adds your Linear statuses as State options in Linear's order and
   keeps the old ones (*To Do*, *In Review* and so on) after them; it never deletes options.
 - Edits to a StoryOS comment after it was written back, and deleting it, are not carried to Linear.
