@@ -5,12 +5,13 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, getTableColumns } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte } from 'drizzle-orm';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
+import { historyWindowOpen, historyWindowStart } from '../activity/history-window';
 import { diffBlocks } from '@storyos/schemas/block-diff';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { activityEvents, documentVersions, documents } from '../db/schema';
+import { activityEvents, databases, documentVersions, documents, records } from '../db/schema';
 import type { ChangeSource } from '../db/schema';
 import { EntitlementsService } from '../billing/entitlements.service';
 import { MentionsService } from '../mentions/mentions.service';
@@ -40,6 +41,24 @@ export class DocumentsService {
     private readonly mentions: MentionsService,
     private readonly entitlements: EntitlementsService,
   ) {}
+
+  /**
+   * Ticket #1386 — the oldest instant a document version may be from and still be listed, previewed or restored: the workspace's
+   * plan window, from the not-before date on (activity/history-window.ts says why that date). `null` = no limit. The date check
+   * comes first, so before it this costs nothing. Resolved from the RECORD's workspace, never from a caller-supplied one.
+   */
+  private async historyFloor(recordId: string): Promise<Date | null> {
+    if (!historyWindowOpen()) return null;
+    const [row] = await this.db
+      .select({ workspaceId: databases.workspaceId })
+      .from(records)
+      .innerJoin(databases, eq(databases.id, records.databaseId))
+      .where(eq(records.id, recordId))
+      .limit(1);
+    if (!row) return null;
+    const { historyRetentionDays } = await this.entitlements.getLimits(row.workspaceId);
+    return historyWindowStart(historyRetentionDays);
+  }
 
   /** Lazily created: a record without a document reads as version 0. */
   async get(recordId: string) {
@@ -161,6 +180,8 @@ export class DocumentsService {
   /** #677 (Gap 2) — version history, newest first (cursor-paginated), same shape RecordsService.listVersions uses. */
   async listVersions(recordId: string, limit: number, cursor?: string) {
     const conditions = [eq(documentVersions.recordId, recordId)];
+    const floor = await this.historyFloor(recordId); // ticket #1386: nothing older than the plan window is listed
+    if (floor) conditions.push(gte(documentVersions.createdAt, floor));
     // #851 — (created_at, id), not created_at alone (see activity/keyset-cursor.ts).
     const after = keysetCondition(documentVersions.createdAt, documentVersions.id, cursor);
     if (after) conditions.push(after);
@@ -200,8 +221,10 @@ export class DocumentsService {
    * field-value wrapper to unwrap first).
    */
   async getVersion(recordId: string, versionId: string) {
+    // Ticket #1386: a version outside the plan window is a version that does not exist: the same 404, never a hint that it was there.
+    const floor = await this.historyFloor(recordId);
     const version = await this.db.query.documentVersions.findFirst({
-      where: and(eq(documentVersions.id, versionId), eq(documentVersions.recordId, recordId)),
+      where: and(eq(documentVersions.id, versionId), eq(documentVersions.recordId, recordId), ...(floor ? [gte(documentVersions.createdAt, floor)] : [])),
     });
     if (!version) throw new NotFoundException('Version not found');
     const current = await this.get(recordId);
@@ -235,8 +258,10 @@ export class DocumentsService {
     agentId?: string,
     agentName?: string,
   ) {
+    // Ticket #1386: a version outside the plan window is a version that does not exist: the same 404, never a hint that it was there.
+    const floor = await this.historyFloor(recordId);
     const version = await this.db.query.documentVersions.findFirst({
-      where: and(eq(documentVersions.id, versionId), eq(documentVersions.recordId, recordId)),
+      where: and(eq(documentVersions.id, versionId), eq(documentVersions.recordId, recordId), ...(floor ? [gte(documentVersions.createdAt, floor)] : [])),
     });
     if (!version) throw new NotFoundException('Version not found');
 

@@ -10,8 +10,9 @@ import {
   OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, getTableColumns, gt, inArray, isNotNull, isNull, lt, notInArray, or, sql, SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, isNotNull, isNull, lt, notInArray, or, sql, SQL } from 'drizzle-orm';
 import { cursorTimestampSql, encodeKeysetCursor, keysetCondition } from '../activity/keyset-cursor';
+import { historyWindowOpen, historyWindowStart } from '../activity/history-window';
 import {
   activeFilter,
   applyFieldDefaults,
@@ -310,6 +311,24 @@ export class RecordsService implements OnModuleInit {
     const { historyRetentionDays: days } = await this.entitlements.getLimits(workspaceId);
     this.historyWindowCache.set(workspaceId, { days, at: Date.now() });
     return days;
+  }
+
+  /**
+   * Ticket #1386 — the oldest instant a version or field change may be from and still be listed, previewed or restored: the
+   * workspace's plan window (`historyRetentionDays`), from the not-before date on (activity/history-window.ts says why that date).
+   * `null` = no limit: before that date, or on a deployment without plans. The date check comes first, so before it this costs
+   * nothing, not even a lookup. Resolved from the RECORD's workspace, never from a caller-supplied one.
+   */
+  private async historyFloor(recordId: string): Promise<Date | null> {
+    if (!historyWindowOpen()) return null;
+    const [row] = await this.db
+      .select({ workspaceId: databases.workspaceId })
+      .from(records)
+      .innerJoin(databases, eq(databases.id, records.databaseId))
+      .where(eq(records.id, recordId))
+      .limit(1);
+    if (!row) return null;
+    return historyWindowStart(await this.historyRetentionDays(row.workspaceId));
   }
 
   /** Live field definitions + valid option ids, in validator shape. */
@@ -4343,6 +4362,8 @@ export class RecordsService implements OnModuleInit {
   async listVersions(recordId: string, limit: number, cursor?: string, viewer?: { membership: Membership; databaseId: string }) {
     const redact = viewer ? await this.titleHistoryRedacted(viewer.membership, viewer.databaseId) : false; // #884
     const conditions = [eq(recordVersions.recordId, recordId)];
+    const floor = await this.historyFloor(recordId); // ticket #1386: nothing older than the plan window is listed
+    if (floor) conditions.push(gte(recordVersions.createdAt, floor));
     // #851 — (created_at, id), not created_at alone (see activity/keyset-cursor.ts).
     const after = keysetCondition(recordVersions.createdAt, recordVersions.id, cursor);
     if (after) conditions.push(after);
@@ -4389,8 +4410,10 @@ export class RecordsService implements OnModuleInit {
    */
   async getVersion(databaseId: string, recordId: string, versionId: string, membership?: Membership) {
     const redact = await this.titleHistoryRedacted(membership, databaseId); // #884
+    // Ticket #1386: a version outside the plan window is a version that does not exist: the same 404, never a hint that it was there.
+    const floor = await this.historyFloor(recordId);
     const version = await this.db.query.recordVersions.findFirst({
-      where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
+      where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId), ...(floor ? [gte(recordVersions.createdAt, floor)] : [])),
     });
     if (!version) throw new NotFoundException('Version not found');
 
@@ -4448,6 +4471,8 @@ export class RecordsService implements OnModuleInit {
   async listFieldChanges(databaseId: string, recordId: string, limit: number, cursor?: string, membership?: Membership) {
     const redact = await this.titleHistoryRedacted(membership, databaseId); // #884
     const conditions = [eq(recordFieldChanges.recordId, recordId)];
+    const floor = await this.historyFloor(recordId); // ticket #1386: the same plan window as the version list
+    if (floor) conditions.push(gte(recordFieldChanges.createdAt, floor));
     // ticket #1227 — the changes to the Runner's machine and tool never leave the history of a Run for a guest (excluded IN the
     // query, so a page stays full and `has_more` stays honest); the Steps field's lines that name them are redacted below.
     const identity = await this.runnerIdentityGuard(membership, databaseId);
@@ -4554,8 +4579,10 @@ export class RecordsService implements OnModuleInit {
     if (source === 'agent' || this.originatingAgentCreator(source, agentId) !== null) {
       await this.assertAgentSettingsWritable(databaseId, ['tools', 'target_databases', 'scopes', ...BUDGET_FIELD_NAMES], source, undefined, true);
     }
+    // Ticket #1386: outside the plan window is not restorable, and is the same 404 as a version that never existed.
+    const floor = await this.historyFloor(recordId);
     const version = await this.db.query.recordVersions.findFirst({
-      where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId)),
+      where: and(eq(recordVersions.id, versionId), eq(recordVersions.recordId, recordId), ...(floor ? [gte(recordVersions.createdAt, floor)] : [])),
     });
     if (!version) throw new NotFoundException('Version not found');
 

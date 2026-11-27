@@ -105,6 +105,8 @@ services:
       # the payload's installation.id — no per-workspace secret. Absent → the
       # legacy per-workspace webhook_secret path stays in effect.
       GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
+      # Slack link previews (ticket #1379): the Slack app's signing secret. Unset = the Events endpoint refuses everything.
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       # Platform-admin bootstrap (MN-104/#304). Optional — seeds this email as a
       # platform admin on API boot if a matching user already exists; otherwise
       # logs a warning and retries on the next boot. Once your first admin
