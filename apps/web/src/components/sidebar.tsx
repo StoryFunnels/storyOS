@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { DndContext, closestCenter, pointerWithin, useDroppable } from '@dnd-kit/core';
+import { Fragment, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { DndContext, MeasuringStrategy, closestCenter, pointerWithin, useDroppable } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { computeReorder } from '@/lib/reorder';
+import { dropEdge, dropGroupId, holdUnderPointer } from '@/lib/space-drag';
+import { spaceHeaderClass } from '@/lib/space-header-class';
 import { atLeast } from '@/lib/access';
 import { EXPAND_SPACE_EVENT, spaceCollapseKey } from '@/lib/pack-landing';
 import { Check, ChevronRight, PanelLeftClose, PanelLeftOpen, ChevronsDownUp, ChevronsUpDown, Database, Eye, EyeOff, FileText, Folder as FolderIcon, Home, Inbox, MoreHorizontal, Plus, Search, Settings, Star, UserRound, X} from 'lucide-react';
@@ -305,9 +307,42 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
    */
   const spaceDrag = useDragPresentation(
     (id) => visibleSpaces.find((sp) => sp.id === id)?.name ?? sortedGroups.find((g) => g.id === id)?.name,
-    { onDragEnd: onSpaceDragEnd },
+    {
+      // Read BEFORE the fold renders (this runs ahead of the commit it triggers): where the header actually was under the pointer.
+      onDragStart: (e) => {
+        dragStartTop.current =
+          document.querySelector(`[data-space-header="${String(e.active.id)}"]`)?.getBoundingClientRect().top ?? null;
+      },
+      onDragEnd: (e) => {
+        onSpaceDragEnd(e);
+        // Ticket #1346 — the moved header will flash the hover tint for 600ms, so the eye finds where it landed. Armed here, fired
+        // when the list actually re-orders (the move lands after the server answers, so a timer started now would expire first).
+        // Only for a space that went somewhere: a cancel, or a drop back on itself, is not a move.
+        const id = String(e.active.id);
+        if (e.over && String(e.over.id) !== id && visibleSpaces.some((sp) => sp.id === id)) {
+          armedFlash.current = { id, sig: orderSig };
+          clearTimeout(flashTimer.current);
+          flashTimer.current = setTimeout(() => (armedFlash.current = null), 4000);
+        }
+      },
+    },
     [...visibleSpaces.map((sp) => sp.id), ...sortedGroups.map((g) => g.id)],
   );
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const dragStartTop = useRef<number | null>(null);
+  const armedFlash = useRef<{ id: string; sig: string } | null>(null);
+  const orderSig = visibleSpaces.map((sp) => `${sp.id}:${sp.groupId ?? ''}`).join(',');
+  useEffect(() => {
+    const armed = armedFlash.current;
+    if (!armed || armed.sig === orderSig) return;
+    armedFlash.current = null;
+    setFlashId(armed.id);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashId(null), 600);
+  }, [orderSig]);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+  const draggingSpace = spaceDrag.activeId !== null && visibleSpaces.some((sp) => sp.id === spaceDrag.activeId);
 
   // #1094 — ONE click: the space is made as "Untitled space" and opens on its page with the name in edit mode
   // (marked before navigating, consumed once by the page). New opens what it made. Ticket #1273 item 6: now the + menu's item.
@@ -457,8 +492,23 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
         <DndContext
           sensors={sensors}
           collisionDetection={spaceCollisionStrategy}
+          // Ticket #1346 — every space folds to its header when a drag starts, so the rows move after the drag began: re-measure
+          // the drop targets as the drag goes rather than trusting the rects taken before the fold.
+          measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+          // …and the dragged header itself moved with the fold, so the preview is held where the pointer is (see holdUnderPointer).
+          modifiers={[(args) => holdUnderPointer(args, dragStartTop.current)]}
           {...spaceDrag.contextProps}
         >
+          <SpaceDragContext.Provider
+            value={{
+              dragging: draggingSpace,
+              activeId: draggingSpace ? spaceDrag.activeId : null,
+              order: visibleSpaces.map((sp) => sp.id),
+              overId: spaceDrag.overId,
+              overGroupId: draggingSpace ? dropGroupId(spaceDrag.overId, visibleSpaces) : null,
+              flashId,
+            }}
+          >
           {/* #641 — a gap here (not padding on the header) separates one
               space from the next: gap only applies BETWEEN siblings, so it
               adds the breathing room a later space's header needs without
@@ -471,7 +521,9 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
               track "reorder among groups" and "reorder/reassign among
               spaces" as two separate sortable lists sharing one DndContext. */}
           <SortableContext items={sortedGroups.map((g) => g.id)} strategy={verticalListSortingStrategy}>
-          <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          {/* Ticket #1346 — no sortable strategy for spaces: nothing in the list shifts while a space is dragged. The drop line
+              (`DropIndicator`) says where it will land; headers sliding by a header's height over other spaces' rows is the defect. */}
+          <SortableContext items={visibleSpaces.map((s) => s.id)} strategy={noShiftStrategy}>
             {sortedGroups.map((group) => {
               // #742 finding 04/phase 5 — a group with no members yet still
               // renders (header only): drag-and-drop reassignment needs a
@@ -532,14 +584,14 @@ export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void } = {}) 
           </SortableContext>
           </div>
           <DragPreview>
-            {spaceDrag.activeId && (
+            {/* A dragged SPACE is previewed by its own header (SpaceSection renders that overlay); this chip is for a GROUP. */}
+            {spaceDrag.activeId && !draggingSpace && (
               <div className="rounded-[var(--radius-control)] border border-border-default bg-card px-2 py-[3px] text-meta font-semibold uppercase tracking-wider text-muted shadow-[var(--shadow-lifted)]">
-                {visibleSpaces.find((sp) => sp.id === spaceDrag.activeId)?.name ??
-                  sortedGroups.find((g) => g.id === spaceDrag.activeId)?.name ??
-                  ''}
+                {sortedGroups.find((g) => g.id === spaceDrag.activeId)?.name ?? ''}
               </div>
             )}
           </DragPreview>
+          </SpaceDragContext.Provider>
         </DndContext>
 
         {canEdit && galleryOpen && (
@@ -1060,7 +1112,10 @@ function RootDropZone({ spaceId, children }: { spaceId: string; children: React.
  * and droppable-for-cards), so both refs are set together below.
  */
 function GroupDropZone({ groupId, children }: { groupId: string; children: React.ReactNode }) {
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `group:${groupId}` });
+  const { setNodeRef: setDropRef, isOver: isOverHeader } = useDroppable({ id: `group:${groupId}` });
+  // Ticket #1346 — the band also lights when the drop would land on one of its member spaces, because that joins the group too.
+  const overGroupId = useContext(SpaceDragContext).overGroupId;
+  const isOver = isOverHeader || overGroupId === groupId;
   const { attributes, listeners, setNodeRef: setSortRef, transform, transition } = useSortable({ id: groupId });
   return (
     <SidebarRow
@@ -1098,6 +1153,23 @@ function GroupDropZone({ groupId, children }: { groupId: string; children: React
     </SidebarRow>
   );
 }
+
+/**
+ * Ticket #1346 — what a SPACE drag tells every header in the list. `dragging` folds each space to its header (without touching
+ * the stored per-space collapse, so dropping or cancelling restores them for free), `overId`/`order` place the drop line, and
+ * `flashId` is the space that just landed.
+ */
+const SpaceDragContext = createContext<{
+  dragging: boolean;
+  activeId: string | null;
+  order: string[];
+  overId: string | null;
+  overGroupId: string | null;
+  flashId: string | null;
+}>({ dragging: false, activeId: null, order: [], overId: null, overGroupId: null, flashId: null });
+
+/** Ticket #1346 — a sortable strategy that moves nothing: the drop line, not neighbours sliding, shows where a drop lands. */
+const noShiftStrategy = () => null;
 
 /** #742 phase 6 — the group band's fixed height, shared by `GroupDropZone`
  * (which sticks at top:0) and every `SpaceSection` header inside a group
@@ -1168,7 +1240,8 @@ function SpaceSection({
   const currentViewId = useSearchParams().get('view');
   const mutations = useSidebarMutations(ws);
   const { hide } = useHidden(ws);
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: space.id });
+  const { attributes, listeners, setNodeRef, isDragging, isOver } = useSortable({ id: space.id });
+  const spaceDrag = useContext(SpaceDragContext);
   const dbSensors = useSidebarSortableSensors();
   /**
    * #369 — collision detection that lets a CONTAINER win.
@@ -1322,6 +1395,8 @@ function SpaceSection({
     window.addEventListener('storyos:collapse-all', onCollapseAll);
     return () => window.removeEventListener('storyos:collapse-all', onCollapseAll);
   }, [collapseKey]);
+  // Ticket #1346 — while a space is being dragged every space reads as its header alone. Derived, never stored.
+  const shut = collapsed || spaceDrag.dragging;
   const toggleCollapsed = () => {
     setCollapsed((c) => {
       const next = !c;
@@ -1767,6 +1842,7 @@ function SpaceSection({
         depth={0}
         edge="header"
         ref={setNodeRef}
+        data-space-header={space.id}
         // #641 — was py-1 (4/4); the inter-space breathing room now comes
         // from the space-list's own gap-2 (added between siblings only, so
         // it doesn't also pad out the void above the FIRST space). This stays
@@ -1777,8 +1853,21 @@ function SpaceSection({
         // the SpaceSection prop doc) so at real scale (52 nodes) you still
         // read which space you're in. z-20, under the group band's z-30 so
         // the two stack instead of one painting over the other.
-        style={{ top: stickyTop, transform: CSS.Transform.toString(transform), transition }}
-        className="group sticky z-20 h-6 cursor-grab touch-manipulation bg-frame active:cursor-grabbing"
+        // Ticket #1346 — no transform, no transition (nothing slides), and no `sticky` while a drag is on: a pinned header that is
+        // also moved is what painted over the rows below it. The vacated slot and the drop line are the shared drag presentation.
+        style={{ top: spaceDrag.dragging ? undefined : stickyTop }}
+        className={spaceHeaderClass('group sticky z-20 h-6 cursor-grab touch-manipulation bg-frame active:cursor-grabbing', {
+          dragging: spaceDrag.dragging,
+          flash: spaceDrag.flashId === space.id,
+          isDragging,
+        })}
+        indicator={
+          <DropIndicator
+            active={isOver && !isDragging && spaceDrag.activeId !== null}
+            edge={spaceDrag.activeId ? dropEdge(spaceDrag.order, spaceDrag.activeId, space.id) : 'top'}
+            indented={stickyTop > 0}
+          />
+        }
         draggable
         {...attributes}
         {...listeners}
@@ -1796,10 +1885,10 @@ function SpaceSection({
                 onClick={toggleCollapsed}
                 onPointerDown={(e) => e.stopPropagation()}
                 aria-label={collapsed ? `Expand ${space.name}` : `Collapse ${space.name}`}
-                aria-expanded={!collapsed}
+                aria-expanded={!shut}
               >
                 <ChevronRight
-                  className={cn('h-3 w-3 shrink-0 transition-transform', !collapsed && 'rotate-90')}
+                  className={cn('h-3 w-3 shrink-0 transition-transform', !shut && 'rotate-90')}
                 />
               </button>
             </Tooltip>
@@ -2021,6 +2110,19 @@ function SpaceSection({
           </span>
         )}
       </SidebarRow>
+      {/* Ticket #1346 — the lifted preview IS the header row: full width, card background, the shared lifted shadow, a 1° tilt (the
+          board card's lift), through the shared DragPreview. Mounted only for the space being dragged, so there is one overlay. */}
+      {isDragging && (
+        <DragPreview>
+          <SidebarRow depth={0} edge="header" className="h-6 -rotate-1 bg-card shadow-[var(--shadow-lifted)]">
+            <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-meta font-bold uppercase tracking-[0.07em] text-muted">
+              <LetterMark name={space.name} color={space.color} icon={space.icon} />
+              <span className="overflow-hidden whitespace-nowrap">{space.name}</span>
+            </span>
+            {topLevelRows > 0 && <span className={ROW_COUNT}>{topLevelRows}</span>}
+          </SidebarRow>
+        </DragPreview>
+      )}
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ManageAccessDialog ws={ws} scope={{ space_id: space.id }} />}
       </Dialog>
@@ -2049,7 +2151,7 @@ function SpaceSection({
         )}
       </Dialog>
 
-      {!collapsed && (
+      {!shut && (
         /* #641 — a bare stack of rows here has ZERO gap between them (no
            flex-col wrapper existed), so pitch collapsed to exactly the row
            height: 25.5px, tighter than the top nav's own ~27.5px pitch. A
