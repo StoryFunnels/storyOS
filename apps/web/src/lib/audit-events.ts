@@ -120,6 +120,9 @@ const PHRASES: Record<string, PhraseFn> = {
   'portal_recipient.created': (p) => sentence('Created a portal link for', { name: str(asRecord(p.object).name) }),
   'portal_recipient.rotated': (p) => sentence('Replaced the portal link for', { name: str(asRecord(p.object).name) }),
   'portal_recipient.revoked': (p) => sentence('Revoked the portal link for', { name: str(asRecord(p.object).name) }),
+  // Ticket #1370 - the cutover switch: which way, and for which Linear team (the object's id is the team key).
+  'linear_ownership.changed': (p) =>
+    sentence(p.to === 'storyos' ? 'Handed ownership to StoryOS for the Linear team' : 'Gave ownership back to Linear for the Linear team', { name: str(asRecord(p.object).id) }),
   'publishing.enabled': (p) => sentence('Turned on publishing:', { name: str(asRecord(p.object).name) }),
   'publishing.disabled': (p) => sentence('Paused publishing:', { name: str(asRecord(p.object).name) }),
   'automation.taken_over': (p) => sentence('Took over the automation rule', { name: str(asRecord(p.object).name) }),

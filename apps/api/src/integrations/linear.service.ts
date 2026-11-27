@@ -1,4 +1,4 @@
-import { ConflictException, HttpException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
 import { linearStateCategory } from '@storyos/schemas';
 import type { StateCategory } from '@storyos/schemas';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
@@ -38,6 +38,9 @@ import type { PageInfo } from './linear-paging';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 import { AccessService } from '../access/access.service';
 import { ImportHistoryService } from '../migration-framework/import-history.service';
+import { DEFAULT_COUNTER_HEADROOM, MAX_COUNTER_HEADROOM, storyosOwnedKeys, teamOwnership } from './linear-ownership';
+import type { TeamOwnershipEntry } from './linear-ownership';
+import { recordLinearOwnershipEvent } from '../activity/structural-events';
 import { linearDay, linearIssueNumber, linearTime, MemberMatcher, stateHistoryRows } from './linear-import-support';
 import type { LinearHistoryEntry, LinearPerson } from './linear-import-support';
 import {
@@ -191,6 +194,8 @@ interface LinearSettings {
    * mirror used to be found by the name "<Team> (Linear)", and a display name is not an identity (ADR-0017).
    */
   team_spaces?: Record<string, { space_id?: string; space_name?: string }>;
+  /** Ticket #1370 — per team key, who owns its records (linear = the mirror, storyos = cut over). No entry = linear. See linear-ownership.ts. */
+  team_ownership?: Record<string, TeamOwnershipEntry>;
 }
 
 export type LinearFetcher = (query: string, variables: Record<string, unknown>, apiKey: string) => Promise<unknown>;
@@ -596,6 +601,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       has_key: Boolean(linear.api_key),
       allow_private_teams: Boolean(linear.allow_private_teams),
       team_spaces: linear.team_spaces ?? {},
+      team_ownership: Object.fromEntries((linear.team_keys ?? []).concat(Object.keys(linear.team_ownership ?? {})).map((k) => [k, teamOwnership(linear, k).owner])),
       auto_sync: { enabled, interval_minutes: interval },
       write_back: { enabled: Boolean(linear.write_back?.enabled), require_approval_for_agent_comments: Boolean(linear.write_back?.require_approval_for_agent_comments), ...pushes },
       sync: {
@@ -1107,7 +1113,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   private readonly previewsInFlight = new Set<string>();
 
   private async dryRunUnlocked(membership: Membership) {
-    const { teams, apiKey, notVisible, blockedPrivate } = await this.fetchTeams(membership.workspaceId);
+    const { teams, apiKey, notVisible, blockedPrivate, settings: previewSettings } = await this.fetchTeams(membership.workspaceId);
     const matcher = new MemberMatcher(await this.memberDirectory(membership.workspaceId));
     const summary = {
       dry_run: true,
@@ -1116,7 +1122,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       /** Ticket #1367 — private teams among those chosen, and whether a sync would import them (it refuses while private teams are switched off). */
       private_teams: teams.filter((t) => t.private === true).map((t) => ({ key: t.key, would_import: !blockedPrivate.includes(t.key) })),
       teams: [] as Array<{
-        key: string; name: string; issues: number; linear_issue_total: number; comments: number; sprints: number; projects: number; labels: number;
+        key: string; name: string; owner: 'linear' | 'storyos'; sync_writes: boolean; issues: number; linear_issue_total: number; comments: number; sprints: number; projects: number; labels: number;
         /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
@@ -1144,6 +1150,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       summary.teams.push({
         key: team.key,
         name: team.name,
+        /** Ticket #1370 — who owns the team, and whether a sync would write it (it never does once StoryOS owns it; this preview only reads). */
+        owner: teamOwnership(previewSettings, team.key).owner,
+        sync_writes: teamOwnership(previewSettings, team.key).owner === 'linear',
         issues: data.issues.nodes.length,
         linear_issue_total: data.issueTotal ?? data.issues.nodes.length, // preview is always a full read, which always has a total
         comments: data.comments.nodes.length,
@@ -1346,8 +1355,119 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     return Boolean(row);
   }
 
-  private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus } = {}) {
-    const { teams, apiKey, settings, notVisible } = await this.fetchTeams(membership.workspaceId, { forSync: true });
+  /**
+   * Ticket #1370 - who owns each configured team's records, for the teams THIS caller may see (the door is the team's space, as for
+   * every other surface: a member without a grant on a private team's restricted space is not told the team exists). Read straight from
+   * the settings JSON, without opening the sealed key, so it cannot fail on a damaged key.
+   */
+  async readOwnership(membership: Membership) {
+    const ws = await this.db.query.workspaces.findFirst({ where: eq(workspaces.id, membership.workspaceId), columns: { settings: true } });
+    const linear = (((ws?.settings ?? {}) as Record<string, unknown>).linear ?? {}) as LinearSettings;
+    const visible = await this.access.visibleSpaceIds(membership);
+    const keys = [...new Set([...(linear.team_keys ?? []), ...Object.keys(linear.team_ownership ?? {}), ...Object.keys(linear.team_spaces ?? {})])].sort();
+    const data = keys
+      .map((key) => {
+        const own = teamOwnership(linear, key);
+        return { team_key: key, owner: own.owner, space_id: linear.team_spaces?.[key]?.space_id ?? null, changed_at: own.changed_at ?? null, changed_by: own.changed_by ?? null, cut_over_at: own.cut_over_at ?? null };
+      })
+      .filter((t) => visible === null || (t.space_id !== null && visible.has(t.space_id)));
+    return { data };
+  }
+
+  /** The Issues database of a team's mirror space, found by the stored space id (never by name). */
+  private async issuesDatabaseOfTeam(workspaceId: string, linear: LinearSettings, key: string) {
+    const spaceId = linear.team_spaces?.[key]?.space_id;
+    if (!spaceId) return null;
+    // Found the way ensureTeamPack finds it: among the databases of the team's own space (a team's mirror is not a system database).
+    const inSpace = await this.db.query.databases.findMany({ where: and(eq(databasesTable.workspaceId, workspaceId), eq(databasesTable.spaceId, spaceId), isNull(databasesTable.deletedAt)) });
+    return inSpace.find((d) => d.name === 'Issues') ?? null;
+  }
+
+  /** Records of the team's Issues database that carry a Linear id and were changed after `since`: what handing it back would overwrite. */
+  private async editedSince(issuesDbId: string, since: string): Promise<number> {
+    const field = (await this.db.query.fields.findMany({ where: and(eq(fieldsTable.databaseId, issuesDbId), isNull(fieldsTable.deletedAt)) })).find((f) => f.apiName === 'linear_id');
+    if (!field) return 0;
+    const res = (await this.db.execute(sql`
+      SELECT count(*)::int AS n FROM records r
+       WHERE r.database_id = ${issuesDbId} AND r.deleted_at IS NULL AND r.updated_at > ${since}::timestamptz
+         AND coalesce(r.values->>(${field.id}::text), '') <> ''`)) as unknown as { rows?: Array<{ n: number }> };
+    return res.rows?.[0]?.n ?? 0;
+  }
+
+  /**
+   * Ticket #1370 - the switch. `storyos`: one final FULL read of this team (count-checked, like every full read), then the state
+   * is stored, the Issues counter jumps ahead by the headroom, and the inbound sync never writes the team again. `linear`: hand it
+   * back; refused until an admin confirms, saying how many records edited here since the cutover the next sync will overwrite.
+   * Admin only (the controller), logged in the audit log, and refused while a sync runs so the two cannot interleave: the run lock is
+   * held for the whole flip. A failure leaves the OWNERSHIP state as it was (the switch is only stored after every step before it succeeded); it does not undo what earlier steps already wrote: the final read's records stay written, as after any sync, and a failure between the counter bump and the stored state leaves the counter moved.
+   */
+  async setOwnership(membership: Membership, actorId: string, teamKey: string, input: { owner: 'linear' | 'storyos'; confirm_overwrite?: boolean; counter_headroom?: number }) {
+    const workspaceId = membership.workspaceId;
+    const probe = await this.readLinear(workspaceId);
+    const key = [...(probe.team_keys ?? []), ...Object.keys(probe.team_spaces ?? {}), ...Object.keys(probe.team_ownership ?? {})].find((k) => k.toLowerCase() === teamKey.toLowerCase());
+    if (!key) throw new NotFoundException(`${teamKey} is not one of this workspace's configured Linear teams`);
+    const current = teamOwnership(probe, key);
+    if (current.owner === input.owner) return { team_key: key, owner: current.owner, unchanged: true, ...(current.cut_over_at ? { cut_over_at: current.cut_over_at } : {}) };
+    if (!(await this.acquireRun(workspaceId, new Date()))) {
+      throw new ConflictException('A Linear sync is running for this workspace. Wait for it to finish, then switch ownership: the two must not interleave.');
+    }
+    try {
+      const now = new Date().toISOString();
+      if (input.owner === 'storyos') {
+        const headroom = input.counter_headroom ?? DEFAULT_COUNTER_HEADROOM;
+        if (!Number.isInteger(headroom) || headroom < 0 || headroom > MAX_COUNTER_HEADROOM) throw new UnprocessableEntityException(`counter_headroom must be a whole number from 0 to ${MAX_COUNTER_HEADROOM}`);
+        // The last Linear read of this team. Throws on a short or unverifiable read, with the state still `linear`.
+        // An import run, like every other read of Linear: Slack subscriptions post nothing for it and history counts it as an import.
+        const summary = await runAsImportRun(() => this.runSync(membership, actorId, { only: [key] }));
+        const after = await this.readLinear(workspaceId);
+        const issuesDb = await this.issuesDatabaseOfTeam(workspaceId, after, key);
+        let counter: TeamOwnershipEntry['counter'];
+        if (issuesDb) {
+          const before = issuesDb.recordCounter;
+          const res = (await this.db.execute(sql`
+            UPDATE databases SET record_counter = GREATEST(record_counter, coalesce((SELECT max(number) FROM records WHERE database_id = ${issuesDb.id}), 0)) + ${headroom}
+             WHERE id = ${issuesDb.id} RETURNING record_counter`)) as unknown as { rows?: Array<{ record_counter: number }> };
+          counter = { database_id: issuesDb.id, before, after: res.rows![0]!.record_counter, headroom };
+        }
+        const perTeam = summary.per_team.find((t) => t.key === key);
+        // Taken AFTER the final read: what that read wrote is Linear's, not an edit made here, so a hand-back right after counts none of it.
+        const cutAt = new Date().toISOString();
+        const entry: TeamOwnershipEntry = {
+          owner: 'storyos', changed_at: cutAt, changed_by: actorId, cut_over_at: cutAt,
+          final_sync: { mode: summary.mode, issues: summary.issues, linear_issue_total: perTeam?.linear_issue_total ?? null },
+          ...(counter ? { counter } : {}),
+        };
+        await this.writeLinear(workspaceId, { ...after, team_ownership: { ...after.team_ownership, [key]: entry } });
+        await recordLinearOwnershipEvent(this.db, { workspaceId, teamKey: key, from: 'linear', to: 'storyos', spaceId: after.team_spaces?.[key]?.space_id, extra: { final_sync: entry.final_sync, counter_headroom: headroom } });
+        return { team_key: key, owner: 'storyos' as const, cut_over_at: cutAt, final_sync: entry.final_sync, ...(counter ? { counter } : {}), ...('warnings' in summary ? { warnings: summary.warnings } : {}) };
+      }
+      const issuesDb = await this.issuesDatabaseOfTeam(workspaceId, probe, key);
+      // Fail closed: when the number cannot be counted (the state lost its cut_over_at, or the Issues database cannot be found) it is
+      // UNKNOWN, not zero, and an admin must confirm exactly as if edits were known to exist.
+      const known = Boolean(issuesDb && current.cut_over_at);
+      const edited = issuesDb && current.cut_over_at ? await this.editedSince(issuesDb.id, current.cut_over_at) : 0;
+      if (!known && !input.confirm_overwrite) {
+        throw new ConflictException(`The cutover state of ${key} is incomplete, so StoryOS cannot tell how many of its records were edited here since the cutover. Giving ${key} back to Linear means the next sync overwrites every one of them with what Linear holds. Send confirm_overwrite: true to do it anyway.`);
+      }
+      if (edited > 0 && !input.confirm_overwrite) {
+        throw new ConflictException(`${edited} record${edited === 1 ? '' : 's'} of ${key} ${edited === 1 ? 'was' : 'were'} edited in StoryOS since the cutover. Giving ${key} back to Linear means the next sync overwrites ${edited === 1 ? 'it' : 'them'} with what Linear holds. Send confirm_overwrite: true to do it.`);
+      }
+      const fresh = await this.readLinear(workspaceId);
+      await this.writeLinear(workspaceId, { ...fresh, team_ownership: { ...fresh.team_ownership, [key]: { owner: 'linear', changed_at: now, changed_by: actorId } } });
+      await recordLinearOwnershipEvent(this.db, { workspaceId, teamKey: key, from: 'storyos', to: 'linear', spaceId: fresh.team_spaces?.[key]?.space_id, extra: { records_edited_since_cutover: known ? edited : null } });
+      return { team_key: key, owner: 'linear' as const, records_edited_since_cutover: known ? edited : null };
+    } finally {
+      await this.releaseRun(workspaceId).catch(() => undefined);
+    }
+  }
+
+  private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus; only?: string[] } = {}) {
+    const fetchedTeams = await this.fetchTeams(membership.workspaceId, { forSync: true });
+    const { apiKey, settings, notVisible } = fetchedTeams;
+    // Ticket #1370 — a team StoryOS owns is not synced: not read, not written, not marked. `only` is the cutover's own final read of
+    // ONE team that is still Linear's; it narrows the run, it never widens it past the ownership guard below.
+    const skippedStoryosOwned = run.only ? [] : storyosOwnedKeys(settings, fetchedTeams.teams.map((t) => t.key));
+    const teams = fetchedTeams.teams.filter((t) => (run.only ? run.only.includes(t.key) : !skippedStoryosOwned.includes(t.key)));
     // #1027 — a manual Import is always a full read; only a scheduled run with a trustworthy cursor reads just the changes.
     const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled));
     const incremental = plan.mode === 'incremental';
@@ -1355,6 +1475,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const summary = {
       dry_run: false,
       mode: plan.mode, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
+      /** Ticket #1370 — teams StoryOS owns: left out of this run entirely (not read, not written). */
+      skipped_storyos_owned: skippedStoryosOwned,
       /** #902 — per team, what was fetched against what Linear says it has. A mismatch never gets this far (it throws). */
       per_team: [] as Array<{ key: string; issues_fetched: number; linear_issue_total: number | null }>,
       /** #904 — issues mapped to a State by anything other than their own status name. Always 0: a non-zero would have thrown. */
@@ -1424,6 +1546,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     try {
     for (const team of teams) {
       currentTeam = team.key;
+      // Ticket #1370 — the write-path guard, read fresh before ANY write to this team: the partition above is decided from the settings
+      // read at the start of the run, and this is the check that still holds for a run handed the team anyway, or one that began before
+      // the switch was thrown. Nothing below this line runs for a team StoryOS owns.
+      if (teamOwnership(await this.readLinear(membership.workspaceId), team.key).owner === 'storyos') {
+        throw new ConflictException(`${team.key} is owned by StoryOS (cut over): the Linear sync never writes its records. Nothing was written.`);
+      }
       const data = fetched.get(team.id)!;
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
       const { space, issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings, settings);

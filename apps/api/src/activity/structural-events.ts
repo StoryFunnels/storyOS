@@ -151,3 +151,27 @@ export async function recordPublishingEvent(
     agentName: actor?.agentName ?? null,
   });
 }
+
+/**
+ * Ticket #1370 - a Linear team's records changed owner (Linear -> StoryOS at cutover, or back). Same table, same query, same actor
+ * attribution as the events above: actor = the admin who threw the switch, `source` as the call came. Typed `linear_ownership.changed`
+ * with the team as the object (kind `linear_team`, id = the team key) and the direction in the payload. Deliberately outside
+ * STRUCTURAL_KINDS (that vocabulary is crossed with its actions to mint event types, and a team has no `deleted`/`restored`).
+ * The payload names a team key and a space id, never a record, a title or a credential.
+ */
+export async function recordLinearOwnershipEvent(
+  db: Db | Tx,
+  event: { workspaceId: string; teamKey: string; from: 'linear' | 'storyos'; to: 'linear' | 'storyos'; spaceId?: string | null; extra?: Record<string, unknown> },
+): Promise<void> {
+  const actor = currentActor();
+  await db.insert(activityEvents).values({
+    workspaceId: event.workspaceId,
+    recordId: null,
+    actorId: actor?.userId ?? null,
+    type: 'linear_ownership.changed',
+    payload: { object: { kind: 'linear_team', id: event.teamKey, name: `Linear team ${event.teamKey}` }, from: event.from, to: event.to, space_id: event.spaceId ?? null, ...(event.extra ?? {}) },
+    source: actor?.source ?? null,
+    agentId: actor?.agentId ?? null,
+    agentName: actor?.agentName ?? null,
+  });
+}

@@ -23,6 +23,7 @@ import type { GithubConfig, GithubStateAutomation } from './github.service';
 import { resolveGithubActor } from './github-actor';
 import { extractIdentifiers, extractRecordNumbers } from './git-refs';
 import { linkDatabaseFor } from './github-link-database';
+import { ownerOfDatabase } from './linear-ownership';
 import { openSetting } from '../common/settings-secret';
 
 /**
@@ -88,6 +89,8 @@ export interface WebhookOutcome {
   /** Why we did nothing, when we did nothing. */
   skipped?: string;
   state_applied?: string | null;
+  /** Ticket #1370: why a status was NOT moved (the linked record belongs to a Linear team that Linear still owns). */
+  state_skipped?: string;
   pong?: boolean;
 }
 
@@ -333,8 +336,13 @@ export class GithubWebhookService {
 
     const label = this.stateFor(event, payload, config.state_automation);
     let applied: string | null = null;
+    let skipped: string | undefined;
     if (linked && label) {
-      applied = await this.applyState(workspaceId, linked.databaseId, linked.recordId, label, actorId);
+      // Ticket #1370 — the ONE ownership switch (linear-ownership.ts). A record of a Linear-mirrored team that Linear still owns is put
+      // back by the next sync, so a PR moving its status would set the same status from two directions: it links, it does not move it.
+      const mirror = await ownerOfDatabase(this.db, workspaceId, linked.databaseId);
+      if (mirror?.owner === 'linear') skipped = 'team_owned_by_linear';
+      else applied = await this.applyState(workspaceId, linked.databaseId, linked.recordId, label, actorId);
     }
 
     return {
@@ -343,6 +351,7 @@ export class GithubWebhookService {
       linked_record_id: linked?.recordId ?? null,
       pull_request_record_id: pullRecordId,
       state_applied: applied,
+      ...(skipped ? { state_skipped: skipped } : {}),
     };
   }
 

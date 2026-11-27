@@ -95,6 +95,7 @@ export const MCP_TOOL_NAMES: readonly string[] = [
   'get_document',
   'get_field_usage',
   'get_history',
+  'get_linear_ownership',
   'get_links',
   'get_my_work',
   'get_or_create_personal_space',

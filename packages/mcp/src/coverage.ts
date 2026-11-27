@@ -232,6 +232,11 @@ export const EXCLUDED: CoverageRule[] = [
       'Irreversible erasure of a person\'s data, and an export of everything held about them. Both are decisions with legal weight that a human takes deliberately.',
   },
   {
+    match: /^PUT \/api\/v1\/workspaces\/\{ws\}\/integrations\/linear\/teams\/\{key\}\/ownership$/,
+    reason:
+      'HUMAN-ONLY BY DESIGN (ticket #1370). The cutover switch decides whether Linear or StoryOS owns a team\'s records: throwing it runs a final read of the team and stops the inbound sync for good, and handing it back lets the next sync overwrite what people edited here. An agent able to flip it could silence the sync, or revert people\'s work, on its own initiative. `get_linear_ownership` reads the state.',
+  },
+  {
     // #1377 narrowed it (the shape #491 gave /connections): the Slack channel SUBSCRIPTIONS list is not a credential, it says which space or
     // database posts to which channel, and it is the tool list_slack_subscriptions. Its writes have their own rule above.
     match: /\/api\/v1\/workspaces\/\{ws\}\/integrations(\/(?!slack\/subscriptions(\/|$))|$)/,
