@@ -594,6 +594,22 @@ describe('the installation seam (what ticket #1378 swaps)', () => {
     expect(out).toEqual({ unfurled: 0, skipped: 'nothing_to_show' });
     expect(unfurlCalls()).toHaveLength(0);
   });
+
+  it('pinning, both directions: a provider that returns the WRONG workspace for a link is a no-op, for every link the other workspace owns', async () => {
+    const recA = await mkRecord(wsA, tickets, { name: 'Owned by A' });
+    const recB = await mkRecord(wsB, notesB, { name: 'Owned by B' });
+    const wrongFor = (owner: string): SlackInstallationProvider => ({
+      findByTeamId: async (teamId) => ({ workspaceId: owner, teamId, botToken: owner === wsA ? TOKEN_A : TOKEN_B }),
+    });
+    const asB = new SlackUnfurlService(db, app.get(AccessService), app.get(SlackApiClient), wrongFor(wsB));
+    const asA = new SlackUnfurlService(db, app.get(AccessService), app.get(SlackApiClient), wrongFor(wsA));
+    const mixed = [{ url: link(wsA, tickets, recA.number) }, { url: link(wsA, tickets, recA.id) }];
+    expect(await asB.handleLinkShared({ teamId: 'T_B', channel: 'C1', messageTs: '1.1', links: mixed })).toEqual({ unfurled: 0, skipped: 'nothing_to_show' });
+    expect(await asA.handleLinkShared({ teamId: 'T_A', channel: 'C1', messageTs: '1.1', links: [{ url: link(wsB, notesB, recB.number) }] })).toEqual({ unfurled: 0, skipped: 'nothing_to_show' });
+    expect(unfurlCalls()).toHaveLength(0);
+    // control: the right owner does preview its own
+    expect(await asA.handleLinkShared({ teamId: 'T_A', channel: 'C1', messageTs: '1.1', links: mixed })).toEqual({ unfurled: 2 });
+  });
 });
 
 describe('a guest and a member without a grant (the third and fourth person)', () => {
