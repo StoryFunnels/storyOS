@@ -25,7 +25,7 @@ import { cursorTimestampSql, encodeKeysetCursor, keysetCondition, newestFirst } 
  * query. What is still NOT here: a PERMANENT purge of a space, database or view (none exists; everything is a soft delete, #453) and
  * anything in a PERSONAL space or a personal view, which are private from admins and so never in a workspace-wide log.
  *
- * #1024: record-level events DO expire, by plan (activity/activity-retention.service.ts: Free 7 days, Pro 30, Business 30, Enterprise 90;
+ * #1024: record-level events DO expire, by plan (activity/activity-retention.service.ts: Free 30 days, Pro 365, Business 1095, Enterprise kept forever;
  * self-hosted by ACTIVITY_EVENTS_RETENTION_DAYS, unset = forever). Never deleted: events with no record (the structural events above, portal
  * links, runner pairing) and a record change that set a person field. The list says which window applies as `retention_days`.
  */
