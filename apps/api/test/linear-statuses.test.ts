@@ -53,7 +53,7 @@ afterAll(async () => { await app.close(); });
 describe('#904 statuses are imported as themselves', () => {
   it('the preview counts issues per Linear status, in Linear\'s order, zero-count statuses included', async () => {
     use([issue(1, 'Ready For Staging'), issue(2, 'Deployed'), issue(3, 'Deployed'), issue(4, 'PR Merged')]);
-    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().teams[0].issues_by_status).toEqual([
       { status: 'Backlog', type: 'backlog', issues: 0 }, { status: 'In Progress', type: 'started', issues: 0 },

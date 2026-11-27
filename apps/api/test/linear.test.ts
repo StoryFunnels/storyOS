@@ -49,7 +49,7 @@ afterAll(async () => {
 
 describe('Linear importer (MN-066)', () => {
   it('requires an API key; saves config with a team filter', async () => {
-    const early = await inject('POST', `/workspaces/${wsId}/integrations/linear/dry-run`);
+    const early = await inject('POST', `/workspaces/${wsId}/integrations/linear/dry-run?detail=full`);
     expect(early.statusCode).toBe(422);
     const save = await inject('POST', `/workspaces/${wsId}/integrations/linear`, {
       api_key: 'lin_api_test', team_keys: ['ENG'],
@@ -61,7 +61,7 @@ describe('Linear importer (MN-066)', () => {
   });
 
   it('dry-run reports counts per team and writes nothing', async () => {
-    const res = await inject('POST', `/workspaces/${wsId}/integrations/linear/dry-run`);
+    const res = await inject('POST', `/workspaces/${wsId}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     expect(res.json().teams).toEqual([{
       // ticket #1370: each team now says who owns it and whether a sync would write it

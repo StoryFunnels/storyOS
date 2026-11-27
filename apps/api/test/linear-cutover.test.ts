@@ -305,7 +305,7 @@ describe('after the switch: a StoryOS edit survives the next sync window (accept
 
   it('the preview still reads the team and says it is not written, so a person can see what Linear holds without it touching anything', async () => {
     linearSide();
-    const res = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const res = await adm('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
     const eng = res.json().teams.find((t: { key: string }) => t.key === 'ENG');
     expect(eng).toMatchObject({ owner: 'storyos', sync_writes: false });

@@ -62,7 +62,7 @@ describe('#1028 Preview while a sync is running', () => {
     const readsBefore = slow.calls();
 
     const started = Date.now();
-    const preview = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const preview = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     const took = Date.now() - started;
     expect(preview.statusCode, preview.body).toBe(409);
     expect(preview.body).toContain('A Linear sync is running');
@@ -75,7 +75,7 @@ describe('#1028 Preview while a sync is running', () => {
 
     // with no sync running, Preview behaves as before
     linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { ...empty, issues: { nodes: manyIssues(3) } } }]).fetcher;
-    const after = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const after = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(after.statusCode, after.body).toBe(201);
     expect(after.json().teams[0]).toMatchObject({ key: 'PV', issues: 3 });
   });
@@ -83,30 +83,30 @@ describe('#1028 Preview while a sync is running', () => {
   it('a STALE run lock (an hour old: a crashed process) does not block Preview forever', async () => {
     linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { ...empty, issues: { nodes: manyIssues(3) } } }]).fetcher;
     await db.execute(sql`UPDATE workspaces SET settings = jsonb_set(settings, '{linear,sync_status,running_since}', to_jsonb(${new Date(Date.now() - 61 * 60_000).toISOString()}::text)) WHERE id = ${ws}`);
-    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`)).statusCode).toBe(201);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`)).statusCode).toBe(201);
     await db.execute(sql`UPDATE workspaces SET settings = settings #- '{linear,sync_status,running_since}' WHERE id = ${ws}`);
   });
 
   it('a second Preview while one is already reading is refused at once, and Preview works again when the first ends', async () => {
     const slow = gatedLinear();
     linear.fetcher = slow.fetcher;
-    const first = inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const first = inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     await waitFor(async () => slow.calls() > 0);
     const readsBefore = slow.calls();
-    const second = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    const second = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(second.statusCode, second.body).toBe(409);
     expect(second.body).toContain('already running');
     expect(slow.calls()).toBe(readsBefore);
     slow.release();
     expect((await first).statusCode).toBe(201);
     linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { ...empty, issues: { nodes: manyIssues(3) } } }]).fetcher;
-    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`)).statusCode, 'the in-flight mark is cleared').toBe(201);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`)).statusCode, 'the in-flight mark is cleared').toBe(201);
   });
 
   it('a Preview that FAILS clears its mark too (a bad key must not wedge Preview)', async () => {
     linear.fetcher = async () => { throw new Error('Linear API 401 — check the API key'); };
-    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`)).statusCode).toBeGreaterThanOrEqual(400);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`)).statusCode).toBeGreaterThanOrEqual(400);
     linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { ...empty, issues: { nodes: manyIssues(3) } } }]).fetcher;
-    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`)).statusCode).toBe(201);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`)).statusCode).toBe(201);
   });
 });
