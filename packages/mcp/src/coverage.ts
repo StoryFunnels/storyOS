@@ -237,6 +237,11 @@ export const EXCLUDED: CoverageRule[] = [
       'HUMAN-ONLY BY DESIGN (ticket #1370). The cutover switch decides whether Linear or StoryOS owns a team\'s records: throwing it runs a final read of the team and stops the inbound sync for good, and handing it back lets the next sync overwrite what people edited here. An agent able to flip it could silence the sync, or revert people\'s work, on its own initiative. `get_linear_ownership` reads the state.',
   },
   {
+    match: /^PUT \/api\/v1\/workspaces\/\{ws\}\/integrations\/linear\/teams\/\{key\}\/status-write-back$/,
+    reason:
+      'HUMAN-ONLY BY DESIGN (ticket #1390). This switch makes StoryOS write status changes to the issues of a team on the admin\'s own Linear account, under the stored Linear key. An agent able to turn it on could start changing a live Linear workspace on its own initiative, and could retry dead letters by toggling it. `get_linear_ownership` reads whether it is on and the outbox counts.',
+  },
+  {
     // #1377 narrowed it (the shape #491 gave /connections): the Slack channel SUBSCRIPTIONS list is not a credential, it says which space or
     // database posts to which channel, and it is the tool list_slack_subscriptions. Its writes have their own rule above.
     match: /\/api\/v1\/workspaces\/\{ws\}\/integrations(\/(?!slack\/subscriptions(\/|$))|$)/,

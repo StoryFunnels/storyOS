@@ -25,7 +25,9 @@ export type AgentOutwardChannel =
   | 'linear_comment'
   | 'ai_field'
   // #1377 — a Slack channel subscription: its destination (the channel) was fixed by an admin, so it runs as configured and is logged.
-  | 'slack_subscription';
+  | 'slack_subscription'
+  // #1390 — a status an agent set on a record of a StoryOS-owned Linear team, written to the Linear issue (the workspace's own key, behind an admin's per-team switch).
+  | 'linear_status';
 
 export async function logAgentOriginOutward(
   db: Db,

@@ -123,6 +123,9 @@ const PHRASES: Record<string, PhraseFn> = {
   // Ticket #1370 - the cutover switch: which way, and for which Linear team (the object's id is the team key).
   'linear_ownership.changed': (p) =>
     sentence(p.to === 'storyos' ? 'Handed ownership to StoryOS for the Linear team' : 'Gave ownership back to Linear for the Linear team', { name: str(asRecord(p.object).id) }),
+  // Ticket #1390 - status write-back to Linear, per team (the object's id is the team key).
+  'linear_status_write_back.changed': (p) =>
+    sentence(p.enabled === true ? 'Turned on writing status changes to Linear for the team' : 'Turned off writing status changes to Linear for the team', { name: str(asRecord(p.object).id) }),
   'publishing.enabled': (p) => sentence('Turned on publishing:', { name: str(asRecord(p.object).name) }),
   'publishing.disabled': (p) => sentence('Paused publishing:', { name: str(asRecord(p.object).name) }),
   'automation.taken_over': (p) => sentence('Took over the automation rule', { name: str(asRecord(p.object).name) }),
@@ -137,6 +140,7 @@ const PHRASES: Record<string, PhraseFn> = {
   'outward.calendar_sync': (p) => sentence('Synced to the calendar', { detail: str(p.summary) }),
   'outward.linear_comment': (p) => sentence('Posted a comment to Linear', { detail: str(p.summary) }),
   'outward.ai_field': (p) => sentence('Recomputed an AI field', { detail: str(p.summary) }),
+  'outward.linear_status': (p) => sentence('Set a status on a Linear issue', { detail: str(p.summary) }),
   'outward.slack_subscription': (p) => sentence('Posted an update to a Slack channel', { detail: str(p.summary) }),
 };
 
