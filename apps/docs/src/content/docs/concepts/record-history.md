@@ -150,17 +150,29 @@ text you restored over is saved first.
 
 ## How long it's kept
 
-History is **plan-gated** and capture only runs while it's on: **Free keeps none** (nothing is
-captured, so there is nothing to restore), **Pro keeps 1 day**, **Business 7 days**, **Enterprise
-30 days**. The History dialog states the policy in general terms rather than showing your exact
-number, since the figure lives on the billing side that only admins can read. This is **record
+History is **plan-gated**: **Free keeps 14 days**, **Pro 270 days (about 9 months)**, **Business
+2 years** and **Enterprise 5 years**. Free used to capture no history at all; it now does.
+
+A version older than your window is **hidden and removed**: it no longer appears in the History
+dialog or the API, it cannot be previewed or restored (asking for it answers "not found", exactly as
+for a version that never existed), and a daily job deletes it. The newest version of each record or
+document is kept by that job as the restore baseline, but it is hidden too once it is past the window.
+**None of this starts before 27 December 2026.** Until then nothing is hidden or deleted for anyone,
+and the History dialog says "From 27 December 2026" for that reason. A self-hosted instance has no
+plans and keeps all history.
+
+This is **record
 history, not a workspace backup** — it won't bring back a deleted database; see
 [trash and restore](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space) for that.
 
 ## Workspace-wide: the admin audit log
 
 Everything above is scoped to one record. `GET /workspaces/{ws}/audit-log` (the MCP
-`list_audit_log` tool) reads the **same** underlying data, plus the events below. It is admin-only,
+`list_audit_log` tool) reads the same underlying data, plus the events below. Its field-change rows come
+from version history, so they end at your history window (Free 14 days), while record events follow the
+activity window below (Free 30 days). An agent's activity read ends at the history window too, so a
+Free admin sees 14 days of field changes there while the activity log itself keeps 30. Until the first
+purge on or after 27 December 2026, older rows still show. It is admin-only,
 across every user and every record in the workspace, and filterable by actor, by one entity (a record,
 space, database or view id), by event type, by the kind of actor (`source`: human, agent, automation
 or mcp), and by date range (default: the last 30 days).
@@ -176,15 +188,18 @@ or mcp), and by date range (default: the last 30 days).
 
 ### How long the audit log keeps record events
 
-The audit log shows only what your plan keeps. Events about a record, and an agent's outward log,
-are deleted by an hourly job once they are older than the window for the workspace's plan:
+Events about a record, and an agent's outward log,
+are deleted by a daily job once they are older than the window for the workspace's plan:
 
 | Plan | Record events kept |
 |---|---|
-| Free | 7 days |
-| Pro | 30 days |
-| Business | 30 days |
-| Enterprise | 90 days |
+| Free | 30 days |
+| Pro | 1 year |
+| Business | 3 years |
+| Enterprise | Forever |
+
+Nothing is deleted before 27 December 2026, whatever the plan, and on a self-hosted instance even when
+`ACTIVITY_EVENTS_RETENTION_DAYS` is set.
 
 A self-hosted instance has no plans. It keeps everything unless the operator sets
 `ACTIVITY_EVENTS_RETENTION_DAYS` ([self-hosting configuration](/self-hosting/configuration/)); `0`
@@ -197,8 +212,9 @@ or `never` also keeps everything.
   budgets add up, and any event not yet delivered to a webhook.
 - `GET /workspaces/{ws}/audit-log` and the MCP `list_audit_log` return `retention_days`, the window
   for this workspace in days, or `null` when everything is kept.
-- **Not the version history above.** Versions and field changes are a separate table with their own
-  plan limit ([How long it's kept](#how-long-its-kept)); this job does not touch them.
+- **Not the version history above.** Versions and field changes have their own plan limit and their own
+  daily job ([How long it's kept](#how-long-its-kept)); this job does not touch them. Enterprise keeps
+  record events forever but version history for 5 years.
 
 ### When the agent ran on a Runner
 
