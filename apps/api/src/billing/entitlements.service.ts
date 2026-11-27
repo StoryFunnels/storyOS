@@ -24,8 +24,8 @@ export interface PlanLimits {
   automationRunsPerMonth: number;
   includedSeats: number;
   /**
-   * #31 — days of record/document history retained. `0` = the feature is off
-   * and nothing is captured at all; `Infinity` = self-hosted, never pruned.
+   * #31 — days of record/document history retained (plan values: ticket #1385).
+   * `0` = the feature is off and nothing is captured at all (no plan uses it now); `Infinity` = self-hosted, never pruned.
    */
   historyRetentionDays: number;
 }
