@@ -39,6 +39,7 @@ import { TemplateGalleryDialog } from '@/components/template-gallery';
 import { Button } from '@/components/ui/button';
 import { TypedConfirmName } from '@/components/ui/typed-confirm-name';
 import { Dialog, DialogClose, DialogContent } from '@/components/ui/dialog';
+import { SlackSubscriptionsDialogContent } from '@/components/slack-subscriptions-dialog';
 import { DescriptionDialogContent } from '@/components/description-dialog';
 import { IdentifierPrefixDialogContent } from '@/components/identifier-prefix-dialog';
 import {
@@ -1292,6 +1293,8 @@ function SpaceSection({
    */
   const [newDbFolder, setNewDbFolder] = useState<string | null | undefined>(undefined);
   const [sharing, setSharing] = useState(false);
+  // Ticket #1388 — Slack notifications for this space/database (admin only).
+  const [slacking, setSlacking] = useState(false);
   const [iconing, setIconing] = useState(false);
   // #457 — its own menu item and its own dialog, NOT folded into the inline
   // Rename. Rename is a single-line input that saves on blur; bolting a second
@@ -1928,6 +1931,8 @@ function SpaceSection({
                 {canManageAccess(isAdmin ? 'admin' : undefined) && (
                   <DropdownMenuItem onSelect={() => setSharing(true)}>Manage access</DropdownMenuItem>
                 )}
+                {/* Ticket #1388 — a WORKSPACE admin's call (the API refuses anyone else): where this space's record titles are posted. */}
+                {isAdmin && <DropdownMenuItem onSelect={() => setSlacking(true)}>Slack notifications…</DropdownMenuItem>}
                 {/* #742 finding 04 — presentational only: reassigning a space's
                     group changes where it renders, never what it grants. */}
                 {groups && groups.length > 0 && onMoveToGroup && (
@@ -2023,6 +2028,9 @@ function SpaceSection({
       </SidebarRow>
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ManageAccessDialog ws={ws} scope={{ space_id: space.id }} />}
+      </Dialog>
+      <Dialog open={slacking} onOpenChange={setSlacking}>
+        {slacking && <SlackSubscriptionsDialogContent ws={ws} kind="space" id={space.id} name={space.name} restricted={Boolean(space.restricted)} />}
       </Dialog>
       <Dialog open={describing} onOpenChange={setDescribing}>
         {describing && (
@@ -2817,6 +2825,8 @@ function DatabaseRow({
    */
   const schemaEditable = atLeast(db.my_access ?? undefined, 'creator');
   const [sharing, setSharing] = useState(false);
+  // Ticket #1388 — Slack notifications for this space/database (admin only).
+  const [slacking, setSlacking] = useState(false);
   const [iconing, setIconing] = useState(false);
   // #457 — see the note on the space row: a separate item, not folded into Rename.
   const [describing, setDescribing] = useState(false);
@@ -3009,6 +3019,8 @@ function DatabaseRow({
             // SidebarMenuAction. The item is declared in place and simply not
             // rendered, so it cannot be lost to a misplaced spread.
             { label: 'Manage access', onSelect: () => setSharing(true), hidden: !canManageAccess(isAdmin ? 'admin' : undefined) },
+            // Ticket #1388 — admin only, and not on a system database (the API refuses it there).
+            { label: 'Slack notifications…', onSelect: () => setSlacking(true), hidden: !isAdmin || Boolean(db.isSystem) },
             // "Move to" — the section header rides on the FIRST target, so the
             // heading cannot outlive the group it labels. Same `creator`
             // requirement as Rename etc. — a move is the same PATCH with a
@@ -3058,6 +3070,9 @@ function DatabaseRow({
       )}
       <Dialog open={sharing} onOpenChange={setSharing}>
         {sharing && <ManageAccessDialog ws={ws} scope={{ database_id: db.id }} />}
+      </Dialog>
+      <Dialog open={slacking} onOpenChange={setSlacking}>
+        {slacking && <SlackSubscriptionsDialogContent ws={ws} kind="database" id={db.id} name={db.name} restricted={Boolean(db.restricted)} />}
       </Dialog>
       <Dialog open={describing} onOpenChange={setDescribing}>
         {describing && (
