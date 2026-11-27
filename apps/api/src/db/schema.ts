@@ -742,7 +742,11 @@ export const documentVersions = pgTable(
     version: integer('version').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('document_versions_record_created_idx').on(t.recordId, t.createdAt)],
+  (t) => [
+    index('document_versions_record_created_idx').on(t.recordId, t.createdAt),
+    // Ticket #1386 follow-up: the daily history purge scans `created_at < cutoff` across all workspaces, which no (record_id, created_at) index serves.
+    index('document_versions_created_idx').on(t.createdAt),
+  ],
 );
 
 /** Standalone rich docs living in a space, independent of any record (MN-095). */
@@ -1474,7 +1478,11 @@ export const recordVersions = pgTable(
     values: jsonb('values').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('record_versions_record_created_idx').on(t.recordId, t.createdAt)],
+  (t) => [
+    index('record_versions_record_created_idx').on(t.recordId, t.createdAt),
+    // Ticket #1386 follow-up: the daily history purge scans `created_at < cutoff` across all workspaces, which no (record_id, created_at) index serves.
+    index('record_versions_created_idx').on(t.createdAt),
+  ],
 );
 
 /**
@@ -1548,6 +1556,8 @@ export const recordFieldChanges = pgTable(
     index('record_field_changes_db_field_created_idx').on(t.databaseId, t.fieldId, t.createdAt),
     // Retention pruning walks this one, per plan window.
     index('record_field_changes_ws_created_idx').on(t.workspaceId, t.createdAt),
+    // Ticket #1386 follow-up: the daily history purge scans `created_at < cutoff` across all workspaces; every index above leads with another column.
+    index('record_field_changes_created_idx').on(t.createdAt),
     // #541 AC — "queryable in bulk for a date range" for one agent.
     index('record_field_changes_agent_created_idx').on(t.agentId, t.createdAt),
   ],
