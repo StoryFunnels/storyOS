@@ -28,11 +28,6 @@ your workspace's data go.
 
 ## Add a Runner
 
-:::caution[Not on npm yet]
-The `@storyos/runner` package was not yet on the npm registry when this was written, so
-`npx @storyos/runner` cannot find it until it is published.
-:::
-
 On the screen, press **Add a Runner** (or **Add a Runner…** in an agent's **Runs on** menu, or on the
 hire card). It shows three steps: run `npx @storyos/runner` in Terminal on the computer where Claude
 Code is signed in; type the 6-character code when it asks (the code is shown as one block, with a **Copy** button next to it and next to the command); then, when the card says the computer is

@@ -19,8 +19,6 @@ so it works behind a home router or a company proxy.
 - **Agent budgets have no settings screen yet.** You set them as two fields on the agent's record, and
   they work (see [Budgets](#budgets)). A run held by a budget is named in the web app, but the
   app does not show how much of a budget has been used.
-- **The `@storyos/runner` package was not yet on the npm registry** when this was written, so
-  `npx @storyos/runner` cannot find it until it is published.
 :::
 
 ## Before you start
