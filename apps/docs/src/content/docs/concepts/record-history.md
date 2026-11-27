@@ -150,8 +150,10 @@ text you restored over is saved first.
 
 ## How long it's kept
 
-History is **plan-gated**: **Free keeps 14 days**, **Pro 9 months**, **Business 2 years** and
-**Enterprise 5 years**. The History dialog states the policy in general terms rather than showing your exact
+History is **plan-gated**: **Free keeps 14 days**, **Pro 270 days (about 9 months)**, **Business
+2 years** and **Enterprise 5 years**. Free used to capture no history at all; it now does. Today the
+plan figure is the limit the product states and is what turns capture on: older versions are not yet
+deleted automatically, so you may still see versions past your window. The History dialog states the policy in general terms rather than showing your exact
 number, since the figure lives on the billing side that only admins can read. This is **record
 history, not a workspace backup** — it won't bring back a deleted database; see
 [trash and restore](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space) for that.
