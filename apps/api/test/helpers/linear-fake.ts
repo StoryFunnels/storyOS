@@ -1,4 +1,5 @@
 import type { LinearFetcher } from '../../src/integrations/linear.service';
+import { serveLinearExtras } from './linear-attachments-fake';
 
 interface FakeTeam {
   id: string;
@@ -28,6 +29,8 @@ export function makeLinearFetcher(teams: FakeTeam[], opts: { issueCount?: (t: Fa
   const calls: string[] = [];
   const fetcher: LinearFetcher = async (query, variables) => {
     calls.push(String(query.match(/query (\w+)/)?.[1]));
+    const extras = serveLinearExtras(query, variables, teams as never); // ticket #1366: attachments and documents
+    if (extras !== undefined) return extras;
     /** #1027 — an `updatedAt > since` filter, as the incremental queries send. A node with no `updatedAt` always counts as changed. */
     const sinceOnly = <T extends Record<string, unknown>>(all: T[]) => {
       const since = variables['since'];

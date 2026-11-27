@@ -23,6 +23,13 @@ import { RelationLinkerService } from '../migration-framework/relation-linker.se
 import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
+import { pageAll } from './linear-paging';
+import { LinearAttachmentsService } from './linear-attachments.service';
+import {
+  attachmentTallyGap, classifyAttachmentUrl, documentSummaryGap, documentsForTeam, DocumentRun, fetchTeamAttachments, fetchWorkspaceDocuments,
+} from './linear-attachments';
+import type { LinearAttachment } from './linear-attachments';
+import type { PageInfo } from './linear-paging';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 
 export interface LinearTeam {
@@ -214,40 +221,6 @@ if (!TEAM_ISSUES_SINCE_QUERY.includes('updatedAt') || !TEAM_ISSUES_SINCE_QUERY.i
 }
 export const TEAM_COMMENTS_SINCE_QUERY = `query TeamCommentsSince($id: ID!, $after: String, $since: DateTimeOrDuration!) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } }, updatedAt: { gt: $since } }) { nodes { id body createdAt url user { name } botActor { name } externalUser { name } issue { id } } ${PAGE_INFO} } }`;
 
-interface PageInfo { hasNextPage: boolean; endCursor: string | null }
-
-/**
- * Walk one connection to its end. Never assumes completeness: a response with no `pageInfo`, a `hasNextPage` with no
- * cursor, or a cursor that does not advance is an ERROR, because each of those would otherwise look like "that was
- * everything" — the exact silent partial import this replaces.
- */
-async function pageAll<T>(
-  fetcher: LinearFetcher,
-  apiKey: string,
-  query: string,
-  variables: Record<string, unknown>,
-  pick: (data: never) => { nodes: T[]; pageInfo?: PageInfo } | undefined,
-  what: string,
-): Promise<T[]> {
-  const out: T[] = [];
-  const seen = new Set<string>();
-  let after: string | undefined;
-  for (;;) {
-    const data = await fetcher(query, after ? { ...variables, after } : variables, apiKey);
-    const conn = pick(data as never);
-    if (!conn || !Array.isArray(conn.nodes)) throw new UnprocessableEntityException(`Linear returned no ${what} — refusing to continue with a partial copy`);
-    if (!conn.pageInfo) throw new UnprocessableEntityException(`Linear returned no pageInfo for ${what} — cannot tell whether the list is complete`);
-    out.push(...conn.nodes);
-    if (!conn.pageInfo.hasNextPage) return out;
-    const next = conn.pageInfo.endCursor;
-    if (!next || seen.has(next)) {
-      throw new UnprocessableEntityException(`Linear paging for ${what} stopped advancing after ${out.length} rows — refusing to continue with a partial copy`);
-    }
-    seen.add(next);
-    after = next;
-  }
-}
-
 export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Promise<LinearTeam[]> {
   return pageAll<LinearTeam>(fetcher, apiKey, TEAMS_QUERY, {}, (d: { teams: { nodes: LinearTeam[]; pageInfo?: PageInfo } }) => d.teams, 'teams');
 }
@@ -408,6 +381,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     private readonly relationLinker: RelationLinkerService,
     private readonly commentsService: CommentsService,
     private readonly notifications: NotificationsService,
+    private readonly attachmentsAndDocuments: LinearAttachmentsService,
   ) {}
 
   onModuleInit() {
@@ -896,6 +870,20 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    // Ticket #1366 — what the attachments and documents would become: counts only, nothing is written.
+    const documents = await fetchWorkspaceDocuments(this.fetcher, apiKey);
+    const attachments: Array<{ key: string; total: number; pull_requests: number; links: number; unusable: number }> = [];
+    for (const team of teams) {
+      const kinds = (await fetchTeamAttachments(this.fetcher, apiKey, team)).map((a) => classifyAttachmentUrl(a.url).kind);
+      attachments.push({ key: team.key, total: kinds.length, pull_requests: kinds.filter((k) => k === 'pull_request').length, links: kinds.filter((k) => k === 'link').length, unusable: kinds.filter((k) => k === 'unusable').length });
+    }
+    const documentsPreview = (() => {
+      const run = new DocumentRun(documents);
+      for (const team of teams) for (const doc of documentsForTeam(documents, new Set(prefetched.get(team.id)!.projects.nodes.map((p) => p.id)))) run.target(doc.id);
+      const s = run.summary();
+      return { total: s.fetched, no_project: s.no_project, project_not_imported: s.project_not_imported, importable: s.fetched - s.no_project - s.project_not_imported };
+    })();
+
     const adapter = new LinearSourceAdapter();
     await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher: this.fetcher, prefetched });
     const [schema, sourceRecords] = await Promise.all([adapter.readSchema(), adapter.readRecords()]);
@@ -906,7 +894,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     }
     const built = report.build();
 
-    return { ...summary, will_create: built.will_create, sample: built.sample, schema };
+    return { ...summary, will_create: built.will_create, sample: built.sample, schema, attachments, documents: documentsPreview };
   }
 
   /**
@@ -1090,6 +1078,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
     const fetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team, { since: plan.since }));
+    // Ticket #1366 — attachments (per team) and documents (workspace-wide) are read in the same phase, before anything is written.
+    const attachmentsByTeam = new Map<string, LinearAttachment[]>();
+    for (const team of teams) attachmentsByTeam.set(team.id, await fetchTeamAttachments(this.fetcher, apiKey, team, { since: plan.since }));
+    const extras = new DocumentRun(await fetchWorkspaceDocuments(this.fetcher, apiKey, { since: plan.since }));
     // Failed links used to be silently swallowed (`.catch(() => undefined)`) —
     // every importer had that bug (ADR-0013). RelationLinkerService turns a
     // failure into a warning instead, collected here without changing the
@@ -1246,6 +1238,15 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           if (failure) linkWarnings.push(failure);
         }
       }
+
+      // Ticket #1366 — PR links and other attachments, and the project documents. New code, in linear-attachments.service.ts.
+      await this.attachmentsAndDocuments.importTeam({
+        membership, actorId, teamKey: team.key, issuesDb, projectsDb,
+        issueRecordIds: issueIds, mirrored, projectRecordIds: projectIds,
+        attachments: attachmentsByTeam.get(team.id) ?? [],
+        documents: documentsForTeam(extras.documents, new Set(projectIds.keys())),
+        run: extras,
+      });
     }
     } catch (error) {
       // #959 — the integration page shows this text: name the team, so a raw engine message ("unknown field ...") is never
@@ -1259,7 +1260,17 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     if (summary.comments.fetched !== summary.comments.created + summary.comments.already_present) {
       throw new UnprocessableEntityException(`Comments fetched (${summary.comments.fetched}) do not equal created (${summary.comments.created}) plus already present (${summary.comments.already_present})`);
     }
-    return linkWarnings.length > 0 ? { ...summary, warnings: linkWarnings } : summary;
+    // Ticket #1366 — same discipline as the comments above: every attachment and every document lands in exactly one bucket.
+    const documents = extras.summary();
+    if (attachmentTallyGap(extras.attachments) !== 0) {
+      throw new UnprocessableEntityException(`Attachments fetched (${extras.attachments.fetched}) do not equal those imported, refused and failed (${JSON.stringify(extras.attachments)})`);
+    }
+    if (documentSummaryGap(documents) !== 0) {
+      throw new UnprocessableEntityException(`Documents fetched (${documents.fetched}) do not equal those placed, skipped and failed (${JSON.stringify({ ...documents, oversize: documents.oversize.length })})`);
+    }
+    const withExtras = { ...summary, attachments: extras.attachments, documents };
+    const warnings = [...linkWarnings, ...extras.finish()];
+    return warnings.length > 0 ? { ...withExtras, warnings } : withExtras;
   }
 
   /**

@@ -553,8 +553,9 @@ export class GithubWebhookService {
    * Point the PR row at the record. The PR↔record relation is provisioned
    * lazily and found by (database pair), the same find-or-create discipline
    * ensurePack uses — the target database isn't known until someone links to it.
+   * Public so the Linear import (ticket #1366) links the PR records it brings to the SAME relation, not a second one.
    */
-  private async link(
+  async link(
     membership: Membership,
     pullsDbId: string,
     pullRecordId: string,
@@ -583,7 +584,7 @@ export class GithubWebhookService {
   }
 
   /** The relation field on pullsDb that points at targetDb, if the relation exists. */
-  private async findLinkField(pullsDbId: string, targetDbId: string): Promise<string | null> {
+  async findLinkField(pullsDbId: string, targetDbId: string): Promise<string | null> {
     const relation = await this.db.query.relations.findFirst({
       where: or(
         and(
