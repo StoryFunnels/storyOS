@@ -100,7 +100,8 @@ those fields lasts only until Linear's copy of that issue is next read (on a sch
 issue Linear has not changed is not read, so it is not rewritten until the daily full read).
 
 **Set to Linear's, on every issue the sync reads:** the Labels, Sprint, Project and Parent Issue
-links. A label dropped, or a cycle, project or parent changed or cleared in Linear, is unlinked in
+links, and the six relation fields (Blocked by, Blocks, Duplicate of, Duplicates, Related, Related to; see
+[Relations](#relations)). A label dropped, or a cycle, project or parent changed or cleared in Linear, is unlinked in
 StoryOS on that issue's next read, and a link someone added in StoryOS that Linear does not have is
 removed with it. The exception is a link Linear reports to something that was not imported (for
 example a parent outside the chosen teams): the existing link is left as it was rather than
@@ -117,7 +118,9 @@ cleared. A record whose links already match is not written again.
 
 State options: each sync adds an option for every Linear status, keeps Linear's order, and sets the
 option's category (backlog, unstarted, started, completed or canceled) from the status type Linear
-reports. It adds options and never deletes them.
+reports. It adds options and never deletes them. A **Duplicate** option that has no category is given
+`canceled` (the type Linear documents for its Duplicate status), whether or not the team's workflow still
+lists a Duplicate status; the sync summary says which it was.
 
 ## What maps to what
 
@@ -133,10 +136,50 @@ reports. It adds options and never deletes them.
 | Estimate | Estimate (number) |
 | Assignee | **Assignee (name)** — plain text. Users aren't matched automatically: invite your team first, then reassign. Nothing is lost. |
 | Parent / sub-issues | Parent Issue self-relation (Sub-issues on the other side) |
+| Issue relations | Self relations on **Issues**: **Blocked by** / **Blocks**, **Duplicate of** / **Duplicates**, **Related** / **Related to**. See [Relations](#relations). |
 | Cycle | Record in **Sprints** (number, start/end dates) + Sprint relation on the issue |
 | Project | Record in **Projects** (state, target date, URL) + Project relation on the issue |
 | Project state | State select under the names Linear shows: backlog → Backlog, planned → Planned, started → In Progress, paused → Paused, completed → Completed, canceled → Canceled, coloured like Linear's (gray, blue, gold, orange, green, red in that order). A database imported earlier keeps its raw-named options as they are; the sync still matches them. |
 | Issue ID (internal) | Linear ID text field — the idempotency key; don't edit it |
+
+## Relations
+
+An issue's relations to other issues of the **same team** come across as self relations on that team's Issues
+database, created on the first sync that reads them (an older mirror gets them added in place):
+
+| Linear | StoryOS fields |
+|---|---|
+| A blocks B | A's **Blocks** holds B; B's **Blocked by** holds A (many to many) |
+| A is a duplicate of B | A's **Duplicate of** holds B; B's **Duplicates** holds A (an issue is a duplicate of one issue) |
+| A is related to B | A's **Related** holds B; B's **Related to** holds A |
+
+- **Linear owns these links**, like labels, cycle, project and parent: each sync sets an issue's six fields to
+  what Linear says, so a relation removed in Linear is removed here, and a link a person added in StoryOS that
+  Linear does not have is removed on that issue's next read. Linear's *related* link has one direction, so StoryOS
+  shows it under **Related** on one issue and **Related to** on the other; look in both. Nothing changes on a sync
+  of an unchanged issue.
+- **`similar` is not imported.** Linear's *similar* is its own suggestion engine, not a decision a person made.
+  A relation of a type this importer does not know is not imported either, and is named in the sync summary.
+- **Relations between two teams are not imported yet.** Each team is its own space with its own Issues database,
+  so such a link would need a relation across two databases. The sync does not link them and does not hide them:
+  the summary counts them per team pair (for example `SF→ISSUE: 12`), says so in its warnings, and the
+  preview shows the same counts before anything is written, never a title or an identifier. If that share turns out to be large, one relation per team pair that actually occurs is the follow-up.
+- **A relation to an issue that is not in the mirror** (not read, or in a team you did not import) is counted and
+  named in the warnings, not linked. An issue marked a duplicate of more than one issue links the first only.
+- **Existing fields.** The sync recognises the fields it created by a marker, not by name. A "Blocked by" /
+  "Blocks" (or the other pairs) self relation of exactly the right shape that someone built by hand is adopted,
+  so you do not get a second pair. A field that holds one of these names but is not that shape is left alone, and
+  the pair is skipped with a warning.
+- **Reads.** Relations are read in their own query, 25 issues at a time. An issue with more than 50 relations in
+  one direction, or a relation list Linear does not say is complete, fails the read, and a full read must cover
+  every issue the issue read returned. A scheduled run reads relations only for issues Linear changed since the
+  last run; whether Linear marks both issues as changed when a relation is added is not verified, so the daily
+  full read is what corrects a miss.
+- **Access.** The links are ordinary relation links. A person who can read an issue sees a linked issue only if
+  they can read that one too, as with any relation.
+- **Moving an issue to Duplicate.** In Linear, marking an issue a duplicate moves it to the Duplicate status.
+  While Linear is the source, StoryOS reads the status Linear gives the issue and does not move it. Making StoryOS
+  do that once it owns the issues is not built yet and is tracked as ticket #1387.
 
 ## Comments
 
