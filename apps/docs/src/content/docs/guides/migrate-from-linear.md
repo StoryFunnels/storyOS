@@ -162,6 +162,9 @@ issue, so a `github` label proves nothing, and a pull request pasted by hand has
   an earlier run) it is not changed; a new one gets Linear's title, repository, number and canonical URL, and
   a state only when Linear's attachment names one (otherwise the state stays empty until GitHub reports it).
   Linking a pull request never removes another link, and an attachment deleted in Linear does not unlink it.
+  If the workspace has no GitHub pack yet, the first pull request attachment creates it: a **GitHub** space
+  with the **GitHub Issues** and **GitHub Pull Requests** databases, exactly as connecting GitHub would (no
+  connection to GitHub is made).
 - **Any other http(s) URL** (a merge commit, a Figma file, a GitHub Enterprise pull request, a pull request
   on `http://`) becomes a record in the team's own **Links** database, keeping Linear's title, URL, source
   type and subtitle, with an **Issue** relation. Re-running updates it by its Linear id. An attachment

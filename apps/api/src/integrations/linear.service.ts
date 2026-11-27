@@ -1241,7 +1241,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
 
       // Ticket #1366 — PR links and other attachments, and the project documents. New code, in linear-attachments.service.ts.
       await this.attachmentsAndDocuments.importTeam({
-        membership, actorId, teamKey: team.key, issuesDb, projectsDb,
+        membership, actorId, teamLabel: team.key, issuesDb, projectsDb,
         issueRecordIds: issueIds, mirrored, projectRecordIds: projectIds,
         attachments: attachmentsByTeam.get(team.id) ?? [],
         documents: documentsForTeam(extras.documents, new Set(projectIds.keys())),

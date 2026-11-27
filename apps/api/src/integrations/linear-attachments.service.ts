@@ -34,7 +34,7 @@ interface PackDatabase {
 export interface ImportTeamExtras {
   membership: Membership;
   actorId: string;
-  teamKey: string;
+  teamLabel: string;
   issuesDb: PackDatabase;
   projectsDb: { id: string };
   /** Linear issue id → record id, for the issues this run wrote. */
@@ -102,13 +102,13 @@ export class LinearAttachmentsService {
       const issueRecordId = a.issueRecordIds.get(att.issueId) ?? a.mirrored.get(att.issueId)?.id;
       if (!issueRecordId) {
         tally.unplaced++;
-        run.warn('unplaced attachments', `team ${a.teamKey}: attachment ${att.id} is on an issue this run did not place (created after it was read); the next run picks it up`);
+        run.warn('unplaced attachments', `team ${a.teamLabel}: attachment ${att.id} is on an issue this run did not place (created after it was read); the next run picks it up`);
         continue;
       }
       const target = classifyAttachmentUrl(att.url);
       if (target.kind === 'unusable') {
         tally.unusable++;
-        run.warn('unusable attachment URLs', `team ${a.teamKey}: attachment ${att.id} was not imported: ${target.reason}`);
+        run.warn('unusable attachment URLs', `team ${a.teamLabel}: attachment ${att.id} was not imported: ${target.reason}`);
         continue;
       }
       try {
@@ -136,7 +136,7 @@ export class LinearAttachmentsService {
         if (target.kind === 'pull_request') tally.kept_in_team_space++;
       } catch (error) {
         tally.failed++;
-        run.warn('failed attachments', `team ${a.teamKey}: attachment ${att.id} failed: ${error instanceof Error ? error.message : String(error)}`);
+        run.warn('failed attachments', `team ${a.teamLabel}: attachment ${att.id} failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -253,7 +253,7 @@ export class LinearAttachmentsService {
         if (blank && doc.content && doc.content.trim()) {
           if (bodyIsOversize(doc.content)) {
             run.oversize.push(doc.title);
-            run.warn('oversize documents', `team ${a.teamKey}: document "${doc.title}" has a body over 2 MB, so its record was created WITHOUT the body (nothing was truncated)`);
+            run.warn('oversize documents', `team ${a.teamLabel}: document "${doc.title}" has a body over 2 MB, so its record was created WITHOUT the body (nothing was truncated)`);
           } else {
             const blocks = markdownToBlocks(doc.content);
             if (blocks.length > 0) {
@@ -264,7 +264,7 @@ export class LinearAttachmentsService {
         }
         run.succeeded(doc.id);
       } catch (error) {
-        run.warn('failed documents', `team ${a.teamKey}: document "${doc.title}" (${doc.id}) failed: ${error instanceof Error ? error.message : String(error)}`);
+        run.warn('failed documents', `team ${a.teamLabel}: document "${doc.title}" (${doc.id}) failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
