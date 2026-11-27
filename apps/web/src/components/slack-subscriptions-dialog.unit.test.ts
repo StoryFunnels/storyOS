@@ -4,7 +4,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { SlackSubscriptionDto } from '@/lib/slack-subscriptions';
-import { SubscriptionRow } from './slack-subscriptions-dialog';
+import { Dialog } from '@/components/ui/dialog';
+import { SlackDialogFooter, SubscriptionRow } from './slack-subscriptions-dialog';
 
 /** Ticket #1388 — a subscription row in every state, and who is offered the screen at all. */
 const sub = (over: Partial<SlackSubscriptionDto> = {}): SlackSubscriptionDto => ({
@@ -91,5 +92,46 @@ describe('#1388 who is offered the screen', () => {
     expect(sidebar).toContain('<SlackSubscriptionsDialogContent ws={ws} kind="database" id={db.id}');
     expect(sidebar).toContain('restricted={Boolean(space.restricted)}');
     expect(sidebar).toContain('restricted={Boolean(db.restricted)}');
+  });
+});
+
+describe('#1388 the footer matches the sibling dialogs', () => {
+  // DialogClose is a Radix part and needs its Dialog around it; the footer itself renders outside the portalled content.
+  const footer = (canAdd: boolean) => renderToStaticMarkup(createElement(Dialog, { open: true }, createElement(SlackDialogFooter, { canAdd })));
+
+  it('is right-aligned, with the secondary Close first and the primary Add channel last', () => {
+    const out = footer(true);
+    expect(out).toContain('ml-auto flex gap-2');
+    expect(out.indexOf('>Close<')).toBeGreaterThan(-1);
+    expect(out.indexOf('>Close<')).toBeLessThan(out.indexOf('>Add channel<'));
+  });
+
+  it('Add channel is the submit button and is disabled until the form is valid; Close never submits', () => {
+    expect(footer(true)).toMatch(/<button[^>]*type="submit"[^>]*>Add channel/);
+    expect(footer(false)).toMatch(/<button[^>]* disabled=""[^>]*>Add channel/);
+    expect(footer(true)).not.toMatch(/<button[^>]* disabled=""[^>]*>Add channel/);
+    expect(footer(true)).toMatch(/<button[^>]*type="button"[^>]*>Close/);
+  });
+
+  it('uses the same footer shape as the Description dialog (read from its source)', () => {
+    const sibling = readFileSync(fileURLToPath(new URL('./description-dialog.tsx', import.meta.url)), 'utf8');
+    expect(sibling).toContain('className="ml-auto flex gap-2"');
+    expect(footer(true)).toContain('class="ml-auto flex gap-2"');
+  });
+});
+
+describe('#1388 a delivery that has not happened yet says what it is waiting for', () => {
+  it('only a row with nothing counted and nothing wrong', () => {
+    expect(html(sub({ sent_count: 0, failed_count: 0 }))).toContain('Waiting for the first record, status change or comment');
+    expect(html(sub({ sent_count: 3, failed_count: 0 }))).not.toContain('Waiting for');
+    expect(html(sub({ sent_count: 0, failed_count: 1, last_error: 'x' }))).not.toContain('Waiting for');
+    expect(html(sub({ sent_count: 0, failed_count: 0, needs_attention: 'creator_left' }))).not.toContain('Waiting for');
+  });
+});
+
+describe('#1388 the open dialog keeps itself fresh', () => {
+  it('re-reads the list every few seconds while it is open (the hook is only used by the dialog)', () => {
+    const q = readFileSync(fileURLToPath(new URL('../lib/slack-subscriptions-queries.ts', import.meta.url)), 'utf8');
+    expect(q).toContain('refetchInterval: 5_000');
   });
 });

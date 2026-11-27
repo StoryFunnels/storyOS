@@ -6,6 +6,11 @@ const key = (ws: string) => ['slack-subscriptions', ws] as const;
 const PATH = '/api/v1/workspaces/{ws}/integrations/slack/subscriptions';
 
 /** Ticket #1388 — every Slack subscription in the workspace (the API lists them all, admin-only); a screen filters to its own target. */
+/**
+ * Re-read every 5 s while the screen is open: a delivery lands seconds after a record changes (a failed one can take half a minute to be
+ * counted), and a list that sits on "Sent 0 · Failed 0" through all of it reads like nothing is happening. Only the dialog uses this, so it
+ * polls only while it is open.
+ */
 export function useSlackSubscriptions(ws: string, enabled = true) {
   return useQuery({
     queryKey: key(ws),
@@ -15,6 +20,7 @@ export function useSlackSubscriptions(ws: string, enabled = true) {
       return ((data as unknown as { data: SlackSubscriptionDto[] }).data ?? []) as SlackSubscriptionDto[];
     },
     enabled,
+    refetchInterval: 5_000,
   });
 }
 

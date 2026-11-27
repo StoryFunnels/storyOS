@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { DialogClose, DialogContent } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import Link from 'next/link';
 import { apiErrorMessage } from '@/lib/api';
 import { useSlackSubscriptionMutations, useSlackSubscriptions } from '@/lib/slack-subscriptions-queries';
 import {
@@ -14,10 +15,13 @@ import {
   attentionLine,
   channelInSentence,
   channelLabel,
+  errorCode,
   eventsLine,
   forTarget,
+  isConnectSlackRefusal,
   isRestrictedRefusal,
   restrictedNotice,
+  DUPLICATE_CHANNEL_LINE,
 } from '@/lib/slack-subscriptions';
 import type { SlackEvent, SlackSubscriptionDto } from '@/lib/slack-subscriptions';
 import { cn } from '@/lib/utils';
@@ -68,7 +72,8 @@ export function SlackSubscriptionsDialogContent({
     } catch (e) {
       const message = apiErrorMessage(e, 'Could not add the channel. Try again.');
       if (isRestrictedRefusal(message)) setServerAsked(true);
-      setProblem(isRestrictedRefusal(message) ? null : message);
+      // A 409 is the duplicate-channel refusal; its own sentence points at an edit this screen does not have.
+      setProblem(isRestrictedRefusal(message) ? null : errorCode(e) === 'conflict' ? DUPLICATE_CHANNEL_LINE : message);
     }
   }
 
@@ -119,9 +124,13 @@ export function SlackSubscriptionsDialogContent({
           }}
         >
           <h3 className="m-0 text-body font-semibold text-ink">Add a channel</h3>
-          <label className="flex flex-col gap-1">
-            <span className="text-label text-muted">Channel</span>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="slack-channel" className="text-label text-muted">
+              Channel
+            </label>
             <Input
+              id="slack-channel"
+              aria-describedby="slack-channel-hint"
               value={channel}
               onChange={(e) => {
                 setChannel(e.target.value);
@@ -133,8 +142,10 @@ export function SlackSubscriptionsDialogContent({
               className="w-full"
               data-testid="slack-channel"
             />
-            <span className="text-label text-muted">Leave empty if your workspace posts through an incoming webhook, or to use the connection’s default channel.</span>
-          </label>
+            <span id="slack-channel-hint" className="text-label text-muted">
+              Leave empty if your workspace posts through an incoming webhook, or to use the connection’s default channel.
+            </span>
+          </div>
           <fieldset className="m-0 flex flex-col gap-1 border-0 p-0">
             <legend className="mb-0.5 p-0 text-label text-muted">Post when</legend>
             {SLACK_EVENTS.map((e) => (
@@ -152,28 +163,45 @@ export function SlackSubscriptionsDialogContent({
             <label className="flex items-start gap-2 rounded-[var(--radius-control)] border border-warning px-2.5 py-2 text-body text-ink" data-testid="slack-restricted">
               <input type="checkbox" className="mt-1" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} />
               <span>
-                <b className="font-semibold">Titles will go to that channel.</b> {restrictedNotice(kind, name)} I understand.
+                <b className="font-semibold">Titles will go to that channel.</b> {restrictedNotice(kind, name, serverAsked && !restricted)} I understand.
               </span>
             </label>
           )}
           {(problem ?? draft.error) && (
             <p role="alert" className="m-0 text-label text-error" data-testid="slack-error">
               {problem ?? draft.error}
+              {isConnectSlackRefusal(problem) && (
+                <>
+                  {' '}
+                  <Link href={`/w/${ws}/settings/integrations/slack`} className="font-medium text-primary-text underline">
+                    Open Slack settings
+                  </Link>
+                </>
+              )}
             </p>
           )}
-          <div className="flex items-center gap-2">
-            <Button type="submit" size="sm" disabled={!draft.body || m.create.isPending}>
-              Add channel
-            </Button>
-            <DialogClose asChild>
-              <Button type="button" size="sm" variant="secondary">
-                Close
-              </Button>
-            </DialogClose>
-          </div>
+          <SlackDialogFooter canAdd={Boolean(draft.body) && !m.create.isPending} />
         </form>
       </div>
     </DialogContent>
+  );
+}
+
+/** The footer every dialog here has (Description, Access, Identifier prefix): right-aligned, the secondary action first and the primary last. */
+export function SlackDialogFooter({ canAdd }: { canAdd: boolean }) {
+  return (
+    <div className="flex items-center gap-2" data-testid="slack-footer">
+      <div className="ml-auto flex gap-2">
+        <DialogClose asChild>
+          <Button type="button" variant="secondary">
+            Close
+          </Button>
+        </DialogClose>
+        <Button type="submit" disabled={!canAdd}>
+          Add channel
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -199,6 +227,8 @@ export function SubscriptionRow({ row, removing, onRemove }: { row: SlackSubscri
       <p className="m-0 text-label text-muted" data-testid="slack-delivery">
         Sent {row.sent_count}
         {' · '}Failed {row.failed_count}
+        {/* Nothing counted yet is not "broken": say what it is waiting for, so a delivery that takes seconds does not read as nothing happening. */}
+        {row.sent_count === 0 && row.failed_count === 0 && !attention && ' · Waiting for the first record, status change or comment'}
       </p>
       {row.last_error && (
         <p className="m-0 text-label text-error" data-testid="slack-last-error">

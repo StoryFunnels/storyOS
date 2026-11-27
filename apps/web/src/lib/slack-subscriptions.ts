@@ -59,8 +59,8 @@ export function channelInSentence(channel: string | null): string {
 
 /** Why a subscription is not posting, as a sentence, or null when it is. Sent as a code by the API; the words are ours. */
 export function attentionLine(code: SlackNeedsAttention | null, creatorName: string | null | undefined): string | null {
-  if (code === 'creator_left') return `Not posting: ${creatorName ?? 'the admin who added it'} is no longer in this workspace. Remove it and add it again to take it over.`;
-  if (code === 'creator_not_admin') return `Not posting: ${creatorName ?? 'the admin who added it'} is no longer an admin. Remove it and add it again to take it over.`;
+  if (code === 'creator_left') return `Not posting: ${creatorName ?? 'the admin who added it'} is no longer in this workspace. Remove it, then add the channel again as yourself.`;
+  if (code === 'creator_not_admin') return `Not posting: ${creatorName ?? 'the admin who added it'} is no longer an admin. Remove it, then add the channel again as yourself.`;
   return null;
 }
 
@@ -71,8 +71,31 @@ export function isRestrictedRefusal(message: string | null | undefined): boolean
   return typeof message === 'string' && message.startsWith(RESTRICTED_REFUSAL_PREFIX);
 }
 
-export function restrictedNotice(kind: 'space' | 'database', name: string): string {
-  return `${name} is a restricted ${kind}: only some members can open it. Its record titles will be posted to this Slack channel, and StoryOS cannot control who is in the channel.`;
+/**
+ * `inherited` is a database that is not itself restricted but sits in a restricted space (the API asked for the confirmation, the
+ * database's own flag did not): saying "{name} is a restricted database" would be false there.
+ */
+export function restrictedNotice(kind: 'space' | 'database', name: string, inherited = false): string {
+  const who = inherited ? `${name} sits in a restricted space, so only some members can open it.` : `${name} is a restricted ${kind}: only some members can open it.`;
+  return `${who} Its record titles will be posted to this Slack channel, and StoryOS cannot control who is in the channel.`;
+}
+
+/** The API's error code (`error.code`, derived from the HTTP status) on a refusal as the web client receives it, or null. */
+export function errorCode(error: unknown): string | null {
+  const code = (error as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === 'string' ? code : null;
+}
+
+/**
+ * A 409 on add means that channel already has a subscription here. The API's sentence tells the person to "change the existing one",
+ * and this screen has no edit: remove it and add it again is what they can do, so the screen says that instead.
+ */
+export const DUPLICATE_CHANNEL_LINE = 'That channel already has a subscription here. Remove it first if you want different events.';
+
+/** "Connect Slack first…" (no bot token or webhook saved): the screen adds a link to where that is done. A drift test reads the API source. */
+export const CONNECT_SLACK_PREFIX = 'Connect Slack first';
+export function isConnectSlackRefusal(message: string | null | undefined): boolean {
+  return typeof message === 'string' && message.startsWith(CONNECT_SLACK_PREFIX);
 }
 
 export const CHANNEL_MAX = 100;

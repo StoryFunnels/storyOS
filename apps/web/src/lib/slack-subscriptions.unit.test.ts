@@ -2,14 +2,19 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  CONNECT_SLACK_PREFIX,
+  DUPLICATE_CHANNEL_LINE,
   RESTRICTED_REFUSAL_PREFIX,
   addDraft,
   attentionLine,
   channelInSentence,
   channelLabel,
+  errorCode,
   eventsLine,
   forTarget,
+  isConnectSlackRefusal,
   isRestrictedRefusal,
+  restrictedNotice,
 } from './slack-subscriptions';
 import type { SlackSubscriptionDto } from './slack-subscriptions';
 
@@ -74,6 +79,8 @@ describe('#1388 the words', () => {
     expect(attentionLine(null, 'Maya Chen')).toBeNull();
     expect(attentionLine('creator_not_admin', 'Maya Chen')).toMatch(/Not posting: Maya Chen is no longer an admin/);
     expect(attentionLine('creator_left', 'Maya Chen')).toMatch(/Not posting: Maya Chen is no longer in this workspace/);
+    // The screen has no edit, so the way back is stated as what the person can do here.
+    for (const c of ['creator_left', 'creator_not_admin'] as const) expect(attentionLine(c, 'Maya Chen')).toContain('Remove it, then add the channel again as yourself.');
     expect(attentionLine('creator_left', null)).toMatch(/the admin who added it/);
   });
 });
@@ -122,5 +129,35 @@ describe('#1388 the restricted refusal', () => {
   it("the prefix is in the API's source", () => {
     const api = readFileSync(fileURLToPath(new URL('../../../api/src/integrations/slack-subscriptions.service.ts', import.meta.url)), 'utf8');
     expect(api).toContain(RESTRICTED_REFUSAL_PREFIX);
+  });
+});
+
+describe('#1388 refusals the screen words itself', () => {
+  it('a restricted database that only inherits its restriction is not called restricted itself', () => {
+    expect(restrictedNotice('database', 'Props')).toContain('Props is a restricted database');
+    const inherited = restrictedNotice('database', 'Props', true);
+    expect(inherited).toContain('Props sits in a restricted space');
+    expect(inherited).not.toContain('Props is a restricted database');
+    expect(inherited).toContain('Its record titles will be posted');
+  });
+
+  it('a 409 is read from the error code, and anything else (or nothing) is not', () => {
+    expect(errorCode({ error: { code: 'conflict', message: 'x' } })).toBe('conflict');
+    expect(errorCode({ error: { code: 'validation_failed' } })).toBe('validation_failed');
+    expect(errorCode({ message: 'x' })).toBeNull();
+    expect(errorCode(null)).toBeNull();
+  });
+
+  it('the duplicate-channel line points at what this screen can do, not at an edit it lacks', () => {
+    expect(DUPLICATE_CHANNEL_LINE).toMatch(/Remove it first/);
+    expect(DUPLICATE_CHANNEL_LINE).not.toMatch(/Change the existing/);
+  });
+
+  it('"Connect Slack first" is recognised by its opening words, and the opening words are in the API source', () => {
+    expect(isConnectSlackRefusal('Connect Slack first (a bot token or an incoming webhook) in the workspace Slack settings')).toBe(true);
+    expect(isConnectSlackRefusal('This space or database is restricted')).toBe(false);
+    expect(isConnectSlackRefusal(null)).toBe(false);
+    const api = readFileSync(fileURLToPath(new URL('../../../api/src/integrations/slack-subscriptions.service.ts', import.meta.url)), 'utf8');
+    expect(api).toContain(CONNECT_SLACK_PREFIX);
   });
 });
