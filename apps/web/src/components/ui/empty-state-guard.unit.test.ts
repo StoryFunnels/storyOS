@@ -127,7 +127,7 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/sidebar-ai-section.tsx': { n: 1, why: 'a count hint string on the AI section row ("Your workspace has no connected AI yet"): row meta copy, not a pane' },
   'components/skills/skills-library.tsx': { n: 1, why: 'the "no skills yet" count label in the library toolbar; the empty list itself is an EmptyState' },
   'app/w/[ws]/settings/integrations/google-calendar/page.tsx': { n: 1, why: '"No changes found.": the closing clause of a one-line summary string describing what a mapping edit changed (confirmation copy), not a list or pane' },
-  'components/views/dashboard-view.tsx': { n: 1, why: '"No access": the label of one tile whose database the viewer cannot read, not an empty list' },
+  'components/views/dashboard-view.tsx': { n: 1, why: '"No access": the label of one tile whose database the viewer cannot read, not an empty list' },  'components/runners/budget-card.tsx': { n: 1, why: '"No budget.": the lead of a status line inside the agent budget card, which still states this month\'s usage and offers "Set a budget"; the card is a status, not an empty list or pane' },
 };
 /** The allowance per file. There is no parking list: a surface that is a real empty state migrates to <EmptyState>, it is not parked (ticket #1291). */
 function merged(): Record<string, { n: number; why: string }> {

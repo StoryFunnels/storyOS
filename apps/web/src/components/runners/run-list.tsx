@@ -29,6 +29,7 @@ export function RunList({
   error,
   tz,
   masked = false,
+  budgetHref,
   limited = false,
   agentName = 'This agent',
   notStarted = null,
@@ -43,6 +44,8 @@ export function RunList({
   tz?: TimeOpts;
   /** The viewer may not be told machine or tool names (a guest). */
   masked?: boolean;
+  /** Ticket #1268: where the agent's budget card is on this page (`#budget`), set only when the card is drawn. A run waiting on the budget links to it. */
+  budgetHref?: string;
   /**
    * Ticket #1276 — the API says some of this agent's runs are hidden from the viewer. Then no total is drawn (not "N finished", not
    * "Latest N"), the empty state says the activity is hidden rather than "No runs yet", and nothing is celebrated as the first run.
@@ -123,6 +126,11 @@ export function RunList({
             return (
               <RunRowFrame key={w.id} title={title} href={href} sub={line.sub}>
                 <StatusMark tone={line.tone}>{line.label}</StatusMark>
+                {w.run_state.state === 'waiting_for_budget' && budgetHref && (
+                  <a href={budgetHref} className="text-label font-medium text-primary-text underline" data-testid="budget-link">
+                    See budget
+                  </a>
+                )}
                 {line.action === 'review' && (
                   <Link
                     href={`/w/${ws}/runs`}

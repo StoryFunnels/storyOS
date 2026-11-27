@@ -12,6 +12,7 @@ import type { Field } from '@/components/table-view/use-table-data';
 import { readRunnerCounts } from './connected-count';
 import { toAgentView } from './agents';
 import type { AgentRecordLike, AgentView } from './agents';
+import type { BudgetDto } from './budget';
 import type { AssignmentDto, PairingCodeIssued, PairingPoll, RunnerDto, RunnerSharingPatch, WakeDto, WakeSummary, WakesPage } from './types';
 
 /**
@@ -32,6 +33,7 @@ export const runnerKeys = {
   summary: (ws: string) => ['agent-wakes-summary', ws] as const,
   wakes: (ws: string, agent: string) => ['agent-wakes', ws, agent] as const,
   agents: (ws: string) => ['runner-agents', ws] as const,
+  budget: (ws: string, agent: string) => ['agent-budget', ws, agent] as const,
 };
 
 /** The signed-in person's id: who "my Runners" and "my agents" mean. Undefined while the session loads. */
@@ -78,6 +80,25 @@ export function useWakeSummary(ws: string, enabled = true) {
     queryFn: async () => unwrap<WakeSummary>(await api.GET('/api/v1/workspaces/{ws}/agent-wakes/summary', { params: { path: { ws } } } as never)),
     enabled,
     refetchInterval: 30_000,
+  });
+}
+
+/**
+ * Ticket #1268 — one agent's monthly budget and what it has used this month. The API answers 404 to anyone who cannot read both the
+ * Agents and the Runs database (the same answer as a missing agent), and that is NOT an error here: it is `null`, and the page draws
+ * no card. Any other failure is an error the card says so.
+ */
+export function useAgentBudget(ws: string, agentId: string | undefined) {
+  return useQuery({
+    queryKey: runnerKeys.budget(ws, agentId ?? ''),
+    queryFn: async (): Promise<BudgetDto | null> => {
+      const res = await api.GET('/api/v1/workspaces/{ws}/agents/{agent}/budget', { params: { path: { ws, agent: agentId! } } } as never);
+      if ((res as { response?: { status?: number } }).response?.status === 404) return null;
+      return unwrap<BudgetDto>(res);
+    },
+    enabled: Boolean(agentId),
+    refetchInterval: 30_000,
+    retry: false,
   });
 }
 
@@ -204,7 +225,7 @@ interface RecordList {
 }
 
 /** Every agent the viewer can read, from the Agents system database (an agent IS a record there). `loading` until both the list and its fields are known. */
-export function useAgents(ws: string, enabled = true): { agents: AgentView[]; dbId: string | null; myAccess: EffectiveRole | undefined; settingsFieldsReady: boolean; loading: boolean; error: boolean } {
+export function useAgents(ws: string, enabled = true): { agents: AgentView[]; dbId: string | null; myAccess: EffectiveRole | undefined; settingsFieldsReady: boolean; budgetFieldsReady: boolean; loading: boolean; error: boolean } {
   const dbs = useDatabases(ws, enabled);
   const agentsDb = agentSystemDatabases(dbs.data ?? []).agents;
   const detail = useDatabase(ws, agentsDb?.id ?? '');
@@ -223,6 +244,7 @@ export function useAgents(ws: string, enabled = true): { agents: AgentView[]; db
     myAccess: detail.data?.my_access,
     // An Agents database that predates ticket #1180 has no `tools` / `model` fields until the (idempotent) ensure adds them.
     settingsFieldsReady: ['tools', 'model'].every((n) => fields.some((f) => f.apiName === n)),
+    budgetFieldsReady: ['monthly_token_budget', 'monthly_run_cap'].every((n) => fields.some((f) => f.apiName === n)),
     loading: dbs.isPending || (Boolean(agentsDb) && (rows.isPending || detail.isPending)),
     error: dbs.isError || rows.isError || detail.isError,
   };
@@ -236,7 +258,7 @@ export function useAgents(ws: string, enabled = true): { agents: AgentView[]; db
 export function useSaveAgentSettings(ws: string, dbId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ agentId, values, ensureFields }: { agentId: string; values: { tools?: string | null; model?: string | null }; ensureFields?: boolean }) => {
+    mutationFn: async ({ agentId, values, ensureFields }: { agentId: string; values: { tools?: string | null; model?: string | null; monthly_token_budget?: number | null; monthly_run_cap?: number | null }; ensureFields?: boolean }) => {
       if (ensureFields) {
         unwrap<unknown>(await api.POST('/api/v1/workspaces/{ws}/agents/ensure', { params: { path: { ws } } } as never));
         await qc.invalidateQueries({ queryKey: ['database', ws, dbId] });
@@ -245,7 +267,13 @@ export function useSaveAgentSettings(ws: string, dbId: string | null) {
         await api.PATCH('/api/v1/workspaces/{ws}/databases/{db}/records/{rec}', { params: { path: { ws, db: dbId!, rec: agentId } }, body: { values } } as never),
       );
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: runnerKeys.agents(ws) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: runnerKeys.agents(ws) });
+      // Ticket #1268: a new limit changes the budget card AND whether the agent is paused (so its wakes and the summary).
+      void qc.invalidateQueries({ queryKey: ['agent-budget', ws] });
+      void qc.invalidateQueries({ queryKey: runnerKeys.summary(ws) });
+      void qc.invalidateQueries({ queryKey: ['agent-wakes', ws] });
+    },
   });
 }
 
