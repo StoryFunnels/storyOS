@@ -2744,6 +2744,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/linear/teams/{key}/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Cutover: set who owns a Linear team's records (linear = mirrored, storyos = cut over). Admin only; logged in the audit log. */
+        put: operations["LinearIntegrationsController_setOwnership"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations/linear/disconnect": {
         parameters: {
             query?: never;
@@ -2755,6 +2772,23 @@ export interface paths {
         put?: never;
         /** Disconnect Linear — clears the stored API key and team-key filter */
         post: operations["LinearIntegrationsController_disconnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/linear/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who owns each Linear team's records: linear (mirrored, edits are overwritten) or storyos (cut over) */
+        get: operations["LinearOwnershipController_read"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2807,6 +2841,23 @@ export interface paths {
         put?: never;
         /** Disconnect Slack — clears the stored bot token, webhook and default channel */
         post: operations["SlackIntegrationsController_disconnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/slack/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Slack Events API receiver (link previews) - signature-verified, unauthenticated by design */
+        post: operations["SlackEventsController_receive"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6823,6 +6874,12 @@ export interface components {
                     space_name?: string;
                 };
             };
+        };
+        LinearOwnershipDto: {
+            /** @enum {string} */
+            owner: "linear" | "storyos";
+            confirm_overwrite?: boolean;
+            counter_headroom?: number;
         };
         SlackConfigDto: {
             bot_token?: string;
@@ -12481,6 +12538,29 @@ export interface operations {
             };
         };
     };
+    LinearIntegrationsController_setOwnership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinearOwnershipDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     LinearIntegrationsController_disconnect: {
         parameters: {
             query?: never;
@@ -12491,6 +12571,23 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinearOwnershipController_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12563,6 +12660,26 @@ export interface operations {
         requestBody?: never;
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackEventsController_receive: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-slack-signature": string;
+                "x-slack-request-timestamp": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

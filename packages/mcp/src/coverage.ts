@@ -156,7 +156,7 @@ export const EXCLUDED: CoverageRule[] = [
       "#1131 / #1130 / ADR-0021 §2-3 — the Runner program's OWN protocol (pair with a code, heartbeat, claim a wake, renew its lease, complete it). The caller is the Runner binary on a person's computer, authenticated with a Runner token that no other route accepts, and a Runner token is refused everywhere else. A model has no business pairing a machine, claiming work as one or reporting a run's result: a claim hands out a lease and (from #1132) a credential, and completion writes the Run. Nothing a workspace agent could usefully invoke is here; the queue itself is READABLE (list_agent_wakes, get_agent_wake_summary).",
   },
   {
-    match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/github\/webhook)/,
+    match: /^POST \/api\/v1\/(hooks|billing\/webhook|providers\/\w+\/webhook|integrations\/(github\/webhook|slack\/events))/,
     reason:
       'Inbound receiver, unauthenticated by design and signature-verified. Something calls US here; there is nothing for an agent to invoke.',
   },
@@ -230,6 +230,11 @@ export const EXCLUDED: CoverageRule[] = [
     match: '/gdpr/',
     reason:
       'Irreversible erasure of a person\'s data, and an export of everything held about them. Both are decisions with legal weight that a human takes deliberately.',
+  },
+  {
+    match: /^PUT \/api\/v1\/workspaces\/\{ws\}\/integrations\/linear\/teams\/\{key\}\/ownership$/,
+    reason:
+      'HUMAN-ONLY BY DESIGN (ticket #1370). The cutover switch decides whether Linear or StoryOS owns a team\'s records: throwing it runs a final read of the team and stops the inbound sync for good, and handing it back lets the next sync overwrite what people edited here. An agent able to flip it could silence the sync, or revert people\'s work, on its own initiative. `get_linear_ownership` reads the state.',
   },
   {
     // #1377 narrowed it (the shape #491 gave /connections): the Slack channel SUBSCRIPTIONS list is not a credential, it says which space or

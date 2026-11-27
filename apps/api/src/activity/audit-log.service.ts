@@ -28,6 +28,10 @@ import { cursorTimestampSql, encodeKeysetCursor, keysetCondition, newestFirst } 
  * #1024: record-level events DO expire, by plan (activity/activity-retention.service.ts: Free 30 days, Pro 365, Business 1095, Enterprise kept forever;
  * self-hosted by ACTIVITY_EVENTS_RETENTION_DAYS, unset = forever). Never deleted: events with no record (the structural events above, portal
  * links, runner pairing) and a record change that set a person field. The list says which window applies as `retention_days`.
+ *
+ * Ticket #1386: the `field_change` rows are NOT governed by that window. They are `record_field_changes`, the plan-gated version
+ * history, and are deleted at the history window (Free 14 days, Pro 270, Business 730, Enterprise 1825) from 2026-12-27 UTC, so a row
+ * of that kind can end sooner than the events around it. `retention_days` describes the events.
  */
 @Injectable()
 export class AuditLogService {

@@ -275,6 +275,7 @@ Verdict is taken from the routes the tool calls that are not a plain GET (a tool
 | `list_backlinks` | internal | `GET /workspaces/:p/databases/:p/records/:p/backlinks` (internal) |
 | `list_comments` | internal | `GET /workspaces/:p/databases/:p/records/:p/comments` (internal) |
 | `list_connection_providers` | internal | `GET /workspaces/:p/connections/providers` (internal) |
+| `get_linear_ownership` | internal | `GET /workspaces/:p/linear/ownership` (internal) |
 | `list_connections` | internal | `GET /workspaces/:p/connections` (internal) |
 | `list_credential_actions` | unreachable | `GET /workspaces/:p/credentials/:p/actions` (unreach:scope_admin) |
 | `list_database_comments` | internal | `GET /workspaces/:p/databases/:p/activity/comments` (internal) |

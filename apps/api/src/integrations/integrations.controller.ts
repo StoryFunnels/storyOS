@@ -11,6 +11,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -181,6 +182,17 @@ class LinearConfigDto extends createZodDto(
     allow_private_teams: z.boolean().optional(),
     /** Ticket #1367 — per team key: the space to use (by id) and the name to give a NEW one; replaces the lookup by "<Team> (Linear)". */
     team_spaces: z.record(z.string().min(1).max(20), z.object({ space_id: z.string().uuid().optional(), space_name: z.string().trim().min(1).max(100).optional() })).optional(),
+  }),
+) {}
+
+class LinearOwnershipDto extends createZodDto(
+  z.object({
+    /** Ticket #1370 - who owns the team's records: `storyos` throws the switch (a final full read first), `linear` hands them back. */
+    owner: z.enum(['linear', 'storyos']),
+    /** Handing back overwrites what was edited in StoryOS since the cutover on the next sync: refused until this is true. */
+    confirm_overwrite: z.boolean().optional(),
+    /** Cutover only: how far the Issues counter jumps past the highest number, so a straggler created in Linear shows as a gap. Default 50. */
+    counter_headroom: z.number().int().min(0).max(10_000).optional(),
   }),
 ) {}
 
@@ -606,11 +618,40 @@ export class LinearIntegrationsController {
     return this.linear.sync(req.membership, req.user.id);
   }
 
+  /**
+   * Ticket #1370 - the cutover switch for ONE team. Admin-only like everything on this controller; human-only over MCP (coverage.ts).
+   * `storyos` runs a final full read of the team, then the inbound sync never writes its records again; `linear` hands them back.
+   */
+  @Put('teams/:key/ownership')
+  @ApiOperation({ summary: 'Cutover: set who owns a Linear team\'s records (linear = mirrored, storyos = cut over). Admin only; logged in the audit log.' })
+  setOwnership(@Req() req: WorkspaceRequest, @Param('key') key: string, @Body() body: LinearOwnershipDto) {
+    return this.linear.setOwnership(req.membership, req.user.id, key, body);
+  }
+
   /** MN-249: the directory's per-row "Disconnect" action — clears the API key + team filter. */
   @Post('disconnect')
   @ApiOperation({ summary: 'Disconnect Linear — clears the stored API key and team-key filter' })
   disconnect(@Req() req: WorkspaceRequest) {
     return this.linear.disconnect(req.membership.workspaceId);
+  }
+}
+
+/**
+ * Ticket #1370 - who owns each Linear team's records, readable by any member (it drives the "owned here" / "mirrored" banner and tells an
+ * agent whether an edit would survive a sync). Only the teams whose space the caller can see are listed. The flip is on the admin-only
+ * controller above.
+ */
+@ApiTags('integrations')
+@UseGuards(AuthGuard, WorkspaceAccessGuard)
+@Controller('workspaces/:ws/linear/ownership')
+export class LinearOwnershipController {
+  constructor(private readonly linear: LinearService) {}
+
+  @Get()
+  @RequiresScope('read')
+  @ApiOperation({ summary: 'Who owns each Linear team\'s records: linear (mirrored, edits are overwritten) or storyos (cut over)' })
+  read(@Req() req: WorkspaceRequest) {
+    return this.linear.readOwnership(req.membership);
   }
 }
 

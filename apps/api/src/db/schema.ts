@@ -719,7 +719,7 @@ export const documents = pgTable('documents', {
  * at that point (so a restore knows what optimistic-concurrency value it is
  * superseding). `documents` itself has no `workspace_id` column (it's keyed
  * off `record_id` alone) — carried here explicitly, same as `record_versions`,
- * for tenant-scoped retention pruning later.
+ * for tenant-scoped retention pruning (ticket #1386: activity/version-history-retention.service.ts).
  */
 export const documentVersions = pgTable(
   'document_versions',
@@ -1392,7 +1392,8 @@ export const activityEvents = pgTable(
  * values/title, captured before the write lands, so a restore never has to
  * replay/reconstruct state from a chain of diffs. Same cascade shape as
  * activity_events; no retention/pruning job yet (deferred — see MN-231
- * ticket comment).
+ * ticket comment). Ticket #1386: the plan window now applies (list/restore filter it, a daily purge deletes past it, the newest row
+ * of each record is kept as the restore baseline): activity/history-window.ts, activity/version-history-retention.service.ts.
  */
 export const recordVersions = pgTable(
   'record_versions',
