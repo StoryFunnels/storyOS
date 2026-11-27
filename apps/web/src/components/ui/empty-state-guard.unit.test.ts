@@ -122,7 +122,7 @@ const NOT_AN_EMPTY_STATE: Record<string, { n: number; why: string }> = {
   'components/views/dashboard-widgets.tsx': { n: 1, why: '"No data to chart yet.": the placeholder inside one chart tile, a widget state, not the dashboard' },
   'components/views/display-menu.tsx': { n: 1, why: 'a hint inside the Display menu explaining why a control is missing: menu copy' },
   'components/views/timeline-view.tsx': { n: 1, why: 'a configuration prompt ("No start-date field has been chosen"): the view is unconfigured, not empty; an empty Timeline database is covered by the database empty state' },
-  'app/admin/page.tsx': { n: 2, why: '"No entitlement override — plan defaults apply.": the state of one workspace\'s override field in the instance-admin form; and a sentence of explanatory prose ("no managed run has executed yet") in a cost note' },
+  'app/admin/page.tsx': { n: 1, why: '"No entitlement override — plan defaults apply.": the state of one workspace\'s override field in the instance-admin form, not a list or pane' },
   'components/settings/provider-card.tsx': { n: 3, why: 'three JS status strings returned from the connection check ("has no live check yet", "cannot connect yet"): messages shown after an action, not an empty list' },
   'components/sidebar-ai-section.tsx': { n: 1, why: 'a count hint string on the AI section row ("Your workspace has no connected AI yet"): row meta copy, not a pane' },
   'components/skills/skills-library.tsx': { n: 1, why: 'the "no skills yet" count label in the library toolbar; the empty list itself is an EmptyState' },

@@ -34,6 +34,7 @@ describe('computeWorkspaceCost — MN-194', () => {
       workspaceId: 'ws1',
       name: 'Acme',
       plan: 'pro',
+      billingLive: true,
       billableSeats: 3,
       automationRunsThisMonth: 1000, // 1000 * 0.00005 * 100 = 5 cents
       storageBytes: 1024 ** 3, // exactly 1 GB -> 2.3 cents -> rounds to 2
@@ -57,6 +58,7 @@ describe('computeWorkspaceCost — MN-194', () => {
       workspaceId: 'ws2',
       name: 'Freebie',
       plan: 'free',
+      billingLive: true,
       billableSeats: 2,
       automationRunsThisMonth: 100_000, // a lot of hosted calls, $0 revenue
       storageBytes: 0,
@@ -72,6 +74,7 @@ describe('computeWorkspaceCost — MN-194', () => {
       workspaceId: 'ws3',
       name: 'Heavy Free User',
       plan: 'free',
+      billingLive: true,
       billableSeats: 2,
       automationRunsThisMonth: 10_000_000, // huge cost, still Free
       storageBytes: 500 * 1024 ** 3,
@@ -86,6 +89,7 @@ describe('computeWorkspaceCost — MN-194', () => {
       workspaceId: 'ws4',
       name: 'Underwater Pro',
       plan: 'pro', // $29 revenue
+      billingLive: true,
       billableSeats: 3,
       automationRunsThisMonth: 40_000_000, // 40,000,000 * 0.00005 * 100 = $2000 -> way over $29
       storageBytes: 0,
@@ -101,6 +105,7 @@ describe('computeWorkspaceCost — MN-194', () => {
       workspaceId: 'ws5',
       name: 'Healthy Pro',
       plan: 'pro',
+      billingLive: true,
       billableSeats: 3,
       automationRunsThisMonth: 500,
       storageBytes: 0,
@@ -118,6 +123,7 @@ describe('blendMarginByPlan — MN-194', () => {
         workspaceId: 'a',
         name: 'A',
         plan: 'pro',
+        billingLive: true,
         billableSeats: 1,
         automationRunsThisMonth: 0,
         storageBytes: 0,
@@ -128,6 +134,7 @@ describe('blendMarginByPlan — MN-194', () => {
         workspaceId: 'b',
         name: 'B',
         plan: 'pro',
+        billingLive: true,
         billableSeats: 1,
         automationRunsThisMonth: 0,
         storageBytes: 0,
@@ -138,6 +145,7 @@ describe('blendMarginByPlan — MN-194', () => {
         workspaceId: 'c',
         name: 'C',
         plan: 'free',
+        billingLive: true,
         billableSeats: 1,
         automationRunsThisMonth: 0,
         storageBytes: 0,
@@ -171,6 +179,7 @@ describe('blendMarginByPlan — MN-194', () => {
         workspaceId: 'a',
         name: 'A',
         plan: 'business',
+        billingLive: true,
         billableSeats: 1,
         automationRunsThisMonth: 0,
         storageBytes: 0,
@@ -180,5 +189,17 @@ describe('blendMarginByPlan — MN-194', () => {
     ];
     const byPlan = blendMarginByPlan(rows, 100);
     expect(byPlan.map((p) => p.plan)).toEqual(['business']);
+  });
+});
+
+describe('revenue follows live billing (#1391)', () => {
+  const base = { workspaceId: 'w', name: 'W', plan: 'pro' as const, billableSeats: 1, automationRunsThisMonth: 0, storageBytes: 0, emailSendsThisMonth: 0, aiCostCentsThisMonth: 0 };
+
+  it('a paid-plan workspace that is not billing through a live subscription has zero revenue', () => {
+    expect(computeWorkspaceCost({ ...base, billingLive: false }).revenueCents).toBe(0);
+  });
+
+  it('the same workspace billing live has the plan price', () => {
+    expect(computeWorkspaceCost({ ...base, billingLive: true }).revenueCents).toBeGreaterThan(0);
   });
 });

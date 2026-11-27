@@ -328,6 +328,7 @@ export class BillingService {
       plan: effectivePlan,
       status: sub.status,
       stripeSubscriptionId: sub.id,
+      livemode: sub.livemode,
       seats,
       cancelAtPeriodEnd: sub.cancel_at_period_end,
       currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,

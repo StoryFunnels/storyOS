@@ -71,6 +71,8 @@ export type AdminEntitlementOverrideView = z.infer<typeof adminEntitlementOverri
 export const adminEntitlementOverrideEventSchema = z.object({
   id: z.uuid(),
   actorUserId: z.string(),
+  /** Who that is, for display. Null when the account has since been deleted. */
+  actor: z.object({ name: z.string(), email: z.string() }).nullable(),
   action: z.enum(['set', 'clear']),
   snapshot: z.unknown(),
   reason: z.string(),

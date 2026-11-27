@@ -9,11 +9,22 @@ function makeDb(opts: {
   workspaceExists?: boolean;
   existingSubscription?: Record<string, unknown> | undefined;
   auditEvents?: Record<string, unknown>[];
+  /** What the `user` table returns for the actor lookup (#1391). */
+  actorRows?: Array<{ id: string; name: string; email: string }>;
 }) {
   const upserts: Record<string, unknown>[] = [];
   const auditInserts: Record<string, unknown>[] = [];
+  const actorLookups = vi.fn();
 
   const db = {
+    select: () => ({
+      from: () => ({
+        where: () => {
+          actorLookups();
+          return Promise.resolve(opts.actorRows ?? []);
+        },
+      }),
+    }),
     query: {
       workspaces: {
         findFirst: vi.fn().mockResolvedValue(
@@ -51,7 +62,7 @@ function makeDb(opts: {
     },
   } as unknown as Db;
 
-  return { db, upserts, auditInserts };
+  return { db, upserts, auditInserts, actorLookups };
 }
 
 function entitlementsStub(override?: Record<string, unknown> | undefined): EntitlementsService {
@@ -178,6 +189,55 @@ describe('AdminBillingService.getBillingView (#304)', () => {
     expect(view.override).toMatchObject({ includedSeats: 50, maxWorkspaces: 5, createdBy: 'admin-user' });
     expect(view.auditTrail).toHaveLength(1);
     expect(view.auditTrail[0]).toMatchObject({ id: 'evt1', action: 'set', actorUserId: 'admin-user' });
+  });
+
+  describe('audit trail actors (#1391)', () => {
+    const event = (id: string, actorUserId: string) => ({
+      id,
+      workspaceId: 'ws1',
+      actorUserId,
+      action: 'set' as const,
+      snapshot: {},
+      reason: 'r',
+      expiresAt: null,
+      createdAt: new Date('2026-07-01T00:00:00Z'),
+    });
+    const sub = { plan: 'pro', status: null, stripeSubscriptionId: null, seats: 0, currentPeriodEnd: null };
+
+    it('names each actor with name and email, and still carries the id', async () => {
+      const { db } = makeDb({
+        existingSubscription: sub,
+        auditEvents: [event('e1', 'u-1'), event('e2', 'u-2'), event('e3', 'u-1')],
+        actorRows: [
+          { id: 'u-1', name: 'Pat Example', email: 'pat@example.test' },
+          { id: 'u-2', name: 'Sam Example', email: 'sam@example.test' },
+        ],
+      });
+      const view = await new AdminBillingService(db, entitlementsStub()).getBillingView('ws1');
+      expect(view.auditTrail.map((e) => e.actor)).toEqual([
+        { name: 'Pat Example', email: 'pat@example.test' },
+        { name: 'Sam Example', email: 'sam@example.test' },
+        { name: 'Pat Example', email: 'pat@example.test' },
+      ]);
+      expect(view.auditTrail[0]?.actorUserId).toBe('u-1');
+    });
+
+    it('an actor whose account is gone is null, not a crash and not someone else', async () => {
+      const { db } = makeDb({
+        existingSubscription: sub,
+        auditEvents: [event('e1', 'u-gone'), event('e2', 'u-1')],
+        actorRows: [{ id: 'u-1', name: 'Pat Example', email: 'pat@example.test' }],
+      });
+      const view = await new AdminBillingService(db, entitlementsStub()).getBillingView('ws1');
+      expect(view.auditTrail[0]?.actor).toBeNull();
+      expect(view.auditTrail[1]?.actor).toEqual({ name: 'Pat Example', email: 'pat@example.test' });
+    });
+
+    it('does not query users when there is no audit trail', async () => {
+      const { db, actorLookups } = makeDb({ existingSubscription: sub, auditEvents: [] });
+      await new AdminBillingService(db, entitlementsStub()).getBillingView('ws1');
+      expect(actorLookups).not.toHaveBeenCalled();
+    });
   });
 
   it('throws NotFoundException for a workspace that does not exist', async () => {
