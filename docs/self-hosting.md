@@ -47,7 +47,7 @@ Set in `.env` next to `docker-compose.yml`. Only `BETTER_AUTH_SECRET` and `CONNE
 | `ATTACHMENT_MAX_BYTES` | 20971520 (20 MB) | per-file upload cap |
 | `PDF_RENDERER_URL` | unset | base URL of the optional PDF renderer (`http://gotenberg:3000` with `--profile pdf`). Unset = PDF export is unavailable, which is the normal default. See [PDF export](#pdf-export-optional) |
 | `RATE_LIMIT_PER_MINUTE` | 300 | per token/session |
-| `ACTIVITY_EVENTS_RETENTION_DAYS` | unset (keep everything) | self-hosted only: days of record-level activity (edits, comments, links, the agent outward log) to keep before a daily job deletes it, so the activity table and your backups stop growing with every write. A whole number of days, or `never` / `0` / unset to keep everything. Hosted StoryOS ignores it and uses the plan values in [Activity retention](#activity-retention). Nothing is deleted before 27 December 2026. |
+| `ACTIVITY_EVENTS_RETENTION_DAYS` | unset (keep everything) | self-hosted only: days of record-level activity (edits, comments, links, the agent outward log) to keep before a daily job deletes it, so the activity table and your backups stop growing with every write. A whole number of days, or `never` / `0` / unset to keep everything. Hosted StoryOS ignores it and uses the plan values in [Activity retention](#activity-retention). Even when it is set, nothing is deleted before 27 December 2026. |
 | `STRIPE_SECRET_KEY` | unset | enables paid billing (MN-165). **Unset = billing off**: every workspace is Free and self-host needs none of it. Use a `sk_live_…` key only in production. |
 | `STRIPE_WEBHOOK_SECRET` | unset | `whsec_…` from your Stripe webhook endpoint (`{API_URL}/api/v1/billing/webhook`). Required for plan changes to sync back. |
 | `STRIPE_PRICE_PRO/BUSINESS/SEAT` | unset | price ids from `pnpm --filter @storyos/api billing:seed` (run once per Stripe account/mode) |
@@ -168,6 +168,8 @@ The audit log and the per-record activity feed read the `activity_events` table.
 | Hosted, Business plan | 3 years |
 | Hosted, Enterprise plan | Forever |
 | Self-hosted | `ACTIVITY_EVENTS_RETENTION_DAYS`; unset, `0` or `never` keeps everything, a number is that many days (no minimum) |
+
+Whatever the window, nothing is deleted before 27 December 2026, on hosted or self-hosted.
 
 Setting `STRIPE_SECRET_KEY` is what turns the plan windows on: a deployment with a Stripe key is "hosted", a workspace with no billing row is Free (30 days), and `ACTIVITY_EVENTS_RETENTION_DAYS` is ignored. Without a Stripe key there are no plans and only the variable applies.
 

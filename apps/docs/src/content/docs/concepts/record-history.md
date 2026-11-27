@@ -187,7 +187,8 @@ are deleted by a daily job once they are older than the window for the workspace
 | Business | 3 years |
 | Enterprise | Forever |
 
-Nothing is deleted before 27 December 2026, whatever the plan.
+Nothing is deleted before 27 December 2026, whatever the plan, and on a self-hosted instance even when
+`ACTIVITY_EVENTS_RETENTION_DAYS` is set.
 
 A self-hosted instance has no plans. It keeps everything unless the operator sets
 `ACTIVITY_EVENTS_RETENTION_DAYS` ([self-hosting configuration](/self-hosting/configuration/)); `0`
