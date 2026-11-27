@@ -1,4 +1,6 @@
+import { canEditAgentSettings } from './agent-settings';
 import { describeRun } from './status';
+import type { EffectiveRole } from '@/lib/access';
 import { shortDate } from './words';
 import type { TimeOpts } from './words';
 import type { WakeDto } from './types';
@@ -59,6 +61,15 @@ export function budgetDraft(raw: string): BudgetDraft {
   if (n < 1) return { value: null, error: BUDGET_PROBLEM_TOO_SMALL };
   if (n > BUDGET_MAX) return { value: null, error: BUDGET_PROBLEM_TOO_LARGE };
   return { value: n, error: null };
+}
+
+/**
+ * Who may set, clear or raise a budget (ticket #1268, Otto's ruling): a workspace admin, or the agent's manager (the person who hired it,
+ * `agent.ownerId`), AND someone the Agents database lets write (`canEditAgentSettings`), so the screen never offers a save the API would
+ * refuse. Everyone else reads the budget read-only. The API does not enforce the manager rule yet (ticket #1389): this is the on-screen half.
+ */
+export function canChangeBudget(who: { role: string | undefined; isManager: boolean; myAccess: EffectiveRole | undefined | null }): boolean {
+  return (who.role === 'admin' || who.isManager) && canEditAgentSettings(who.myAccess);
 }
 
 export const countText = (n: number): string => n.toLocaleString('en-US');

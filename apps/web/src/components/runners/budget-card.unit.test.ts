@@ -187,7 +187,7 @@ describe('#1268 the page draws the card only when the API answered', () => {
     expect(queries).toContain('status === 404) return null');
     expect(page).toContain('(budget.isPending || budget.isError || budget.data) && (');
   });
-  it('controls follow the Agents database write bar, the same gate Advanced uses', () => {
-    expect(page).toMatch(/<BudgetCard[\s\S]*?canEdit=\{canEditAgentSettings\(myAccess\)\}/);
+  it('controls follow canChangeBudget: an admin or the agent\'s manager, who may also write the Agents database', () => {
+    expect(page).toMatch(/<BudgetCard[\s\S]*?canEdit=\{canChangeBudget\(\{ role, isManager: isOwner, myAccess \}\)\}/);
   });
 });

@@ -39,6 +39,7 @@ import { AgentAdvanced } from './agent-advanced';
 import { CatchUpBox } from './catch-up-box';
 import { RunList } from './run-list';
 import { BudgetCard } from './budget-card';
+import { canChangeBudget } from '@/lib/runners/budget';
 import { RunnerUnknownLine } from './runner-unknown-line';
 import { WakesWhenValue, WorksInValue } from './agent-wake-facts';
 import { RunsOnLine } from './runs-on-line';
@@ -249,7 +250,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
           status={budget.isPending ? 'loading' : budget.isError ? 'error' : 'ready'}
           budget={budget.data ?? null}
           agentName={agent.name}
-          canEdit={canEditAgentSettings(myAccess)}
+          canEdit={canChangeBudget({ role, isManager: isOwner, myAccess })}
           ownerName={isOwner || ownerName === 'its owner' ? null : ownerName}
           saving={saveSettings.isPending}
           onSave={(values) => saveSettings.mutateAsync({ agentId: agent.id, values, ensureFields: !budgetFieldsReady })}

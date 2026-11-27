@@ -6,6 +6,7 @@ import {
   BUDGET_PROBLEM_TOO_LARGE,
   BUDGET_PROBLEM_TOO_SMALL,
   budgetDraft,
+  canChangeBudget,
   pausedLine,
   resetsLabel,
   resumesNowNote,
@@ -162,5 +163,36 @@ describe('#1268 resuming: derived from the numbers, never promised', () => {
     expect(resumesNowNote('Fern', paused, { runs: 40, tokens: 2_000_000 })).toBeNull();
     expect(resumesNowNote('Fern', base(), { runs: 100, tokens: null })).toBeNull();
     expect(resumesNowNote('Fern', base({ state: 'warning' }), { runs: 100, tokens: null })).toBeNull();
+  });
+});
+
+describe('#1268 canChangeBudget: who sees set, clear and raise (Otto: admins and the agent\'s manager only)', () => {
+  const who = (role: string | undefined, isManager: boolean, myAccess: 'admin' | 'creator' | 'contributor' | 'viewer' | undefined) => canChangeBudget({ role, isManager, myAccess });
+
+  it('a workspace admin may, whether or not they hired the agent', () => {
+    expect(who('admin', false, 'admin')).toBe(true);
+    expect(who('admin', true, 'admin')).toBe(true);
+  });
+
+  it('the agent\'s manager may (a member who hired it), with write access to the Agents database', () => {
+    expect(who('member', true, 'creator')).toBe(true);
+    expect(who('member', true, 'contributor')).toBe(true);
+  });
+
+  it('an unrelated member does NOT, however much write access they have (every member can write Agents)', () => {
+    expect(who('member', false, 'creator')).toBe(false);
+    expect(who('member', false, 'contributor')).toBe(false);
+  });
+
+  it('a viewer or guest does not, even as the manager or an admin without write access', () => {
+    expect(who('viewer', false, 'viewer')).toBe(false);
+    expect(who('guest', false, 'viewer')).toBe(false);
+    expect(who('member', true, 'viewer')).toBe(false);
+    expect(who('admin', false, 'viewer')).toBe(false);
+  });
+
+  it('an unknown role or access (still loading) is not offered the controls', () => {
+    expect(who(undefined, false, undefined)).toBe(false);
+    expect(who(undefined, true, undefined)).toBe(false);
   });
 });
