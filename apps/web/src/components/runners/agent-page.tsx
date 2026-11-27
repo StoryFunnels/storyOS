@@ -14,7 +14,7 @@ import { apiErrorMessage } from '@/lib/api';
 import { asksBeforeLine, asksBeforePhrases, summaryFor } from '@/lib/runners/agents';
 import { runnerLineState } from '@/lib/runners/runner-state';
 import type { AgentView } from '@/lib/runners/agents';
-import { useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
+import { useAgentBudget, useAgents, useAgentWakes, useMyUserId, useRunnerMutations, useRunners, useSaveAgentSettings, useWakeSummary } from '@/lib/runners/queries';
 import { canSeeRunnerDetails, canLetAgentThink, canRunAgentNow } from '@/lib/runners/access';
 import { confirmLetItThink, runWithoutAiToast } from '@/lib/runners/let-it-think-copy';
 import { letItThinkToast, NON_AI, offersLetItThink, offersRunNow, offersRunWithoutAi, openManualWake, OWN_AI, runNowToast, soleOnlineRunner } from '@/lib/runners/let-it-think';
@@ -39,6 +39,8 @@ import { FirstRunCard } from './first-run-card';
 import { AgentAdvanced } from './agent-advanced';
 import { CatchUpBox } from './catch-up-box';
 import { RunList } from './run-list';
+import { BudgetCard } from './budget-card';
+import { canChangeBudget } from '@/lib/runners/budget';
 import { RunnerUnknownLine } from './runner-unknown-line';
 import { WakesWhenValue, WorksInValue } from './agent-wake-facts';
 import { RunsOnLine } from './runs-on-line';
@@ -55,12 +57,14 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
   const router = useRouter();
   const qc = useQueryClient();
   const me = useMyUserId();
-  const { agents, dbId, myAccess, settingsFieldsReady, loading, error } = useAgents(ws);
+  const { agents, dbId, myAccess, settingsFieldsReady, budgetFieldsReady, loading, error } = useAgents(ws);
   const agent = agents.find((a) => a.id === agentId);
   const usesRunner = Boolean(agent?.usesRunner);
   const runners = useRunners(ws);
   const summary = useWakeSummary(ws);
   const wakes = useAgentWakes(ws, agent?.id);
+  // Ticket #1268: the API answers 404 (read here as `null`) to a viewer who may not read both the Agents and the Runs database: then no card.
+  const budget = useAgentBudget(ws, agent?.id);
   const members = useMembers(ws, true);
   const m = useRunnerMutations(ws);
   const saveSettings = useSaveAgentSettings(ws, dbId);
@@ -253,6 +257,18 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
         wakes={readsFacts ? <WakesWhenValue state={wakeLines} ws={ws} linkDatabaseId={firstDatabaseId(wakeLines, scope, databases.data ?? [])} /> : null}
         works={readsFacts ? <WorksInValue state={scope} ws={ws} databases={databases.data} /> : null}
       />
+      {(budget.isPending || budget.isError || budget.data) && (
+        <BudgetCard
+          status={budget.isPending ? 'loading' : budget.isError ? 'error' : 'ready'}
+          budget={budget.data ?? null}
+          agentName={agent.name}
+          canEdit={canChangeBudget({ role, isManager: isOwner, myAccess })}
+          ownerName={isOwner || ownerName === 'its owner' ? null : ownerName}
+          saving={saveSettings.isPending}
+          onSave={(values) => saveSettings.mutateAsync({ agentId: agent.id, values, ensureFields: !budgetFieldsReady })}
+          onRetry={() => void budget.refetch()}
+        />
+      )}
       {/* Ticket #1180 — only an agent a Runner serves has tools and a model to choose; a guest is never shown it (same gate as the machine name). */}
       {usesRunner && !masked && (
         <AgentAdvanced
@@ -268,7 +284,7 @@ export function AgentPage({ ws, agentId }: { ws: string; agentId: string }) {
           runWithoutAi={mayRunWithoutAi ? { onSwitch: runWithoutAi, pending: aiMode.switchBack.isPending } : undefined}
         />
       )}
-      <RunList masked={masked} limited={isLimited(wakes.data?.visibility)} agentName={agent.name} ws={ws} notStarted={catchUp !== null && offersCatchUp({ usesRunner, hasRunner: Boolean(assigned), mayLearnMachine: !masked, count: catchUp }) ? waitingList : null} notStartedWords={catchUpWords} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
+      <RunList budgetHref={budget.data ? '#budget' : undefined} masked={masked} limited={isLimited(wakes.data?.visibility)} agentName={agent.name} ws={ws} notStarted={catchUp !== null && offersCatchUp({ usesRunner, hasRunner: Boolean(assigned), mayLearnMachine: !masked, count: catchUp }) ? waitingList : null} notStartedWords={catchUpWords} wakes={wakes.data?.data ?? []} more={Boolean(wakes.data?.next_cursor)} loading={wakes.isPending} error={wakes.isError} />
       <SystemTables ws={ws} databases={databases.data ?? []} />
     </div>
   );
