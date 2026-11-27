@@ -119,11 +119,41 @@ describe('schedule settings the editor has no control for — #1317', () => {
     ).toEqual({ type: 'schedule', every: 'day', at: '09:00' });
   });
 
-  it('the editor shows the saved window, days and zone read-only', () => {
+  it('the editor shows the saved window, days and zone read-only, in one sentence', () => {
     const html = renderToStaticMarkup(createElement(SavedScheduleSettings, { trigger: stored }));
+    expect(html).toContain('Also set outside this editor, and kept when you save');
     expect(html).toContain('Mon-Fri');
-    expect(html).toContain('08:00-18:00');
+    expect(html).toContain('between 08:00 and 18:00');
     expect(html).toContain('Europe/Vienna');
+  });
+
+  it('does not list the interval there: an every-N-minutes rule has its own box now', () => {
+    const html = renderToStaticMarkup(createElement(SavedScheduleSettings, { trigger: { type: 'schedule', every: 'minutes', minutes: 45 } }));
+    expect(html).toBe('');
+  });
+
+  // Ticket #1318 AC2 — opening a minutes rule and saving it untouched must not change it, whatever else it carries.
+  it('saving an every-N-minutes rule unchanged keeps the interval and everything else', () => {
+    const saved = { type: 'schedule', every: 'minutes', minutes: 45, weekdays: [1, 2, 3, 4, 5], between: { from: '09:00', to: '17:00' }, timezone: 'Europe/London' };
+    expect(
+      buildAutomationTrigger({ ...base, triggerType: 'schedule', every: 'minutes', at: '09:00', minutes: 45, preserved: saved }),
+    ).toEqual(saved);
+    // ...and the same when the form never touched the box (no draft value): the saved interval carries through.
+    expect(buildAutomationTrigger({ ...base, triggerType: 'schedule', every: 'minutes', at: '09:00', preserved: saved })).toEqual(saved);
+  });
+
+  it('a changed interval replaces the saved one, and only the interval', () => {
+    const saved = { type: 'schedule', every: 'minutes', minutes: 45, between: { from: '09:00', to: '17:00' } };
+    expect(
+      buildAutomationTrigger({ ...base, triggerType: 'schedule', every: 'minutes', at: '09:00', minutes: 20, preserved: saved }),
+    ).toEqual({ ...saved, minutes: 20 });
+  });
+
+  it('switching a minutes rule to hourly drops the interval, which the server would reject there', () => {
+    const saved = { type: 'schedule', every: 'minutes', minutes: 45 };
+    expect(
+      buildAutomationTrigger({ ...base, triggerType: 'schedule', every: 'hour', at: '09:00', minutes: 45, preserved: saved }),
+    ).not.toHaveProperty('minutes');
   });
 
   it('shows nothing for a plain schedule or a non-schedule rule', () => {

@@ -26,6 +26,7 @@ import {
   SlackIntegrationsController,
 } from './integrations.controller';
 import { LinearService } from './linear.service';
+import { LinearAttachmentsService } from './linear-attachments.service';
 import { LinearWriteBackService } from './linear-write-back.service';
 import { SlackService } from './slack.service';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
@@ -65,6 +66,7 @@ import { SettingsSecretsBackfillSubscriber } from './settings-secrets-backfill.s
     GithubReviewsService,
     GithubWebhookService,
     LinearService,
+    LinearAttachmentsService,
     LinearWriteBackService,
     SlackService,
     SettingsSecretsBackfillSubscriber,

@@ -8,6 +8,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { firstSuccessfulRunId, runQuill } from '@/lib/quill/run-outcome';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { Lock } from 'lucide-react';
+import { RUNS_HIDDEN_HEADER, limitedEmptyBody, limitedEmptyTitle } from '@/lib/runners/visibility';
 import { itemTitle, NOT_STARTED_LABEL, notStartedSub, notStartedTail } from '@/lib/runners/catch-up-list';
 import type { WaitingList } from '@/lib/runners/catch-up-list';
 import type { ScopeWords } from '@/lib/runners/catch-up';
@@ -27,6 +29,8 @@ export function RunList({
   error,
   tz,
   masked = false,
+  limited = false,
+  agentName = 'This agent',
   notStarted = null,
   notStartedWords = null,
 }: {
@@ -40,6 +44,12 @@ export function RunList({
   /** The viewer may not be told machine or tool names (a guest). */
   masked?: boolean;
   /**
+   * Ticket #1276 — the API says some of this agent's runs are hidden from the viewer. Then no total is drawn (not "N finished", not
+   * "Latest N"), the empty state says the activity is hidden rather than "No runs yet", and nothing is celebrated as the first run.
+   */
+  limited?: boolean;
+  agentName?: string;
+  /**
    * Ticket #1224: the records waiting in the trigger state that catch-up has not queued yet, one grey "Not started" row each. Null
    * (a guest, a refusal, a failed read) draws nothing. The rows go when the click queues them: the list is re-read after it.
    */
@@ -51,13 +61,15 @@ export function RunList({
   const hasWaiting = waitingRows.length > 0 || tail.length > 0;
   const finished = wakes.filter(isFinishedRun).length;
   // #1253 — Quill celebrates the agent's FIRST success only, and only when this list holds its whole history.
-  const firstSuccess = firstSuccessfulRunId(wakes, more);
+  const firstSuccess = firstSuccessfulRunId(wakes, more || limited);
   return (
     <section className="rounded-[var(--radius-card)] border border-border-default bg-card" data-testid="run-list">
       <div className="flex items-center gap-2 border-b border-border-default px-3.5 py-[11px] text-body font-[650] leading-[15px] text-ink">
         <span className="flex-1">Runs</span>
         {!loading && !error && (
-          <span className="text-label font-medium text-muted">{more ? `Latest ${wakes.length}` : `${finished} finished so far`}</span>
+          <span className="text-label font-medium text-muted">
+            {limited ? RUNS_HIDDEN_HEADER : more ? `Latest ${wakes.length}` : `${finished} finished so far`}
+          </span>
         )}
       </div>
       {loading ? (
@@ -68,10 +80,19 @@ export function RunList({
         <p role="alert" className="px-3.5 py-3 text-body text-error">
           Could not load this agent’s runs. Try again in a moment.
         </p>
+      ) : wakes.length === 0 && !hasWaiting && limited ? (
+        <EmptyState
+          variant="big"
+          className="m-3 w-auto max-w-none"
+          data-testid="runs-limited"
+          icon={<Lock className="h-6 w-6" />}
+          title={limitedEmptyTitle(agentName)}
+          body={limitedEmptyBody(agentName)}
+        />
       ) : wakes.length === 0 && !hasWaiting ? (
         <EmptyState
           variant="big"
-          className="m-3 max-w-none"
+          className="m-3 w-auto max-w-none"
           data-testid="runs-empty"
           quill={<Quill pose="ready" size={56} caption="Yes, chef." />}
           title="No runs yet"

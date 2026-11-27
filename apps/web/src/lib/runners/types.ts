@@ -143,6 +143,19 @@ export interface WakeDto {
   finished_at: string | null;
 }
 
+/**
+ * Ticket #1228/#1276 — whether a list or a count is everything the queue holds ('full') or only what THIS viewer may read ('limited').
+ * An API that predates the field sends nothing, which reads as 'full' (`isLimited`); a 'limited' answer means no total may be drawn.
+ */
+export type WakeVisibility = 'full' | 'limited';
+
+/** `GET .../agent-wakes`: one page of wakes plus whether it is the whole queue for this viewer. */
+export interface WakesPage {
+  data: WakeDto[];
+  next_cursor: string | null;
+  visibility?: WakeVisibility;
+}
+
 export interface WakeSummaryAgent {
   agent_id: string;
   name: string;
@@ -150,6 +163,8 @@ export interface WakeSummaryAgent {
   runner: { id: string | null; name: string } | null;
   can_run: boolean;
   waiting: number;
+  /** Ticket #1276: 'limited' when some of this agent's queue is hidden from the viewer, so `waiting` must not be shown as a count. */
+  waiting_visibility?: WakeVisibility;
   /**
    * Ticket #1152 — records already in the agent's trigger state(s) that no wake was ever made for. A number (0 included) only for the
    * agent's owner or an admin while the agent is enabled and on Your own AI; null for everyone else. Absent from a server that
@@ -170,6 +185,8 @@ export interface WakeSummary {
   agents: WakeSummaryAgent[];
   waiting_total: number;
   agents_that_cannot_run: number;
+  /** Ticket #1276: 'limited' when some agents' queues are hidden from the viewer, so the totals are not the whole picture. */
+  visibility?: WakeVisibility;
 }
 
 export interface AssignmentDto {
