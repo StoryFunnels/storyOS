@@ -847,7 +847,7 @@ describe('a local webhook catcher on the real rig (Otto, #1656)', () => {
       // a row saved before the URL rule existed (or edited in the database) points at the catcher: the save path would have refused it
       const { sealFields, SEALED_SETTING_FIELDS } = await import('../src/common/settings-secret');
       const { workspaces } = await import('../src/db/schema');
-      await db.update(workspaces).set({ settings: { slack: sealFields({ webhook_url: `http://127.0.0.1:${port}/hook` }, SEALED_SETTING_FIELDS.slack) } }).where(eq(workspaces.id, h.w));
+      await db.update(workspaces).set({ settings: { slack: sealFields<{ bot_token?: string; webhook_url?: string }>({ webhook_url: `http://127.0.0.1:${port}/hook` }, SEALED_SETTING_FIELDS.slack) } }).where(eq(workspaces.id, h.w));
       svc.slack.fetcher = realFetcher;
       try {
         expect((await as(h.o, 'POST', `/workspaces/${h.w}/databases/${h.dbId}/records`, { values: { name: 'Into the catcher' } })).statusCode).toBe(201);
