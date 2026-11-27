@@ -38,6 +38,7 @@ export const QUERIES = {
         parent { id }
         cycle { id }
         project { id }
+        projectMilestone { id }
       }
       ${PAGE_INFO}
     }
