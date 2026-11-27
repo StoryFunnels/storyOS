@@ -150,9 +150,8 @@ text you restored over is saved first.
 
 ## How long it's kept
 
-History is **plan-gated** and capture only runs while it's on: **Free keeps none** (nothing is
-captured, so there is nothing to restore), **Pro keeps 1 day**, **Business 7 days**, **Enterprise
-30 days**. The History dialog states the policy in general terms rather than showing your exact
+History is **plan-gated**: **Free keeps 14 days**, **Pro 9 months**, **Business 2 years** and
+**Enterprise 5 years**. The History dialog states the policy in general terms rather than showing your exact
 number, since the figure lives on the billing side that only admins can read. This is **record
 history, not a workspace backup** — it won't bring back a deleted database; see
 [trash and restore](/concepts/workspaces-spaces-databases/#deleting-a-database-view-or-space) for that.
@@ -177,14 +176,16 @@ or mcp), and by date range (default: the last 30 days).
 ### How long the audit log keeps record events
 
 The audit log shows only what your plan keeps. Events about a record, and an agent's outward log,
-are deleted by an hourly job once they are older than the window for the workspace's plan:
+are deleted by a daily job once they are older than the window for the workspace's plan:
 
 | Plan | Record events kept |
 |---|---|
-| Free | 7 days |
-| Pro | 30 days |
-| Business | 30 days |
-| Enterprise | 90 days |
+| Free | 30 days |
+| Pro | 1 year |
+| Business | 3 years |
+| Enterprise | Forever |
+
+Nothing is deleted before 27 December 2026, whatever the plan.
 
 A self-hosted instance has no plans. It keeps everything unless the operator sets
 `ACTIVITY_EVENTS_RETENTION_DAYS` ([self-hosting configuration](/self-hosting/configuration/)); `0`
