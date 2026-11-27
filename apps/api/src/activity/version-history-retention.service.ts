@@ -40,8 +40,9 @@ import { MAX_BATCHES_PER_RUN, PURGE_BATCH_SIZE, PURGE_NOT_BEFORE } from './activ
  *
  * HOW IT DELETES: batches, never one giant DELETE. Each batch picks its rows `FOR UPDATE SKIP LOCKED`, so two nodes (or two
  * overlapping calls) take disjoint rows: nothing is deleted twice, nothing waits, nothing deadlocks. There is no ORDER BY and no
- * pointer: none of the three tables has a `created_at`-led index, and a sort per batch would read the whole table every time
- * (the rows it leaves are the baseline rows only, so they are all a batch has to skip). Logs counts, never row data.
+ * pointer: a sort per batch would read the whole table every time (the rows it leaves are the baseline rows only, so they are all a
+ * batch has to skip). Each table has a plain `created_at` index (migration 0138) so the `created_at < cutoff` predicate is a range scan,
+ * not a sequential scan of every workspace's history. Logs counts, never row data.
  */
 export type HistoryTable = 'record_versions' | 'record_field_changes' | 'document_versions';
 const TABLES: Array<{ table: HistoryTable; keepNewest: boolean }> = [
