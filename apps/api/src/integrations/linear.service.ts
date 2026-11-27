@@ -1371,7 +1371,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   private async issuesDatabaseOfTeam(workspaceId: string, linear: LinearSettings, key: string) {
     const spaceId = linear.team_spaces?.[key]?.space_id;
     if (!spaceId) return null;
-    return (await this.db.query.databases.findFirst({ where: and(eq(databasesTable.workspaceId, workspaceId), eq(databasesTable.spaceId, spaceId), eq(databasesTable.name, 'Issues'), isNull(databasesTable.deletedAt)) })) ?? null;
+    // Found the way ensureTeamPack finds it: among the databases of the team's own space (a team's mirror is not a system database).
+    const inSpace = await this.db.query.databases.findMany({ where: and(eq(databasesTable.workspaceId, workspaceId), eq(databasesTable.spaceId, spaceId), isNull(databasesTable.deletedAt)) });
+    return inSpace.find((d) => d.name === 'Issues') ?? null;
   }
 
   /** Records of the team's Issues database that carry a Linear id and were changed after `since`: what handing it back would overwrite. */
