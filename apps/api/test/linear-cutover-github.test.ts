@@ -26,16 +26,17 @@ let state: { api: string; opts: Record<string, string> };
 let plainState: { api: string; opts: Record<string, string> };
 const SECRET = 'pinewood-cutover-secret-key-0001';
 const REPO = 'pinewood/site';
+const NOTES_REPO = 'pinewood/notes';
 
 const adm = (m: string, u: string, p?: unknown) => call(app, admin.token, m, u, p);
 const sign = (body: string) => `sha256=${createHmac('sha256', SECRET).update(body).digest('hex')}`;
 let prNo = 500;
-async function open(branch: string) {
+async function open(branch: string, repo = REPO) {
   const number = ++prNo;
   const body = JSON.stringify({
     action: 'opened',
-    repository: { full_name: REPO },
-    pull_request: { number, title: `Change ${number}`, state: 'open', merged: false, merged_at: null, draft: false, html_url: `https://github.com/${REPO}/pull/${number}`, body: null, user: { login: 'dana' }, head: { ref: branch, sha: 'deadbeef' } },
+    repository: { full_name: repo },
+    pull_request: { number, title: `Change ${number}`, state: 'open', merged: false, merged_at: null, draft: false, html_url: `https://github.com/${repo}/pull/${number}`, body: null, user: { login: 'dana' }, head: { ref: branch, sha: 'deadbeef' } },
   });
   const res = await app.inject({ method: 'POST', url: '/api/v1/integrations/github/webhook', headers: { 'content-type': 'application/json', 'x-github-event': 'pull_request', 'x-hub-signature-256': sign(body) }, payload: body });
   expect(res.statusCode, res.body).toBe(200);
@@ -68,7 +69,7 @@ beforeAll(async () => {
   await setOwnership({ team_keys: ['ENG'], team_spaces: { ENG: { space_id: space } } });
   const saved = await call(app, admin.token, 'POST', `/workspaces/${ws}/integrations/github`, {
     webhook_secret: SECRET,
-    repos: [REPO],
+    repos: [REPO, NOTES_REPO],
     link_database_id: mirrorDb,
     state_automation: { opened: 'In Progress' },
   });
@@ -100,10 +101,12 @@ describe('GitHub reads the one ownership switch (ticket #1370)', () => {
     expect(out.state_skipped).toBe('team_owned_by_linear');
   });
 
-  it('a database that is not a Linear mirror is not touched by the switch: its status still moves', async () => {
-    const out = await open(`feat/note-${plainRec.number}`).catch(() => null);
-    // The repo's link database is the mirror one, so a NOTE identifier does not resolve: nothing to move, and nothing skipped for ownership.
-    expect(out?.state_skipped).toBeUndefined();
-    expect(await stateOf(plainDb, plainRec.id, plainState.api)).toBeNull();
+  it('a database that is not a Linear mirror is not touched by the switch: a PR from the repo that links to it still moves its status', async () => {
+    expect((await call(app, admin.token, 'POST', `/workspaces/${ws}/integrations/github`, { link_databases: { [NOTES_REPO]: plainDb } })).statusCode).toBe(201);
+    const out = await open(`feat/note-${plainRec.number}`, NOTES_REPO);
+    expect(out.linked_record_id, 'it really links').toBe(plainRec.id);
+    expect(out.state_skipped).toBeUndefined();
+    expect(out.state_applied).toBe('In Progress');
+    expect(await stateOf(plainDb, plainRec.id, plainState.api)).toBe(plainState.opts['In Progress']);
   });
 });

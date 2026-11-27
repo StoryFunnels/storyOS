@@ -6,6 +6,7 @@ import { signUpUser } from './helpers/users';
 import { call } from './helpers/members';
 import { connectTestDb } from './helpers/db';
 import { makeLinearFetcher, manyIssues } from './helpers/linear-fake';
+import type { FakeRelationEdge } from './helpers/linear-fake';
 import { LinearService } from '../src/integrations/linear.service';
 
 /**
@@ -27,6 +28,8 @@ const comment = (n: number, issueId: string): Record<string, unknown> => ({ id: 
 const att = (id: string, issueId: string, url: string, sourceType = 'github') => ({ id, issueId, title: `Title ${id}`, subtitle: null, url, sourceType, metadata: {}, createdAt: '2026-03-01T00:00:00Z', updatedAt: OLD });
 const doc = (id: string, project: string | null, body = `Body of ${id}.`) => ({ id, title: `Doc ${id}`, url: `https://linear.app/acme/document/${id}`, content: `# Heading ${id}\n\n${body}`, createdAt: '2026-01-05T09:00:00Z', updatedAt: '2026-01-06T09:00:00Z', creator: { name: 'Pat Writer' }, project: project ? { id: project } : null });
 
+const rel = (id: string, type: string, from: string, to: string): FakeRelationEdge => ({ id, type, issue: { id: from }, relatedIssue: { id: to } });
+
 const { db: rawDb } = connectTestDb();
 let app: NestFastifyApplication;
 let linear: LinearService;
@@ -34,8 +37,8 @@ let admin: { token: string };
 let ws: string;
 const adm = (m: string, u: string, p?: unknown) => call(app, admin.token, m, u, p);
 const rows = async (q: ReturnType<typeof sql>) => (await rawDb.execute(q)).rows as Array<Record<string, unknown>>;
-const linearSide = (over: { projects: unknown[]; milestones: ReturnType<typeof ms>[]; issues: unknown[]; comments?: Array<Record<string, unknown>>; attachments?: Array<Record<string, unknown>>; documents?: Array<Record<string, unknown>> }) => {
-  linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { labels: { nodes: [] }, cycles: { nodes: [] }, projects: { nodes: over.projects }, issues: { nodes: over.issues as never }, milestones: over.milestones, comments: over.comments, attachments: over.attachments ?? [], documents: over.documents ?? [] } as never }]).fetcher;
+const linearSide = (over: { projects: unknown[]; milestones: ReturnType<typeof ms>[]; issues: unknown[]; comments?: Array<Record<string, unknown>>; attachments?: Array<Record<string, unknown>>; documents?: Array<Record<string, unknown>>; relations?: FakeRelationEdge[] }) => {
+  linear.fetcher = makeLinearFetcher([{ ...TEAM, data: { labels: { nodes: [] }, cycles: { nodes: [] }, projects: { nodes: over.projects }, issues: { nodes: over.issues as never }, milestones: over.milestones, comments: over.comments, attachments: over.attachments ?? [], documents: over.documents ?? [] } as never }], { relationEdges: over.relations ?? [] }).fetcher;
 };
 /** Everything the team's space holds, in one comparable value. */
 async function snapshot() {
@@ -69,11 +72,11 @@ afterAll(async () => { await app.close(); });
 
 describe('a StoryOS-owned team gets ZERO writes from any importer writer', () => {
   it('while Linear owns it, the same Linear-side changes DO change the space (so the snapshot test below can fail)', async () => {
-    linearSide({ projects: [prj(1), prj(2)], milestones: [ms(1, 'prj-1'), ms(2, 'prj-2')], issues: [issue(1, { projectMilestone: { id: 'ms-1' }, project: { id: 'prj-1' } }), issue(2)], comments: [comment(1, 'i1')], attachments: [att('a1', 'i1', 'https://github.com/acme/site/pull/12'), att('a2', 'i2', 'https://example.com/spec', 'url')], documents: [doc('d1', 'prj-1')] });
+    linearSide({ projects: [prj(1), prj(2)], milestones: [ms(1, 'prj-1'), ms(2, 'prj-2')], issues: [issue(1, { projectMilestone: { id: 'ms-1' }, project: { id: 'prj-1' } }), issue(2)], comments: [comment(1, 'i1')], attachments: [att('a1', 'i1', 'https://github.com/acme/site/pull/12'), att('a2', 'i2', 'https://example.com/spec', 'url')], documents: [doc('d1', 'prj-1')], relations: [rel('r1', 'blocks', 'i1', 'i2')] });
     expect((await adm('POST', `/workspaces/${ws}/integrations/linear/sync`)).statusCode).toBe(201);
     const before = await snapshot();
     expect(before.dbs.map((d) => d.name)).toEqual(expect.arrayContaining(['Issues', 'Milestones', 'Projects', 'GitHub Pull Requests', 'Links', 'Documents']));
-    linearSide({ projects: [prj(1, 'Project 1 renamed'), prj(2), prj(3)], milestones: [ms(1, 'prj-1', 'Milestone 1 renamed'), ms(2, 'prj-2'), ms(3, 'prj-3')], issues: [issue(1, { title: 'Issue 1 renamed', updatedAt: new Date(Date.now() + 60_000).toISOString() }), issue(2), issue(3)], comments: [comment(1, 'i1'), comment(2, 'i2')], attachments: [att('a1', 'i1', 'https://github.com/acme/site/pull/12'), att('a2', 'i2', 'https://example.com/spec', 'url'), att('a3', 'i1', 'https://github.com/acme/site/pull/13')], documents: [doc('d1', 'prj-1', 'edited in Linear'), doc('d2', 'prj-2')] });
+    linearSide({ projects: [prj(1, 'Project 1 renamed'), prj(2), prj(3)], milestones: [ms(1, 'prj-1', 'Milestone 1 renamed'), ms(2, 'prj-2'), ms(3, 'prj-3')], issues: [issue(1, { title: 'Issue 1 renamed', updatedAt: new Date(Date.now() + 60_000).toISOString() }), issue(2), issue(3)], comments: [comment(1, 'i1'), comment(2, 'i2')], attachments: [att('a1', 'i1', 'https://github.com/acme/site/pull/12'), att('a2', 'i2', 'https://example.com/spec', 'url'), att('a3', 'i1', 'https://github.com/acme/site/pull/13')], documents: [doc('d1', 'prj-1', 'edited in Linear'), doc('d2', 'prj-2')], relations: [rel('r1', 'blocks', 'i1', 'i2'), rel('r2', 'related', 'i1', 'i3')] });
     expect((await adm('POST', `/workspaces/${ws}/integrations/linear/sync`)).statusCode).toBe(201);
     expect(JSON.stringify(await snapshot())).not.toEqual(JSON.stringify(before));
   });
@@ -90,6 +93,7 @@ describe('a StoryOS-owned team gets ZERO writes from any importer writer', () =>
       comments: [comment(1, 'i1'), comment(3, 'i4')],
       attachments: [att('a1', 'i1', 'https://github.com/acme/site/pull/12'), att('a4', 'i1', 'https://github.com/acme/site/pull/14'), att('a5', 'i4', 'https://example.com/new', 'url')],
       documents: [doc('d1', 'prj-1', 'edited AGAIN in Linear'), doc('d3', 'prj-3'), doc('d4', 'prj-4')],
+      relations: [rel('r3', 'blocks', 'i4', 'i1'), rel('r4', 'duplicate', 'i3', 'i1')],
     });
     expect((await adm('POST', `/workspaces/${ws}/integrations/linear/sync`)).statusCode).toBe(201);
     await adm('POST', `/workspaces/${ws}/integrations/linear`, { auto_sync: { enabled: true } });

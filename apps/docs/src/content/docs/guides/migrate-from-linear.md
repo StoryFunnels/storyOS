@@ -348,7 +348,7 @@ this page described above) or **StoryOS** (cut over).
 **Throwing the switch** (a workspace admin only) does this, in order:
 
 1. Runs one last **full read of that team** from Linear, count-checked against Linear's own
-   total like any full read. If that read fails, nothing changes and the team stays with Linear.
+   total like any full read. If that read fails, the switch is not thrown and the team stays with Linear; records the read had already written stay written, as after any sync.
 2. Records that StoryOS owns the team, when, and who did it.
 3. Moves the Issues database's number counter **50 numbers past its highest number** (you can send
    a different `counter_headroom`, 0 to 10,000). StoryOS then numbers new issues after that gap, so an
@@ -365,7 +365,7 @@ without anything being written.
 
 **Handing a team back to Linear** is an admin action too, and it asks first: if records were edited in
 StoryOS since the cutover, the request is refused with how many, and says the next sync overwrites
-them. Send `confirm_overwrite: true` to go ahead. It is logged the same way.
+them. Send `confirm_overwrite: true` to go ahead. If the stored state is incomplete and the edits cannot be counted, it asks for the same confirmation rather than assuming there are none. It is logged the same way.
 
 Where it lives: `PUT /workspaces/{ws}/integrations/linear/teams/{team_key}/ownership` with
 `{"owner": "storyos"}` or `{"owner": "linear", "confirm_overwrite": true}`. Anyone in the workspace

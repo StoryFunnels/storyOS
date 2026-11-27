@@ -346,6 +346,70 @@ async function linearIdField() {
   return ((await rows(sql`select f.id from fields f where f.database_id = ${(await issuesDbOf('ENG')).id as string} and f.api_name = 'linear_id' and f.deleted_at is null`))[0]!.id) as string;
 }
 
+describe('damaged state fails CLOSED, in a real sync and on hand-back (review of ticket #1370)', () => {
+  const damage = (value: unknown) =>
+    rawDb.execute(sql`UPDATE workspaces SET settings = jsonb_set(settings, '{linear,team_ownership}', coalesce(settings->'linear'->'team_ownership', '{}'::jsonb) || jsonb_build_object('QUA', ${JSON.stringify(value)}::jsonb)) WHERE id = ${ws}`);
+  const clear = () => rawDb.execute(sql`UPDATE workspaces SET settings = jsonb_set(settings, '{linear,team_ownership}', (settings->'linear'->'team_ownership') - 'QUA') WHERE id = ${ws}`);
+  const quaSide = (title: string, extra: unknown[] = []) => use([
+    { team: ENG, issues: [issueShape(ENG, 1)] },
+    { team: QUA, issues: [issueShape(QUA, 1, { title }), ...extra] },
+  ]);
+
+  it('the final read of a cutover runs as an IMPORT run, so Slack subscriptions post nothing for it and history counts it as an import', async () => {
+    const { currentImportRun } = await import('../src/common/import-run-context');
+    const seen: Array<string | null> = [];
+    // A new issue Linear gave no updatedAt: the read stamps no time on it, so its row keeps the moment the final read wrote it.
+    quaSide('Flaky checkout test', [issueShape(QUA, 2, { title: 'Arrives in the final read', updatedAt: undefined })]);
+    const wrapped = linear.fetcher;
+    linear.fetcher = async (q, v, k) => { seen.push(currentImportRun()); return wrapped(q, v, k); };
+    const res = await adm('PUT', ownerUrl('QUA'), { owner: 'storyos' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((m) => m === 'full'), JSON.stringify(seen)).toBe(true);
+  });
+
+  it('a hand-back right after the cutover counts no edits: what the final read wrote is Linear\'s, not an edit made here', async () => {
+    const res = await adm('PUT', ownerUrl('QUA'), { owner: 'linear' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().records_edited_since_cutover).toBe(0);
+  });
+
+  it('a hand-back from DAMAGED state (no cut_over_at) cannot count the edits, so it demands confirmation instead of reporting zero', async () => {
+    await damage('storyos');
+    try {
+      const refused = await adm('PUT', ownerUrl('QUA'), { owner: 'linear' });
+      expect(refused.statusCode, refused.body).toBe(409);
+      expect(refused.json().error.message).toMatch(/incomplete|cannot tell/i);
+      expect((await adm('GET', readUrl())).json().data.find((t: { team_key: string }) => t.team_key === 'QUA').owner, 'still StoryOS-owned').toBe('storyos');
+    } finally {
+      await clear();
+    }
+    await damage({ owner: 'storyos', changed_at: 'x', changed_by: 'u' }); // an entry that lost only its cut_over_at
+    try {
+      expect((await adm('PUT', ownerUrl('QUA'), { owner: 'linear' })).statusCode).toBe(409);
+      const confirmed = await adm('PUT', ownerUrl('QUA'), { owner: 'linear', confirm_overwrite: true });
+      expect(confirmed.statusCode, confirmed.body).toBe(200);
+      expect(confirmed.json().records_edited_since_cutover, 'unknown is reported as unknown, never as 0').toBeNull();
+    } finally {
+      await clear();
+    }
+  });
+
+  it('a REAL sync run leaves a team with damaged state unwritten (not just the pure helper)', async () => {
+    await damage({ owner: 'LINEAR!!', changed_at: 'x', changed_by: 'u' }); // an entry whose owner is not a value we ever write
+    try {
+      await editTitle('QUA', 1, 'Edited while the state was damaged');
+      quaSide('Linear says something else');
+      const res = await manualSync();
+      expect(res.statusCode, res.body).toBe(201);
+      expect(res.json().skipped_storyos_owned).toEqual(['QUA']);
+      expect(await titleOf('QUA', 1)).toBe('Edited while the state was damaged');
+    } finally {
+      await clear();
+    }
+  });
+});
+
 describe('a private team\'s state is not a leak', () => {
   it('a member without a grant does not see a restricted team in the read; an admin does', async () => {
     const PRV = { id: 'team-prv', key: 'PRV', name: 'Private Bets' };

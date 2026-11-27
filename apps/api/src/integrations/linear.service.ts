@@ -1399,7 +1399,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
    * is stored, the Issues counter jumps ahead by the headroom, and the inbound sync never writes the team again. `linear`: hand it
    * back; refused until an admin confirms, saying how many records edited here since the cutover the next sync will overwrite.
    * Admin only (the controller), logged in the audit log, and refused while a sync runs so the two cannot interleave: the run lock is
-   * held for the whole flip. A failure at any step leaves the state exactly as it was.
+   * held for the whole flip. A failure leaves the OWNERSHIP state as it was (the switch is only stored after every step before it succeeded); it does not undo what earlier steps already wrote: the final read's records stay written, as after any sync, and a failure between the counter bump and the stored state leaves the counter moved.
    */
   async setOwnership(membership: Membership, actorId: string, teamKey: string, input: { owner: 'linear' | 'storyos'; confirm_overwrite?: boolean; counter_headroom?: number }) {
     const workspaceId = membership.workspaceId;
@@ -1417,7 +1417,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         const headroom = input.counter_headroom ?? DEFAULT_COUNTER_HEADROOM;
         if (!Number.isInteger(headroom) || headroom < 0 || headroom > MAX_COUNTER_HEADROOM) throw new UnprocessableEntityException(`counter_headroom must be a whole number from 0 to ${MAX_COUNTER_HEADROOM}`);
         // The last Linear read of this team. Throws on a short or unverifiable read, with the state still `linear`.
-        const summary = await this.runSync(membership, actorId, { only: [key] });
+        // An import run, like every other read of Linear: Slack subscriptions post nothing for it and history counts it as an import.
+        const summary = await runAsImportRun(() => this.runSync(membership, actorId, { only: [key] }));
         const after = await this.readLinear(workspaceId);
         const issuesDb = await this.issuesDatabaseOfTeam(workspaceId, after, key);
         let counter: TeamOwnershipEntry['counter'];
@@ -1429,24 +1430,32 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           counter = { database_id: issuesDb.id, before, after: res.rows![0]!.record_counter, headroom };
         }
         const perTeam = summary.per_team.find((t) => t.key === key);
+        // Taken AFTER the final read: what that read wrote is Linear's, not an edit made here, so a hand-back right after counts none of it.
+        const cutAt = new Date().toISOString();
         const entry: TeamOwnershipEntry = {
-          owner: 'storyos', changed_at: now, changed_by: actorId, cut_over_at: now,
+          owner: 'storyos', changed_at: cutAt, changed_by: actorId, cut_over_at: cutAt,
           final_sync: { mode: summary.mode, issues: summary.issues, linear_issue_total: perTeam?.linear_issue_total ?? null },
           ...(counter ? { counter } : {}),
         };
         await this.writeLinear(workspaceId, { ...after, team_ownership: { ...after.team_ownership, [key]: entry } });
         await recordLinearOwnershipEvent(this.db, { workspaceId, teamKey: key, from: 'linear', to: 'storyos', spaceId: after.team_spaces?.[key]?.space_id, extra: { final_sync: entry.final_sync, counter_headroom: headroom } });
-        return { team_key: key, owner: 'storyos' as const, cut_over_at: now, final_sync: entry.final_sync, ...(counter ? { counter } : {}), ...('warnings' in summary ? { warnings: summary.warnings } : {}) };
+        return { team_key: key, owner: 'storyos' as const, cut_over_at: cutAt, final_sync: entry.final_sync, ...(counter ? { counter } : {}), ...('warnings' in summary ? { warnings: summary.warnings } : {}) };
       }
       const issuesDb = await this.issuesDatabaseOfTeam(workspaceId, probe, key);
+      // Fail closed: when the number cannot be counted (the state lost its cut_over_at, or the Issues database cannot be found) it is
+      // UNKNOWN, not zero, and an admin must confirm exactly as if edits were known to exist.
+      const known = Boolean(issuesDb && current.cut_over_at);
       const edited = issuesDb && current.cut_over_at ? await this.editedSince(issuesDb.id, current.cut_over_at) : 0;
+      if (!known && !input.confirm_overwrite) {
+        throw new ConflictException(`The cutover state of ${key} is incomplete, so StoryOS cannot tell how many of its records were edited here since the cutover. Giving ${key} back to Linear means the next sync overwrites every one of them with what Linear holds. Send confirm_overwrite: true to do it anyway.`);
+      }
       if (edited > 0 && !input.confirm_overwrite) {
         throw new ConflictException(`${edited} record${edited === 1 ? '' : 's'} of ${key} ${edited === 1 ? 'was' : 'were'} edited in StoryOS since the cutover. Giving ${key} back to Linear means the next sync overwrites ${edited === 1 ? 'it' : 'them'} with what Linear holds. Send confirm_overwrite: true to do it.`);
       }
       const fresh = await this.readLinear(workspaceId);
       await this.writeLinear(workspaceId, { ...fresh, team_ownership: { ...fresh.team_ownership, [key]: { owner: 'linear', changed_at: now, changed_by: actorId } } });
-      await recordLinearOwnershipEvent(this.db, { workspaceId, teamKey: key, from: 'storyos', to: 'linear', spaceId: fresh.team_spaces?.[key]?.space_id, extra: { records_edited_since_cutover: edited } });
-      return { team_key: key, owner: 'linear' as const, records_edited_since_cutover: edited };
+      await recordLinearOwnershipEvent(this.db, { workspaceId, teamKey: key, from: 'storyos', to: 'linear', spaceId: fresh.team_spaces?.[key]?.space_id, extra: { records_edited_since_cutover: known ? edited : null } });
+      return { team_key: key, owner: 'linear' as const, records_edited_since_cutover: known ? edited : null };
     } finally {
       await this.releaseRun(workspaceId).catch(() => undefined);
     }
