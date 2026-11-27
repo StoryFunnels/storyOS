@@ -48,6 +48,7 @@ import {
   addTeamMilestones, ensureMilestonesPack, fetchTeamMilestones, milestonePreview, milestoneTargets, newMilestoneSummary, newMilestoneTally, syncTeamMilestones,
 } from './linear-milestones';
 import type { LinearMilestone } from './linear-milestones';
+import { classifyLinearFailure, DEFAULT_MAX_TOTAL_WAIT_MS, LinearApiError, utcClock, withLinearResilience } from './linear-resilience';
 
 export interface LinearTeam {
   id: string;
@@ -148,7 +149,25 @@ interface LinearSyncStatus {
   last_full_at?: string;
   /** #1027 — the team keys the last successful run covered; a changed list means a new team the cursor knows nothing about. */
   synced_teams?: string[];
+  /** Ticket #1392 — set while the run is WAITING for Linear's rate limit to reset; cleared when the wait ends or the run does. */
+  waiting?: { resume_at: string; since: string; code: string | null; message: string };
+  /** Ticket #1392 — the last run stopped because Linear's rate limit would not come back in time. `until` is when it does, if Linear said. */
+  paused?: { until: string | null; code: string | null; at: string };
+  /** Ticket #1392 — per-team progress of a run that has not finished: the teams already imported are skipped by the next run (until it succeeds, or this goes stale). */
+  resume?: LinearResumeState;
 }
+
+/** Ticket #1392 — see `resume` above. Lives in the settings JSON next to the rest of the sync status: no table, no migration. */
+export interface LinearResumeState {
+  /** When the first run of this import STARTED: the incremental cursor moves to here once the import completes, never later. */
+  started_at: string;
+  mode: SyncMode;
+  since?: string;
+  teams: string[];
+  completed: Record<string, { at: string; issues: number }>;
+}
+/** A saved partial import is only continued while it is this fresh; older than that, the teams it skips may have changed in Linear. */
+export const RESUME_MAX_AGE_HOURS = 24;
 
 export type SyncMode = 'full' | 'incremental';
 /** #1027 — an incremental run reads from this long before the cursor, so clock skew with Linear cannot drop a record. Upserts are idempotent. */
@@ -205,19 +224,38 @@ const pickCounts = (c: { pending: number; failed: number; unmapped: number } | u
 
 export type LinearFetcher = (query: string, variables: Record<string, unknown>, apiKey: string) => Promise<unknown>;
 
-export const defaultFetcher: LinearFetcher = async (query, variables, apiKey) => {
-  const res = await fetch('https://api.linear.app/graphql', {
-    method: 'POST',
-    headers: { authorization: apiKey, 'content-type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('Linear rate-limit wait cancelled'));
+    const onAbort = () => { clearTimeout(timer); reject(new Error('Linear rate-limit wait cancelled')); };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
-  if (!res.ok) {
-    throw new UnprocessableEntityException(`Linear API ${res.status} — check the API key`);
+}
+
+export const defaultFetcher: LinearFetcher = async (query, variables, apiKey) => {
+  let res: Response;
+  try {
+    res = await fetch('https://api.linear.app/graphql', {
+      method: 'POST',
+      headers: { authorization: apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (error) {
+    throw classifyLinearFailure({ status: null, networkMessage: error instanceof Error ? error.message : String(error), apiKey });
   }
-  const body = (await res.json()) as { data?: unknown; errors?: Array<{ message: string }> };
-  if (body.errors?.length) {
-    throw new UnprocessableEntityException(`Linear API: ${body.errors[0]!.message}`);
+  // Ticket #1392 — the body is READ before anything is decided: Linear answers a rate limit and a too-complex query with 400,
+  // and the code in that body is the only thing that says which. The status alone used to be reported as "check the API key".
+  const text = await res.text().catch(() => '');
+  if (!res.ok) throw classifyLinearFailure({ status: res.status, bodyText: text, headers: res.headers, apiKey });
+  let body: { data?: unknown; errors?: Array<{ message: string }> };
+  try {
+    body = JSON.parse(text) as typeof body;
+  } catch {
+    throw classifyLinearFailure({ status: 502, bodyText: '', apiKey });
   }
+  if (body.errors?.length) throw classifyLinearFailure({ status: res.status, bodyText: text, headers: res.headers, apiKey });
   return body.data;
 };
 
@@ -485,6 +523,11 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Swappable in tests. */
   fetcher: LinearFetcher = defaultFetcher;
+  /** Swappable in tests (ticket #1392): the clock, the sleep and the jitter behind the rate-limit wait, so a test never really waits. */
+  clock: () => number = () => Date.now();
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void> = abortableSleep;
+  random: () => number = Math.random;
+  private readonly shutdown = new AbortController();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -508,6 +551,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    this.shutdown.abort(); // a run waiting on Linear's rate limit stops waiting when the process is going away
     if (this.timer) clearInterval(this.timer);
   }
 
@@ -631,6 +675,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         stale,
         next_due_at: enabled ? new Date((lastAttempt ? new Date(lastAttempt).getTime() : now.getTime()) + interval * 60_000).toISOString() : null,
         last_run: status.last_run ?? null,
+        /** Ticket #1392 — non-null only while the run waits for Linear's rate limit: when it resumes, and what Linear's code was. */
+        waiting: status.waiting ?? null,
+        /** Ticket #1392 — non-null when the last run stopped on a rate limit; `until` is when Linear says it comes back. Cleared by the next success. */
+        paused: status.paused ?? null,
+        /** Ticket #1392 — an unfinished import: the teams already imported (they are not read again) out of those chosen. Null once an import completes. */
+        progress: status.resume ? { started_at: status.resume.started_at, teams_done: Object.keys(status.resume.completed), teams_total: status.resume.teams } : null,
         running: Boolean(status.running_since && now.getTime() - new Date(status.running_since).getTime() < RUN_LOCK_TIMEOUT_MINUTES * 60_000),
       },
     };
@@ -1081,11 +1131,11 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     return id;
   }
 
-  private async fetchTeams(workspaceId: string, opts: { forSync?: boolean } = {}): Promise<{ teams: LinearTeam[]; apiKey: string; settings: LinearSettings; notVisible: string[]; blockedPrivate: string[] }> {
+  private async fetchTeams(workspaceId: string, opts: { forSync?: boolean; fetcher?: LinearFetcher } = {}): Promise<{ teams: LinearTeam[]; apiKey: string; settings: LinearSettings; notVisible: string[]; blockedPrivate: string[] }> {
     const apiKey = await this.apiKey(workspaceId);
     const settings = await this.readLinear(workspaceId);
     const keys = settings.team_keys ?? [];
-    const visible = await fetchAllTeams(this.fetcher, apiKey);
+    const visible = await fetchAllTeams(opts.fetcher ?? this.fetcher, apiKey);
     let teams = visible;
     if (keys.length > 0) {
       teams = teams.filter((t) => keys.includes(t.key));
@@ -1136,7 +1186,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   private readonly previewsInFlight = new Set<string>();
 
   private async dryRunUnlocked(membership: Membership) {
-    const { teams, apiKey, notVisible, blockedPrivate, settings: previewSettings } = await this.fetchTeams(membership.workspaceId);
+    // A preview answers an HTTP request, so it waits out only a short rate limit; a longer one is reported (paused, with the time) rather than held open.
+    const fetcher = withLinearResilience(this.fetcher, { sleep: this.sleep, now: this.clock, random: this.random, signal: this.shutdown.signal, maxWaitMs: 45_000, maxTotalWaitMs: 90_000 });
+    const { teams, apiKey, notVisible, blockedPrivate, settings: previewSettings } = await this.fetchTeams(membership.workspaceId, { fetcher });
     const matcher = new MemberMatcher(await this.memberDirectory(membership.workspaceId));
     const outboxByTeam = (await statusPushCounts(this.db, membership.workspaceId)).by_team;
     const summary = {
@@ -1163,11 +1215,11 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // numbers the sync will act on. The adapter below is handed the data rather than re-reading it.
     const prefetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) {
-      const data = await fetchTeamData(this.fetcher, apiKey, team);
+      const data = await fetchTeamData(fetcher, apiKey, team);
       prefetched.set(team.id, data);
       // #1365 — a preview reads the relations too (writes nothing): the counts to check against Linear, and the cross-team share.
       const relationReport = emptyRelationReport();
-      for (const rel of await fetchTeamRelations(this.fetcher, apiKey, team, { expectIssues: data.issues.nodes.length })) {
+      for (const rel of await fetchTeamRelations(fetcher, apiKey, team, { expectIssues: data.issues.nodes.length })) {
         planIssueRelations(rel, team.key, () => true, relationReport, previewCrossTeam);
       }
       for (const issue of data.issues.nodes) matcher.match(issue.assignee);
@@ -1193,10 +1245,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     summary.relations_cross_team_total = previewCrossTeam.size;
 
     // Ticket #1366 — what the attachments and documents would become: counts only, nothing is written.
-    const documents = await fetchWorkspaceDocuments(this.fetcher, apiKey);
+    const documents = await fetchWorkspaceDocuments(fetcher, apiKey);
     const attachments: Array<{ key: string; total: number; pull_requests: number; links: number; unusable: number }> = [];
     for (const team of teams) {
-      const kinds = (await fetchTeamAttachments(this.fetcher, apiKey, team)).map((a) => classifyAttachmentUrl(a.url).kind);
+      const kinds = (await fetchTeamAttachments(fetcher, apiKey, team)).map((a) => classifyAttachmentUrl(a.url).kind);
       attachments.push({ key: team.key, total: kinds.length, pull_requests: kinds.filter((k) => k === 'pull_request').length, links: kinds.filter((k) => k === 'link').length, unusable: kinds.filter((k) => k === 'unusable').length });
     }
     const documentsPreview = (() => {
@@ -1207,7 +1259,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     })();
 
     const adapter = new LinearSourceAdapter();
-    await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher: this.fetcher, prefetched });
+    await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher, prefetched });
     const [schema, sourceRecords] = await Promise.all([adapter.readSchema(), adapter.readRecords()]);
     const report = new DryRunBuilder();
     for (const record of sourceRecords) {
@@ -1250,7 +1302,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
     try {
       // #1377 - the whole run is an import run: Slack channel subscriptions post nothing for a record it creates, and a status change only for an incremental read (runSync sets the mode once it has planned it).
-      const summary = await runAsImportRun(() => this.runSync(membership, actorId, { scheduled, status: before.sync_status }));
+      const summary = await runAsImportRun(() => this.runSync(membership, actorId, { scheduled, status: before.sync_status, startedAt: new Date(started).toISOString() }));
       const after = await this.readLinear(workspaceId);
       await this.writeLinear(workspaceId, {
         ...after,
@@ -1259,8 +1311,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           last_success_at: new Date().toISOString(),
           consecutive_failures: 0,
           // #1027 — the cursor is when this run STARTED, and moves only here, on success: a failed run leaves it where it was.
-          cursor_at: new Date(started).toISOString(),
-          last_full_at: summary.mode === 'full' ? new Date(started).toISOString() : before.sync_status?.last_full_at,
+          // Ticket #1392 — a run that continued an unfinished import started that import's clock: the teams it skipped were read then.
+          cursor_at: summary.resumed?.started_at ?? new Date(started).toISOString(),
+          last_full_at: summary.mode === 'full' ? (summary.resumed?.started_at ?? new Date(started).toISOString()) : before.sync_status?.last_full_at,
           synced_teams: summary.teams,
           last_run: { issues: summary.issues, comments: summary.comments.fetched, drift_flagged: summary.drift_flagged, left_scope: summary.left_scope, duration_ms: Date.now() - started, mode: summary.mode },
         },
@@ -1270,9 +1323,13 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const message = error instanceof Error ? error.message : String(error);
       const after = await this.readLinear(workspaceId);
       const failures = (after.sync_status?.consecutive_failures ?? 0) + 1;
+      const { waiting: _ended, paused: _previous, ...kept } = after.sync_status ?? {};
+      // Ticket #1392 — a run that Linear's rate limit stopped is PAUSED, with the time it comes back (the scheduler does not retry before it);
+      // the per-team progress in `resume` stays, so the next run continues rather than starting over.
+      const paused = error instanceof LinearApiError && error.paused ? { until: error.resetAtMs !== null ? new Date(error.resetAtMs).toISOString() : null, code: error.code, at: new Date().toISOString() } : undefined;
       await this.writeLinear(workspaceId, {
         ...after,
-        sync_status: { ...after.sync_status, last_attempt_at: new Date(started).toISOString(), last_error: message.slice(0, 500), last_error_at: new Date().toISOString(), consecutive_failures: failures },
+        sync_status: { ...kept, ...(paused ? { paused } : {}), last_attempt_at: new Date(started).toISOString(), last_error: message.slice(0, 500), last_error_at: new Date().toISOString(), consecutive_failures: failures },
       });
       // One ping when it STARTS failing (not one an hour while it stays broken); the status above stays loud meanwhile.
       if (failures === 1) {
@@ -1303,6 +1360,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       // Due by last ATTEMPT, so a broken key is retried each interval, not every minute.
       const last = linear.sync_status?.last_attempt_at ?? null;
       if (last && now.getTime() - new Date(last).getTime() < interval * 60_000) continue; // cheap pre-check; the claim below decides
+      // Ticket #1392 — Linear said when its rate limit comes back: asking sooner only spends the requests that are left.
+      const pausedUntil = linear.sync_status?.paused?.until;
+      if (pausedUntil && now.getTime() < new Date(pausedUntil).getTime()) continue;
       if (!(await this.claimRun(workspaceId, now, interval))) {
         if (linear.sync_status?.running_since && now.getTime() - new Date(linear.sync_status.running_since).getTime() < RUN_LOCK_TIMEOUT_MINUTES * 60_000) {
           this.logger.log(`linear sync for ${workspaceId} skipped: previous run still active`);
@@ -1527,8 +1587,30 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus; only?: string[] } = {}) {
-    const fetchedTeams = await this.fetchTeams(membership.workspaceId, { forSync: true });
+  /** Progress that must not break a run: a failed status write is logged, never thrown. */
+  private async patchSyncStatus(workspaceId: string, change: (status: LinearSyncStatus) => LinearSyncStatus) {
+    try {
+      const now = await this.readLinear(workspaceId);
+      await this.writeLinear(workspaceId, { ...now, sync_status: change({ ...now.sync_status }) });
+    } catch (error) {
+      this.logger.warn(`linear sync status write for ${workspaceId} failed: ${String(error)}`);
+    }
+  }
+
+  /** Ticket #1392 — every request of a run goes through the retry policy; the wait is shown in the sync health while it lasts. */
+  private runFetcher(workspaceId: string): LinearFetcher {
+    return withLinearResilience(this.fetcher, {
+      sleep: this.sleep, now: this.clock, random: this.random, signal: this.shutdown.signal,
+      onWait: (wait) => this.patchSyncStatus(workspaceId, (status) => {
+        const { waiting: _previous, ...rest } = status;
+        return wait ? { ...rest, waiting: { resume_at: new Date(wait.resumeAtMs).toISOString(), since: new Date(this.clock()).toISOString(), code: wait.code, message: wait.message } } : rest;
+      }),
+    });
+  }
+
+  private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus; only?: string[]; startedAt?: string } = {}) {
+    const fetcher = this.runFetcher(membership.workspaceId);
+    const fetchedTeams = await this.fetchTeams(membership.workspaceId, { forSync: true, fetcher });
     const { apiKey, settings, notVisible } = fetchedTeams;
     // Ticket #1370 — a team StoryOS owns is not synced: not read, not written, not marked. `only` is the cutover's own final read of
     // ONE team that is still Linear's; it narrows the run, it never widens it past the ownership guard below.
@@ -1538,9 +1620,21 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled));
     const incremental = plan.mode === 'incremental';
     setImportRunMode(plan.mode); // #1377
+    // Ticket #1392 — an earlier run of this import that stopped partway (rate limit, outage, one team failing) recorded which teams it
+    // finished. Those are not read again. It is only continued while fresh, and an incremental partial run never stands in for a full read.
+    const resumable = !run.only;
+    const prior = resumable ? run.status?.resume : undefined;
+    const resuming = Boolean(prior)
+      && this.clock() - new Date(prior!.started_at).getTime() < RESUME_MAX_AGE_HOURS * 3_600_000
+      && (prior!.mode === 'full' || (plan.mode === 'incremental' && prior!.since === plan.since));
+    const resumeState: LinearResumeState = resuming
+      ? { ...prior!, teams: teams.map((t) => t.key), completed: { ...prior!.completed } }
+      : { started_at: run.startedAt ?? new Date(this.clock()).toISOString(), mode: plan.mode, since: plan.since, teams: teams.map((t) => t.key), completed: {} };
     const summary = {
       dry_run: false,
       mode: plan.mode, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
+      /** Ticket #1392 — teams an earlier unfinished run had already imported, which this run did not read or write again. Null = a fresh run. */
+      resumed: resuming ? { started_at: resumeState.started_at, skipped_teams: [] as string[] } : null,
       /** Ticket #1370 — teams StoryOS owns: left out of this run entirely (not read, not written). */
       skipped_storyos_owned: skippedStoryosOwned,
       /** #902 — per team, what was fetched against what Linear says it has. A mismatch never gets this far (it throws). */
@@ -1575,33 +1669,29 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       milestones: newMilestoneSummary(),
     };
     const milestonesSeen = new Set<string>();
-    // Read and verify EVERY team before writing anything: a short or unverifiable team fails the sync loudly while
-    // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
-    const fetched = new Map<string, LinearTeamComplete>();
-    for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team, { since: plan.since }));
-    // #1365 — relations are read and verified here too, before anything is written (a full read must cover every issue read).
-    const relationReads = new Map<string, LinearIssueRelations[]>();
-    for (const team of teams) {
-      relationReads.set(team.id, await fetchTeamRelations(this.fetcher, apiKey, team, { since: plan.since, expectIssues: incremental ? undefined : fetched.get(team.id)!.issues.nodes.length }));
-    }
-    const crossTeamEdges = new Map<string, string>();
-    // Ticket #1367 — the rest of what the writes need is read here too, so a failure leaves the workspace untouched: issue history
-    // (when the plan keeps field history at all) and, for a private team, its members.
+    // Ticket #1392 — teams are read and written ONE AT A TIME: a team's reads are all checked (count against Linear's own total, every
+    // connection paged to the end) before that team's first write, so a short or rate-limited read still leaves THAT team untouched, but
+    // the teams already done are kept and remembered, and the next run continues from the first one that is not. (Before this, every
+    // team was read before any was written, so one rate-limited read threw away every team's reads and a re-run started over.)
     const keepsHistory = await this.importHistory.keepsFieldHistory(membership.workspaceId);
     summary.history.kept = keepsHistory;
-    const histories = new Map<string, Map<string, LinearHistoryEntry[]>>();
-    const privateMembers = new Map<string, Array<LinearPerson & { active?: boolean }>>();
-    for (const team of teams) {
-      if (keepsHistory) histories.set(team.id, await fetchTeamIssueHistory(this.fetcher, apiKey, team, { since: plan.since }));
-      if (team.private === true) privateMembers.set(team.id, await fetchTeamMembers(this.fetcher, apiKey, team));
-    }
+    const readTeam = async (team: LinearTeam) => {
+      const data = await fetchTeamData(fetcher, apiKey, team, { since: plan.since });
+      // #1365 — relations are read and verified here too, before anything is written (a full read must cover every issue read).
+      const relations = await fetchTeamRelations(fetcher, apiKey, team, { since: plan.since, expectIssues: incremental ? undefined : data.issues.nodes.length });
+      // Ticket #1367 — the rest of what the writes need: issue history (when the plan keeps field history at all) and, for a private team, its members.
+      const history = keepsHistory ? await fetchTeamIssueHistory(fetcher, apiKey, team, { since: plan.since }) : undefined;
+      const members = team.private === true ? await fetchTeamMembers(fetcher, apiKey, team) : [];
+      // Ticket #1366 — the team's attachments.
+      const attachments = await fetchTeamAttachments(fetcher, apiKey, team, { since: plan.since });
+      return { data, relations, history, members, attachments };
+    };
+    const crossTeamEdges = new Map<string, string>();
     const directory = await this.memberDirectory(membership.workspaceId);
     const assigneeMatcher = new MemberMatcher(directory);
     const authorMatcher = new MemberMatcher(directory);
-    // Ticket #1366 — attachments (per team) and documents (workspace-wide) are read in the same phase, before anything is written.
-    const attachmentsByTeam = new Map<string, LinearAttachment[]>();
-    for (const team of teams) attachmentsByTeam.set(team.id, await fetchTeamAttachments(this.fetcher, apiKey, team, { since: plan.since }));
-    const extras = new DocumentRun(await fetchWorkspaceDocuments(this.fetcher, apiKey, { since: plan.since }));
+    // Ticket #1366 — documents are workspace-wide: read once, up front (a failure here writes nothing).
+    const extras = new DocumentRun(await fetchWorkspaceDocuments(fetcher, apiKey, { since: plan.since }));
     // Failed links used to be silently swallowed (`.catch(() => undefined)`) —
     // every importer had that bug (ADR-0013). RelationLinkerService turns a
     // failure into a warning instead, collected here without changing the
@@ -1611,6 +1701,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     let currentTeam = '';
     try {
     for (const team of teams) {
+      if (resuming && resumeState.completed[team.key]) {
+        summary.resumed!.skipped_teams.push(team.key);
+        continue;
+      }
       currentTeam = team.key;
       // Ticket #1370 — the write-path guard, read fresh before ANY write to this team: the partition above is decided from the settings
       // read at the start of the run, and this is the check that still holds for a run handed the team anyway, or one that began before
@@ -1618,7 +1712,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       if (teamOwnership(await this.readLinear(membership.workspaceId), team.key).owner === 'storyos') {
         throw new ConflictException(`${team.key} is owned by StoryOS (cut over): the Linear sync never writes its records. Nothing was written.`);
       }
-      const data = fetched.get(team.id)!;
+      const { data, relations: relationRows, history: historyRows, members: teamMembers, attachments: teamAttachments } = await readTeam(team);
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
       const { space, issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings, settings);
       if (descriptionHidden) summary.description_hidden_in.push(`${team.name} (Linear) / ${issuesDb.name} (${issuesDb.id})`);
@@ -1628,7 +1722,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       await this.rememberTeamSpace(membership.workspaceId, team.key, space.id);
       // A private team's members are let in BEFORE any record is written; the space was created (or closed) restricted already.
       if (team.private === true) {
-        const grants = await this.grantPrivateTeam(membership.workspaceId, space.id, privateMembers.get(team.id) ?? [], assigneeMatcher, directory, actorId);
+        const grants = await this.grantPrivateTeam(membership.workspaceId, space.id, teamMembers, assigneeMatcher, directory, actorId);
         summary.private_teams.push({ key: team.key, space_id: space.id, ...grants });
       }
       const writable = await this.ensureIssueFields(issuesDb.id, team.key, linkWarnings);
@@ -1746,7 +1840,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           await this.importHistory.stampTimes(issuesDb.id, id, { createdAt, updatedAt });
           summary.dates_stamped++;
         }
-        const entries = histories.get(team.id)?.get(issue.id);
+        const entries = historyRows?.get(issue.id);
         if (entries && stateFieldId) {
           const { rows, skipped } = stateHistoryRows(entries, stateOptions, (p) => assigneeMatcher.find(p));
           summary.history.skipped_unknown_state += skipped;
@@ -1847,7 +1941,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       // here and one a person added here that Linear does not have is removed with it. The rest of the plan is in linear-relations.ts.
       const relationReport = emptyRelationReport();
       const recordOf = (linearId: string) => issueIds.get(linearId) ?? mirrored.get(linearId)?.id;
-      for (const rel of relationReads.get(team.id) ?? []) {
+      for (const rel of relationRows) {
         const recordId = recordOf(rel.issueId);
         if (!recordId) continue;
         const planned = planIssueRelations(rel, team.key, (id) => Boolean(recordOf(id)), relationReport, crossTeamEdges);
@@ -1864,10 +1958,15 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       await this.attachmentsAndDocuments.importTeam({
         membership, actorId, teamLabel: team.key, issuesDb, projectsDb,
         issueRecordIds: issueIds, mirrored, projectRecordIds: projectIds,
-        attachments: attachmentsByTeam.get(team.id) ?? [],
+        attachments: teamAttachments,
         documents: documentsForTeam(extras.documents, new Set(projectIds.keys())),
         run: extras,
       });
+      if (resumable) {
+        // Ticket #1392 — this team is done; written now (not at the end) so a failure on the next one still remembers it.
+        resumeState.completed[team.key] = { at: new Date(this.clock()).toISOString(), issues: data.issues.nodes.length };
+        await this.patchSyncStatus(membership.workspaceId, (status) => ({ ...status, resume: resumeState }));
+      }
     }
     summary.relations.cross_team_total = crossTeamEdges.size;
     } catch (error) {
@@ -1877,6 +1976,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const message = error instanceof Error ? error.message : String(error);
       if (message.startsWith(`team ${currentTeam}:`)) throw error;
       const wrapped = `team ${currentTeam}: ${message}`;
+      if (error instanceof LinearApiError) throw error.withMessage(wrapped); // keeps kind / paused, which the run's status is decided on
       throw error instanceof HttpException ? new HttpException(wrapped, error.getStatus()) : new Error(wrapped);
     }
     summary.members = { assignees: assigneeMatcher.report(), comment_authors: authorMatcher.report() };

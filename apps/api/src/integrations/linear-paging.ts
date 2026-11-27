@@ -1,5 +1,6 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import type { LinearFetcher } from './linear.service';
+import { LinearApiError, shrinkQuery } from './linear-resilience';
 
 export interface PageInfo { hasNextPage: boolean; endCursor: string | null }
 
@@ -22,8 +23,22 @@ export async function pageAll<T>(
   const out: T[] = [];
   const seen = new Set<string>();
   let after: string | undefined;
+  let currentQuery = query;
   for (;;) {
-    const data = await fetcher(query, after ? { ...variables, after } : variables, apiKey);
+    let data: unknown;
+    try {
+      data = await fetcher(currentQuery, after ? { ...variables, after } : variables, apiKey);
+    } catch (error) {
+      // Ticket #1392 — Linear refused the page as too complex: ask for fewer rows per page and retry the SAME cursor, instead of
+      // failing the import. The smaller size stays for the rest of this walk. Only when the page cannot shrink further does it fail.
+      if (error instanceof LinearApiError && error.kind === 'complexity') {
+        const smaller = shrinkQuery(currentQuery);
+        if (!smaller) throw new UnprocessableEntityException(`${error.message} — even a page of ${/first: (\d+)/.exec(currentQuery)?.[1] ?? '?'} rows is too complex (${what})`);
+        currentQuery = smaller;
+        continue;
+      }
+      throw error;
+    }
     const conn = pick(data as never);
     if (!conn || !Array.isArray(conn.nodes)) throw new UnprocessableEntityException(`Linear returned no ${what} — refusing to continue with a partial copy`);
     if (!conn.pageInfo) throw new UnprocessableEntityException(`Linear returned no pageInfo for ${what} — cannot tell whether the list is complete`);
