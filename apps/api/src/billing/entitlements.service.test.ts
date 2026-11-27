@@ -136,7 +136,7 @@ describe('EntitlementsService.getLimits', () => {
 
     const limits = await svc.getLimits('ws1');
 
-    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3, historyRetentionDays: 1 });
+    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3, historyRetentionDays: 270 });
   });
 
   it('returns unlimited without touching billing when Stripe is disabled (self-host)', async () => {
@@ -173,7 +173,7 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
 
     const limits = await svc.getLimits('ws1');
 
-    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3, historyRetentionDays: 1 });
+    expect(limits).toEqual({ automationRunsPerMonth: 1000, includedSeats: 3, historyRetentionDays: 270 });
   });
 
   it('a future expiry still applies', async () => {
@@ -189,8 +189,22 @@ describe('EntitlementsService.getLimits — MN-196 entitlement overrides', () =>
     const { db } = makeDb({ override: undefined });
     const svc = makeService(db, stripeStub(true), billingStub('free'), accessStub([]));
 
-    // #31: Free is 0 — the feature is OFF, so nothing is captured at all.
-    expect(await svc.getLimits('ws1')).toEqual({ automationRunsPerMonth: 100, includedSeats: 2, historyRetentionDays: 0 });
+    // Ticket #1385: Free is 14 days — history capture is ON for Free (it was 0 = capture off).
+    expect(await svc.getLimits('ws1')).toEqual({ automationRunsPerMonth: 100, includedSeats: 2, historyRetentionDays: 14 });
+  });
+
+  it('the record history window per plan is Free 14, Pro 270, Business 730, Enterprise 1825 days (ticket #1385)', async () => {
+    const got: Record<string, number> = {};
+    for (const plan of ['free', 'pro', 'business', 'enterprise'] as const) {
+      const { db } = makeDb({ override: undefined });
+      got[plan] = (await makeService(db, stripeStub(true), billingStub(plan), accessStub([])).getLimits('ws1')).historyRetentionDays;
+    }
+    expect(got).toEqual({ free: 14, pro: 270, business: 730, enterprise: 1825 });
+  });
+
+  it('self-hosted (no Stripe) is unchanged: unlimited history, no plan read', async () => {
+    const { db } = makeDb({ override: undefined });
+    expect((await makeService(db, stripeStub(false), billingStub('free'), accessStub([])).getLimits('ws1')).historyRetentionDays).toBe(Infinity);
   });
 
   it('fixes the Enterprise zero-seat placeholder — unlimited by default until overridden', async () => {

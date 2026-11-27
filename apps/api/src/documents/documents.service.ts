@@ -91,7 +91,7 @@ export class DocumentsService {
 
     // #677 (Gap 2) — resolved OUTSIDE the transaction, same "a plan lookup
     // must not hold a row lock" reasoning RecordsService.update() already
-    // applies to its own historyDays lookup. 0 ⇒ Free ⇒ capture nothing —
+    // applies to its own historyDays lookup. 0 ⇒ capture nothing (no plan since ticket #1385) —
     // the ONE shared retention signal (EntitlementsService), not a second
     // hardcoded rule for documents.
     const { historyRetentionDays: historyDays } = await this.entitlements.getLimits(workspaceId);

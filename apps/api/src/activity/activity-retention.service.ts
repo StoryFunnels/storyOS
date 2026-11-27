@@ -14,13 +14,17 @@ import { budgetPeriod } from '../runners/agent-budget';
  * from 25 MB to 192 MB in nine days. This is the purge. It touches `activity_events` and NOTHING else: the plan-gated version history
  * (`record_versions`, `record_field_changes`, ADR version-history.md) is a different table with its own, much shorter, clock.
  *
- * HOW LONG (Ievgen's ruling, ticket #1024, 2026-11-26): PER PLAN, read from the workspace's plan (`billing_subscriptions.plan`, no row =
+ * HOW LONG (Ievgen's ruling, ticket #1385, 2026-11-27, replacing ticket #1024's 7/30/30/90): PER PLAN, read from the workspace's plan (`billing_subscriptions.plan`, no row =
  * Free: the same reading `BillingService.getStatus` does). The values are {@link ACTIVITY_RETENTION_DAYS_BY_PLAN}, the one place to
  * change them. A deployment WITHOUT a plan notion (self-hosted, Stripe off) has no plan to read: it uses `ACTIVITY_EVENTS_RETENTION_DAYS`
  * (`never` / `0` keeps everything), and with the variable unset it keeps everything: nobody asked this operator's data to be deleted. A
  * plan the map does not know deletes NOTHING for that workspace (the CASE has no ELSE), so adding a plan without adding its row here
  * keeps data instead of losing it. A no-card trial that has elapsed but was not yet lazily downgraded still reads as its trial plan,
- * which keeps longer, never shorter.
+ * which keeps longer, never shorter. ENTERPRISE IS `null` = KEPT FOREVER: it has no WHEN branch, so its rows are never selected (the same
+ * "NULL cutoff deletes nothing" reading as an unknown plan, but on purpose and named).
+ *
+ * WHEN THE PURGE MAY START: {@link PURGE_NOT_BEFORE}. Every call to `purge()` (the scheduler's and any direct one) deletes nothing while
+ * its clock is before that instant, and says so (`held: true`). It runs DAILY, not hourly.
  *
  * WHAT EXPIRES, and what does not (every line below is a reader that was found, not guessed):
  *   - EXPIRES at the plan value: an event about a record (`record_id` set: record.created/updated/deleted, relation.*, reference.created,
@@ -44,13 +48,20 @@ import { budgetPeriod } from '../runners/agent-budget';
  * batch. That one is a cost measure only: with the pointer removed the results are identical (checked by mutation), so no test can
  * assert it. Logs counts, never row data.
  */
-/** Days of record-level activity a hosted workspace keeps, by plan. Business is 30 until a 90-day tier exists; Enterprise is that tier. */
-export const ACTIVITY_RETENTION_DAYS_BY_PLAN: Record<PlanId, number> = { free: 7, pro: 30, business: 30, enterprise: 90 };
+/** Days of record-level activity a hosted workspace keeps, by plan (ticket #1385). `null` = kept forever: the purge skips that plan entirely. */
+export const ACTIVITY_RETENTION_DAYS_BY_PLAN: Record<PlanId, number | null> = { free: 30, pro: 365, business: 1095, enterprise: null };
+/**
+ * Ievgen's ruling (ticket #1385, 2026-11-27): the purge must not delete anything before this instant. It is checked at the top of
+ * `purge()`, so the scheduler and every direct call pass through it, against the same clock the cutoffs use (`PurgeOptions.now`).
+ * It exists so the new, much longer windows are in place and visible for a month before the first deletion on a production database
+ * that has never been purged. Once that date has passed it does nothing and can be deleted, together with its tests ("not before").
+ */
+export const PURGE_NOT_BEFORE = new Date('2026-12-27T00:00:00Z');
 export const PURGE_BATCH_SIZE = 5_000;
 /** One run stops here and the next tick continues: a first run over millions of rows must not hold a node for minutes. */
 export const MAX_BATCHES_PER_RUN = 400;
 const PAUSE_BETWEEN_BATCHES_MS = 100;
-const PURGE_INTERVAL_MS = 60 * 60 * 1000;
+const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -64,8 +75,10 @@ export function parseRetentionDays(raw: string | undefined): number | null {
 }
 
 export type PurgeOptions = {
-  /** The clock. Defaults to now; tests fix it. */
+  /** The clock. Defaults to now; tests fix it. It is ALSO what the {@link PURGE_NOT_BEFORE} gate is judged by. */
   now?: Date;
+  /** TEST SEAM for the gate: the instant before which nothing is deleted. Defaults to {@link PURGE_NOT_BEFORE}; nothing in `src` passes it. */
+  notBefore?: Date;
   /** One value for EVERY workspace, overriding both the plan and the environment. `null` = keep everything. The floors still apply. */
   retentionDays?: number | null;
   /** Force the per-plan (true) or the environment (false) path; by default hosted (Stripe on) is per plan and self-hosted reads the env. */
@@ -74,7 +87,8 @@ export type PurgeOptions = {
   maxBatches?: number;
   pauseMs?: number;
 };
-export type PurgeResult = { deleted: number; batches: number; capped: boolean; disabled: boolean };
+/** `disabled`: there is nothing to apply (retention off / every plan kept forever). `held`: the clock is before {@link PURGE_NOT_BEFORE}. */
+export type PurgeResult = { deleted: number; batches: number; capped: boolean; disabled: boolean; held: boolean };
 
 @Injectable()
 export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
@@ -122,11 +136,14 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
     const flat = opts.retentionDays !== undefined ? opts.retentionDays : opts.perPlan === true || (opts.perPlan === undefined && this.entitlements.hostedPlans) ? undefined : parseRetentionDays(env().ACTIVITY_EVENTS_RETENTION_DAYS);
     if (flat === null) return null;
     if (flat !== undefined) return { expr: sql`${at(flat)}::timestamptz`, newest: at(flat) };
-    const whens = (Object.entries(ACTIVITY_RETENTION_DAYS_BY_PLAN) as Array<[PlanId, number]>).map(([plan, days]) => sql`WHEN ${plan} THEN ${at(days)}::timestamptz`);
+    // A plan with `null` days (Enterprise) gets NO branch: kept forever.
+    const finite = (Object.entries(ACTIVITY_RETENTION_DAYS_BY_PLAN) as Array<[PlanId, number | null]>).filter((e): e is [PlanId, number] => e[1] !== null);
+    if (finite.length === 0) return null;
+    const whens = finite.map(([plan, days]) => sql`WHEN ${plan} THEN ${at(days)}::timestamptz`);
     return {
-      // No ELSE: a plan this map does not know yields NULL, `created_at < NULL` is never true, nothing of that workspace is deleted.
+      // No ELSE: a plan this map does not know, or keeps forever, yields NULL, `created_at < NULL` is never true, nothing of that workspace is deleted.
       expr: sql`(CASE COALESCE(bs.plan::text, 'free') ${sql.join(whens, sql` `)} END)`,
-      newest: at(Math.min(...Object.values(ACTIVITY_RETENTION_DAYS_BY_PLAN))),
+      newest: at(Math.min(...finite.map(([, days]) => days))),
     };
   }
 
@@ -144,8 +161,12 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
   /** Delete expired `activity_events` in batches. Returns counts only. Safe to call concurrently and repeatedly. */
   async purge(opts: PurgeOptions = {}): Promise<PurgeResult> {
     const now = opts.now ?? new Date();
+    if (now.getTime() < (opts.notBefore ?? PURGE_NOT_BEFORE).getTime()) {
+      this.logger.log(`activity_events purge held: nothing is deleted before ${(opts.notBefore ?? PURGE_NOT_BEFORE).toISOString()}`);
+      return { deleted: 0, batches: 0, capped: false, disabled: false, held: true };
+    }
     const cutoffs = this.cutoffs(opts, now);
-    if (!cutoffs) return { deleted: 0, batches: 0, capped: false, disabled: true };
+    if (!cutoffs) return { deleted: 0, batches: 0, capped: false, disabled: true, held: false };
     const monthStart = budgetPeriod(now).startsAt.toISOString();
     const lookback = env().WEBHOOK_SCAN_LOOKBACK_SECONDS;
     const batchSize = Math.max(1, opts.batchSize ?? PURGE_BATCH_SIZE);
@@ -208,6 +229,6 @@ export class ActivityRetentionService implements OnModuleInit, OnModuleDestroy {
     if (deleted > 0 || capped) {
       this.logger.log(`activity_events purge: deleted ${deleted} rows in ${batches} batches${capped ? ` (stopped at ${maxBatches} batches; the next run continues)` : ''}`);
     }
-    return { deleted, batches, capped, disabled: false };
+    return { deleted, batches, capped, disabled: false, held: false };
   }
 }
