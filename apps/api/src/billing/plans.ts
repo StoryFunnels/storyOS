@@ -25,9 +25,19 @@ export interface PlanDef {
   /**
    * #31 — how many days of record/document HISTORY this plan keeps.
    *
-   * `0` means the feature is OFF, and that is capture-off, not
+   * Windows since ticket #1385 (2026-11-27): Free 14, Pro 270, Business 730,
+   * Enterprise 1825. Free used to be 0 = capture OFF; it is now ON, so a Free
+   * workspace writes version rows like every other plan.
+   *
+   * `0` still means the feature is OFF, and that is capture-off, not
    * capture-then-prune: writing rows nobody can ever read is pure write
    * amplification plus pruning load for no product value (ADR, "Retention").
+   * No plan uses it today; the capture sites keep the `> 0` guard so a plan
+   * that sets it again behaves as before.
+   *
+   * Today this value ONLY gates capture. Nothing prunes `record_versions`,
+   * `record_field_changes` or `document_versions`, and the version list and
+   * restore do not filter by it (ticket #1385 found no such code).
    *
    * Note this gates HISTORY/RESTORE only. The `activity_events` trail is a
    * separate feature and stays on for Free, so a Free workspace still sees
@@ -115,14 +125,14 @@ export const STORYOS_AI_RUN_PLACEHOLDER_COST_CENTS = 1;
 export const MANAGED_AI_PROPOSE_PLACEHOLDER_COST_CENTS = 1;
 
 export const PLANS: Record<PlanId, PlanDef> = {
-  free: { id: 'free', name: 'Free', priceUsd: 0, includedSeats: 2, automationRuns: 100, historyRetentionDays: 0 },
+  free: { id: 'free', name: 'Free', priceUsd: 0, includedSeats: 2, automationRuns: 100, historyRetentionDays: 14 },
   pro: {
     id: 'pro',
     name: 'Pro',
     priceUsd: 29,
     includedSeats: 3,
     automationRuns: 1_000,
-    historyRetentionDays: 1,
+    historyRetentionDays: 270,
     lookupKey: 'storyos_pro_v1',
   },
   business: {
@@ -131,7 +141,7 @@ export const PLANS: Record<PlanId, PlanDef> = {
     priceUsd: 99,
     includedSeats: 5,
     automationRuns: 10_000,
-    historyRetentionDays: 7,
+    historyRetentionDays: 730,
     lookupKey: 'storyos_business_v1',
   },
   enterprise: {
@@ -148,7 +158,7 @@ export const PLANS: Record<PlanId, PlanDef> = {
      */
     includedSeats: Number.POSITIVE_INFINITY,
     automationRuns: Number.POSITIVE_INFINITY,
-    historyRetentionDays: 30,
+    historyRetentionDays: 1825,
   },
 };
 
