@@ -1,6 +1,6 @@
 {
   "name": "@storyos/runner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The StoryOS Runner: runs your hired agents on your own computer, inside your own Claude Code subscription. Outbound connections only.",
   "license": "Apache-2.0",
   "type": "module",
