@@ -13,10 +13,8 @@ and in your subscription.
 This guide assumes you have read [The StoryOS Runner](/guides/runner/) and have a Linux server you
 can reach over SSH, with systemd. It uses no provider-specific steps.
 
-:::caution[Status, as of 10 November 2026]
-Claude Code is the only tool the Runner supports today. The `@storyos/runner` package was not yet
-on the npm registry when this was written, so the install step below cannot succeed until it is
-published.
+:::caution[Status, as of 27 November 2026]
+Claude Code is the only tool the Runner supports today.
 :::
 
 ## What you are trusting the server with
@@ -63,11 +61,6 @@ expired. If you pass `ANTHROPIC_API_KEY` anywhere in the Runner's environment, t
 forward it to the session, so the session uses your subscription.
 
 ## 3. Install and pair the Runner
-
-:::caution[Not on npm yet]
-The `@storyos/runner` package was not yet on the npm registry when this was written, so
-`npm install -g @storyos/runner` cannot find it until it is published.
-:::
 
 Autostart needs a permanent install, not the `npx` cache:
 
