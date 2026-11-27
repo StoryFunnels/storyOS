@@ -95,7 +95,7 @@ record in the other repository's database.
 
 A bare `#N` never links, even when N is a real record, because pull request numbers and record
 numbers share the same range. A number with no matching record is ignored without an error, and a
-redelivery of the same pull request does not create a second one. A pull request that links also gets
+redelivery of the same pull request does not create a second one, and neither does a pull request the [Linear import](/guides/migrate-from-linear/#attachments-and-project-documents) already brought in: it is found by repository and number and updated. A pull request that links also gets
 the one backlink comment and the state moves you set for opened, merged and the other events, whichever
 rule found the record.
 

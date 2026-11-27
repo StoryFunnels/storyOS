@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { currentEventOrigin } from '../common/credential-context';
 import type { EventOrigin } from '../common/credential-context';
+import { currentImportRun } from '../common/import-run-context';
+import type { ImportRunMode } from '../common/import-run-context';
+import type { ChangeSource } from '../db/schema';
 
 export interface DomainEvent {
   type: 'record_created' | 'record_updated' | 'record_linked' | 'record_deleted';
@@ -69,6 +73,20 @@ export interface DomainEvent {
    * everything else. Consumers that can reach outside StoryOS read it to hold or to log the effect.
    */
   origin?: EventOrigin | null;
+  /**
+   * #1377 - WHAT made this write (the same `ChangeSource` the history rows carry) and, for an agent, the name it acted under. Set by
+   * the record write paths that know it (create and update); absent on every other emit. Outward consumers (a Slack subscription's
+   * "via agent") read it; nothing that decides access or fires an automation may.
+   */
+  source?: ChangeSource;
+  agentName?: string | null;
+  /**
+   * #1377 - stamped by `emit()` from the ambient import-run context (common/import-run-context.ts): null for an ordinary write,
+   * otherwise the mode of the import run the write was part of. An outward consumer treats an import as "not news".
+   */
+  importRun?: ImportRunMode | null;
+  /** #1377 - one id per emitted event, stamped by `emit()`, so a consumer that delivers outward can dedupe on it. */
+  eventId?: string;
 }
 
 type Listener = (event: DomainEvent) => void;
@@ -83,7 +101,8 @@ export class DomainEventsService {
   }
 
   emit(input: DomainEvent): void {
-    const event: DomainEvent = input.origin === undefined ? { ...input, origin: currentEventOrigin() } : input;
+    const stamped: DomainEvent = input.origin === undefined ? { ...input, origin: currentEventOrigin() } : input;
+    const event: DomainEvent = { ...stamped, importRun: stamped.importRun === undefined ? currentImportRun() : stamped.importRun, eventId: stamped.eventId ?? randomUUID() };
     for (const listener of this.listeners) {
       try {
         listener(event);

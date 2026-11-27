@@ -2381,6 +2381,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/slack/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Slack channel subscriptions (which space or database posts to which channel, and how delivery is going) */
+        get: operations["SlackSubscriptionsController_list"];
+        put?: never;
+        /** Subscribe a Slack channel to record created / status changed / comment added on a space or database */
+        post: operations["SlackSubscriptionsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{ws}/integrations/slack/subscriptions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a subscription: its posts stop */
+        delete: operations["SlackSubscriptionsController_remove"];
+        options?: never;
+        head?: never;
+        /** Change a subscription’s events or channel; the admin who does it becomes its owner and a needs-attention flag clears */
+        patch: operations["SlackSubscriptionsController_update"];
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations": {
         parameters: {
             query?: never;
@@ -6717,6 +6753,20 @@ export interface components {
                     [key: string]: unknown;
                 }[];
             };
+        };
+        CreateSlackSubscriptionDto: {
+            /** Format: uuid */
+            space_id?: string;
+            /** Format: uuid */
+            database_id?: string;
+            channel?: string;
+            events: ("created" | "status_changed" | "commented")[];
+            acknowledge_restricted?: boolean;
+        };
+        UpdateSlackSubscriptionDto: {
+            channel?: string | null;
+            events?: ("created" | "status_changed" | "commented")[];
+            acknowledge_restricted?: boolean;
         };
         GithubConfigDto: {
             token?: string;
@@ -11902,6 +11952,86 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackSubscriptionsController_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackSubscriptionsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSlackSubscriptionDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackSubscriptionsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackSubscriptionsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSlackSubscriptionDto"];
+            };
+        };
         responses: {
             200: {
                 headers: {

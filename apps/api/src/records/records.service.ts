@@ -3595,6 +3595,8 @@ export class RecordsService implements OnModuleInit {
           actorId,
           depth,
           linkedRelations: linkedRelationsByIndex.get(i),
+          source, // #1377: lets an outward consumer say "via agent"
+          agentName,
         });
       }
     }
@@ -4062,6 +4064,8 @@ export class RecordsService implements OnModuleInit {
       titleChanged: diff['title'] !== undefined, // #132: drives cross-record name recompute for records that look this up
       actorId,
       depth,
+      source, // #1377: lets an outward consumer say "via agent"
+      agentName,
       linkedRelations: linkedRelations.length ? linkedRelations : undefined,
     });
 

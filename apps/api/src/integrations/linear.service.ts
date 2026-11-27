@@ -19,10 +19,22 @@ import { SpacesService } from '../workspaces/spaces.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { DryRunBuilder } from '../migration-framework/dry-run';
 import { ExternalIdUpsertService } from '../migration-framework/external-id-upsert.service';
+import { runAsImportRun, setImportRunMode } from '../common/import-run-context';
 import { RelationLinkerService } from '../migration-framework/relation-linker.service';
 import { pickOption } from '../migration-framework/select-options';
 import { markdownToBlocks } from './markdown-to-blocks';
 import { LinearSourceAdapter } from './linear-source-adapter';
+import { CROSS_TEAM_RELATION_POLICY, emptyRelationReport, ensureDuplicateStateCategory, ensureRelationFields, fetchTeamRelations, planIssueRelations, relationWarnings } from './linear-relations';
+import type { DuplicateStateReport, LinearIssueRelations, RelationReport } from './linear-relations';
+import { pageAll } from './linear-paging';
+/** One pageAll: it lives in linear-paging.ts; re-exported so linear-milestones.ts and older importers keep their path. */
+export { pageAll };
+import { LinearAttachmentsService } from './linear-attachments.service';
+import {
+  attachmentTallyGap, classifyAttachmentUrl, documentSummaryGap, documentsForTeam, DocumentRun, fetchTeamAttachments, fetchWorkspaceDocuments,
+} from './linear-attachments';
+import type { LinearAttachment } from './linear-attachments';
+import type { PageInfo } from './linear-paging';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 import { AccessService } from '../access/access.service';
 import { ImportHistoryService } from '../migration-framework/import-history.service';
@@ -252,40 +264,6 @@ if (!TEAM_ISSUES_SINCE_QUERY.includes('updatedAt') || !TEAM_ISSUES_SINCE_QUERY.i
 }
 export const TEAM_COMMENTS_SINCE_QUERY = `query TeamCommentsSince($id: ID!, $after: String, $since: DateTimeOrDuration!) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } }, updatedAt: { gt: $since } }) { nodes { id body createdAt url user { id name email } botActor { name } externalUser { name email } issue { id } } ${PAGE_INFO} } }`;
 
-interface PageInfo { hasNextPage: boolean; endCursor: string | null }
-
-/**
- * Walk one connection to its end. Never assumes completeness: a response with no `pageInfo`, a `hasNextPage` with no
- * cursor, or a cursor that does not advance is an ERROR, because each of those would otherwise look like "that was
- * everything" — the exact silent partial import this replaces.
- */
-export async function pageAll<T>(
-  fetcher: LinearFetcher,
-  apiKey: string,
-  query: string,
-  variables: Record<string, unknown>,
-  pick: (data: never) => { nodes: T[]; pageInfo?: PageInfo } | undefined,
-  what: string,
-): Promise<T[]> {
-  const out: T[] = [];
-  const seen = new Set<string>();
-  let after: string | undefined;
-  for (;;) {
-    const data = await fetcher(query, after ? { ...variables, after } : variables, apiKey);
-    const conn = pick(data as never);
-    if (!conn || !Array.isArray(conn.nodes)) throw new UnprocessableEntityException(`Linear returned no ${what} — refusing to continue with a partial copy`);
-    if (!conn.pageInfo) throw new UnprocessableEntityException(`Linear returned no pageInfo for ${what} — cannot tell whether the list is complete`);
-    out.push(...conn.nodes);
-    if (!conn.pageInfo.hasNextPage) return out;
-    const next = conn.pageInfo.endCursor;
-    if (!next || seen.has(next)) {
-      throw new UnprocessableEntityException(`Linear paging for ${what} stopped advancing after ${out.length} rows — refusing to continue with a partial copy`);
-    }
-    seen.add(next);
-    after = next;
-  }
-}
-
 export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Promise<LinearTeam[]> {
   return pageAll<LinearTeam>(fetcher, apiKey, TEAMS_QUERY, {}, (d: { teams: { nodes: LinearTeam[]; pageInfo?: PageInfo } }) => d.teams, 'teams');
 }
@@ -512,6 +490,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     private readonly notifications: NotificationsService,
     private readonly access: AccessService,
     private readonly importHistory: ImportHistoryService,
+    private readonly attachmentsAndDocuments: LinearAttachmentsService,
   ) {}
 
   onModuleInit() {
@@ -1142,14 +1121,25 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
         issues_by_status: Array<{ status: string; type: string; issues: number }>;
+        /** #1365 — what this team's relations come to: counts only, incl. the ones that cross into another team (not imported). */
+        relations: RelationReport;
       }>,
+      /** #1365 — distinct relations that cross two teams, over all the teams read: the number the cross-team decision waits for. */
+      relations_cross_team_total: 0,
+      relations_cross_team_policy: CROSS_TEAM_RELATION_POLICY as string,
     };
+    const previewCrossTeam = new Map<string, string>();
     // Every read is paged to the end and count-checked (fetchTeamData), so these counts are uncapped and the same
     // numbers the sync will act on. The adapter below is handed the data rather than re-reading it.
     const prefetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) {
       const data = await fetchTeamData(this.fetcher, apiKey, team);
       prefetched.set(team.id, data);
+      // #1365 — a preview reads the relations too (writes nothing): the counts to check against Linear, and the cross-team share.
+      const relationReport = emptyRelationReport();
+      for (const rel of await fetchTeamRelations(this.fetcher, apiKey, team, { expectIssues: data.issues.nodes.length })) {
+        planIssueRelations(rel, team.key, () => true, relationReport, previewCrossTeam);
+      }
       for (const issue of data.issues.nodes) matcher.match(issue.assignee);
       summary.teams.push({
         key: team.key,
@@ -1162,8 +1152,24 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         labels: data.labels.nodes.length,
         issues_by_project: issueCountsByProject(data),
         issues_by_status: issueCountsByStatus(data),
+        relations: relationReport,
       });
     }
+    summary.relations_cross_team_total = previewCrossTeam.size;
+
+    // Ticket #1366 — what the attachments and documents would become: counts only, nothing is written.
+    const documents = await fetchWorkspaceDocuments(this.fetcher, apiKey);
+    const attachments: Array<{ key: string; total: number; pull_requests: number; links: number; unusable: number }> = [];
+    for (const team of teams) {
+      const kinds = (await fetchTeamAttachments(this.fetcher, apiKey, team)).map((a) => classifyAttachmentUrl(a.url).kind);
+      attachments.push({ key: team.key, total: kinds.length, pull_requests: kinds.filter((k) => k === 'pull_request').length, links: kinds.filter((k) => k === 'link').length, unusable: kinds.filter((k) => k === 'unusable').length });
+    }
+    const documentsPreview = (() => {
+      const run = new DocumentRun(documents);
+      for (const team of teams) for (const doc of documentsForTeam(documents, new Set(prefetched.get(team.id)!.projects.nodes.map((p) => p.id)))) run.target(doc.id);
+      const s = run.summary();
+      return { total: s.fetched, no_project: s.no_project, project_not_imported: s.project_not_imported, importable: s.fetched - s.no_project - s.project_not_imported };
+    })();
 
     const adapter = new LinearSourceAdapter();
     await adapter.connect({ apiKey, teamKeys: teams.map((t) => t.key), fetcher: this.fetcher, prefetched });
@@ -1180,7 +1186,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       const data = prefetched.get(team.id)!;
       return { team, milestones: data.milestones, issues: data.issues.nodes, projectIds: data.projects.nodes.map((p) => p.id) };
     }));
-    return { ...summary, members: matcher.report(), will_create: built.will_create, sample: built.sample, schema, milestones };
+    return { ...summary, members: matcher.report(), will_create: built.will_create, sample: built.sample, schema, milestones, attachments, documents: documentsPreview };
   }
 
   /**
@@ -1208,7 +1214,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const before = await this.readLinear(workspaceId);
     await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
     try {
-      const summary = await this.runSync(membership, actorId, { scheduled, status: before.sync_status });
+      // #1377 - the whole run is an import run: Slack channel subscriptions post nothing for a record it creates, and a status change only for an incremental read (runSync sets the mode once it has planned it).
+      const summary = await runAsImportRun(() => this.runSync(membership, actorId, { scheduled, status: before.sync_status }));
       const after = await this.readLinear(workspaceId);
       await this.writeLinear(workspaceId, {
         ...after,
@@ -1344,6 +1351,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // #1027 — a manual Import is always a full read; only a scheduled run with a trustworthy cursor reads just the changes.
     const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled));
     const incremental = plan.mode === 'incremental';
+    setImportRunMode(plan.mode); // #1377
     const summary = {
       dry_run: false,
       mode: plan.mode, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
@@ -1359,6 +1367,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       description_hidden_in: [] as string[],
       /** #906 — mirrored issues Linear no longer returns (archived, deleted, moved out): marked, never deleted. */
       left_scope: 0,
+      /** #1365 — per team, what the relations came to and what was NOT imported (cross-team, unplaced, unknown type), and the Duplicate state check. */
+      relations: { cross_team_policy: CROSS_TEAM_RELATION_POLICY as string, cross_team_total: 0, per_team: [] as Array<{ key: string; duplicate_state: DuplicateStateReport } & RelationReport> },
       /** Ticket #1367 — per team: written under Linear's own numbers (with the identifier prefix), or kept in import order, and why. */
       numbering: [] as Array<{ key: string; mode: 'linear_numbers' | 'import_order'; identifier_prefix: string | null; note?: string }>,
       /** Ticket #1367 — issues whose created/updated times were set to Linear's. */
@@ -1381,6 +1391,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // the workspace is still untouched, instead of leaving a partial copy that looks like a finished one.
     const fetched = new Map<string, LinearTeamComplete>();
     for (const team of teams) fetched.set(team.id, await fetchTeamData(this.fetcher, apiKey, team, { since: plan.since }));
+    // #1365 — relations are read and verified here too, before anything is written (a full read must cover every issue read).
+    const relationReads = new Map<string, LinearIssueRelations[]>();
+    for (const team of teams) {
+      relationReads.set(team.id, await fetchTeamRelations(this.fetcher, apiKey, team, { since: plan.since, expectIssues: incremental ? undefined : fetched.get(team.id)!.issues.nodes.length }));
+    }
+    const crossTeamEdges = new Map<string, string>();
     // Ticket #1367 — the rest of what the writes need is read here too, so a failure leaves the workspace untouched: issue history
     // (when the plan keeps field history at all) and, for a private team, its members.
     const keepsHistory = await this.importHistory.keepsFieldHistory(membership.workspaceId);
@@ -1394,6 +1410,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const directory = await this.memberDirectory(membership.workspaceId);
     const assigneeMatcher = new MemberMatcher(directory);
     const authorMatcher = new MemberMatcher(directory);
+    // Ticket #1366 — attachments (per team) and documents (workspace-wide) are read in the same phase, before anything is written.
+    const attachmentsByTeam = new Map<string, LinearAttachment[]>();
+    for (const team of teams) attachmentsByTeam.set(team.id, await fetchTeamAttachments(this.fetcher, apiKey, team, { since: plan.since }));
+    const extras = new DocumentRun(await fetchWorkspaceDocuments(this.fetcher, apiKey, { since: plan.since }));
     // Failed links used to be silently swallowed (`.catch(() => undefined)`) —
     // every importer had that bug (ADR-0013). RelationLinkerService turns a
     // failure into a warning instead, collected here without changing the
@@ -1408,6 +1428,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       summary.per_team.push({ key: team.key, issues_fetched: data.issues.nodes.length, linear_issue_total: data.issueTotal });
       const { space, issuesDb, projectsDb, sprintsDb, labelsDb, labelsFieldId, descriptionHidden } = await this.ensureTeamPack(membership, team, data.states.nodes, linkWarnings, settings);
       if (descriptionHidden) summary.description_hidden_in.push(`${team.name} (Linear) / ${issuesDb.name} (${issuesDb.id})`);
+      // #1365 — the three self relations (older mirrors have none) and the Duplicate state's category.
+      const relationFields = await ensureRelationFields(this.db, this.relationsService, membership, issuesDb.id, linkWarnings);
+      const duplicateState = await ensureDuplicateStateCategory(this.db, this.fields, issuesDb.id, data.states.nodes);
       await this.rememberTeamSpace(membership.workspaceId, team.key, space.id);
       // A private team's members are let in BEFORE any record is written; the space was created (or closed) restricted already.
       if (team.private === true) {
@@ -1624,7 +1647,35 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           if (failure) linkWarnings.push(failure);
         }
       }
+
+      // #1365 — relations, last: every issue of the team now has a record, so both ends of an edge can be placed. Linear OWNS these
+      // links (the #1103 rule): each issue's six fields are SET to what Linear says, so a relation removed in Linear is removed
+      // here and one a person added here that Linear does not have is removed with it. The rest of the plan is in linear-relations.ts.
+      const relationReport = emptyRelationReport();
+      const recordOf = (linearId: string) => issueIds.get(linearId) ?? mirrored.get(linearId)?.id;
+      for (const rel of relationReads.get(team.id) ?? []) {
+        const recordId = recordOf(rel.issueId);
+        if (!recordId) continue;
+        const planned = planIssueRelations(rel, team.key, (id) => Boolean(recordOf(id)), relationReport, crossTeamEdges);
+        for (const role of Object.keys(planned) as Array<keyof typeof planned>) {
+          const fieldId = relationFields[role];
+          if (!fieldId) continue;
+          const failure = await this.relationLinker.set(membership.workspaceId, issuesDb.id, recordId, fieldId, planned[role].map((id) => recordOf(id)!), actorId);
+          if (failure) linkWarnings.push(failure);
+        }
+      }
+      summary.relations.per_team.push({ key: team.key, duplicate_state: duplicateState, ...relationReport });
+      linkWarnings.push(...relationWarnings(team.key, relationReport));
+      // Ticket #1366 — PR links and other attachments, and the project documents. New code, in linear-attachments.service.ts.
+      await this.attachmentsAndDocuments.importTeam({
+        membership, actorId, teamLabel: team.key, issuesDb, projectsDb,
+        issueRecordIds: issueIds, mirrored, projectRecordIds: projectIds,
+        attachments: attachmentsByTeam.get(team.id) ?? [],
+        documents: documentsForTeam(extras.documents, new Set(projectIds.keys())),
+        run: extras,
+      });
     }
+    summary.relations.cross_team_total = crossTeamEdges.size;
     } catch (error) {
       // #959 — the integration page shows this text: name the team, so a raw engine message ("unknown field ...") is never
       // the whole story. The status is kept, and a message that already names the team is not prefixed twice.
@@ -1639,7 +1690,17 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     if (summary.comments.fetched !== summary.comments.created + summary.comments.already_present) {
       throw new UnprocessableEntityException(`Comments fetched (${summary.comments.fetched}) do not equal created (${summary.comments.created}) plus already present (${summary.comments.already_present})`);
     }
-    return linkWarnings.length > 0 ? { ...summary, warnings: linkWarnings } : summary;
+    // Ticket #1366 — same discipline as the comments above: every attachment and every document lands in exactly one bucket.
+    const documents = extras.summary();
+    if (attachmentTallyGap(extras.attachments) !== 0) {
+      throw new UnprocessableEntityException(`Attachments fetched (${extras.attachments.fetched}) do not equal those imported, refused and failed (${JSON.stringify(extras.attachments)})`);
+    }
+    if (documentSummaryGap(documents) !== 0) {
+      throw new UnprocessableEntityException(`Documents fetched (${documents.fetched}) do not equal those placed, skipped and failed (${JSON.stringify({ ...documents, oversize: documents.oversize.length })})`);
+    }
+    const withExtras = { ...summary, attachments: extras.attachments, documents };
+    const warnings = [...linkWarnings, ...extras.finish()];
+    return warnings.length > 0 ? { ...withExtras, warnings } : withExtras;
   }
 
   /**

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { runAsImportRun } from '../common/import-run-context';
 import {
   BadRequestException,
   Inject,
@@ -448,25 +449,25 @@ export class CalendarSyncService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (record && !record.deletedAt) {
-        await this.recordsService.update(
+        await runAsImportRun(() => this.recordsService.update(
           binding.workspaceId,
           binding.databaseId,
-          record.id,
+          record!.id,
           input,
           binding.createdBy ?? 'calendar-sync',
           INBOUND_SYNC_DEPTH,
           // #481 — an inbound Google Calendar sync, never a person typing.
           'automation',
-        );
+        ));
       } else {
-        const created = await this.recordsService.create(
+        const created = await runAsImportRun(() => this.recordsService.create(
           binding.workspaceId,
           binding.databaseId,
           input,
           binding.createdBy,
           INBOUND_SYNC_DEPTH,
           'automation',
-        );
+        ));
         record = await this.db.query.records.findFirst({ where: eq(records.id, created.id) });
       }
       if (!record) continue;
