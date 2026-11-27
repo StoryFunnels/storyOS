@@ -29,9 +29,19 @@ export interface TeamOwnershipEntry {
   counter?: { database_id: string; before: number; after: number; headroom: number };
 }
 
+/** Ticket #1390 - per team: whether a status change made in StoryOS is written to the Linear issue. Off unless an admin turned it on. */
+export interface TeamStatusWriteBackEntry {
+  enabled: boolean;
+  /** Only records changed after this moment are considered: switching it on never replays what was edited before. */
+  enabled_at?: string;
+  changed_at: string;
+  changed_by: string;
+}
+
 /** The slice of the Linear settings this module reads. Not sealed: no secret lives in it, so it can be read without the key. */
 export interface OwnershipSettings {
   team_ownership?: Record<string, TeamOwnershipEntry>;
+  status_write_back?: Record<string, TeamStatusWriteBackEntry>;
   team_spaces?: Record<string, { space_id?: string; space_name?: string }>;
 }
 
@@ -51,6 +61,21 @@ export function teamOwnership(settings: OwnershipSettings | null | undefined, te
   const entry = found[1];
   if (!entry || typeof entry !== 'object') return { owner: 'storyos' };
   return entry.owner === 'linear' ? { ...entry, owner: 'linear' } : { ...entry, owner: 'storyos' };
+}
+
+/**
+ * Ticket #1390 - THE guard for writing a status to Linear: the team is StoryOS-owned AND an admin switched status write-back on for it.
+ * A team Linear owns never passes, whatever else is stored (a hand-back switches it off, but this does not rely on that). Anything that
+ * decides whether to send a status asks this and nothing else; damaged ownership reads `storyos` (see `teamOwnership`), damaged
+ * write-back state reads OFF, the safe side of each.
+ */
+export function statusWriteBack(settings: OwnershipSettings | null | undefined, teamKey: string): { allowed: boolean; enabled_at?: string } {
+  if (teamOwnership(settings, teamKey).owner !== 'storyos') return { allowed: false };
+  const wanted = teamKey.toLowerCase();
+  const found = Object.entries(settings?.status_write_back ?? {}).find(([key]) => key.toLowerCase() === wanted);
+  const entry = found?.[1];
+  if (!entry || typeof entry !== 'object' || entry.enabled !== true) return { allowed: false };
+  return { allowed: true, ...(typeof entry.enabled_at === 'string' ? { enabled_at: entry.enabled_at } : {}) };
 }
 
 /** The team keys StoryOS owns, among the ones given. */

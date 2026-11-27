@@ -378,17 +378,59 @@ is a decision for a person.
 issue of a mirrored team, but only moves its status once StoryOS owns the team (while Linear owns it,
 the next sync would put the status back).
 
+### Writing status changes back to Linear (optional, off by default)
+
+While the team on Linear is still in use, you can have StoryOS write a **status change made in
+StoryOS** to the matching Linear issue. It is a second switch, per team, **off** until a workspace
+admin turns it on, and it can only be turned on for a team StoryOS owns: while Linear owns a team,
+nothing is ever written to it.
+
+- **What is written: the status and nothing else.** StoryOS sends the Linear issue id and the id of
+  the Linear state. No title, description, assignee or any other field leaves StoryOS, and the key
+  stays server-side: it is the workspace's own Linear key, not a member's.
+- **Which state.** The StoryOS status is matched by **exact name** to a state in that issue's own
+  team workflow in Linear (the importer named the options after them). A status with no Linear state
+  of that name is **never guessed** and never written: it is counted as *unmapped* and stays that way
+  until the status changes again, or until you rename one of the two and switch write-back off and on.
+- **Exactly once, the latest status.** Changes are checked about once a minute. Several quick changes
+  to one issue become one write of the final status, and a change back to what Linear already holds
+  writes nothing. Before every attempt StoryOS reads the issue in Linear, so a retry after a lost
+  reply does not apply it twice, and an older change can never overwrite a newer one.
+- **Retried, and visible when it gives up.** A failing write is retried on the same schedule as the
+  comment write-back (30 seconds, 2 minutes, 10 minutes, 1 hour). After five attempts it is a
+  **dead letter**. Admins see the counts (waiting, failed, unmapped) and up to 20 of the rows
+  (record number, status, attempts, error with keys, URLs and hosts removed) under
+  `status_write_back` on `GET /workspaces/{ws}/integrations/linear`, per team in **Preview**, and in the
+  result of every sync. Members see counts per team on `GET /workspaces/{ws}/linear/ownership`.
+  Switching the team's write-back off and on again puts the dead letters and the unmapped ones back
+  in the queue.
+- **Only what changes after you switch it on.** Turning it on never replays earlier edits; and the
+  moment a team is cut over counts as the start, so what the final read wrote is not sent back.
+  After a status is written, a later Linear sync cannot apply it as a foreign change (a StoryOS-owned
+  team is never written by the sync) and it is not queued again.
+- **People and agents.** A status set by an agent counts the same as one set by a person; the row
+  keeps who changed it (human, agent, automation, MCP) and an agent's change is logged in the audit log as
+  `outward.linear_status` with the agent and its run. Turning the switch on or off is an audit log entry too.
+- **Handing the team back to Linear switches it off** and cancels what was waiting.
+
+Where it lives: `PUT /workspaces/{ws}/integrations/linear/teams/{team_key}/status-write-back` with
+`{"enabled": true}` (admin only). Like the ownership switch, it is deliberately **not an agent tool**:
+it makes StoryOS change a live Linear workspace. Agents can read whether it is on and the counts
+with `get_linear_ownership`.
+
 **What it does not do.**
 
-- It does **not** write status changes to Linear. Comment write-back is unchanged and still optional;
-  after a cutover, StoryOS keeps writing nothing else to Linear. Writing status to Linear is not built.
+- It does **not** create issues in Linear, move an issue between teams, or write any field but the
+  status. Comment write-back is separate and unchanged.
 - It does **not** stop people creating issues in Linear, and it does not import comments made in Linear
   after the cutover (nothing inbound is written for that team).
 - It does **not** show a banner on the records yet; the state is available to read, and a banner is a
   separate piece of work.
 - Slack does not read the state yet.
 - It has **not been run against a live Linear workspace**: it is tested with fixtures written from
-  Linear's documented API.
+  Linear's documented API. For status write-back, what a live probe has to confirm is the shape of
+  `issueUpdate` and its answer, that state names match as described, Linear's rate limits, and whether
+  Linear's own echo of the change carries a different update time.
 
 ## What is intentionally NOT imported
 

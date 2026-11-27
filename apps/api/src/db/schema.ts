@@ -845,6 +845,47 @@ export const linearCommentPushes = pgTable(
 );
 
 /**
+ * Ticket #1390 - the outbox for STATUS write-back: while a Linear team is StoryOS-owned (ticket #1370) and an admin switched this on for
+ * it, a record's State is written to its Linear issue. ONE row per record, not per change (unlike `linear_comment_pushes`, where every
+ * comment is its own message): a status is a value, so rapid changes coalesce into the latest and an older one can never overwrite a
+ * newer. `generation` is the monotonic change id: it goes up each time the target changes, a send claims one generation, and its
+ * outcome is stored only if that generation is still current (compare-and-set), so a slow send cannot bury a newer change.
+ *
+ * Status: pending | sending | sent | failed (dead letter: retries used up) | unmapped (no Linear state of that name: never guessed,
+ * not retried) | cancelled (the team is not StoryOS-owned, or the switch is off, at send time). No title or body is ever stored here.
+ */
+export const linearStatusPushes = pgTable(
+  'linear_status_pushes',
+  {
+    recordId: uuid('record_id')
+      .primaryKey()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    teamKey: text('team_key').notNull(),
+    /** The Linear issue (its internal UUID, the mirrored record's `linear_id`). */
+    linearIssueId: text('linear_issue_id').notNull(),
+    /** The State option label StoryOS wanted at the last change; the Linear state of the same name in the team's workflow is what gets written. */
+    targetLabel: text('target_label').notNull(),
+    generation: integer('generation').notNull().default(1),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
+    /** What was last written (or found already in place) in Linear, and for which generation. */
+    appliedLabel: text('applied_label'),
+    appliedStateId: text('applied_state_id'),
+    appliedGeneration: integer('applied_generation'),
+    /** Who changed the status, as far as history says (source human/agent/automation/mcp; history can be off on a plan, then null). */
+    changeSource: text('change_source'),
+    changeAgentName: text('change_agent_name'),
+    ...timestamps,
+  },
+  (t) => [index('linear_status_pushes_due_idx').on(t.status, t.nextAttemptAt), index('linear_status_pushes_ws_team_idx').on(t.workspaceId, t.teamKey, t.status)],
+);
+
+/**
  * Ticket #1377 - a Slack CHANNEL SUBSCRIPTION: "post into this channel when a record of this space or database is created, has its
  * status changed, or is commented on". One row is one setting, so it is not an automation per event.
  *

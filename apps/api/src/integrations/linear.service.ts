@@ -38,9 +38,10 @@ import type { PageInfo } from './linear-paging';
 import { openFields, sealFields, SEALED_SETTING_FIELDS } from '../common/settings-secret';
 import { AccessService } from '../access/access.service';
 import { ImportHistoryService } from '../migration-framework/import-history.service';
-import { DEFAULT_COUNTER_HEADROOM, MAX_COUNTER_HEADROOM, storyosOwnedKeys, teamOwnership } from './linear-ownership';
-import type { TeamOwnershipEntry } from './linear-ownership';
-import { recordLinearOwnershipEvent } from '../activity/structural-events';
+import { DEFAULT_COUNTER_HEADROOM, MAX_COUNTER_HEADROOM, statusWriteBack, storyosOwnedKeys, teamOwnership } from './linear-ownership';
+import type { TeamOwnershipEntry, TeamStatusWriteBackEntry } from './linear-ownership';
+import { statusPushCounts, statusPushFailures } from './linear-status-pushes';
+import { recordLinearOwnershipEvent, recordLinearStatusWriteBackEvent } from '../activity/structural-events';
 import { linearDay, linearIssueNumber, linearTime, MemberMatcher, stateHistoryRows } from './linear-import-support';
 import type { LinearHistoryEntry, LinearPerson } from './linear-import-support';
 import {
@@ -196,7 +197,11 @@ interface LinearSettings {
   team_spaces?: Record<string, { space_id?: string; space_name?: string }>;
   /** Ticket #1370 — per team key, who owns its records (linear = the mirror, storyos = cut over). No entry = linear. See linear-ownership.ts. */
   team_ownership?: Record<string, TeamOwnershipEntry>;
+  /** Ticket #1390 — per team key, whether a status change made in StoryOS is written to the Linear issue. Off unless an admin turned it on, and only while StoryOS owns the team. */
+  status_write_back?: Record<string, TeamStatusWriteBackEntry>;
 }
+
+const pickCounts = (c: { pending: number; failed: number; unmapped: number } | undefined) => ({ pending: c?.pending ?? 0, failed: c?.failed ?? 0, unmapped: c?.unmapped ?? 0 });
 
 export type LinearFetcher = (query: string, variables: Record<string, unknown>, apiKey: string) => Promise<unknown>;
 
@@ -586,7 +591,12 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** What an admin sees (never the key): config, the schedule, and how the mirror is doing right now (#906). */
-  private present(linear: LinearSettings, now = new Date(), pushes: { pending: number; failed: number; last_error: string | null } = { pending: 0, failed: 0, last_error: null }) {
+  private present(
+    linear: LinearSettings,
+    now = new Date(),
+    pushes: { pending: number; failed: number; last_error: string | null } = { pending: 0, failed: 0, last_error: null },
+    statusOutbox: { counts: Awaited<ReturnType<typeof statusPushCounts>>; failures: Awaited<ReturnType<typeof statusPushFailures>> } | null = null,
+  ) {
     const auto = linear.auto_sync;
     const interval = auto?.interval_minutes ?? DEFAULT_SYNC_INTERVAL_MINUTES;
     const status = linear.sync_status ?? {};
@@ -604,6 +614,14 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       team_ownership: Object.fromEntries((linear.team_keys ?? []).concat(Object.keys(linear.team_ownership ?? {})).map((k) => [k, teamOwnership(linear, k).owner])),
       auto_sync: { enabled, interval_minutes: interval },
       write_back: { enabled: Boolean(linear.write_back?.enabled), require_approval_for_agent_comments: Boolean(linear.write_back?.require_approval_for_agent_comments), ...pushes },
+      /** Ticket #1390 — status write-back per team: the switch, what is waiting, and what needs a person (dead letters, statuses Linear has no state for). */
+      status_write_back: {
+        teams: Object.fromEntries(
+          (linear.team_keys ?? []).concat(Object.keys(linear.status_write_back ?? {})).map((k) => [k, { enabled: statusWriteBack(linear, k).allowed, ...(statusOutbox?.counts.by_team[k] ?? { pending: 0, failed: 0, unmapped: 0, last_error: null }) }]),
+        ),
+        ...(statusOutbox?.counts.total ?? { pending: 0, failed: 0, unmapped: 0, last_error: null }),
+        failures: statusOutbox?.failures ?? [],
+      },
       sync: {
         last_success_at: status.last_success_at ?? null,
         last_attempt_at: status.last_attempt_at ?? null,
@@ -672,11 +690,16 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       };
     }
     await this.writeLinear(workspaceId, linear);
-    return this.present(linear, new Date(), await this.pushCounts(workspaceId));
+    return this.present(linear, new Date(), await this.pushCounts(workspaceId), await this.statusOutbox(workspaceId));
   }
 
   async getConfig(workspaceId: string) {
-    return this.present(await this.readLinear(workspaceId), new Date(), await this.pushCounts(workspaceId));
+    return this.present(await this.readLinear(workspaceId), new Date(), await this.pushCounts(workspaceId), await this.statusOutbox(workspaceId));
+  }
+
+  /** Ticket #1390 — the status outbox as an admin sees it: counts per team and the rows that need a person. */
+  private async statusOutbox(workspaceId: string) {
+    return { counts: await statusPushCounts(this.db, workspaceId), failures: await statusPushFailures(this.db, workspaceId) };
   }
 
   /** How the comment push is doing, for the config response: what is waiting, what gave up, and the latest error. */
@@ -1115,6 +1138,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   private async dryRunUnlocked(membership: Membership) {
     const { teams, apiKey, notVisible, blockedPrivate, settings: previewSettings } = await this.fetchTeams(membership.workspaceId);
     const matcher = new MemberMatcher(await this.memberDirectory(membership.workspaceId));
+    const outboxByTeam = (await statusPushCounts(this.db, membership.workspaceId)).by_team;
     const summary = {
       dry_run: true,
       /** Ticket #1367 — configured team keys this API key cannot see (a typo, or a private team it does not belong to): they would never import. */
@@ -1122,7 +1146,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       /** Ticket #1367 — private teams among those chosen, and whether a sync would import them (it refuses while private teams are switched off). */
       private_teams: teams.filter((t) => t.private === true).map((t) => ({ key: t.key, would_import: !blockedPrivate.includes(t.key) })),
       teams: [] as Array<{
-        key: string; name: string; owner: 'linear' | 'storyos'; sync_writes: boolean; issues: number; linear_issue_total: number; comments: number; sprints: number; projects: number; labels: number;
+        key: string; name: string; owner: 'linear' | 'storyos'; sync_writes: boolean; status_write_back: { enabled: boolean; pending: number; failed: number; unmapped: number }; issues: number; linear_issue_total: number; comments: number; sprints: number; projects: number; labels: number;
         /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
@@ -1153,6 +1177,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         /** Ticket #1370 — who owns the team, and whether a sync would write it (it never does once StoryOS owns it; this preview only reads). */
         owner: teamOwnership(previewSettings, team.key).owner,
         sync_writes: teamOwnership(previewSettings, team.key).owner === 'linear',
+        /** Ticket #1390 — whether StoryOS writes this team's status changes to Linear, and the outbox: counts only. Read-only here, like the rest of the preview. */
+        status_write_back: { enabled: statusWriteBack(previewSettings, team.key).allowed, ...pickCounts(outboxByTeam[team.key]) },
         issues: data.issues.nodes.length,
         linear_issue_total: data.issueTotal ?? data.issues.nodes.length, // preview is always a full read, which always has a total
         comments: data.comments.nodes.length,
@@ -1365,17 +1391,23 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const linear = (((ws?.settings ?? {}) as Record<string, unknown>).linear ?? {}) as LinearSettings;
     const visible = await this.access.visibleSpaceIds(membership);
     const keys = [...new Set([...(linear.team_keys ?? []), ...Object.keys(linear.team_ownership ?? {}), ...Object.keys(linear.team_spaces ?? {})])].sort();
+    const outbox = (await statusPushCounts(this.db, membership.workspaceId)).by_team;
     const data = keys
       .map((key) => {
         const own = teamOwnership(linear, key);
-        return { team_key: key, owner: own.owner, space_id: linear.team_spaces?.[key]?.space_id ?? null, changed_at: own.changed_at ?? null, changed_by: own.changed_by ?? null, cut_over_at: own.cut_over_at ?? null };
+        // Ticket #1390 — counts only (never an error text or a record): readable by every member who can see the team.
+        const { pending, failed, unmapped } = outbox[key] ?? { pending: 0, failed: 0, unmapped: 0 };
+        return {
+          team_key: key, owner: own.owner, space_id: linear.team_spaces?.[key]?.space_id ?? null, changed_at: own.changed_at ?? null, changed_by: own.changed_by ?? null, cut_over_at: own.cut_over_at ?? null,
+          status_write_back: { enabled: statusWriteBack(linear, key).allowed, pending, failed, unmapped },
+        };
       })
       .filter((t) => visible === null || (t.space_id !== null && visible.has(t.space_id)));
     return { data };
   }
 
   /** The Issues database of a team's mirror space, found by the stored space id (never by name). */
-  private async issuesDatabaseOfTeam(workspaceId: string, linear: LinearSettings, key: string) {
+  async issuesDatabaseOfTeam(workspaceId: string, linear: LinearSettings, key: string) {
     const spaceId = linear.team_spaces?.[key]?.space_id;
     if (!spaceId) return null;
     // Found the way ensureTeamPack finds it: among the databases of the team's own space (a team's mirror is not a system database).
@@ -1392,6 +1424,33 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
        WHERE r.database_id = ${issuesDbId} AND r.deleted_at IS NULL AND r.updated_at > ${since}::timestamptz
          AND coalesce(r.values->>(${field.id}::text), '') <> ''`)) as unknown as { rows?: Array<{ n: number }> };
     return res.rows?.[0]?.n ?? 0;
+  }
+
+  /**
+   * Ticket #1390 - turn status write-back on or off for ONE team. Admin only (the controller), logged in the audit log, and human-only
+   * over MCP (coverage.ts). It can only be switched ON for a team StoryOS owns: while Linear owns a team, nothing here may write it.
+   * Switching it on stamps `enabled_at`, so only records changed after that are considered; switching it off and on again is also how
+   * an admin retries the dead letters and the statuses Linear had no state for (their rows are put back in the queue).
+   */
+  async setStatusWriteBack(membership: Membership, actorId: string, teamKey: string, input: { enabled: boolean }) {
+    const workspaceId = membership.workspaceId;
+    const settings = await this.readLinear(workspaceId);
+    const key = [...(settings.team_keys ?? []), ...Object.keys(settings.team_spaces ?? {}), ...Object.keys(settings.team_ownership ?? {})].find((k) => k.toLowerCase() === teamKey.toLowerCase());
+    if (!key) throw new NotFoundException(`${teamKey} is not one of this workspace's configured Linear teams`);
+    const was = statusWriteBack(settings, key).allowed;
+    if (input.enabled && teamOwnership(settings, key).owner !== 'storyos') {
+      throw new ConflictException(`${key} is still owned by Linear, so StoryOS never writes to it. Hand ${key} to StoryOS first (its ownership), then switch status write-back on.`);
+    }
+    if (was === input.enabled) return { team_key: key, enabled: was, unchanged: true };
+    const now = new Date().toISOString();
+    await this.writeLinear(workspaceId, { ...settings, status_write_back: { ...settings.status_write_back, [key]: { enabled: input.enabled, ...(input.enabled ? { enabled_at: now } : {}), changed_at: now, changed_by: actorId } } });
+    if (input.enabled) {
+      // A fresh start for rows that were stopped for a reason a person has now had the chance to fix.
+      await this.db.execute(sql`UPDATE linear_status_pushes SET status = 'pending', attempts = 0, next_attempt_at = now(), last_error = NULL, generation = generation + 1, updated_at = now()
+        WHERE workspace_id = ${workspaceId} AND team_key = ${key} AND status IN ('failed', 'unmapped', 'cancelled')`);
+    }
+    await recordLinearStatusWriteBackEvent(this.db, { workspaceId, teamKey: key, enabled: input.enabled });
+    return { team_key: key, enabled: input.enabled, ...(input.enabled ? { enabled_at: now } : {}) };
   }
 
   /**
@@ -1453,7 +1512,14 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         throw new ConflictException(`${edited} record${edited === 1 ? '' : 's'} of ${key} ${edited === 1 ? 'was' : 'were'} edited in StoryOS since the cutover. Giving ${key} back to Linear means the next sync overwrites ${edited === 1 ? 'it' : 'them'} with what Linear holds. Send confirm_overwrite: true to do it.`);
       }
       const fresh = await this.readLinear(workspaceId);
-      await this.writeLinear(workspaceId, { ...fresh, team_ownership: { ...fresh.team_ownership, [key]: { owner: 'linear', changed_at: now, changed_by: actorId } } });
+      // Ticket #1390 — handing the team back also switches its status write-back off, so a later cutover starts with it off.
+      const wasWriting = statusWriteBack(fresh, key).allowed;
+      await this.writeLinear(workspaceId, {
+        ...fresh,
+        team_ownership: { ...fresh.team_ownership, [key]: { owner: 'linear', changed_at: now, changed_by: actorId } },
+        ...(wasWriting ? { status_write_back: { ...fresh.status_write_back, [key]: { enabled: false, changed_at: now, changed_by: actorId } } } : {}),
+      });
+      if (wasWriting) await recordLinearStatusWriteBackEvent(this.db, { workspaceId, teamKey: key, enabled: false, extra: { reason: 'team handed back to Linear' } });
       await recordLinearOwnershipEvent(this.db, { workspaceId, teamKey: key, from: 'storyos', to: 'linear', spaceId: fresh.team_spaces?.[key]?.space_id, extra: { records_edited_since_cutover: known ? edited : null } });
       return { team_key: key, owner: 'linear' as const, records_edited_since_cutover: known ? edited : null };
     } finally {
@@ -1826,7 +1892,9 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     if (documentSummaryGap(documents) !== 0) {
       throw new UnprocessableEntityException(`Documents fetched (${documents.fetched}) do not equal those placed, skipped and failed (${JSON.stringify({ ...documents, oversize: documents.oversize.length })})`);
     }
-    const withExtras = { ...summary, attachments: extras.attachments, documents };
+    // Ticket #1390 — what the status outbox holds right now, so a failing or unmapped write-back shows in the numbers an admin already reads after a sync.
+    const outbox = (await statusPushCounts(this.db, membership.workspaceId)).total;
+    const withExtras = { ...summary, attachments: extras.attachments, documents, status_write_back: { pending: outbox.pending, failed: outbox.failed, unmapped: outbox.unmapped } };
     const warnings = [...linkWarnings, ...extras.finish()];
     return warnings.length > 0 ? { ...withExtras, warnings } : withExtras;
   }

@@ -355,6 +355,7 @@ export const ACCESS_COVERAGE: Record<string, AccessClass> = {
   'POST /api/v1/workspaces/:ws/integrations/google-calendar/bindings/:id/sync': adminOnly(),
   'POST /api/v1/workspaces/:ws/integrations/linear': adminOnly(),
   'PUT /api/v1/workspaces/:ws/integrations/linear/teams/:key/ownership': adminOnly(),
+  'PUT /api/v1/workspaces/:ws/integrations/linear/teams/:key/status-write-back': adminOnly(),
   'POST /api/v1/workspaces/:ws/integrations/linear/disconnect': adminOnly(),
   'POST /api/v1/workspaces/:ws/integrations/linear/dry-run': adminOnly(),
   'POST /api/v1/workspaces/:ws/integrations/linear/sync': adminOnly(),

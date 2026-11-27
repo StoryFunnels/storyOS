@@ -253,6 +253,7 @@ const SENTENCES: Record<string, [payload: unknown, sentence: string]> = {
   'portal_recipient.rotated': [named('Acme'), 'Replaced the portal link for “Acme”'],
   'portal_recipient.revoked': [named('Acme'), 'Revoked the portal link for “Acme”'],
   'linear_ownership.changed': [{ object: { kind: 'linear_team', id: 'ENG', name: 'Linear team ENG' }, to: 'storyos' }, 'Handed ownership to StoryOS for the Linear team “ENG”'],
+  'linear_status_write_back.changed': [{ object: { kind: 'linear_team', id: 'ENG', name: 'Linear team ENG' }, enabled: true }, 'Turned on writing status changes to Linear for the team “ENG”'],
   'publishing.enabled': [named('Post scheduled posts to X: @acme'), 'Turned on publishing: “Post scheduled posts to X: @acme”'],
   'publishing.disabled': [named('Post scheduled posts to X: @acme'), 'Paused publishing: “Post scheduled posts to X: @acme”'],
   'automation.taken_over': [named('Nightly digest'), 'Took over the automation rule “Nightly digest”'],
@@ -267,6 +268,7 @@ const SENTENCES: Record<string, [payload: unknown, sentence: string]> = {
   'outward.calendar_sync': [{ summary: 'S' }, 'Synced to the calendar · S'],
   'outward.linear_comment': [{ summary: 'S' }, 'Posted a comment to Linear · S'],
   'outward.ai_field': [{ summary: 'S' }, 'Recomputed an AI field · S'],
+  'outward.linear_status': [{ summary: 'S' }, 'Set a status on a Linear issue · S'],
   'outward.slack_subscription': [{ summary: 'S' }, 'Posted an update to a Slack channel · S'],
 };
 for (const kind of ['space', 'database', 'view']) {

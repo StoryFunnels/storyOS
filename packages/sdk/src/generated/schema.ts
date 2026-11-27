@@ -2761,6 +2761,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{ws}/integrations/linear/teams/{key}/status-write-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Cutover: write status changes made in StoryOS to the Linear issue, for one StoryOS-owned team (off by default). Admin only; logged in the audit log. */
+        put: operations["LinearIntegrationsController_setStatusWriteBack"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{ws}/integrations/linear/disconnect": {
         parameters: {
             query?: never;
@@ -6863,6 +6880,9 @@ export interface components {
             owner: "linear" | "storyos";
             confirm_overwrite?: boolean;
             counter_headroom?: number;
+        };
+        LinearStatusWriteBackDto: {
+            enabled: boolean;
         };
         SlackConfigDto: {
             bot_token?: string;
@@ -12533,6 +12553,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["LinearOwnershipDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LinearIntegrationsController_setStatusWriteBack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinearStatusWriteBackDto"];
             };
         };
         responses: {
