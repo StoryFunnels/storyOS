@@ -107,6 +107,16 @@ Maintainers keep one standing local stack (API :3500, web :3600) running `main` 
 
 If you change API surface, run `pnpm sdk:generate` and commit the result. CI fails on OpenAPI/SDK drift. **Before your first PR, read [CONTRIBUTING.md](CONTRIBUTING.md).**
 
+## The hosted service
+
+[app.storyos.dev](https://app.storyos.dev) runs this repo's Docker images, built by CI from `main`.
+
+- **Trunk-based.** Everything merges to `main`. Staging deploys automatically on every merge.
+- **Production deploys by hand, on purpose.** With agents merging many PRs a day, production moves when a person picks a `main` commit and runs the `Deploy production` workflow with its sha. Images are tagged with the commit sha, so the running version is always known; rollback is the same workflow with the previous sha.
+- **Backups.** Every deploy backs up the database first, and an encrypted copy of the database and attachments goes off the server every 6 hours (scripts in [`scripts/backup-restore/`](scripts/backup-restore/), restore guide in [docs/backup-restore.md](docs/backup-restore.md)).
+
+Operational details of the hosted service (provider, servers, buckets, credentials) live in a private infrastructure repo and are never added here, including in issues, PRs and commit messages.
+
 ## Principles
 
 1. **Relations are the core primitive.** A database without relations is a spreadsheet.
