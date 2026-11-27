@@ -30,7 +30,7 @@ const none = base({ state: 'none', limits: { tokens: null, runs: null }, runs: {
 
 const card = (budget: BudgetDto | null, over: Record<string, unknown> = {}) =>
   renderToStaticMarkup(
-    createElement(BudgetCard, { status: 'ready', budget, agentName: 'Fern', canEdit: true, ownerName: null, saving: false, onSave: async () => {}, onRetry: () => {}, ...over }),
+    createElement(BudgetCard, { status: 'ready', budget, agentName: 'Fern', canEdit: true, ownerName: null, saving: false, onSave: async () => {}, onRetry: () => {}, time: { timeZone: 'UTC' }, ...over }),
   );
 
 describe('#1268 the card, per state', () => {
@@ -97,6 +97,18 @@ describe('#1268 the card, per state', () => {
     expect(html).toContain("3 finished runs didn&#x27;t report tokens");
   });
 
+  it('every bar says what it shows in words, not only a percentage', () => {
+    const html = card(warning);
+    expect(html).toContain('aria-valuetext="33 of 40"');
+    expect(html).toContain('aria-valuetext="610,400 of 2,000,000"');
+  });
+
+  it('a full (paused) bar is drawn in a neutral that reads against its track, not the border grey', () => {
+    const html = card(paused);
+    expect(html).toContain('bg-muted');
+    expect(html).not.toContain('bg-border-strong');
+  });
+
   it('never uses gold: a budget is a rule a person set, not an agent acting', () => {
     for (const b of [base(), warning, paused, none]) expect(card(b)).not.toMatch(/accent|gold/);
   });
@@ -118,6 +130,13 @@ describe('#1268 who sees the controls', () => {
 
   it('a manager sees no read-only line', () => {
     expect(card(base(), { canEdit: true })).not.toContain('can change these');
+  });
+});
+
+describe('#1268 the edit form', () => {
+  const src = readFileSync(fileURLToPath(new URL('./budget-card.tsx', import.meta.url)), 'utf8');
+  it('Escape leaves it without saving', () => {
+    expect(src).toMatch(/onKeyDown=\{\(e\) => \{\s*if \(e\.key === 'Escape'\) \{\s*e\.stopPropagation\(\);\s*setEditing\(false\);/);
   });
 });
 

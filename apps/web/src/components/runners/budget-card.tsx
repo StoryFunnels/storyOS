@@ -17,13 +17,15 @@ import {
   warningLine,
 } from '@/lib/runners/budget';
 import type { BudgetDto, BudgetMetricState, MetricView } from '@/lib/runners/budget';
+import type { TimeOpts } from '@/lib/runners/words';
 import { cn } from '@/lib/utils';
 
 const CHIP = 'rounded-[4px] border px-1.5 text-label font-medium';
 const FILL: Record<BudgetMetricState, string> = {
   ok: 'bg-primary',
   warning: 'bg-warning',
-  paused: 'bg-border-strong',
+  // A full bar must be seen against its track (bg-hover): border-strong was 1.2:1 there; the muted text grey is a calm neutral that reads.
+  paused: 'bg-muted',
   unlimited: 'bg-primary',
   not_measured: 'bg-primary',
 };
@@ -48,6 +50,7 @@ export function BudgetCard({
   saving,
   onSave,
   onRetry,
+  time,
 }: {
   status: 'loading' | 'error' | 'ready';
   budget: BudgetDto | null;
@@ -59,10 +62,12 @@ export function BudgetCard({
   /** Resolves when the API accepted the write; rejects with the API's error. */
   onSave: (values: BudgetValues) => Promise<unknown>;
   onRetry: () => void;
+  /** The zone and locale dates are read in; omitted = the viewer's own. Tests pin it. */
+  time?: TimeOpts;
 }) {
   return (
     <section id="budget" className="scroll-mt-4 rounded-[var(--radius-card)] border border-border-default bg-card" data-testid="agent-budget">
-      <Header budget={status === 'ready' ? budget : null} />
+      <Header budget={status === 'ready' ? budget : null} time={time} />
       {status === 'loading' ? (
         <p role="status" className="m-0 px-3.5 py-3 text-body text-muted">
           Loading…
@@ -75,13 +80,13 @@ export function BudgetCard({
           </button>
         </p>
       ) : (
-        <Body budget={budget} agentName={agentName} canEdit={canEdit} ownerName={ownerName} saving={saving} onSave={onSave} />
+        <Body budget={budget} agentName={agentName} canEdit={canEdit} ownerName={ownerName} saving={saving} onSave={onSave} time={time} />
       )}
     </section>
   );
 }
 
-function Header({ budget }: { budget: BudgetDto | null }) {
+function Header({ budget, time }: { budget: BudgetDto | null; time?: TimeOpts }) {
   return (
     <div className="flex items-center gap-2 border-b border-border-default px-3.5 py-[11px] text-body font-[650] leading-[15px] text-ink">
       <h2 className="m-0 flex-1 text-body font-[650] leading-[15px]">Budget this month</h2>
@@ -95,7 +100,7 @@ function Header({ budget }: { budget: BudgetDto | null }) {
           Paused
         </span>
       )}
-      {budget && <span className="text-label font-medium text-muted">{resetsLabel(budget.period.resets_at)}</span>}
+      {budget && <span className="text-label font-medium text-muted">{resetsLabel(budget.period.resets_at, time)}</span>}
     </div>
   );
 }
@@ -108,7 +113,7 @@ function Metric({ label, view, note, warn }: { label: string; view: MetricView; 
         <span className="tabular-nums text-ink">{view.text}</span>
       </div>
       {view.barPercent !== null && (
-        <div role="progressbar" aria-label={`${label} used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={view.barPercent} className="mt-1 h-1.5 overflow-hidden rounded-full bg-hover">
+        <div role="progressbar" aria-label={`${label} used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={view.barPercent} aria-valuetext={view.text} className="mt-1 h-1.5 overflow-hidden rounded-full bg-hover">
           <div className={cn('h-full rounded-full', FILL[view.state])} style={{ width: `${view.barPercent}%` }} />
         </div>
       )}
@@ -118,7 +123,7 @@ function Metric({ label, view, note, warn }: { label: string; view: MetricView; 
   );
 }
 
-function Body({ budget, agentName, canEdit, ownerName, saving, onSave }: { budget: BudgetDto; agentName: string; canEdit: boolean; ownerName: string | null; saving: boolean; onSave: (values: BudgetValues) => Promise<unknown> }) {
+function Body({ budget, agentName, canEdit, ownerName, saving, onSave, time }: { budget: BudgetDto; agentName: string; canEdit: boolean; ownerName: string | null; saving: boolean; onSave: (values: BudgetValues) => Promise<unknown>; time?: TimeOpts }) {
   const [editing, setEditing] = useState(false);
   const [runsText, setRunsText] = useState('');
   const [tokensText, setTokensText] = useState('');
@@ -176,11 +181,11 @@ function Body({ budget, agentName, canEdit, ownerName, saving, onSave }: { budge
 
   return (
     <div className="flex flex-col gap-3 px-3.5 py-3 text-body">
-      <Metric label="Runs" view={runs} note={null} warn={budget.runs.state === 'warning' && budget.runs.limit !== null ? warningLine(agentName, budget.runs.limit, budget.period.resets_at) : null} />
-      <Metric label="Tokens" view={tokens} note={tokensNote(budget.tokens)} warn={budget.tokens.state === 'warning' && budget.tokens.limit !== null ? warningLine(agentName, budget.tokens.limit, budget.period.resets_at) : null} />
+      <Metric label="Runs" view={runs} note={null} warn={budget.runs.state === 'warning' && budget.runs.limit !== null ? warningLine(agentName, budget.runs.limit, budget.period.resets_at, time) : null} />
+      <Metric label="Tokens" view={tokens} note={tokensNote(budget.tokens)} warn={budget.tokens.state === 'warning' && budget.tokens.limit !== null ? warningLine(agentName, budget.tokens.limit, budget.period.resets_at, time) : null} />
       {paused && (
         <p className="m-0 text-ink" data-testid="budget-paused">
-          {pausedLine(agentName, budget)}
+          {pausedLine(agentName, budget, time)}
         </p>
       )}
 
@@ -188,6 +193,13 @@ function Body({ budget, agentName, canEdit, ownerName, saving, onSave }: { budge
         <form
           className="flex flex-col gap-2.5 border-t border-border-default pt-3"
           data-testid="budget-form"
+          // Escape leaves the form without saving, as it does everywhere else a field is being edited.
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              setEditing(false);
+            }
+          }}
           onSubmit={(e) => {
             e.preventDefault();
             void save();

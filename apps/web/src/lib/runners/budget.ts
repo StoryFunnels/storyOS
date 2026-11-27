@@ -1,5 +1,6 @@
 import { describeRun } from './status';
 import { shortDate } from './words';
+import type { TimeOpts } from './words';
 import type { WakeDto } from './types';
 
 /**
@@ -62,9 +63,12 @@ export function budgetDraft(raw: string): BudgetDraft {
 
 export const countText = (n: number): string => n.toLocaleString('en-US');
 
-/** "Resets 1 Dec": the month is the UTC calendar month, so the date is read in UTC for everyone, and in the same short form as the runs on this page. */
-export function resetsLabel(resetsAtIso: string): string {
-  return `Resets ${shortDate(resetsAtIso, { timeZone: 'UTC' })}`;
+/**
+ * "Resets 1 Dec", in the same short form as the runs on this page. The instant is the UTC month rolling over; it is READ in the viewer's own
+ * zone (`o` is for tests), like the paused sentence beside it, so one card never shows two different days for the same moment.
+ */
+export function resetsLabel(resetsAtIso: string, o: TimeOpts = {}): string {
+  return `Resets ${shortDate(resetsAtIso, o)}`;
 }
 
 export interface MetricView {
@@ -106,17 +110,17 @@ export function tokensNote(m: BudgetTokensDto): string | null {
 }
 
 /** "At 40 Fern pauses until you raise the budget or 1 Dec." for a metric in its warning band. */
-export function warningLine(agentName: string, limit: number, resetsAtIso: string): string {
-  return `At ${countText(limit)} ${agentName} pauses until you raise the budget or ${shortDate(resetsAtIso, { timeZone: 'UTC' })}.`;
+export function warningLine(agentName: string, limit: number, resetsAtIso: string, o: TimeOpts = {}): string {
+  return `At ${countText(limit)} ${agentName} pauses until you raise the budget or ${shortDate(resetsAtIso, o)}.`;
 }
 
 /**
  * The paused sentence: the run row's own words (`describeRun` on a `waiting_for_budget` state, ticket #1248), never a copy of them,
  * plus what that means for the work. Reusing the function is what keeps the card and the Runs list saying one thing.
  */
-export function pausedLine(agentName: string, b: Pick<BudgetDto, 'paused_reason' | 'resumes_at'>): string {
+export function pausedLine(agentName: string, b: Pick<BudgetDto, 'paused_reason' | 'resumes_at'>, o: TimeOpts = {}): string {
   const w = { run_state: { state: 'waiting_for_budget', until: b.resumes_at ?? undefined, budget_metric: b.paused_reason ?? undefined } } as unknown as WakeDto;
-  return `${describeRun(w).label}. Work waits in ${agentName}'s queue until then.`;
+  return `${describeRun(w, o).label}. Work waits in ${agentName}'s queue until then.`;
 }
 
 /**

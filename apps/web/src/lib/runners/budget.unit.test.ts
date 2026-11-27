@@ -19,6 +19,8 @@ import type { BudgetDto } from './budget';
 import { describeRun } from './status';
 import type { WakeDto } from './types';
 
+const UTC = { timeZone: 'UTC' };
+
 /** Ticket #1268 — the budget card's rules. Every number is the API's; these pin how it is read, and above all that zero and "not measured" stay different. */
 const base = (over: Partial<BudgetDto> = {}): BudgetDto => ({
   agent: { id: 'a1', name: 'Fern' },
@@ -102,21 +104,32 @@ describe('#1268 the figures: zero is zero, not measured is not measured', () => 
 });
 
 describe('#1268 the words', () => {
-  it('the reset date is read in UTC (the month is the UTC month), in the page\'s short form', () => {
-    expect(resetsLabel('2026-12-01T00:00:00.000Z')).toBe('Resets 1 Dec');
+  it('the reset date is read in the zone it is given, in the page\'s short form', () => {
+    expect(resetsLabel('2026-12-01T00:00:00.000Z', UTC)).toBe('Resets 1 Dec');
+    // The same instant is still 30 Nov evening in New York: the card says what the viewer's own clock says.
+    expect(resetsLabel('2026-12-01T00:00:00.000Z', { timeZone: 'America/New_York' })).toBe('Resets 30 Nov');
+  });
+
+  it('the reset date and the paused sentence name the SAME day in any zone (one card never shows two days)', () => {
+    const b = base({ state: 'paused', paused_reason: 'runs', resumes_at: '2026-12-01T00:00:00.000Z' });
+    for (const [timeZone, day, when] of [['UTC', '1 Dec', 'Tue 00:00'], ['America/New_York', '30 Nov', 'Mon 19:00'], ['Pacific/Auckland', '1 Dec', 'Tue 13:00']] as const) {
+      expect(resetsLabel(b.resumes_at!, { timeZone }), timeZone).toBe(`Resets ${day}`);
+      expect(pausedLine('Fern', b, { timeZone }), timeZone).toContain(`resumes ${when}`);
+      expect(warningLine('Fern', 40, b.resumes_at!, { timeZone }), timeZone).toContain(`or ${day}.`);
+    }
   });
 
   it('a warning names the limit it is at and when it resets', () => {
-    expect(warningLine('Fern', 40, '2026-12-01T00:00:00.000Z')).toBe('At 40 Fern pauses until you raise the budget or 1 Dec.');
-    expect(warningLine('Fern', 2_000_000, '2026-12-01T00:00:00.000Z')).toBe('At 2,000,000 Fern pauses until you raise the budget or 1 Dec.');
+    expect(warningLine('Fern', 40, '2026-12-01T00:00:00.000Z', UTC)).toBe('At 40 Fern pauses until you raise the budget or 1 Dec.');
+    expect(warningLine('Fern', 2_000_000, '2026-12-01T00:00:00.000Z', UTC)).toBe('At 2,000,000 Fern pauses until you raise the budget or 1 Dec.');
   });
 
   it("the paused sentence IS the run row's own label (describeRun), plus what the pause means", () => {
     const b = base({ state: 'paused', paused_reason: 'runs', resumes_at: '2026-12-01T00:00:00.000Z' });
-    const row = describeRun({ run_state: { state: 'waiting_for_budget', until: b.resumes_at!, budget_metric: 'runs' } } as unknown as WakeDto).label;
+    const row = describeRun({ run_state: { state: 'waiting_for_budget', until: b.resumes_at!, budget_metric: 'runs' } } as unknown as WakeDto, UTC).label;
     expect(row).toMatch(/^Monthly run budget reached/);
-    expect(pausedLine('Fern', b)).toBe(`${row}. Work waits in Fern's queue until then.`);
-    expect(pausedLine('Fern', { ...b, paused_reason: 'tokens' })).toMatch(/^Monthly token budget reached/);
+    expect(pausedLine('Fern', b, UTC)).toBe(`${row}. Work waits in Fern's queue until then.`);
+    expect(pausedLine('Fern', { ...b, paused_reason: 'tokens' }, UTC)).toMatch(/^Monthly token budget reached/);
   });
 });
 
