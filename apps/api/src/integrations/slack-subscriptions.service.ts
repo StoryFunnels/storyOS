@@ -13,6 +13,9 @@ import { SlackService } from './slack.service';
 import { renderCoalescedMessage, renderSubscriptionMessage } from './slack-subscription-message';
 import type { SubscriptionEventKind, ViaKind } from './slack-subscription-message';
 
+/** Stable machine-readable code (error.code) of the 422 for a restricted target created without `acknowledge_restricted`. */
+export const RESTRICTED_ACK_CODE = 'restricted_acknowledgement_required';
+
 export const SUBSCRIPTION_EVENTS: readonly SubscriptionEventKind[] = ['created', 'status_changed', 'commented'];
 
 type Row = typeof slackSubscriptions.$inferSelect;
@@ -251,9 +254,11 @@ export class SlackSubscriptionsService implements OnModuleInit {
 
   private assertClosedAcknowledged(closed: boolean, acknowledged: boolean | undefined) {
     if (closed && !acknowledged) {
-      throw new UnprocessableEntityException(
+      throw new UnprocessableEntityException({
+        code: RESTRICTED_ACK_CODE,
+        message:
         'This space or database is restricted. Subscribing it posts the titles of its records to a Slack channel whose members StoryOS does not control. Send acknowledge_restricted: true to confirm that is intended.',
-      );
+      });
     }
   }
 
@@ -295,6 +300,14 @@ export class SlackSubscriptionsService implements OnModuleInit {
     if (event.importRun && (kind === 'created' || event.importRun === 'full')) return;
     const subs = await this.candidates(event.workspaceId, event.databaseId);
     if (!subs.some((s) => (s.events as string[]).includes(kind))) return; // none of them wants this kind: the common answer, and the cheap one
+    try {
+      await this.processEvent(event, kind, subs);
+    } catch (error) {
+      await this.recordFailure(subs, error); // a failure BEFORE any attempt is counted and shown too, never only logged
+    }
+  }
+
+  private async processEvent(event: DomainEvent, kind: SubscriptionEventKind, subs: Row[]): Promise<void> {
     const target = await this.loadTarget(event.workspaceId, event.databaseId);
     if (!target) return;
 
@@ -331,7 +344,15 @@ export class SlackSubscriptionsService implements OnModuleInit {
     if (!rec) return;
     const subs = await this.candidates(input.workspaceId, rec.databaseId);
     if (!subs.some((s) => (s.events as string[]).includes('commented'))) return;
-    const target = await this.loadTarget(input.workspaceId, rec.databaseId);
+    try {
+      await this.processComment(input, rec.databaseId, subs);
+    } catch (error) {
+      await this.recordFailure(subs, error);
+    }
+  }
+
+  private async processComment(input: { workspaceId: string; recordId: string; commentId: string; authorId: string; source: string | null }, databaseId: string, subs: Row[]): Promise<void> {
+    const target = await this.loadTarget(input.workspaceId, databaseId);
     if (!target) return;
     await this.deliverEvent({
       kind: 'commented',
@@ -345,7 +366,7 @@ export class SlackSubscriptionsService implements OnModuleInit {
       previousState: null,
       subs,
       target,
-      status: await this.statusOf(rec.databaseId),
+      status: await this.statusOf(databaseId),
     });
   }
 
@@ -404,6 +425,16 @@ export class SlackSubscriptionsService implements OnModuleInit {
     if (!field) return null;
     const options = await this.db.query.selectOptions.findMany({ where: eq(selectOptions.fieldId, field.id) });
     return { fieldId: field.id, labels: new Map(options.map((o) => [o.id, o.label])) };
+  }
+
+  /** A failure before any send was attempted: counted on the subscriptions it concerned and shown, like a failed post. */
+  private async recordFailure(subs: Row[], error: unknown): Promise<void> {
+    this.logger.warn(`slack subscription event failed before sending: ${String(error)}`);
+    await this.db
+      .update(slackSubscriptions)
+      .set({ failedCount: sql`${slackSubscriptions.failedCount} + 1`, lastError: redactError(`Not sent: ${error instanceof Error ? error.message : String(error)}`), lastErrorAt: new Date() })
+      .where(inArray(slackSubscriptions.id, subs.map((x) => x.id)))
+      .catch(() => undefined);
   }
 
   private async deliverEvent(e: {
@@ -547,6 +578,13 @@ export class SlackSubscriptionsService implements OnModuleInit {
       } catch (error) {
         // Slack's own error code or an HTTP status, from SlackService: never a token and never a remote body.
         lastError = redactError(error instanceof Error ? error.message : String(error));
+        // Shown NOW, not after the last retry: with the backoff below a dead destination takes ~36 s to give up, and until then the
+        // list used to read sent 0 / failed 0 / no error, which looks exactly like "nothing happened". failed_count still counts the message once.
+        await this.db
+          .update(slackSubscriptions)
+          .set({ lastError, lastErrorAt: new Date() })
+          .where(inArray(slackSubscriptions.id, m.subscriptionIds))
+          .catch(() => undefined);
       }
     }
     await this.db
@@ -564,6 +602,7 @@ export class SlackSubscriptionsService implements OnModuleInit {
 export function redactError(message: string): string {
   return message
     .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]')
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi, '[host]') // a bare host name (a resolver error names it): the webhook's host is part of the secret
     .replace(/\b(?:xox[a-z]-|xapp-|mn_pat_)[\w-]+/gi, '[redacted]')
     .replace(/\b[A-Za-z0-9_-]{24,}\b/g, '[redacted]')
     .slice(0, 200);

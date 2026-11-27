@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { and, eq } from 'drizzle-orm';
 import { createTestApp } from './helpers/app';
@@ -38,6 +38,7 @@ interface Posted { channel: string | undefined; text: string }
 let posted: Posted[] = [];
 let failNext = 0;
 let failAlways = false;
+let realFetcher: SlackSubscriptionsService['slack']['fetcher'];
 
 const as = (who: { token: string }, method: string, url: string, payload?: unknown) => call(app, who.token, method, url, payload);
 const subsUrl = () => `/workspaces/${ws}/integrations/slack/subscriptions`;
@@ -71,21 +72,24 @@ const clean = async () => {
   failAlways = false;
 };
 
+const defaultFake = async (_url: string, init: { body: string }) => {
+  const body = JSON.parse(init.body) as { channel?: string; text: string };
+  if (failAlways || failNext > 0) {
+    failNext = Math.max(0, failNext - 1);
+    return { status: 200, text: async () => JSON.stringify({ ok: false, error: 'channel_not_found' }) };
+  }
+  posted.push({ channel: body.channel, text: body.text });
+  return { status: 200, text: async () => JSON.stringify({ ok: true }) };
+};
+
 beforeAll(async () => {
   app = await createTestApp();
   svc = app.get(SlackSubscriptionsService);
   db = app.get<Db>(DB);
   svc.sendIntervalMs = 0;
   svc.retryDelaysMs = [0, 0, 0];
-  svc.slack.fetcher = async (_url, init) => {
-    const body = JSON.parse(init.body) as { channel?: string; text: string };
-    if (failAlways || failNext > 0) {
-      failNext = Math.max(0, failNext - 1);
-      return { status: 200, text: async () => JSON.stringify({ ok: false, error: 'channel_not_found' }) };
-    }
-    posted.push({ channel: body.channel, text: body.text });
-    return { status: 200, text: async () => JSON.stringify({ ok: true }) };
-  };
+  realFetcher = svc.slack.fetcher; // the REAL guarded transport, kept for the tests that must go through it
+  svc.slack.fetcher = defaultFake;
 
   owner = await signUpUser(app, 'Subs Owner');
   ws = (await as(owner, 'POST', '/workspaces', { name: 'Slack Subs WS' })).json().id;
@@ -738,5 +742,137 @@ describe('last_error never stores a URL or a token (Vera, #1656)', () => {
     expect(row.failed_count).toBe(1);
     expect(row.last_error).toContain('[url]');
     expect(JSON.stringify(row)).not.toMatch(/hooks\.slack|TOPSECRET|xoxb/);
+  });
+});
+
+describe('nothing is silent: a webhook workspace, the real transport, a failure before the attempt (Iris, #1656)', () => {
+  async function webhookWorkspace(hook: string) {
+    const o = await signUpUser(app, 'Hook Owner');
+    const w = (await as(o, 'POST', '/workspaces', { name: 'Hook WS' })).json().id as string;
+    expect((await as(o, 'POST', `/workspaces/${w}/integrations/slack`, { webhook_url: hook })).statusCode).toBe(201);
+    const sp = ((await as(o, 'GET', `/workspaces/${w}/spaces`)).json() as Array<{ id: string }>)[0]!.id;
+    const d = await as(o, 'POST', `/workspaces/${w}/databases`, { space_id: sp, name: 'Hooked' });
+    const dbId = d.json().id as string;
+    const f = (await as(o, 'POST', `/workspaces/${w}/databases/${dbId}/fields`, { display_name: 'Stage', type: 'workflow', options: [{ label: 'Todo' }, { label: 'Done' }] })).json();
+    const sub = await as(o, 'POST', `/workspaces/${w}/integrations/slack/subscriptions`, { database_id: dbId, events: ['created', 'status_changed', 'commented'] });
+    expect(sub.statusCode, sub.body).toBe(201);
+    return { o, w, dbId, api: f.apiName as string, opts: Object.fromEntries((f.options as Array<{ id: string; label: string }>).map((x) => [x.label, x.id])) };
+  }
+
+  it('through the REAL transport against an unresolvable host: the failure shows (last_error) as soon as the first attempt fails, before the retries are over, and is then counted once', async () => {
+    const h = await webhookWorkspace('https://nonexistent-host-1377.invalid/services/T0/B0/XXXX');
+    svc.slack.fetcher = realFetcher;
+    svc.retryDelaysMs = [700, 700];
+    try {
+      const rec = await as(h.o, 'POST', `/workspaces/${h.w}/databases/${h.dbId}/records`, { values: { name: 'Goes nowhere' } });
+      expect(rec.statusCode, rec.body).toBe(201);
+      let row: { failed_count: number; last_error: string | null } | undefined;
+      for (let i = 0; i < 40 && !row?.last_error; i += 1) {
+        await new Promise((r) => setTimeout(r, 100));
+        row = (await as(h.o, 'GET', `/workspaces/${h.w}/integrations/slack/subscriptions`)).json().data[0];
+      }
+      expect(row?.last_error, 'a real attempt failed and the list must say so').toBeTruthy();
+      expect(row?.last_error).not.toMatch(/nonexistent-host|XXXX/);
+      expect(row?.failed_count, 'still retrying: not counted yet').toBe(0);
+      await settle();
+      const done = (await as(h.o, 'GET', `/workspaces/${h.w}/integrations/slack/subscriptions`)).json().data[0];
+      expect(done).toMatchObject({ failed_count: 1, sent_count: 0 });
+    } finally {
+      svc.retryDelaysMs = [0, 0, 0];
+      svc.slack.fetcher = defaultFake;
+    }
+  });
+
+  it('a failure BEFORE any attempt (the event handler throws) is counted and shown, not only logged', async () => {
+    const h = await webhookWorkspace('https://hooks.slack.com/services/T0/B0/XXXX');
+    const spy = vi.spyOn(svc as unknown as { loadTarget: () => Promise<unknown> }, 'loadTarget').mockRejectedValue(new Error('database exploded at https://db.internal/x'));
+    try {
+      await as(h.o, 'POST', `/workspaces/${h.w}/databases/${h.dbId}/records`, { values: { name: 'Handler dies' } });
+      await settle();
+    } finally {
+      spy.mockRestore();
+    }
+    const row = (await as(h.o, 'GET', `/workspaces/${h.w}/integrations/slack/subscriptions`)).json().data[0];
+    expect(row.failed_count).toBe(1);
+    expect(row.last_error).toContain('Not sent');
+    expect(row.last_error).not.toContain('db.internal');
+  });
+
+  it('a webhook workspace through the normal HTTP API: ONE delivery for created, ONE for status_changed, ONE for commented', async () => {
+    const h = await webhookWorkspace('https://hooks.slack.com/services/T0/B0/XXXX');
+    const seen: string[] = [];
+    svc.slack.fetcher = async (url, init) => {
+      seen.push(`${url}|${(JSON.parse(init.body) as { text: string }).text}`);
+      return { status: 200, text: async () => 'ok' };
+    };
+    try {
+      const rec = await as(h.o, 'POST', `/workspaces/${h.w}/databases/${h.dbId}/records`, { values: { name: 'Hook record', [h.api]: h.opts['Todo'] } });
+      await settle();
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toContain('created');
+      const id = rec.json().id as string;
+      await as(h.o, 'PATCH', `/workspaces/${h.w}/databases/${h.dbId}/records/${id}`, { values: { [h.api]: h.opts['Done'] } });
+      await settle();
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).toContain('changed the status');
+      await as(h.o, 'POST', `/workspaces/${h.w}/databases/${h.dbId}/records/${id}/comments`, { body: [{ type: 'text', text: 'hi' }] });
+      await settle();
+      expect(seen).toHaveLength(3);
+      expect(seen[2]).toContain('commented');
+      const row = (await as(h.o, 'GET', `/workspaces/${h.w}/integrations/slack/subscriptions`)).json().data[0];
+      expect(row).toMatchObject({ sent_count: 3, failed_count: 0, last_error: null });
+    } finally {
+      svc.slack.fetcher = defaultFake;
+    }
+  });
+});
+
+describe('a local webhook catcher on the real rig (Otto, #1656)', () => {
+  it('a localhost target is refused by the SSRF guard at send time, nothing reaches the catcher, and the refusal is a counted, visible failure', async () => {
+    const http = await import('node:http');
+    const hits: string[] = [];
+    const server = http.createServer((req, res) => { hits.push(req.url ?? ''); res.end('ok'); });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const h = await (async () => {
+        const o = await signUpUser(app, 'Catcher Owner');
+        const w = (await as(o, 'POST', '/workspaces', { name: 'Catcher WS' })).json().id as string;
+        expect((await as(o, 'POST', `/workspaces/${w}/integrations/slack`, { webhook_url: 'https://hooks.slack.com/services/T0/B0/XXXX' })).statusCode).toBe(201);
+        const sp = ((await as(o, 'GET', `/workspaces/${w}/spaces`)).json() as Array<{ id: string }>)[0]!.id;
+        const dbId = (await as(o, 'POST', `/workspaces/${w}/databases`, { space_id: sp, name: 'Caught' })).json().id as string;
+        expect((await as(o, 'POST', `/workspaces/${w}/integrations/slack/subscriptions`, { database_id: dbId, events: ['created'] })).statusCode).toBe(201);
+        return { o, w, dbId };
+      })();
+      // a row saved before the URL rule existed (or edited in the database) points at the catcher: the save path would have refused it
+      const { sealFields, SEALED_SETTING_FIELDS } = await import('../src/common/settings-secret');
+      const { workspaces } = await import('../src/db/schema');
+      await db.update(workspaces).set({ settings: { slack: sealFields<{ bot_token?: string; webhook_url?: string }>({ webhook_url: `http://127.0.0.1:${port}/hook` }, SEALED_SETTING_FIELDS.slack) } }).where(eq(workspaces.id, h.w));
+      svc.slack.fetcher = realFetcher;
+      try {
+        expect((await as(h.o, 'POST', `/workspaces/${h.w}/databases/${h.dbId}/records`, { values: { name: 'Into the catcher' } })).statusCode).toBe(201);
+        await settle();
+      } finally {
+        svc.slack.fetcher = defaultFake;
+      }
+      expect(hits, 'the guard stopped the request').toEqual([]);
+      const row = (await as(h.o, 'GET', `/workspaces/${h.w}/integrations/slack/subscriptions`)).json().data[0];
+      expect(row).toMatchObject({ failed_count: 1, sent_count: 0 });
+      expect(row.last_error).toContain('not allowed');
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('a stable machine-readable code for the restricted acknowledgement (Iris, #1656)', () => {
+  it('the 422 carries error.code restricted_acknowledgement_required and the unchanged message; acknowledging it works', async () => {
+    const res = await subscribe({ database_id: closedDbInOpenSpace, channel: 'eng', events: ['created'] });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe('restricted_acknowledgement_required');
+    expect(res.json().error.message).toBe('This space or database is restricted. Subscribing it posts the titles of its records to a Slack channel whose members StoryOS does not control. Send acknowledge_restricted: true to confirm that is intended.');
+    // other 422s keep the generic code
+    expect((await subscribe({ channel: 'eng', events: ['created'] })).json().error.code).not.toBe('restricted_acknowledgement_required');
+    expect((await subscribe({ database_id: closedDbInOpenSpace, channel: 'eng', events: ['created'], acknowledge_restricted: true })).statusCode).toBe(201);
   });
 });
