@@ -1,8 +1,8 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
-import { billingSubscriptions, entitlementOverrideEvents, workspaces } from '../db/schema';
+import { billingSubscriptions, entitlementOverrideEvents, user, workspaces } from '../db/schema';
 import { EntitlementsService } from '../billing/entitlements.service';
 import type { BillingPlanId } from '@storyos/schemas';
 import type { AdminEntitlementOverrideEvent, AdminWorkspaceBillingView } from '@storyos/schemas';
@@ -94,6 +94,7 @@ export class AdminBillingService {
       plan,
       status: null,
       stripeSubscriptionId: null,
+      livemode: false,
       // A plan set through this path isn't seat-metered by a real
       // subscription; leave seats at 0 rather than guessing — it only ever
       // fed Stripe's seat-overage line, which this row now has none of.
@@ -152,6 +153,14 @@ export class AdminBillingService {
       }),
     ]);
 
+    // The audit trail names people, not ids. One lookup for the distinct actors; an actor whose account no longer exists
+    // comes back as null so the page can say so instead of printing an id nobody can read.
+    const actorIds = [...new Set(events.map((e) => e.actorUserId))];
+    const actors = actorIds.length
+      ? await this.db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(inArray(user.id, actorIds))
+      : [];
+    const actorById = new Map(actors.map((a) => [a.id, { name: a.name, email: a.email }]));
+
     const view: AdminWorkspaceBillingView = {
       workspaceId,
       plan: (subscription?.plan ?? 'free') as BillingPlanId,
@@ -175,6 +184,7 @@ export class AdminBillingService {
         (e): AdminEntitlementOverrideEvent => ({
           id: e.id,
           actorUserId: e.actorUserId,
+          actor: actorById.get(e.actorUserId) ?? null,
           action: e.action,
           snapshot: e.snapshot,
           reason: e.reason,

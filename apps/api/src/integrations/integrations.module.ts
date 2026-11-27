@@ -29,6 +29,7 @@ import {
 import { LinearService } from './linear.service';
 import { LinearAttachmentsService } from './linear-attachments.service';
 import { LinearWriteBackService } from './linear-write-back.service';
+import { LinearStatusWriteBackService } from './linear-status-write-back.service';
 import { SlackService } from './slack.service';
 import { SlackEventsController } from './slack-events.controller';
 import { SlackEventsService } from './slack-events.service';
@@ -75,6 +76,7 @@ import { SettingsSecretsBackfillSubscriber } from './settings-secrets-backfill.s
     LinearService,
     LinearAttachmentsService,
     LinearWriteBackService,
+    LinearStatusWriteBackService,
     SlackService,
     SlackApiClient,
     // Ticket #1379: the one line ticket #1378 changes, to read installations from its own table instead of the saved bot token.

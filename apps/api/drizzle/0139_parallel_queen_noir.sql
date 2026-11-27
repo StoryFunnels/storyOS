@@ -1,0 +1,1 @@
+ALTER TABLE "billing_subscriptions" ADD COLUMN "livemode" boolean DEFAULT false NOT NULL;

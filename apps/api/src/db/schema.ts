@@ -742,7 +742,11 @@ export const documentVersions = pgTable(
     version: integer('version').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('document_versions_record_created_idx').on(t.recordId, t.createdAt)],
+  (t) => [
+    index('document_versions_record_created_idx').on(t.recordId, t.createdAt),
+    // Ticket #1386 follow-up: the daily history purge scans `created_at < cutoff` across all workspaces, which no (record_id, created_at) index serves.
+    index('document_versions_created_idx').on(t.createdAt),
+  ],
 );
 
 /** Standalone rich docs living in a space, independent of any record (MN-095). */
@@ -842,6 +846,47 @@ export const linearCommentPushes = pgTable(
     index('linear_comment_pushes_due_idx').on(t.status, t.nextAttemptAt),
     index('linear_comment_pushes_linear_comment_idx').on(t.linearCommentId),
   ],
+);
+
+/**
+ * Ticket #1390 - the outbox for STATUS write-back: while a Linear team is StoryOS-owned (ticket #1370) and an admin switched this on for
+ * it, a record's State is written to its Linear issue. ONE row per record, not per change (unlike `linear_comment_pushes`, where every
+ * comment is its own message): a status is a value, so rapid changes coalesce into the latest and an older one can never overwrite a
+ * newer. `generation` is the monotonic change id: it goes up each time the target changes, a send claims one generation, and its
+ * outcome is stored only if that generation is still current (compare-and-set), so a slow send cannot bury a newer change.
+ *
+ * Status: pending | sending | sent | failed (dead letter: retries used up) | unmapped (no Linear state of that name: never guessed,
+ * not retried) | cancelled (the team is not StoryOS-owned, or the switch is off, at send time). No title or body is ever stored here.
+ */
+export const linearStatusPushes = pgTable(
+  'linear_status_pushes',
+  {
+    recordId: uuid('record_id')
+      .primaryKey()
+      .references(() => records.id, { onDelete: 'cascade' }),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    teamKey: text('team_key').notNull(),
+    /** The Linear issue (its internal UUID, the mirrored record's `linear_id`). */
+    linearIssueId: text('linear_issue_id').notNull(),
+    /** The State option label StoryOS wanted at the last change; the Linear state of the same name in the team's workflow is what gets written. */
+    targetLabel: text('target_label').notNull(),
+    generation: integer('generation').notNull().default(1),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
+    /** What was last written (or found already in place) in Linear, and for which generation. */
+    appliedLabel: text('applied_label'),
+    appliedStateId: text('applied_state_id'),
+    appliedGeneration: integer('applied_generation'),
+    /** Who changed the status, as far as history says (source human/agent/automation/mcp; history can be off on a plan, then null). */
+    changeSource: text('change_source'),
+    changeAgentName: text('change_agent_name'),
+    ...timestamps,
+  },
+  (t) => [index('linear_status_pushes_due_idx').on(t.status, t.nextAttemptAt), index('linear_status_pushes_ws_team_idx').on(t.workspaceId, t.teamKey, t.status)],
 );
 
 /**
@@ -1433,7 +1478,11 @@ export const recordVersions = pgTable(
     values: jsonb('values').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('record_versions_record_created_idx').on(t.recordId, t.createdAt)],
+  (t) => [
+    index('record_versions_record_created_idx').on(t.recordId, t.createdAt),
+    // Ticket #1386 follow-up: the daily history purge scans `created_at < cutoff` across all workspaces, which no (record_id, created_at) index serves.
+    index('record_versions_created_idx').on(t.createdAt),
+  ],
 );
 
 /**
@@ -1507,6 +1556,8 @@ export const recordFieldChanges = pgTable(
     index('record_field_changes_db_field_created_idx').on(t.databaseId, t.fieldId, t.createdAt),
     // Retention pruning walks this one, per plan window.
     index('record_field_changes_ws_created_idx').on(t.workspaceId, t.createdAt),
+    // Ticket #1386 follow-up: the daily history purge scans `created_at < cutoff` across all workspaces; every index above leads with another column.
+    index('record_field_changes_created_idx').on(t.createdAt),
     // #541 AC — "queryable in bulk for a date range" for one agent.
     index('record_field_changes_agent_created_idx').on(t.agentId, t.createdAt),
   ],
@@ -1582,6 +1633,13 @@ export const billingSubscriptions = pgTable('billing_subscriptions', {
   /** null until a Stripe subscription exists (a no-card trial has none yet). */
   status: subscriptionStatus('status'),
   stripeSubscriptionId: text('stripe_subscription_id').unique(),
+  /**
+   * Whether that Stripe subscription is a live-mode one (Stripe's own `livemode` flag), written by the webhook reconcile.
+   * False for sandbox subscriptions, for rows written before this column existed (their mode was never recorded), and for
+   * admin-granted plans. The operator's Est. MRR counts only rows where this is true, so an unrecorded row is left out
+   * rather than guessed live.
+   */
+  livemode: boolean('livemode').notNull().default(false),
   /** Billable seats charged as the $12 overage line — 0 while within the included tier. */
   seats: integer('seats').notNull().default(0),
   cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),

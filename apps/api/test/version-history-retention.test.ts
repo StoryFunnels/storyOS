@@ -159,6 +159,25 @@ describe('the newest version of a record or document is the restore baseline and
   });
 });
 
+describe('the purge scan is served by a created_at index on each table (ticket #1386 follow-up)', () => {
+  for (const [table, index] of [['record_versions', 'record_versions_created_idx'], ['record_field_changes', 'record_field_changes_created_idx'], ['document_versions', 'document_versions_created_idx']] as const) {
+    it(`${table}: ${index} exists, leads with created_at, and the planner can use it for created_at < cutoff`, async () => {
+      const def = await pool.query('SELECT indexdef FROM pg_indexes WHERE tablename = $1 AND indexname = $2', [table, index]);
+      expect(def.rows[0]?.indexdef, `${index} missing`).toMatch(/\(created_at\)$/);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SET LOCAL enable_seqscan = off');
+        const plan = await client.query(`EXPLAIN SELECT id FROM ${table} WHERE created_at < now() - interval '14 days'`);
+        expect(plan.rows.map((r: { 'QUERY PLAN': string }) => r['QUERY PLAN']).join('\n')).toContain(index);
+        await client.query('ROLLBACK');
+      } finally {
+        client.release();
+      }
+    });
+  }
+});
+
 describe('how it deletes', () => {
   it('walks in batches, stops at maxBatches and the next run continues', async () => {
     const w = await newWs('free');

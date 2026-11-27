@@ -69,6 +69,7 @@ const DECLARED_SAFE: Record<string, string> = {
   session_id: "ticket #1133 — the coding tool's own conversation id on a Run record, kept for diagnosis; it grants nothing and is never a login",
   system_key: "ticket #1063 — which system database a row is ('agents', 'agent_runs', ...): an identifier, not a credential",
   team_keys: 'Linear team identifiers — the non-secret sibling of api_key',
+  team_key: "ticket #1390 — one Linear team's identifier (e.g. 'ENG') on the status outbox: not a credential",
   allow_private_teams: "ticket #1367 — a BOOLEAN switch on the Linear config: whether a PRIVATE Linear team may be imported. 'private' here is Linear's visibility word, not a private key",
   private: "ticket #1367 — Linear's `Team.private` visibility flag (a boolean read from Linear), not a private key",
   private_teams: "ticket #1367 — the import report's list of private teams (key, space id, grant counts): visibility bookkeeping, no credential",

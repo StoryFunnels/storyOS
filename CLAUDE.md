@@ -42,6 +42,15 @@ Monorepo: pnpm + Turbo. `apps/api` (NestJS/Fastify), `apps/web` (Next.js),
 4. **Secrets never reach git** — keys live in `.env` only.
 5. **Don't mention the reference tool by name** in anything public-facing —
    code comments, docs, or commit messages say "the reference tool".
+6. **Hosting details never reach this repo.** This repo is public. Tickets in
+   StoryOS are private and may describe the hosted service: hosting provider,
+   server names, IPs, regions, machine sizes, bucket names, backup locations,
+   how many servers there are and what runs on which. When you turn a ticket
+   into a PR, commit, code comment, doc or GitHub comment, leave all of that
+   out and write "the server", "object storage", "the hosted service". Those
+   details live in the private infrastructure repo. Together they are a map of
+   where to attack; one of them alone is harmless, which is why they leak one
+   at a time.
 
 ## Touching a field surface (cells, forms, pickers) — reuse, don't re-case
 

@@ -175,3 +175,24 @@ export async function recordLinearOwnershipEvent(
     agentName: actor?.agentName ?? null,
   });
 }
+
+/**
+ * Ticket #1390 - status write-back to Linear switched on or off for one team. Same table and attribution as `recordLinearOwnershipEvent`:
+ * actor = the admin, the team key as the object. Names a team and a direction, never a record or a credential.
+ */
+export async function recordLinearStatusWriteBackEvent(
+  db: Db | Tx,
+  event: { workspaceId: string; teamKey: string; enabled: boolean; extra?: Record<string, unknown> },
+): Promise<void> {
+  const actor = currentActor();
+  await db.insert(activityEvents).values({
+    workspaceId: event.workspaceId,
+    recordId: null,
+    actorId: actor?.userId ?? null,
+    type: 'linear_status_write_back.changed',
+    payload: { object: { kind: 'linear_team', id: event.teamKey, name: `Linear team ${event.teamKey}` }, enabled: event.enabled, ...(event.extra ?? {}) },
+    source: actor?.source ?? null,
+    agentId: actor?.agentId ?? null,
+    agentName: actor?.agentName ?? null,
+  });
+}

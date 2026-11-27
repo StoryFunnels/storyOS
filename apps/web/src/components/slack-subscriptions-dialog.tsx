@@ -71,9 +71,9 @@ export function SlackSubscriptionsDialogContent({
       toast.success(`Posting to ${channelInSentence(draft.body.channel ?? null)}`);
     } catch (e) {
       const message = apiErrorMessage(e, 'Could not add the channel. Try again.');
-      if (isRestrictedRefusal(message)) setServerAsked(true);
+      if (isRestrictedRefusal(e)) setServerAsked(true);
       // A 409 is the duplicate-channel refusal; its own sentence points at an edit this screen does not have.
-      setProblem(isRestrictedRefusal(message) ? null : errorCode(e) === 'conflict' ? DUPLICATE_CHANNEL_LINE : message);
+      setProblem(isRestrictedRefusal(e) ? null : errorCode(e) === 'conflict' ? DUPLICATE_CHANNEL_LINE : message);
     }
   }
 

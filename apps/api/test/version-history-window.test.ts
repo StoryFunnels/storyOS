@@ -13,7 +13,7 @@ import { signUpUser } from './helpers/users';
 import { call, joinAs, setRestricted } from './helpers/members';
 import { billingSubscriptions, documentVersions, recordFieldChanges, recordVersions, records } from '../src/db/schema';
 import { PURGE_NOT_BEFORE } from '../src/activity/activity-retention.service';
-import { windowClock } from '../src/activity/history-window';
+import { historyWindowOpen, historyWindowStart, windowClock } from '../src/activity/history-window';
 
 /**
  * Ticket #1386 — the plan window on the READ side. The window (plans.ts `historyRetentionDays`: Free 14, Pro 270, Business 730,
@@ -127,6 +127,29 @@ describe('record version list and restore, per plan window (from 2026-12-27)', (
     expect(preview.statusCode, preview.body).toBe(200);
     const restore = await atClock(BEFORE, () => f.as('POST', `${f.base}/${f.rec}/versions/${old}/restore`));
     expect(restore.statusCode, restore.body).toBe(201);
+  });
+
+  it('the not-before date is judged to the millisecond: at 2026-12-27T00:00:00.000Z the window applies, one millisecond earlier it does not', async () => {
+    const f = await newWs('free');
+    // 40 days before the boundary instant: past Free's 14 days at both clocks, so only the date decides.
+    const old = (await raw.insert(recordVersions).values({ workspaceId: f.ws, recordId: f.rec, title: 't', values: {}, createdAt: new Date(PURGE_NOT_BEFORE.getTime() - 40 * DAY) }).returning({ id: recordVersions.id }))[0]!.id;
+    const oldChange = (await raw.insert(recordFieldChanges).values({ workspaceId: f.ws, databaseId: f.db, recordId: f.rec, fieldId: null, oldValue: 'a', newValue: 'b', createdAt: new Date(PURGE_NOT_BEFORE.getTime() - 40 * DAY) }).returning({ id: recordFieldChanges.id }))[0]!.id;
+    const justBefore = new Date(PURGE_NOT_BEFORE.getTime() - 1);
+    expect(ids(await atClock(justBefore, () => f.as('GET', `${f.base}/${f.rec}/versions`)))).toContain(old);
+    expect((await atClock(justBefore, () => f.as('GET', `${f.base}/${f.rec}/versions/${old}`))).statusCode).toBe(200);
+    const at = await atClock(PURGE_NOT_BEFORE, () => f.as('GET', `${f.base}/${f.rec}/versions`));
+    expect(ids(at)).not.toContain(old);
+    expect((await atClock(PURGE_NOT_BEFORE, () => f.as('GET', `${f.base}/${f.rec}/versions/${old}`))).statusCode).toBe(404);
+    // the field-change timeline answers to the same gate
+    expect(ids(await atClock(justBefore, () => f.as('GET', `${f.base}/${f.rec}/versions/changes`)))).toContain(oldChange);
+    expect(ids(await atClock(PURGE_NOT_BEFORE, () => f.as('GET', `${f.base}/${f.rec}/versions/changes`)))).not.toContain(oldChange);
+  });
+
+  it('historyWindowOpen / historyWindowStart: closed at not-before minus 1 ms, open at not-before exactly', () => {
+    expect(historyWindowOpen(new Date(PURGE_NOT_BEFORE.getTime() - 1))).toBe(false);
+    expect(historyWindowOpen(PURGE_NOT_BEFORE)).toBe(true);
+    expect(historyWindowStart(14, new Date(PURGE_NOT_BEFORE.getTime() - 1))).toBeNull();
+    expect(historyWindowStart(14, PURGE_NOT_BEFORE)?.getTime()).toBe(PURGE_NOT_BEFORE.getTime() - 14 * DAY);
   });
 
   it('the boundary is the instant, not the day: one second inside is listed, one second outside is not', async () => {

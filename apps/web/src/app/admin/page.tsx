@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/select';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { auditActorLabel, showAiCostColumn, splitEmptyRuns } from '@/lib/admin-page';
 
 /**
  * MN-104's first (and so far only) superadmin surface — this page is the read
@@ -137,6 +138,8 @@ interface AdminEntitlementOverrideView {
 interface AdminEntitlementOverrideEvent {
   id: string;
   actorUserId: string;
+  /** The person behind `actorUserId`; null when their account has been deleted. */
+  actor: { name: string; email: string } | null;
   action: 'set' | 'clear';
   snapshot: unknown;
   reason: string;
@@ -301,36 +304,36 @@ export default function AdminPage() {
   const c = costs.data!;
 
   const flagged = c.workspaces.filter((w) => w.belowMarginFloor);
+  const showAi = showAiCostColumn(c.workspaces);
+  const { shown: shownRuns, emptyCount: emptyRunCount } = splitEmptyRuns(runs.data ?? []);
 
   return (
     <div className="mx-auto max-w-5xl p-8">
       <h1 className="mb-1 text-lg font-semibold text-ink">Admin</h1>
-      <p className="mb-6 text-body text-muted">
-        Instance overview, plus MN-194 cost &amp; margin.
-      </p>
+      <p className="mb-6 text-body text-muted">Everything across this StoryOS instance.</p>
 
-      <section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Workspaces" value={String(o.totalWorkspaces)} />
-        <Stat label="Users" value={String(o.totalUsers)} />
-        <Stat label="Records" value={o.totalRecords.toLocaleString()} />
-        <Stat label="Est. MRR" value={usd(o.estimatedMrrUsd * 100)} />
+      <section className="mb-8">
+        <h2 className="mb-2 text-sm font-medium text-ink">Overview</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="Workspaces" value={String(o.totalWorkspaces)} />
+          <Stat label="Users" value={String(o.totalUsers)} />
+          <Stat label="Records" value={o.totalRecords.toLocaleString()} />
+          <Stat label="Est. MRR" value={usd(o.estimatedMrrUsd * 100)} />
+        </div>
+        <p className="mt-2 text-label text-muted">Est. MRR counts live Stripe subscriptions only.</p>
       </section>
 
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="text-sm font-medium text-ink">Cost &amp; Margin</h2>
+          <h2 className="text-sm font-medium text-ink">Cost &amp; margin</h2>
           <span className="text-label text-muted">
             Margin floor: {c.marginFloorPercent}% · Fixed infra:{' '}
             {usd(c.fixedMonthlyInfraCostUsd * 100)}/mo (allocated below)
           </span>
         </div>
         <p className="mb-3 text-body text-muted">
-          Hosted calls, storage, and email are measured from real usage counters. AI cost is
-          <strong className="text-ink">
-            {' '}
-            estimated — pending MN-214r&apos;s real managed-AI runtime
-          </strong>
-          ; today it is $0 for every workspace because no managed run has executed yet.
+          Hosted calls, storage, and email are measured from real usage counters. AI runs on each
+          customer&apos;s own AI account, so StoryOS pays nothing for it.
         </p>
 
         {flagged.length > 0 && (
@@ -396,7 +399,7 @@ export default function AdminPage() {
                 <Th>Hosted calls</Th>
                 <Th>Storage</Th>
                 <Th>Email</Th>
-                <Th>AI (est.)</Th>
+                {showAi && <Th>AI (est.)</Th>}
                 <Th>Margin</Th>
                 <Th>Margin %</Th>
                 <Th>Flag</Th>
@@ -411,7 +414,7 @@ export default function AdminPage() {
                   <Td>{usd(w.hostedCallsCostCents)}</Td>
                   <Td>{usd(w.storageCostCents)}</Td>
                   <Td>{usd(w.emailCostCents)}</Td>
-                  <Td>{usd(w.aiCostCents)}</Td>
+                  {showAi && <Td>{usd(w.aiCostCents)}</Td>}
                   <Td className={w.marginCents < 0 ? 'text-error' : undefined}>
                     {usd(w.marginCents)}
                   </Td>
@@ -434,7 +437,7 @@ export default function AdminPage() {
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-ink">Runs</h2>
           <span className="text-label text-muted">
-            #300/MN-216c — every workspace, read-only + kill-switch
+            Every workspace, read-only except Cancel
           </span>
         </div>
         <p className="mb-3 text-body text-muted">
@@ -461,14 +464,14 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {runs.data.length === 0 && (
+                {shownRuns.length === 0 && (
                   <tr>
                     <Td colSpan={99} className="p-0">
                       <EmptyState variant="list" title="No runs on this instance yet." />
                     </Td>
                   </tr>
                 )}
-                {runs.data.map((r) => {
+                {shownRuns.map((r) => {
                   const cancelable = r.status !== null && CANCELABLE_STATUSES.has(r.status);
                   return (
                     <tr key={r.id} className="border-t border-border-default">
@@ -513,14 +516,18 @@ export default function AdminPage() {
             </table>
           </div>
         )}
+        {runs.data && emptyRunCount > 0 && (
+          <p className="mt-2 text-label text-muted">
+            {emptyRunCount} run {emptyRunCount === 1 ? 'record' : 'records'} with nothing recorded{' '}
+            {emptyRunCount === 1 ? 'is' : 'are'} not shown.
+          </p>
+        )}
       </section>
 
       <section className="mb-8">
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="text-sm font-medium text-ink">Pack Marketplace</h2>
-          <span className="text-label text-muted">
-            MN-220 — submissions awaiting (or having had) review
-          </span>
+          <h2 className="text-sm font-medium text-ink">Pack marketplace</h2>
+          <span className="text-label text-muted">Submissions awaiting (or having had) review</span>
         </div>
         <p className="mb-3 text-body text-muted">
           v1 is curated: nothing here is listed on the marketplace until approved.
@@ -717,7 +724,7 @@ function BillingSection() {
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-sm font-medium text-ink">Billing</h2>
         <span className="text-label text-muted">
-          #304 — comp/Enterprise grants; never touches live Stripe
+          Comp and Enterprise grants; never touches live Stripe
         </span>
       </div>
       <p className="mb-3 text-body text-muted">
@@ -969,7 +976,9 @@ function BillingSection() {
                 {b.auditTrail.map((e) => (
                   <tr key={e.id} className="border-t border-border-default">
                     <Td>{formatDateTime(e.createdAt)}</Td>
-                    <Td>{e.actorUserId}</Td>
+                    <Td>
+                      <ActorCell row={e} />
+                    </Td>
                     <Td>{e.action}</Td>
                     <Td>{e.reason}</Td>
                   </tr>
@@ -980,6 +989,17 @@ function BillingSection() {
         </>
       )}
     </section>
+  );
+}
+
+/** An audit-trail actor: the person's name with their email beneath it. The raw id stays out of sight (it is on the title for the rare case someone needs it). */
+function ActorCell({ row }: { row: AdminEntitlementOverrideEvent }) {
+  const who = auditActorLabel(row);
+  return (
+    <div title={row.actorUserId}>
+      <div className="text-ink">{who.name}</div>
+      {who.email && <div className="text-label text-muted">{who.email}</div>}
+    </div>
   );
 }
 

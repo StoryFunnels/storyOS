@@ -196,6 +196,13 @@ class LinearOwnershipDto extends createZodDto(
   }),
 ) {}
 
+class LinearStatusWriteBackDto extends createZodDto(
+  z.object({
+    /** Ticket #1390 - write a status change made in StoryOS to the Linear issue. Only while StoryOS owns the team; off by default. */
+    enabled: z.boolean(),
+  }),
+) {}
+
 class SlackConfigDto extends createZodDto(
   z.object({
     bot_token: z.string().min(1).max(255).optional(),
@@ -626,6 +633,16 @@ export class LinearIntegrationsController {
   @ApiOperation({ summary: 'Cutover: set who owns a Linear team\'s records (linear = mirrored, storyos = cut over). Admin only; logged in the audit log.' })
   setOwnership(@Req() req: WorkspaceRequest, @Param('key') key: string, @Body() body: LinearOwnershipDto) {
     return this.linear.setOwnership(req.membership, req.user.id, key, body);
+  }
+
+  /**
+   * Ticket #1390 - status write-back for ONE team. Admin-only like everything on this controller; human-only over MCP (coverage.ts).
+   * Switching it on needs the team to be StoryOS-owned; switching it off, or off and on, is how an admin retries what gave up.
+   */
+  @Put('teams/:key/status-write-back')
+  @ApiOperation({ summary: 'Cutover: write status changes made in StoryOS to the Linear issue, for one StoryOS-owned team (off by default). Admin only; logged in the audit log.' })
+  setStatusWriteBack(@Req() req: WorkspaceRequest, @Param('key') key: string, @Body() body: LinearStatusWriteBackDto) {
+    return this.linear.setStatusWriteBack(req.membership, req.user.id, key, body);
   }
 
   /** MN-249: the directory's per-row "Disconnect" action — clears the API key + team filter. */
