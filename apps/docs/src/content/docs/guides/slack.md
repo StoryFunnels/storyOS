@@ -28,7 +28,7 @@ A space subscription covers every database in the space. If a database in the sp
 subscription to the **same channel**, that one wins, and the channel gets one message, not two, with
 only the events the database subscription names.
 
-A bot-token workspace needs a channel (a public channel's name such as `engineering`, or its id).
+A bot-token workspace needs a channel (a channel name such as `engineering`, or its id).
 A workspace that posts through an **incoming webhook** has its channel fixed by the webhook, so you
 leave the channel empty.
 
@@ -48,6 +48,11 @@ Everything a person typed (a title, a name, a state) is posted as literal text, 
 
 - **Personal space** content. A personal space cannot be subscribed.
 - A **trashed** record, and anything in a deleted database or space.
+- **Bulk writes that are not a person typing.** Source syncs (Shopify, Apify, engagement), the GitHub and
+  Google Calendar inbound syncs, a **CSV import**, and the sample records of a **template or pack** post nothing,
+  for *created* or for status changes. **Not marked as imports, so treated like any other write:** copying or
+  duplicating records, restoring a record from Trash, and anything an automation or an agent writes. A big batch
+  of those is folded into one line by the rate limit below.
 - **Imports.** Importing records posts nothing for *created*, and a full or first import posts no
   status changes. A scheduled sync that read only what changed in the source (an *incremental* run,
   such as the Linear sync) does post the status changes it carries, marked *via sync*.
@@ -74,7 +79,7 @@ over and it posts again.
 ## Delivery
 
 - A message that fails is retried with a growing wait, three more times, and then counted on the
-  subscription: `failed_count` and `last_error` (Slack's own error code, such as `channel_not_found`).
+  subscription: `failed_count` and `last_error` (Slack's own error code, such as `channel_not_found`; any URL or token-like text is replaced).
   A failed post never blocks or fails the change to the record.
 - Slack allows about one message a second per channel. A burst beyond a small backlog is folded into
   **one line saying how many updates were held back**, never dropped without a word.
@@ -83,7 +88,7 @@ over and it posts again.
 
 ## Limits
 
-- Public channels only. Private channels, direct messages and people are not supported.
+- A subscription posts to **a channel the bot can post to**. StoryOS cannot tell a public channel from a private one by its id, so a private channel the bot was invited to works too; StoryOS never lists private channels. Direct messages, people and legacy private-channel ids (`G...`, `D...`, `U...`) are refused.
 - Removing a subscription stops its posts immediately. Removing the Slack connection (**Disconnect**)
   makes new subscriptions impossible and existing ones fail with an error you can see in the list.
 

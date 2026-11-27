@@ -19,14 +19,13 @@ type Row = typeof slackSubscriptions.$inferSelect;
 
 /**
  * #1377 - a public channel's NAME (lowercase letters, digits, hyphen, underscore) or its ID (`C...`). A leading `#` is dropped.
- * Refused on purpose: a legacy private-channel id (`G...`), a direct-message id (`D...`) and a user id (`U...`/`W...`). A subscription
- * posts a workspace's records to a room, and a private room or a person is not a place the product lists, picks or vouches for. (Slack
- * now gives new private channels a `C` id too; the bot can only post to one it was invited to, and Slack, not us, enforces that. We do
- * not list private channels and do not ask for the scope that would.)
+ * Refused on purpose: a legacy private-channel id (`G...`), a direct-message id (`D...`) and a user id (`U...`/`W...`). What this does
+ * NOT do: tell public from private. Slack gives a private channel a `C` id too, so a private channel the bot was invited to passes. The
+ * only promise is "a channel the bot can post to" (Slack enforces that, not us); we never list private channels and never ask for the scope.
  */
 export function slackChannelProblem(raw: string): { channel: string } | { problem: string } {
   const channel = raw.trim().replace(/^#/, '');
-  if (/^[GDUW][A-Z0-9]{6,}$/.test(channel)) return { problem: 'A subscription posts to a public channel. Private channels, direct messages and people are not supported.' };
+  if (/^[GDUW][A-Z0-9]{6,}$/.test(channel)) return { problem: 'A subscription posts to a channel the bot can post to. Direct messages, people and legacy private-channel ids are not supported.' };
   if (/^C[A-Z0-9]{6,}$/.test(channel) || /^[a-z0-9][a-z0-9_-]{0,79}$/.test(channel)) return { channel };
   return { problem: 'Not a Slack channel: use a channel name such as "engineering" or a channel id such as "C0123ABCDEF".' };
 }
@@ -547,7 +546,7 @@ export class SlackSubscriptionsService implements OnModuleInit {
         return;
       } catch (error) {
         // Slack's own error code or an HTTP status, from SlackService: never a token and never a remote body.
-        lastError = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+        lastError = redactError(error instanceof Error ? error.message : String(error));
       }
     }
     await this.db
@@ -556,6 +555,18 @@ export class SlackSubscriptionsService implements OnModuleInit {
       .where(inArray(slackSubscriptions.id, m.subscriptionIds))
       .catch(() => undefined);
   }
+}
+
+/**
+ * What may be stored in `last_error` and shown to an admin: SlackService already answers with Slack's error code or an HTTP status, but
+ * an error from the transport can carry the webhook URL (itself a secret) or a token. Every URL and anything token-shaped is replaced.
+ */
+export function redactError(message: string): string {
+  return message
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]')
+    .replace(/\b(?:xox[a-z]-|xapp-|mn_pat_)[\w-]+/gi, '[redacted]')
+    .replace(/\b[A-Za-z0-9_-]{24,}\b/g, '[redacted]')
+    .slice(0, 200);
 }
 
 function normaliseEvents(events: SubscriptionEventKind[]): SubscriptionEventKind[] {

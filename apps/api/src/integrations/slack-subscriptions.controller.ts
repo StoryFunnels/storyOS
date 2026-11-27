@@ -15,7 +15,7 @@ class CreateSlackSubscriptionDto extends createZodDto(
     /** Exactly one of space_id or database_id (the service rejects both and neither with a message). */
     space_id: z.uuid().optional(),
     database_id: z.uuid().optional(),
-    /** A public channel's name or id. Leave empty when the workspace posts through an incoming webhook. */
+    /** A channel name or id. Leave empty when the workspace posts through an incoming webhook. */
     channel: z.string().max(100).optional(),
     events: eventsSchema,
     /** Required when the space or database is restricted: its record titles go to a channel StoryOS does not control. */

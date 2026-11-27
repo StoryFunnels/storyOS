@@ -8,7 +8,7 @@ import type { Person } from './helpers/members';
 import { DB } from '../src/db/db.module';
 import type { Db } from '../src/db/client';
 import { databases, memberships, records, slackSubscriptions, spaces } from '../src/db/schema';
-import { SlackSubscriptionsService } from '../src/integrations/slack-subscriptions.service';
+import { SlackSubscriptionsService, redactError } from '../src/integrations/slack-subscriptions.service';
 import { ExternalIdUpsertService } from '../src/migration-framework/external-id-upsert.service';
 import { runAsImportRun } from '../src/common/import-run-context';
 import type { DomainEvent } from '../src/events/domain-events.service';
@@ -686,5 +686,57 @@ describe('deleting the database or the space takes the subscription with it', ()
     expect(sub.statusCode, sub.body).toBe(201);
     await db.delete(databases).where(eq(databases.id, extra.id));
     expect(await db.query.slackSubscriptions.findFirst({ where: eq(slackSubscriptions.id, sub.json().id) })).toBeUndefined();
+  });
+});
+
+describe('anonymous callers, and a missing id looks exactly like a hidden one (Vera, #1656)', () => {
+  const ID = '00000000-0000-4000-8000-0000000000aa';
+  const strip = (body: string) => JSON.stringify((JSON.parse(body) as { error: Record<string, unknown> }).error, (k, v) => (k === 'request_id' ? undefined : v));
+
+  it('all four routes answer 401 with no credential', async () => {
+    for (const [method, url] of [['GET', subsUrl()], ['POST', subsUrl()], ['PATCH', `${subsUrl()}/${ID}`], ['DELETE', `${subsUrl()}/${ID}`]] as const) {
+      const res = await call(app, null, method, url, method === 'POST' || method === 'PATCH' ? { events: ['created'] } : undefined);
+      expect(res.statusCode, `${method} ${url}: ${res.body}`).toBe(401);
+    }
+  });
+
+  it('the 404 for an id that does not exist is byte-identical to the 404 for another workspace\'s subscription (PATCH and DELETE)', async () => {
+    const other = await signUpUser(app, 'Hidden Owner');
+    const otherWs = (await as(other, 'POST', '/workspaces', { name: 'Hidden WS' })).json().id as string;
+    await as(other, 'POST', `/workspaces/${otherWs}/integrations/slack`, { bot_token: 'xoxb-h', default_channel: 'general' });
+    const otherSpace = ((await as(other, 'GET', `/workspaces/${otherWs}/spaces`)).json() as Array<{ id: string }>)[0]!.id;
+    const theirs = (await as(other, 'POST', subsUrl().replace(ws, otherWs), { space_id: otherSpace, channel: 'x', events: ['created'] })).json().id as string;
+    for (const [method, payload] of [['PATCH', { events: ['commented'] }], ['DELETE', undefined]] as const) {
+      const missing = await as(owner, method, `${subsUrl()}/${ID}`, payload);
+      const hidden = await as(owner, method, `${subsUrl()}/${theirs}`, payload);
+      expect(missing.statusCode).toBe(404);
+      expect(hidden.statusCode).toBe(404);
+      expect(strip(hidden.body), method).toBe(strip(missing.body));
+    }
+  });
+});
+
+describe('last_error never stores a URL or a token (Vera, #1656)', () => {
+  it('redactError replaces URLs and token-shaped text and keeps Slack\'s error code', () => {
+    expect(redactError('Slack API: channel_not_found')).toBe('Slack API: channel_not_found');
+    const out = redactError('getaddrinfo failed for https://hooks.slack.com/services/T000/B000/SECRETSECRETSECRET and xoxb-1234-abcdef plus abcdefghijklmnopqrstuvwxyz0123');
+    expect(out).not.toMatch(/hooks\.slack|SECRET|xoxb|abcdefghijklmnop/);
+    expect(out).toContain('[url]');
+  });
+
+  it('an error whose message carries the webhook URL is stored redacted and shown redacted', async () => {
+    await subscribe({ database_id: issuesDb, channel: 'eng', events: ['created'] });
+    const original = svc.slack.fetcher;
+    svc.slack.fetcher = async () => { throw new Error('connect ECONNREFUSED https://hooks.slack.com/services/T0/B0/TOPSECRETTOKENVALUE0123456789 xoxb-live-token-1'); };
+    try {
+      await createRecord(issuesDb, { name: 'Leaky error' });
+      await settle();
+    } finally {
+      svc.slack.fetcher = original;
+    }
+    const row = (await as(owner, 'GET', subsUrl())).json().data[0];
+    expect(row.failed_count).toBe(1);
+    expect(row.last_error).toContain('[url]');
+    expect(JSON.stringify(row)).not.toMatch(/hooks\.slack|TOPSECRET|xoxb/);
   });
 });

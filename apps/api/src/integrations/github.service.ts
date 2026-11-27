@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
+import { runAsImportRun } from '../common/import-run-context';
 import { and, eq, sql } from 'drizzle-orm';
 import { DB } from '../db/db.module';
 import type { Db } from '../db/client';
@@ -680,25 +681,25 @@ export class GithubService implements OnModuleInit, OnModuleDestroy {
     } as never, actorId);
     if (existing.data[0]) {
       // #481 — a GitHub webhook/sync write, never a person typing.
-      await this.recordsService.update(
+      await runAsImportRun(() => this.recordsService.update(
         membership.workspaceId,
         databaseId,
-        existing.data[0].id,
+        existing.data[0]!.id,
         values,
         actorId,
         0,
         'automation',
-      );
+      ));
       return { id: existing.data[0].id, created: false };
     }
-    const created = await this.recordsService.create(
+    const created = await runAsImportRun(() => this.recordsService.create(
       membership.workspaceId,
       databaseId,
       { ...values, repo, number },
       actorId,
       0,
       'automation',
-    );
+    ));
     return { id: created.id, created: true };
   }
 
