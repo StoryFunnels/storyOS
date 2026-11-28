@@ -115,7 +115,8 @@ describe('where the events are emitted', () => {
     const login = code(read('app/(auth)/login/page.tsx'));
     const google = login.slice(login.indexOf("provider: 'google'") - 400, login.indexOf("provider: 'google'") + 400);
     expect(google).not.toMatch(/posthog\.capture/);
-    expect(google).toMatch(/newUserCallbackURL: GOOGLE_NEW_USER_CALLBACK/);
+    // #1394: the marker is still the base of the callback; withReturnPath only appends the link the person was sent.
+    expect(google).toMatch(/newUserCallbackURL: withReturnPath\(GOOGLE_NEW_USER_CALLBACK, nextUrl\)/);
   });
   it('the email sign-up still emits user_signed_up with its method and the first touch', () => {
     const signup = code(read('app/(auth)/signup/page.tsx'));

@@ -1,5 +1,6 @@
 'use client';
 
+import { loginPathFor } from '@/lib/return-to';
 import { useScrollMemory } from '@/lib/scroll-memory';
 import { useInputModality } from '@/lib/input-modality';
 import { useParams, usePathname, useRouter } from 'next/navigation';
@@ -100,7 +101,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (mounted && verdict === 'signed_out') router.replace('/login');
+    // #1394 — carry the link they were sent through sign-in; plain /login lost the record.
+    if (mounted && verdict === 'signed_out') router.replace(loginPathFor(`${window.location.pathname}${window.location.search}${window.location.hash}`));
   }, [mounted, verdict, router]);
 
   // Navigating (tapping a sidebar link) closes the mobile drawer so the
