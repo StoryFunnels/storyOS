@@ -90,7 +90,7 @@ describe('#902 through the service: dry-run preview, sync, idempotent re-sync, f
     linear = app.get(LinearService);
     admin = await signUpUser(app, 'Linear Pager');
     ws = (await inject('POST', '/workspaces', { name: 'Linear Paging WS' })).json().id;
-    expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['BIG'] })).statusCode).toBe(201);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['BIG'] })).statusCode).toBe(201);
   }, 120_000);
   afterAll(async () => { await app.close(); });
 

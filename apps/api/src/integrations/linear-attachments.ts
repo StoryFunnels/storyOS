@@ -1,6 +1,7 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { pageAll } from './linear-paging';
+import { chunked, deriveQuery, IDS_CHUNK } from './linear-import-scope';
 import type { PageInfo } from './linear-paging';
 import type { LinearFetcher, LinearTeam } from './linear.service';
 
@@ -73,6 +74,11 @@ if (!TEAM_ATTACHMENTS_SINCE_QUERY.includes('TeamAttachmentsSince') || !TEAM_ATTA
   // Same guard as TEAM_ISSUES_SINCE_QUERY: the derivation is textual, so a reworded base must fail at load, not read everything silently.
   throw new Error('TEAM_ATTACHMENTS_SINCE_QUERY no longer derives from TEAM_ATTACHMENTS_QUERY');
 }
+/** Ticket #1393 — the same walk for an explicit list of issues (`id: { in: $ids }`): a scoped import fetches attachments ONLY for the issues it imported. */
+export const TEAM_ATTACHMENTS_BY_IDS_QUERY = deriveQuery(TEAM_ATTACHMENTS_QUERY, [
+  ['query TeamAttachments($id: String!, $after: String)', 'query TeamAttachments($id: String!, $after: String, $ids: [ID!]!)'],
+  [`issues(first: ${ATTACHMENT_ISSUE_PAGE_SIZE}, after: $after)`, `issues(first: ${ATTACHMENT_ISSUE_PAGE_SIZE}, after: $after, filter: { id: { in: $ids } })`],
+], 'TEAM_ATTACHMENTS_BY_IDS_QUERY');
 /** The rest of ONE issue's attachments, from the cursor its nested page ended on. */
 export const ISSUE_ATTACHMENTS_QUERY = `query IssueAttachments($id: String!, $after: String) { issue(id: $id) { attachments(first: 100, after: $after) { nodes { ${ATTACHMENT_FIELDS} } ${PAGE_INFO} } } }`;
 
@@ -89,12 +95,18 @@ interface RawIssueWithAttachments { id: string; attachments?: { nodes: RawAttach
  * an issue whose attachment list has no `pageInfo` fails the read, and one with a further page is finished before it is returned.
  * An incremental read sees attachments only on issues Linear changed; the daily full read is what catches the rest (the docs say so).
  */
-export async function fetchTeamAttachments(fetcher: LinearFetcher, apiKey: string, team: LinearTeam, opts: { since?: string } = {}): Promise<LinearAttachment[]> {
+export async function fetchTeamAttachments(fetcher: LinearFetcher, apiKey: string, team: LinearTeam, opts: { since?: string; ids?: string[] } = {}): Promise<LinearAttachment[]> {
   const { since } = opts;
-  const issues = await pageAll<RawIssueWithAttachments>(
-    fetcher, apiKey, since ? TEAM_ATTACHMENTS_SINCE_QUERY : TEAM_ATTACHMENTS_QUERY, since ? { id: team.id, since } : { id: team.id },
-    (d: { team: { issues: never } }) => d.team?.issues, `attachments of ${team.key}`,
-  );
+  const pick = (d: { team: { issues: never } }) => d.team?.issues;
+  const issues: RawIssueWithAttachments[] = [];
+  if (opts.ids) {
+    for (const ids of chunked(opts.ids, IDS_CHUNK)) issues.push(...(await pageAll<RawIssueWithAttachments>(fetcher, apiKey, TEAM_ATTACHMENTS_BY_IDS_QUERY, { id: team.id, ids }, pick, `attachments of ${team.key}`)));
+  } else {
+    issues.push(...(await pageAll<RawIssueWithAttachments>(
+      fetcher, apiKey, since ? TEAM_ATTACHMENTS_SINCE_QUERY : TEAM_ATTACHMENTS_QUERY, since ? { id: team.id, since } : { id: team.id },
+      pick, `attachments of ${team.key}`,
+    )));
+  }
   const out: LinearAttachment[] = [];
   for (const issue of issues) {
     const list = issue.attachments;

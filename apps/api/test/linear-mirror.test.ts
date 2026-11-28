@@ -43,7 +43,7 @@ beforeAll(async () => {
   linear = app.get(LinearService);
   admin = await signUpUser(app, 'Linear Mirror');
   ws = (await inject('POST', '/workspaces', { name: 'Linear Mirror WS' })).json().id;
-  expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['MR'] })).statusCode).toBe(201);
+  expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['MR'] })).statusCode).toBe(201);
 }, 120_000);
 afterAll(async () => { await app.close(); });
 
@@ -211,7 +211,7 @@ describe('#955 the machine copy of the description is hidden on the record page'
   it('a fresh import creates it hidden on the FIRST sync (not via a later upgrade) — and it is still readable over the API', async () => {
     // A workspace of its own and exactly one sync: in `ws`, later syncs would hide it anyway and hide a broken create.
     const ws2 = (await inject('POST', '/workspaces', { name: 'Linear Fresh WS' })).json().id as string;
-    expect((await inject('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['MR'] })).statusCode).toBe(201);
+    expect((await inject('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['MR'] })).statusCode).toBe(201);
     use([issue(1, 'first')]);
     const res = await inject('POST', `/workspaces/${ws2}/integrations/linear/sync`);
     expect(res.statusCode, res.body).toBe(201);

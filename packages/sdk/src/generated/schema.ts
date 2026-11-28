@@ -2736,7 +2736,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID */
+        /** Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID. Optional body: `scope` (open_and_recent = open issues + closed in the last 90 days, the default; or all) and `include_history` (each issue's change history; default false) */
         post: operations["LinearIntegrationsController_sync"];
         delete?: never;
         options?: never;
@@ -6884,6 +6884,11 @@ export interface components {
                 require_approval_for_agent_comments?: boolean;
             };
             allow_private_teams?: boolean;
+            import_options?: {
+                /** @enum {string} */
+                scope?: "open_and_recent" | "all";
+                include_history?: boolean;
+            };
             team_spaces?: {
                 [key: string]: {
                     /** Format: uuid */

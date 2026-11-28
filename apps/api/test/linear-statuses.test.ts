@@ -46,7 +46,7 @@ beforeAll(async () => {
   linear = app.get(LinearService);
   admin = await signUpUser(app, 'Linear Statuses');
   ws = (await inject('POST', '/workspaces', { name: 'Linear Status WS' })).json().id;
-  expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['SP'] })).statusCode).toBe(201);
+  expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['SP'] })).statusCode).toBe(201);
 }, 120_000);
 afterAll(async () => { await app.close(); });
 
@@ -94,7 +94,7 @@ describe('#904 statuses are imported as themselves', () => {
 describe('#904 re-run over a database an earlier import built from the fixed list', () => {
   it('adds the missing options, keeps the old ones after them, adds Linear Status, and re-maps the collapsed issues', async () => {
     const ws2 = (await inject('POST', '/workspaces', { name: 'Old Import WS' })).json().id;
-    await inject('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['SP'] });
+    await inject('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['SP'] });
     const url = (p: string) => `/workspaces/${ws2}${p}`;
     // 1. build the database the OLD way: a team whose states are exactly the old fixed seven, and one Done issue
     const OLD = ['Triage', 'Backlog', 'To Do', 'In Progress', 'In Review', 'Done', 'Canceled'].map((name, i) => ({ id: `o${i}`, name, type: name === 'Done' ? 'completed' : name === 'Canceled' ? 'canceled' : 'started', position: i }));
