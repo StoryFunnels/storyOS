@@ -1,18 +1,24 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSession } from '@/lib/auth-client';
 import { api } from '@/lib/api';
 import { sessionVerdict } from '@/lib/session-state';
 import { heldInviteToken, postSignInDestination } from '@/lib/invite-join';
+import { returnPathFromSearch } from '@/lib/return-to';
 import { SessionUnavailable } from '@/components/session-unavailable';
 
 /** Entry: route to the user's workspace, workspace creation, or login. */
 export default function Home() {
   const router = useRouter();
   const { data: session, isPending, error: sessionError, refetch } = useSession();
+  // #1394 — a Google round trip lands here carrying the link the person was sent. Read once at mount, before the funnel beacon rewrites the URL.
+  const returnTo = useRef<string | null>(null);
+  useEffect(() => {
+    returnTo.current = returnPathFromSearch(window.location.search);
+  }, []);
   const verdict = sessionVerdict({ data: session, isPending, error: sessionError });
 
   const workspaces = useQuery({
@@ -30,6 +36,10 @@ export default function Home() {
     if (verdict === 'pending' || verdict === 'unavailable') return;
     if (verdict === 'signed_out') {
       router.replace('/login');
+      return;
+    }
+    if (verdict === 'authed' && returnTo.current) {
+      router.replace(returnTo.current);
       return;
     }
     if (workspaces.data) {

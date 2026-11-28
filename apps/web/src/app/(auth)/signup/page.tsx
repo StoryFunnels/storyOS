@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { safeNextPath } from '@/lib/safe-next';
+import { withReturnPath } from '@/lib/return-to';
 import { inviteJoinPath, inviteTokenFromNext } from '@/lib/invite-join';
 import { Suspense, useEffect, useState } from 'react';
 import posthog from 'posthog-js';
@@ -44,8 +45,8 @@ function SignupForm() {
   const onGoogle = () => {
     void authClient.signIn.social({
       provider: 'google',
-      callbackURL: GOOGLE_RETURNING_CALLBACK,
-      newUserCallbackURL: GOOGLE_NEW_USER_CALLBACK,
+      callbackURL: withReturnPath(GOOGLE_RETURNING_CALLBACK, nextUrl), // #1394
+      newUserCallbackURL: withReturnPath(GOOGLE_NEW_USER_CALLBACK, nextUrl),
     });
   };
 
