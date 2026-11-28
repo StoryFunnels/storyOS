@@ -69,7 +69,7 @@ beforeAll(async () => {
   db = app.get<Db>(DB);
   admin = await signUpUser(app, 'Linear Links');
   ws = (await inject('POST', '/workspaces', { name: 'Linear Links WS' })).json().id;
-  expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['LK'] })).statusCode).toBe(201);
+  expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['LK'] })).statusCode).toBe(201);
 }, 120_000);
 afterAll(async () => { await app.close(); });
 
@@ -214,7 +214,7 @@ describe('#1103 an INCREMENTAL run does the same for an issue Linear changed', (
 
   beforeAll(async () => {
     ws2 = (await inject2('POST', '/workspaces', { name: 'Linear Links Inc WS' })).json().id;
-    expect((await inject2('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['L2'] })).statusCode).toBe(201);
+    expect((await inject2('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['L2'] })).statusCode).toBe(201);
     expect((await inject2('POST', `/workspaces/${ws2}/integrations/linear`, { auto_sync: { enabled: true } })).statusCode).toBe(201);
   }, 60_000);
 

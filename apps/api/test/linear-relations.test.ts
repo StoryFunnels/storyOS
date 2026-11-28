@@ -96,7 +96,7 @@ beforeAll(async () => {
   db = app.get<Db>(DB);
   admin = await signUpUser(app, 'Linear Relations');
   ws = (await as('POST', '/workspaces', { name: 'Linear Relations WS' })).json().id;
-  expect((await as('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['RL'] })).statusCode).toBe(201);
+  expect((await as('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['RL'] })).statusCode).toBe(201);
 }, 120_000);
 afterAll(async () => { await app.close(); });
 
@@ -375,7 +375,7 @@ describe('existing fields: adopt an exact match, never write into one we cannot 
 
   it('a pair of the right shape that carries no stamp (hand-made, or the stamp was lost) is ADOPTED: one pair, no "Blocks 2", and it works', async () => {
     const wsB = (await as('POST', '/workspaces', { name: 'Linear Relations Adopt WS' })).json().id as string;
-    expect((await as('POST', `/workspaces/${wsB}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['RL'] })).statusCode).toBe(201);
+    expect((await as('POST', `/workspaces/${wsB}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['RL'] })).statusCode).toBe(201);
     teamsData = [{ team: TEAM, issues: [issue('i', 1), issue('i', 2)] }];
     edges = [];
     use();
@@ -399,7 +399,7 @@ describe('existing fields: adopt an exact match, never write into one we cannot 
 
   it('a field that holds the name but is NOT a matching self relation is left alone: the pair is skipped with a warning naming it', async () => {
     const wsC = (await as('POST', '/workspaces', { name: 'Linear Relations Clash WS' })).json().id as string;
-    expect((await as('POST', `/workspaces/${wsC}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['RL'] })).statusCode).toBe(201);
+    expect((await as('POST', `/workspaces/${wsC}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['RL'] })).statusCode).toBe(201);
     teamsData = [{ team: TEAM, issues: [issue('i', 1), issue('i', 2)] }];
     edges = [edge('e1', 'related', 'i1', 'i2')];
     use();

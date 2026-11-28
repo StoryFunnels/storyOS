@@ -31,7 +31,8 @@ export function serveLinearExtras(query: string, variables: Record<string, unkno
     if (!team) throw new Error('fake Linear: no such team for attachments');
     const all = team.data.attachments ?? [];
     // `attachmentOnlyIssues`: issues the attachment walk sees but the issue walk did not (created between the two reads).
-    const issues = [...changed(team.data.issues.nodes), ...(team.data.attachmentOnlyIssues ?? []).map((id) => ({ id }))];
+    const ids = Array.isArray(variables['ids']) ? (variables['ids'] as string[]) : undefined; // ticket #1393: the by-ids query
+    const issues = [...changed(team.data.issues.nodes).filter((n) => !ids || ids.includes(String(n['id']))), ...(ids ? [] : (team.data.attachmentOnlyIssues ?? []).map((id) => ({ id })))];
     const page = pageOf(issues, firstOf(query), variables['after']);
     return {
       team: {

@@ -114,7 +114,7 @@ beforeAll(async () => {
   ws = (await adm('POST', '/workspaces', { name: 'Dates WS' })).json().id;
   ada = await joinAs(app, owner.token, ws, 'Ada Lovelace', 'member');
   grace = await joinAs(app, owner.token, ws, 'Grace Hopper', 'member');
-  expect((await adm('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['ISSUE'] })).statusCode).toBe(201);
+  expect((await adm('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['ISSUE'] })).statusCode).toBe(201);
 }, 240_000);
 afterAll(async () => { await app.close(); });
 
@@ -242,7 +242,7 @@ describe('comment authors become members, without duplicating a comment', () => 
   it('beforeAll: a workspace where Linear\'s commenter is not a member yet', async () => {
     ws2 = (await adm('POST', '/workspaces', { name: 'Authors WS' })).json().id;
     late = await signUpUser(app, 'Late Joiner').then(async (u) => ({ ...u, id: (await as(u.token, 'GET', '/me')).json().id }));
-    await adm('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['ISSUE'] });
+    await adm('POST', `/workspaces/${ws2}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['ISSUE'] });
     use([i1], { comments: [commentShape(1, i1.id, { id: 'lin-late', name: 'Late Joiner', email: late.email }), commentShape(2, i1.id, { name: 'Bot-ish' }, { user: null, botActor: { name: 'GitHub' } })] });
     // this workspace's own `ws` variable drives sync(): point it here for this block
     const res = await adm('POST', `/workspaces/${ws2}/integrations/linear/sync`);
@@ -276,7 +276,7 @@ describe('a mirror numbered in import order is never renumbered, never given a w
   let ws3: string;
   it('the first run numbers by Linear; after the numbers are scrambled (an old-style mirror) the next run keeps them, warns, and adds no prefix', async () => {
     ws3 = (await adm('POST', '/workspaces', { name: 'Legacy WS' })).json().id;
-    await adm('POST', `/workspaces/${ws3}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['ISSUE'] });
+    await adm('POST', `/workspaces/${ws3}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['ISSUE'] });
     use([issueShape(TEAM, 40), issueShape(TEAM, 41)]);
     expect((await adm('POST', `/workspaces/${ws3}/integrations/linear/sync`)).statusCode).toBe(201);
     const { db } = await issuesOf(ws3);
@@ -301,7 +301,7 @@ describe('the prefix and the numbers refuse to take anything over', () => {
     const spaceId = ((await adm('GET', `/workspaces/${wsP}/spaces`)).json() as Array<{ id: string }>)[0]!.id;
     const holder = (await adm('POST', `/workspaces/${wsP}/databases`, { space_id: spaceId, name: 'Tickets (old)' })).json();
     expect((await adm('PATCH', `/workspaces/${wsP}/databases/${holder.id}`, { identifier_prefix: 'ISSUE' })).statusCode).toBe(200);
-    await adm('POST', `/workspaces/${wsP}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['ISSUE'] });
+    await adm('POST', `/workspaces/${wsP}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['ISSUE'] });
     use([issueShape(TEAM, 9)]);
     const res = await adm('POST', `/workspaces/${wsP}/integrations/linear/sync`);
     expect(res.statusCode, res.body).toBe(201);
@@ -316,7 +316,7 @@ describe('the prefix and the numbers refuse to take anything over', () => {
 
   it('a number a hand-made record already holds refuses the run, names the holder, and overwrites nothing', async () => {
     const wsN = (await adm('POST', '/workspaces', { name: 'Clash WS' })).json().id;
-    await adm('POST', `/workspaces/${wsN}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['ISSUE'] });
+    await adm('POST', `/workspaces/${wsN}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['ISSUE'] });
     use([issueShape(TEAM, 1), issueShape(TEAM, 2)]);
     expect((await adm('POST', `/workspaces/${wsN}/integrations/linear/sync`)).statusCode).toBe(201);
     const { db } = await issuesOf(wsN);
@@ -337,7 +337,7 @@ describe('the prefix and the numbers refuse to take anything over', () => {
 describe('an incremental run never numbers a new issue by Linear into an import-order mirror', () => {
   it('the new issue gets the next number in sequence and the database gets no prefix: the unchanged records are not even read, yet still decide', async () => {
     const wsI = (await adm('POST', '/workspaces', { name: 'Incremental Numbering WS' })).json().id;
-    await adm('POST', `/workspaces/${wsI}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['ISSUE'] });
+    await adm('POST', `/workspaces/${wsI}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['ISSUE'] });
     expect((await adm('POST', `/workspaces/${wsI}/integrations/linear`, { auto_sync: { enabled: true } })).statusCode).toBe(201);
     const OLD = '2020-01-01T00:00:00.000Z';
     use([issueShape(TEAM, 40, { updatedAt: OLD }), issueShape(TEAM, 41, { updatedAt: OLD })]);
