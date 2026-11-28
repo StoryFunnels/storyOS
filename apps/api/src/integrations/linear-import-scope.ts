@@ -1,5 +1,7 @@
+import { UnprocessableEntityException } from '@nestjs/common';
 import { LINEAR_RECENT_DAYS } from '@storyos/schemas';
 import type { LinearImportScope, ResolvedLinearImportOptions } from '@storyos/schemas';
+import type { LinearFetcher } from './linear.service';
 
 /**
  * Ticket #1393 — the import SCOPE: which of a team's issues an import reads at all.
@@ -10,6 +12,11 @@ import type { LinearImportScope, ResolvedLinearImportOptions } from '@storyos/sc
  * and the import's own count check compares against the same filter. The filter shapes follow Linear's documented `IssueFilter`
  * (`state.type`, `completedAt`, `canceledAt`, `or`, `id.in`). They were NOT run against the live API: no Linear key existed.
  */
+
+/** An id-only page of the scope walk (the connection's documented maximum). */
+export const SCOPE_COUNT_PAGE_SIZE = 250;
+/** The PREVIEW stops counting after this many pages and says "more than N": a count of a very large team is not worth an unbounded read. The import's own check has no cap. */
+export const PREVIEW_COUNT_MAX_PAGES = 8;
 
 /** Linear's workflow state types that mean "closed". Everything else (triage, backlog, unstarted, started) is open. */
 export const CLOSED_STATE_TYPES = ['completed', 'canceled'] as const;
@@ -43,6 +50,10 @@ export function commentIssueFilter(teamId: string, cutoff: string): Json {
   return { team: { id: { eq: teamId } }, ...scopeFilter(cutoff) };
 }
 
+/** The filter that counts the open half / the recently closed half of ONE team's issues (the preview). */
+export const teamOpenFilter = (teamId: string): Json => ({ team: { id: { eq: teamId } }, ...openIssuesFilter() });
+export const teamClosedRecentlyFilter = (teamId: string, cutoff: string): Json => ({ team: { id: { eq: teamId } }, ...closedRecentlyFilter(cutoff) });
+
 /** What a run does with the scope: the cutoff only exists for a filtered scope. */
 export function cutoffFor(scope: LinearImportScope, nowMs: number): string | undefined {
   return scope === 'all' ? undefined : scopeCutoff(nowMs);
@@ -74,4 +85,33 @@ export function deriveQuery(base: string, replacements: Array<[from: string, to:
     out = out.replace(from, to);
   }
   return out;
+}
+
+/**
+ * Counting what a filter matches. `Team.issueCount` takes ONE argument, `includeArchived` (Linear's published schema), so it cannot count a
+ * scope. The count is a walk of `issues(filter: { team, ... })` that reads ids only, 250 to a page. `maxPages` bounds it (the preview); with no
+ * bound it reads to the end (the import's completeness check). Hitting the bound is reported as `more_than: true` with the ids counted so
+ * far - never null, never 0.
+ */
+export const TEAM_SCOPE_IDS_QUERY = `query TeamScopeIds($after: String, $filter: IssueFilter!) { issues(first: ${SCOPE_COUNT_PAGE_SIZE}, after: $after, filter: $filter) { nodes { id } pageInfo { hasNextPage endCursor } } }`;
+
+/** `{ count, more_than }`: an exact count, or - when the walk stopped at its page cap - the number counted and `more_than: true`. */
+export interface ScopeCount { count: number; more_than: boolean }
+
+export async function countScopeIds(fetcher: LinearFetcher, apiKey: string, filter: Json, what: string, maxPages?: number): Promise<ScopeCount> {
+  let count = 0;
+  let after: string | undefined;
+  const seen = new Set<string>();
+  for (let page = 1; ; page++) {
+    const data = (await fetcher(TEAM_SCOPE_IDS_QUERY, after ? { filter, after } : { filter }, apiKey)) as { issues?: { nodes?: unknown[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } } };
+    const conn = data.issues;
+    if (!conn || !Array.isArray(conn.nodes) || !conn.pageInfo) throw new UnprocessableEntityException(`Linear returned no issue list for the count of ${what} - refusing to show a number it did not give`);
+    count += conn.nodes.length;
+    if (!conn.pageInfo.hasNextPage) return { count, more_than: false };
+    if (maxPages !== undefined && page >= maxPages) return { count, more_than: true };
+    const next = conn.pageInfo.endCursor;
+    if (!next || seen.has(next)) throw new UnprocessableEntityException(`Linear paging for the count of ${what} stopped advancing after ${count} ids - refusing to show a partial count`);
+    seen.add(next);
+    after = next;
+  }
 }

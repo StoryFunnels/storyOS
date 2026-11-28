@@ -7,7 +7,7 @@ import { makeLinearFetcher, matchesIssueFilter } from './helpers/linear-fake';
 import { LinearService, planSyncMode } from '../src/integrations/linear.service';
 import type { LinearFetcher } from '../src/integrations/linear.service';
 import { LinearApiError } from '../src/integrations/linear-resilience';
-import { chunked, closedRecentlyFilter, deriveQuery, openIssuesFilter, scopeCutoff, scopeFilter } from '../src/integrations/linear-import-scope';
+import { chunked, closedRecentlyFilter, deriveQuery, openIssuesFilter, PREVIEW_COUNT_MAX_PAGES, scopeCutoff, scopeFilter, SCOPE_COUNT_PAGE_SIZE } from '../src/integrations/linear-import-scope';
 import { historyShape } from './fixtures/linear-documented-shapes';
 
 /**
@@ -21,6 +21,7 @@ import { historyShape } from './fixtures/linear-documented-shapes';
 const NOW = Date.UTC(2026, 10, 27, 14, 0, 0);
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
 const KEY = 'lin_api_FAKEKEYFAKEKEY';
+const exact = (count: number) => ({ count, more_than: false });
 
 const ST = {
   todo: { type: 'unstarted', name: 'Todo' },
@@ -157,6 +158,14 @@ describe('#1393 the default scope: what the filter KEEPS and what it DROPS', () 
   });
 });
 
+describe('#1393 the fake refuses what Linear\'s schema refuses: Team.issueCount has no filter argument', () => {
+  it('only includeArchived is accepted on issueCount', async () => {
+    const { fetcher } = makeLinearFetcher([withData(scTeam())]);
+    await expect(fetcher('query X($id: String!, $f: IssueFilter!) { team(id: $id) { issueCount(filter: $f) } }', { id: 'team-SC', f: {} }, KEY)).rejects.toThrow(/no argument "filter"/);
+    await expect(fetcher('query TeamIssueCount($id: String!) { team(id: $id) { n: issueCount(includeArchived: false) } }', { id: 'team-SC' }, KEY)).resolves.toBeDefined();
+  });
+});
+
 describe('#1393 planSyncMode: a changed scope is a FULL read', () => {
   const now = new Date('2026-10-24T12:00:00Z');
   const status = { cursor_at: new Date(now.getTime() - 3_600_000).toISOString(), last_full_at: new Date(now.getTime() - 7_200_000).toISOString(), synced_teams: ['IN'] };
@@ -283,7 +292,7 @@ describe('#1393 through the service: scope and history', () => {
   it('the scope\'s OWN count is checked: a filtered total that disagrees with what was read refuses the import and writes nothing', async () => {
     const ws = await freshWorkspace();
     const sc = scTeam();
-    linear.fetcher = makeLinearFetcher([withData(sc)], { scopedIssueCount: () => 8 }).fetcher;
+    linear.fetcher = makeLinearFetcher([withData(sc)], { scopeIds: (ids) => [...ids, 'ghost'] }).fetcher;
     const res = await sync(ws);
     expect(res.statusCode).toBe(422);
     expect(res.body).toMatch(/has 8 issues but 7 were fetched/);
@@ -376,16 +385,67 @@ describe('#1393 through the service: scope and history', () => {
     const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
     expect(res.statusCode, res.body).toBe(201);
     const preview = res.json();
-    expect(preview.teams[0].issues_by_scope).toEqual({ all: 9, open_and_recent: 7, open: 3, closed_recent: 4 });
+    expect(preview.teams[0].issues_by_scope).toEqual({ all: exact(9), open_and_recent: exact(7), open: exact(3), closed_recent: exact(4) });
     expect(preview.teams[0].issues, 'the existing total field is unchanged').toBe(9);
     expect(preview.import_choices).toMatchObject({ scopes: ['open_and_recent', 'all'], default: { scope: 'open_and_recent', include_history: false }, recent_days: 90, cutoff: daysAgo(90) });
     const perTeam = preview.requests - 1; // minus the team list
-    expect(perTeam, 'count, states, labels and the two scope counts').toBeLessThanOrEqual(5);
+    expect(perTeam, 'count, states, labels and one id walk each for the open and the recently closed issues').toBeLessThanOrEqual(5);
     expect(names(fake.requests).includes('TeamIssues'), 'the preview never walks issues').toBe(false);
-    // The scope counts are ONE aliased request, filtered the way the import filters.
-    const asked = fake.requests.find((r) => r.name === 'TeamScopeCounts')!;
-    expect(asked.variables['open']).toEqual(openIssuesFilter());
-    expect(asked.variables['closedRecent']).toEqual(closedRecentlyFilter(daysAgo(90)));
+    // The scope counts are id-only walks of `issues(filter:)`, filtered the way the import filters (Team.issueCount takes no filter).
+    const walks = fake.requests.filter((r) => r.name === 'TeamScopeIds').map((r) => r.variables['filter']);
+    expect(walks).toEqual([
+      { team: { id: { eq: 'team-SC' } }, ...openIssuesFilter() },
+      { team: { id: { eq: 'team-SC' } }, ...closedRecentlyFilter(daysAgo(90)) },
+    ]);
+  }, 120_000);
+
+  it('a team with more than one page of issues is counted across pages, exactly', async () => {
+    const ws = await freshWorkspace();
+    const rows = Array.from({ length: 600 }, (_, i) => issue('SC', i + 1, ST.todo));
+    const fake = makeLinearFetcher([{ id: 'team-SC', key: 'SC', name: 'Scope', data: { ...empty, issues: { nodes: rows as never } } }]);
+    linear.fetcher = fake.fetcher;
+    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().teams[0].issues_by_scope).toEqual({ all: exact(600), open_and_recent: exact(600), open: exact(600), closed_recent: exact(0) });
+    const openWalk = fake.requests.filter((r) => r.name === 'TeamScopeIds' && JSON.stringify(r.variables['filter']).includes('"nin"'));
+    expect(openWalk, '600 ids at 250 a page').toHaveLength(3);
+  }, 120_000);
+
+  it('a count that would need more pages than the cap says "more than N" explicitly: never null, never 0, never a silent N', async () => {
+    const ws = await freshWorkspace();
+    const cap = PREVIEW_COUNT_MAX_PAGES * SCOPE_COUNT_PAGE_SIZE;
+    const rows = [...Array.from({ length: cap + 100 }, (_, i) => issue('SC', i + 1, ST.todo)), issue('SC', cap + 200, ST.done, { completedAt: daysAgo(3) })];
+    const fake = makeLinearFetcher([{ id: 'team-SC', key: 'SC', name: 'Scope', data: { ...empty, issues: { nodes: rows as never } } }]);
+    linear.fetcher = fake.fetcher;
+    const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run`);
+    expect(res.statusCode, res.body).toBe(201);
+    const by = res.json().teams[0].issues_by_scope;
+    expect(by.open, 'the walk stopped at the cap').toEqual({ count: cap, more_than: true });
+    expect(by.closed_recent).toEqual(exact(1));
+    expect(by.open_and_recent, 'a sum that includes a capped count is itself "more than"').toEqual({ count: cap + 1, more_than: true });
+    expect(by.all, 'everything stays on Team.issueCount: exact however large').toEqual(exact(cap + 101));
+    expect(fake.requests.filter((r) => r.name === 'TeamScopeIds' && JSON.stringify(r.variables['filter']).includes('"nin"')), 'it did not read past the cap').toHaveLength(PREVIEW_COUNT_MAX_PAGES);
+  }, 120_000);
+
+  it('the import\'s completeness count has NO cap: a team past the preview\'s cap still imports, and is counted whole', async () => {
+    const ws = await freshWorkspace();
+    const n = PREVIEW_COUNT_MAX_PAGES * SCOPE_COUNT_PAGE_SIZE + 10;
+    const rows = Array.from({ length: n }, (_, i) => issue('SC', i + 1, ST.todo));
+    linear.fetcher = makeLinearFetcher([{ id: 'team-SC', key: 'SC', name: 'Scope', data: { ...empty, issues: { nodes: rows as never } } }]).fetcher;
+    const res = await sync(ws);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().per_team).toEqual([{ key: 'SC', issues_fetched: n, linear_issue_total: n }]);
+  }, 240_000);
+
+  it('the import\'s completeness count walks ALL the in-scope ids (no cap), however many pages', async () => {
+    const ws = await freshWorkspace();
+    const rows = Array.from({ length: 600 }, (_, i) => issue('SC', i + 1, ST.todo));
+    const fake = makeLinearFetcher([{ id: 'team-SC', key: 'SC', name: 'Scope', data: { ...empty, issues: { nodes: rows as never } } }]);
+    linear.fetcher = fake.fetcher;
+    const res = await sync(ws);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().per_team).toEqual([{ key: 'SC', issues_fetched: 600, linear_issue_total: 600 }]);
+    expect(fake.requests.filter((r) => r.name === 'TeamScopeIds')).toHaveLength(3);
   }, 120_000);
 
   it('the detailed preview carries the same per-option counts', async () => {
@@ -394,7 +454,7 @@ describe('#1393 through the service: scope and history', () => {
     linear.fetcher = makeLinearFetcher([withData(sc)], { relationEdges: sc.relationEdges }).fetcher;
     const res = await inject('POST', `/workspaces/${ws}/integrations/linear/dry-run?detail=full`);
     expect(res.statusCode, res.body).toBe(201);
-    expect(res.json().teams[0].issues_by_scope).toEqual({ all: 9, open_and_recent: 7, open: 3, closed_recent: 4 });
+    expect(res.json().teams[0].issues_by_scope).toEqual({ all: exact(9), open_and_recent: exact(7), open: exact(3), closed_recent: exact(4) });
   }, 120_000);
 
   it('an unfinished import resumes under the options it started with; asking for different ones starts over', async () => {

@@ -49,8 +49,9 @@ import {
 import type { LinearMilestone } from './linear-milestones';
 import { classifyLinearFailure, DEFAULT_REQUESTS_PER_MINUTE, LinearApiError, withLinearResilience } from './linear-resilience';
 import {
-  chunked, closedRecentlyFilter, commentIssueFilter, cutoffFor, deriveQuery, IDS_CHUNK, issueScopeFilter, LEGACY_IMPORT_OPTIONS, openIssuesFilter, sameImportOptions, scopeCutoff,
+  chunked, commentIssueFilter, countScopeIds, cutoffFor, deriveQuery, IDS_CHUNK, issueScopeFilter, LEGACY_IMPORT_OPTIONS, PREVIEW_COUNT_MAX_PAGES, sameImportOptions, scopeCutoff, teamClosedRecentlyFilter, teamOpenFilter,
 } from './linear-import-scope';
+import type { ScopeCount } from './linear-import-scope';
 
 export interface LinearTeam {
   id: string;
@@ -338,10 +339,6 @@ export const TEAM_ISSUES_SCOPED_QUERY = deriveQuery(TEAM_ISSUES_QUERY, [
   [`issues(first: ${ISSUE_PAGE_SIZE}, after: $after)`, `issues(first: ${ISSUE_PAGE_SIZE}, after: $after, filter: $filter)`],
 ], 'TEAM_ISSUES_SCOPED_QUERY');
 export const TEAM_ISSUES_SCOPED_SINCE_QUERY = deriveQuery(TEAM_ISSUES_SCOPED_QUERY, [['query TeamIssues(', 'query TeamIssuesSince(']], 'TEAM_ISSUES_SCOPED_SINCE_QUERY');
-/** The scope's OWN total, from a separate request: the import compares what it read against it, exactly as it does against `Team.issueCount`. */
-export const TEAM_ISSUE_COUNT_SCOPED_QUERY = `query TeamIssueCount($id: String!, $filter: IssueFilter!) { team(id: $id) { issueCount(filter: $filter) } }`;
-/** The preview's per-option counts: ONE request per team, two aliased filtered counts (the third number, everything, is `TEAM_ISSUE_COUNT_QUERY`). */
-export const TEAM_SCOPE_COUNTS_QUERY = `query TeamScopeCounts($id: String!, $open: IssueFilter!, $closedRecent: IssueFilter!) { team(id: $id) { open: issueCount(filter: $open) closedRecent: issueCount(filter: $closedRecent) } }`;
 export const TEAM_COMMENTS_SCOPED_QUERY = deriveQuery(TEAM_COMMENTS_QUERY, [
   ['query TeamComments($id: ID!, $after: String)', 'query TeamComments($after: String, $issue: IssueFilter!)'],
   ['filter: { issue: { team: { id: { eq: $id } } } }', 'filter: { issue: $issue }'],
@@ -379,7 +376,8 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
     since
       ? Promise.resolve(undefined)
       : cutoff
-        ? (fetcher(TEAM_ISSUE_COUNT_SCOPED_QUERY, { id, filter: issueScopeFilter(cutoff) }, apiKey) as Promise<{ team?: { issueCount?: number } }>)
+        // The scope's OWN total is an id-only walk, a separate read from the one above (Team.issueCount takes no filter). No cap: this is the completeness check.
+        ? countScopeIds(fetcher, apiKey, commentIssueFilter(id, cutoff), `the in-scope issues of ${team.key}`).then((r) => ({ team: { issueCount: r.count } }))
         : (fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>),
     pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`),
     cutoff
@@ -1307,18 +1305,20 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Ticket #1393 - what each import scope would bring for one team: Linear's own total for everything, and two filtered counts (open, and
-   * closed since the cutoff) in ONE request. The two halves cannot overlap, so their sum is the default scope's count. A number Linear
-   * did not give is refused, never shown as zero.
+   * Ticket #1393 - what each import scope would bring for one team: Linear's own `Team.issueCount` for everything, and id-only walks for the
+   * open issues and the recently closed ones (a count with a filter is not something `Team.issueCount` can do). The two halves cannot overlap,
+   * so their sum is the default scope's count. Every count is `{ count, more_than }`: past the page cap it is "more than N", never null or 0.
    */
   private async scopeCounts(fetcher: LinearFetcher, apiKey: string, team: LinearTeam, cutoff: string, all: number) {
-    const got = (await fetcher(TEAM_SCOPE_COUNTS_QUERY, { id: team.id, open: openIssuesFilter(), closedRecent: closedRecentlyFilter(cutoff) }, apiKey)) as { team?: { open?: number; closedRecent?: number } };
-    const open = got.team?.open;
-    const closedRecent = got.team?.closedRecent;
-    if (typeof open !== 'number' || typeof closedRecent !== 'number') {
-      throw new UnprocessableEntityException(`Linear did not report the open / recently closed issue counts for ${team.key} - refusing to preview a number it did not give`);
-    }
-    return { all, open_and_recent: open + closedRecent, open, closed_recent: closedRecent };
+    // Team.issueCount takes no filter, so the two halves are id-only walks, each capped: past the cap the answer is "more than N", explicitly.
+    const open = await countScopeIds(fetcher, apiKey, teamOpenFilter(team.id), `the open issues of ${team.key}`, PREVIEW_COUNT_MAX_PAGES);
+    const closedRecent = await countScopeIds(fetcher, apiKey, teamClosedRecentlyFilter(team.id, cutoff), `the recently closed issues of ${team.key}`, PREVIEW_COUNT_MAX_PAGES);
+    return {
+      all: { count: all, more_than: false },
+      open_and_recent: { count: open.count + closedRecent.count, more_than: open.more_than || closedRecent.more_than },
+      open,
+      closed_recent: closedRecent,
+    };
   }
 
   /** Ticket #1393 - the choices the import screen offers, so the web does not hard-code them: the options, their defaults, the window, and what the next import would use. */
@@ -1348,7 +1348,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       /** Ticket #1367 — private teams among those chosen, and whether a sync would import them (it refuses while private teams are switched off). */
       private_teams: teams.filter((t) => t.private === true).map((t) => ({ key: t.key, would_import: !blockedPrivate.includes(t.key) })),
       teams: [] as Array<{
-        key: string; name: string; owner: 'linear' | 'storyos'; sync_writes: boolean; status_write_back: { enabled: boolean; pending: number; failed: number; unmapped: number }; issues: number; linear_issue_total: number; issues_by_scope: { all: number; open_and_recent: number; open: number; closed_recent: number }; comments: number; sprints: number; projects: number; labels: number;
+        key: string; name: string; owner: 'linear' | 'storyos'; sync_writes: boolean; status_write_back: { enabled: boolean; pending: number; failed: number; unmapped: number }; issues: number; linear_issue_total: number; issues_by_scope: Record<'all' | 'open_and_recent' | 'open' | 'closed_recent', ScopeCount>; comments: number; sprints: number; projects: number; labels: number;
         /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */

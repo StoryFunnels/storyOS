@@ -70,7 +70,7 @@ describe('Linear importer (MN-066)', () => {
       status_write_back: { enabled: false, pending: 0, failed: 0, unmapped: 0 },
       issues: 3, linear_issue_total: 3, comments: 0, sprints: 1, projects: 1, labels: 3,
       // ticket #1393: what each import scope would bring (the canceled issue has no close date in this fixture, so it is outside "recently closed")
-      issues_by_scope: { all: 3, open_and_recent: 2, open: 2, closed_recent: 0 },
+      issues_by_scope: { all: { count: 3, more_than: false }, open_and_recent: { count: 2, more_than: false }, open: { count: 2, more_than: false }, closed_recent: { count: 0, more_than: false } },
       // #902 AC3: the preview says how many issues each Linear project will bring, and how many have none
       issues_by_project: [{ project_id: null, name: '(no project)', issues: 2 }, { project_id: 'proj-1', name: 'Sharing flow', issues: 1 }],
       issues_by_status: [{ status: 'In Progress', type: 'started', issues: 1 }, { status: 'Triage', type: 'triage', issues: 1 }, { status: 'Canceled', type: 'canceled', issues: 1 }],
