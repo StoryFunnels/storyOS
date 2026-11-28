@@ -103,7 +103,7 @@ describe('#1027 incremental sync end to end', () => {
     db = app.get<Db>(DB);
     admin = await signUpUser(app, 'Linear Incremental');
     ws = (await inject('POST', '/workspaces', { name: 'Linear Incremental WS' })).json().id;
-    expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['IN'] })).statusCode).toBe(201);
+    expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['IN'] })).statusCode).toBe(201);
     expect((await inject('POST', `/workspaces/${ws}/integrations/linear`, { auto_sync: { enabled: true } })).statusCode).toBe(201);
   }, 120_000);
   afterAll(async () => { await app.close(); });

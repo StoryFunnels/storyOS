@@ -1,6 +1,6 @@
 import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, UnprocessableEntityException } from '@nestjs/common';
-import { linearStateCategory } from '@storyos/schemas';
-import type { StateCategory } from '@storyos/schemas';
+import { DEFAULT_LINEAR_IMPORT_OPTIONS, LINEAR_IMPORT_SCOPES, LINEAR_RECENT_DAYS, linearStateCategory, resolveLinearImportOptions } from '@storyos/schemas';
+import type { LinearImportOptions, ResolvedLinearImportOptions, StateCategory } from '@storyos/schemas';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { VIA_STORYOS_PATTERN } from './linear-write-back.constants';
 import { DB } from '../db/db.module';
@@ -48,6 +48,9 @@ import {
 } from './linear-milestones';
 import type { LinearMilestone } from './linear-milestones';
 import { classifyLinearFailure, DEFAULT_REQUESTS_PER_MINUTE, LinearApiError, withLinearResilience } from './linear-resilience';
+import {
+  chunked, closedRecentlyFilter, commentIssueFilter, cutoffFor, deriveQuery, IDS_CHUNK, issueScopeFilter, LEGACY_IMPORT_OPTIONS, openIssuesFilter, sameImportOptions, scopeCutoff,
+} from './linear-import-scope';
 
 export interface LinearTeam {
   id: string;
@@ -148,6 +151,8 @@ interface LinearSyncStatus {
   last_full_at?: string;
   /** #1027 — the team keys the last successful run covered; a changed list means a new team the cursor knows nothing about. */
   synced_teams?: string[];
+  /** Ticket #1393 — the scope and history choice the last successful run used; an incremental run is only planned while it is unchanged (a widened scope needs a full read). */
+  synced_options?: ResolvedLinearImportOptions;
   /** Ticket #1392 — set while the run is WAITING for Linear's rate limit to reset; cleared when the wait ends or the run does. */
   waiting?: { resume_at: string; since: string; code: string | null; message: string };
   /** Ticket #1392 — the last run stopped because Linear's rate limit would not come back in time. `until` is when it does, if Linear said. */
@@ -158,6 +163,10 @@ interface LinearSyncStatus {
 
 /** Ticket #1392 — see `resume` above. Lives in the settings JSON next to the rest of the sync status: no table, no migration. */
 export interface LinearResumeState {
+  /** Ticket #1393 — the scope and history choice this import started under; continuing it keeps them, and asking for different ones starts over. Absent on a state saved before the choice existed (it was everything, with history). */
+  options?: ResolvedLinearImportOptions;
+  /** Ticket #1393 — where the "recent" window began for this import, so every team of one import is cut at the same instant. Absent for scope `all`. */
+  cutoff?: string;
   /** When the first run of this import STARTED: the incremental cursor moves to here once the import completes, never later. */
   started_at: string;
   mode: SyncMode;
@@ -184,8 +193,10 @@ export function planSyncMode(
   now: Date,
   teamKeys: string[],
   scheduled: boolean,
+  /** Ticket #1393 — false when the scope or history choice differs from the run that set the cursor: what the cursor skipped was never read under the new choice. */
+  sameOptions = true,
 ): { mode: SyncMode; since?: string } {
-  if (!scheduled || !status?.cursor_at || !status.last_full_at) return { mode: 'full' };
+  if (!scheduled || !sameOptions || !status?.cursor_at || !status.last_full_at) return { mode: 'full' };
   const cursor = new Date(status.cursor_at).getTime();
   const lastFull = new Date(status.last_full_at).getTime();
   if (!Number.isFinite(cursor) || !Number.isFinite(lastFull)) return { mode: 'full' };
@@ -202,6 +213,11 @@ interface LinearSettings {
   /** #907 — push StoryOS comments on mirrored records to Linear. Off until an admin switches it on. */
   write_back?: { enabled: boolean; enabled_at?: string; require_approval_for_agent_comments?: boolean };
   sync_status?: LinearSyncStatus;
+  /**
+   * Ticket #1393 — the scope and history an admin chose for this workspace's import. Stored with the rest of the Linear settings (no table,
+   * no migration) so the scheduled mirror keeps following the choice. Absent = never chosen: see `effectiveImportOptions`.
+   */
+  import_options?: ResolvedLinearImportOptions & { set_at?: string; set_by?: string };
   /**
    * Ticket #1367 — a PRIVATE Linear team is imported only when an admin has switched this on for the workspace. Off by default and
    * refused loudly, because restricted content is visible to every admin (ADR-0018) and a workspace's admins are not necessarily the
@@ -311,6 +327,30 @@ if (!TEAM_ISSUES_SINCE_QUERY.includes('updatedAt') || !TEAM_ISSUES_SINCE_QUERY.i
 }
 export const TEAM_COMMENTS_SINCE_QUERY = `query TeamCommentsSince($id: ID!, $after: String, $since: DateTimeOrDuration!) { comments(first: ${SMALL_PAGE_SIZE}, after: $after, filter: { issue: { team: { id: { eq: $id } } }, updatedAt: { gt: $since } }) { nodes { id body createdAt url user { id name email } botActor { name } externalUser { name email } issue { id } } ${PAGE_INFO} } }`;
 
+/**
+ * Ticket #1393 — the SAME streams, narrowed to the import scope. They keep their operation names (so a log, a rate-limit trace and every
+ * name-based test still reads "TeamIssues" for the issue stream) and differ only in a filter VARIABLE: `$filter` for issues (the scope,
+ * plus `updatedAt` on an incremental read), `$issue` for the comment stream (this team's in-scope issues). The shapes follow Linear's
+ * documented `IssueFilter`; they were not run against the live API.
+ */
+export const TEAM_ISSUES_SCOPED_QUERY = deriveQuery(TEAM_ISSUES_QUERY, [
+  ['query TeamIssues($id: String!, $after: String)', 'query TeamIssues($id: String!, $after: String, $filter: IssueFilter!)'],
+  [`issues(first: ${ISSUE_PAGE_SIZE}, after: $after)`, `issues(first: ${ISSUE_PAGE_SIZE}, after: $after, filter: $filter)`],
+], 'TEAM_ISSUES_SCOPED_QUERY');
+export const TEAM_ISSUES_SCOPED_SINCE_QUERY = deriveQuery(TEAM_ISSUES_SCOPED_QUERY, [['query TeamIssues(', 'query TeamIssuesSince(']], 'TEAM_ISSUES_SCOPED_SINCE_QUERY');
+/** The scope's OWN total, from a separate request: the import compares what it read against it, exactly as it does against `Team.issueCount`. */
+export const TEAM_ISSUE_COUNT_SCOPED_QUERY = `query TeamIssueCount($id: String!, $filter: IssueFilter!) { team(id: $id) { issueCount(filter: $filter) } }`;
+/** The preview's per-option counts: ONE request per team, two aliased filtered counts (the third number, everything, is `TEAM_ISSUE_COUNT_QUERY`). */
+export const TEAM_SCOPE_COUNTS_QUERY = `query TeamScopeCounts($id: String!, $open: IssueFilter!, $closedRecent: IssueFilter!) { team(id: $id) { open: issueCount(filter: $open) closedRecent: issueCount(filter: $closedRecent) } }`;
+export const TEAM_COMMENTS_SCOPED_QUERY = deriveQuery(TEAM_COMMENTS_QUERY, [
+  ['query TeamComments($id: ID!, $after: String)', 'query TeamComments($after: String, $issue: IssueFilter!)'],
+  ['filter: { issue: { team: { id: { eq: $id } } } }', 'filter: { issue: $issue }'],
+], 'TEAM_COMMENTS_SCOPED_QUERY');
+export const TEAM_COMMENTS_SCOPED_SINCE_QUERY = deriveQuery(TEAM_COMMENTS_SINCE_QUERY, [
+  ['query TeamCommentsSince($id: ID!, $after: String, $since: DateTimeOrDuration!)', 'query TeamCommentsSince($after: String, $issue: IssueFilter!, $since: DateTimeOrDuration!)'],
+  ['filter: { issue: { team: { id: { eq: $id } } }, updatedAt: { gt: $since } }', 'filter: { issue: $issue, updatedAt: { gt: $since } }'],
+], 'TEAM_COMMENTS_SCOPED_SINCE_QUERY');
+
 export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Promise<LinearTeam[]> {
   return pageAll<LinearTeam>(fetcher, apiKey, TEAMS_QUERY, {}, (d: { teams: { nodes: LinearTeam[]; pageInfo?: PageInfo } }) => d.teams, 'teams');
 }
@@ -320,9 +360,12 @@ export async function fetchAllTeams(fetcher: LinearFetcher, apiKey: string): Pro
  * SEPARATE count (`Team.issueCount`) so the comparison is between two independent answers, not the walk checking
  * itself. A mismatch throws: a copy that is short of Linear must never be reported as a success.
  */
-export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team: LinearTeam, opts: { since?: string } = {}): Promise<LinearTeamComplete> {
+export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team: LinearTeam, opts: { since?: string; scopeCutoff?: string } = {}): Promise<LinearTeamComplete> {
   const id = team.id;
   const { since } = opts;
+  // Ticket #1393 — a cutoff means the SCOPED import: the issues, their total and their comments are all read under the same filter, so the
+  // completeness checks below (count against Linear's own, no comment on an unread issue) still compare like with like.
+  const cutoff = opts.scopeCutoff;
   // #1027 — incremental: only issues and comments Linear changed after `since`. Labels, cycles, projects and states are
   // small and are always read whole. Nothing here can tell "complete" (no total to compare, a comment may sit on an
   // issue that did not change), so those two checks belong to the full read only.
@@ -330,10 +373,18 @@ export async function fetchTeamData(fetcher: LinearFetcher, apiKey: string, team
     pageAll<LinearLabel>(fetcher, apiKey, TEAM_LABELS_QUERY, { id }, (d: { team: { labels: never } }) => d.team?.labels, `labels of ${team.key}`),
     pageAll<LinearTeamData['cycles']['nodes'][number]>(fetcher, apiKey, TEAM_CYCLES_QUERY, { id }, (d: { team: { cycles: never } }) => d.team?.cycles, `cycles of ${team.key}`),
     pageAll<LinearTeamData['projects']['nodes'][number]>(fetcher, apiKey, TEAM_PROJECTS_QUERY, { id }, (d: { team: { projects: never } }) => d.team?.projects, `projects of ${team.key}`),
-    pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, since ? TEAM_ISSUES_SINCE_QUERY : TEAM_ISSUES_QUERY, since ? { id, since } : { id }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`),
-    since ? Promise.resolve(undefined) : (fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>),
+    cutoff
+      ? pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, since ? TEAM_ISSUES_SCOPED_SINCE_QUERY : TEAM_ISSUES_SCOPED_QUERY, { id, filter: issueScopeFilter(cutoff, since) }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`)
+      : pageAll<LinearTeamData['issues']['nodes'][number]>(fetcher, apiKey, since ? TEAM_ISSUES_SINCE_QUERY : TEAM_ISSUES_QUERY, since ? { id, since } : { id }, (d: { team: { issues: never } }) => d.team?.issues, `issues of ${team.key}`),
+    since
+      ? Promise.resolve(undefined)
+      : cutoff
+        ? (fetcher(TEAM_ISSUE_COUNT_SCOPED_QUERY, { id, filter: issueScopeFilter(cutoff) }, apiKey) as Promise<{ team?: { issueCount?: number } }>)
+        : (fetcher(TEAM_ISSUE_COUNT_QUERY, { id }, apiKey) as Promise<{ team?: { issueCount?: number } }>),
     pageAll<LinearState>(fetcher, apiKey, TEAM_STATES_QUERY, { id }, (d: { team: { states: never } }) => d.team?.states, `workflow states of ${team.key}`),
-    pageAll<LinearComment>(fetcher, apiKey, since ? TEAM_COMMENTS_SINCE_QUERY : TEAM_COMMENTS_QUERY, since ? { id, since } : { id }, (d: { comments: never }) => d.comments, `comments of ${team.key}`),
+    cutoff
+      ? pageAll<LinearComment>(fetcher, apiKey, since ? TEAM_COMMENTS_SCOPED_SINCE_QUERY : TEAM_COMMENTS_SCOPED_QUERY, since ? { issue: commentIssueFilter(id, cutoff), since } : { issue: commentIssueFilter(id, cutoff) }, (d: { comments: never }) => d.comments, `comments of ${team.key}`)
+      : pageAll<LinearComment>(fetcher, apiKey, since ? TEAM_COMMENTS_SINCE_QUERY : TEAM_COMMENTS_QUERY, since ? { id, since } : { id }, (d: { comments: never }) => d.comments, `comments of ${team.key}`),
     // Ticket #1364 — milestones are small and always read whole (an incremental run included), like projects.
     fetchTeamMilestones(fetcher, apiKey, team),
   ]);
@@ -397,6 +448,11 @@ export const TEAM_ISSUE_HISTORY_SINCE_QUERY = TEAM_ISSUE_HISTORY_QUERY
 if (!TEAM_ISSUE_HISTORY_SINCE_QUERY.includes('TeamIssueHistorySince') || !TEAM_ISSUE_HISTORY_SINCE_QUERY.includes('updatedAt')) {
   throw new Error('TEAM_ISSUE_HISTORY_SINCE_QUERY no longer derives from TEAM_ISSUE_HISTORY_QUERY');
 }
+/** Ticket #1393 — the same stream for an explicit list of issues (`id: { in: $ids }`): exactly the issues the import read, not whatever a filter matches a moment later. */
+export const TEAM_ISSUE_HISTORY_BY_IDS_QUERY = deriveQuery(TEAM_ISSUE_HISTORY_QUERY, [
+  ['query TeamIssueHistory($id: String!, $after: String)', 'query TeamIssueHistory($id: String!, $after: String, $ids: [ID!]!)'],
+  [`issues(first: ${HISTORY_ISSUE_PAGE_SIZE}, after: $after)`, `issues(first: ${HISTORY_ISSUE_PAGE_SIZE}, after: $after, filter: { id: { in: $ids } })`],
+], 'TEAM_ISSUE_HISTORY_BY_IDS_QUERY');
 export const ISSUE_HISTORY_MORE_QUERY = `query IssueHistoryMore($id: String!, $after: String) { issue(id: $id) { history(first: 100, after: $after) { nodes { ${HISTORY_NODE} } ${PAGE_INFO} } } }`;
 
 /**
@@ -407,14 +463,22 @@ export async function fetchTeamIssueHistory(
   fetcher: LinearFetcher,
   apiKey: string,
   team: LinearTeam,
-  opts: { since?: string } = {},
+  opts: { since?: string; ids?: string[] } = {},
 ): Promise<Map<string, LinearHistoryEntry[]>> {
   const out = new Map<string, LinearHistoryEntry[]>();
   type Page = { id: string; history: { nodes: LinearHistoryEntry[]; pageInfo?: PageInfo } };
-  const issues = await pageAll<Page>(
-    fetcher, apiKey, opts.since ? TEAM_ISSUE_HISTORY_SINCE_QUERY : TEAM_ISSUE_HISTORY_QUERY, opts.since ? { id: team.id, since: opts.since } : { id: team.id },
-    (d: { team: { issues: never } }) => d.team?.issues, `issue history of ${team.key}`,
-  );
+  // Ticket #1393 — with an explicit id list (a scoped import) only those issues are asked about, in chunks; an empty list asks nothing.
+  const issues: Page[] = [];
+  if (opts.ids) {
+    for (const ids of chunked(opts.ids, IDS_CHUNK)) {
+      issues.push(...(await pageAll<Page>(fetcher, apiKey, TEAM_ISSUE_HISTORY_BY_IDS_QUERY, { id: team.id, ids }, (d: { team: { issues: never } }) => d.team?.issues, `issue history of ${team.key}`)));
+    }
+  } else {
+    issues.push(...(await pageAll<Page>(
+      fetcher, apiKey, opts.since ? TEAM_ISSUE_HISTORY_SINCE_QUERY : TEAM_ISSUE_HISTORY_QUERY, opts.since ? { id: team.id, since: opts.since } : { id: team.id },
+      (d: { team: { issues: never } }) => d.team?.issues, `issue history of ${team.key}`,
+    )));
+  }
   for (const issue of issues) {
     const entries = [...issue.history.nodes];
     let more = issue.history.pageInfo;
@@ -655,6 +719,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       team_keys: linear.team_keys ?? [],
       has_key: Boolean(linear.api_key),
       allow_private_teams: Boolean(linear.allow_private_teams),
+      /** Ticket #1393 - the scope and history the next import (and the scheduled mirror) uses; `chosen` is false until an admin has picked, and then they are the defaults (or, for a workspace imported before the choice existed, what it has always got). */
+      import_options: { ...this.baselineImportOptions(linear, linear.sync_status), chosen: Boolean(linear.import_options) },
       team_spaces: linear.team_spaces ?? {},
       team_ownership: Object.fromEntries((linear.team_keys ?? []).concat(Object.keys(linear.team_ownership ?? {})).map((k) => [k, teamOwnership(linear, k).owner])),
       auto_sync: { enabled, interval_minutes: interval },
@@ -692,6 +758,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     config: {
       api_key?: string; team_keys?: string[]; auto_sync?: { enabled?: boolean; interval_minutes?: number }; write_back?: { enabled?: boolean; require_approval_for_agent_comments?: boolean };
       allow_private_teams?: boolean; team_spaces?: Record<string, { space_id?: string; space_name?: string }>;
+      import_options?: LinearImportOptions;
     },
     actorId?: string,
   ) {
@@ -702,6 +769,10 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       team_keys: config.team_keys !== undefined ? config.team_keys : (existing.team_keys ?? []),
     };
     if (config.allow_private_teams !== undefined) linear.allow_private_teams = config.allow_private_teams;
+    // Ticket #1393 - the scope / history choice, saved without running an import (a field left out keeps what the workspace had).
+    if (config.import_options !== undefined) {
+      linear.import_options = { ...resolveLinearImportOptions(config.import_options, this.baselineImportOptions(existing, existing.sync_status)), set_at: new Date(this.clock()).toISOString(), ...(actorId ? { set_by: actorId } : {}) };
+    }
     if (config.team_spaces !== undefined) {
       // A space id is only ever one of THIS workspace's live spaces that can hold databases: a pasted id from elsewhere must not point the sync there.
       for (const [key, target] of Object.entries(config.team_spaces)) {
@@ -1199,6 +1270,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const fetcher: LinearFetcher = async (query, variables, key) => { requests++; return base(query, variables, key); };
     const { teams, apiKey, notVisible, blockedPrivate, settings } = await this.fetchTeams(membership.workspaceId, { fetcher });
     const outboxByTeam = (await statusPushCounts(this.db, membership.workspaceId)).by_team;
+    const cutoff = scopeCutoff(this.clock());
     const out: Array<Record<string, unknown>> = [];
     for (const team of teams) {
       const count = (await fetcher(TEAM_ISSUE_COUNT_QUERY, { id: team.id }, apiKey)) as { team?: { issueCount?: number } };
@@ -1213,6 +1285,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         sync_writes: teamOwnership(settings, team.key).owner === 'linear',
         status_write_back: { enabled: statusWriteBack(settings, team.key).allowed, ...pickCounts(outboxByTeam[team.key]) },
         issues: total, linear_issue_total: total,
+        /** Ticket #1393 - what each scope option would import for this team. */
+        issues_by_scope: await this.scopeCounts(fetcher, apiKey, team, cutoff, total),
         labels: labels.length,
         statuses: [...states].sort((a, b) => a.position - b.position).map((st) => ({ name: st.name, type: st.type })),
         members,
@@ -1225,9 +1299,36 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       /** What this preview did NOT read; null in the team rows above. Ask for `detail=full` to read them (slow, and heavy on Linear's rate limit). */
       not_read: ['comments', 'sprints', 'projects', 'issues_by_project', 'issues_by_status', 'relations', 'milestones', 'attachments', 'documents', 'members_matching'],
       requests,
+      import_choices: this.importChoices(settings, cutoff),
       teams_not_visible: notVisible,
       private_teams: teams.filter((t) => t.private === true).map((t) => ({ key: t.key, would_import: !blockedPrivate.includes(t.key) })),
       teams: out,
+    };
+  }
+
+  /**
+   * Ticket #1393 - what each import scope would bring for one team: Linear's own total for everything, and two filtered counts (open, and
+   * closed since the cutoff) in ONE request. The two halves cannot overlap, so their sum is the default scope's count. A number Linear
+   * did not give is refused, never shown as zero.
+   */
+  private async scopeCounts(fetcher: LinearFetcher, apiKey: string, team: LinearTeam, cutoff: string, all: number) {
+    const got = (await fetcher(TEAM_SCOPE_COUNTS_QUERY, { id: team.id, open: openIssuesFilter(), closedRecent: closedRecentlyFilter(cutoff) }, apiKey)) as { team?: { open?: number; closedRecent?: number } };
+    const open = got.team?.open;
+    const closedRecent = got.team?.closedRecent;
+    if (typeof open !== 'number' || typeof closedRecent !== 'number') {
+      throw new UnprocessableEntityException(`Linear did not report the open / recently closed issue counts for ${team.key} - refusing to preview a number it did not give`);
+    }
+    return { all, open_and_recent: open + closedRecent, open, closed_recent: closedRecent };
+  }
+
+  /** Ticket #1393 - the choices the import screen offers, so the web does not hard-code them: the options, their defaults, the window, and what the next import would use. */
+  private importChoices(settings: LinearSettings, cutoff: string) {
+    return {
+      scopes: [...LINEAR_IMPORT_SCOPES],
+      default: { ...DEFAULT_LINEAR_IMPORT_OPTIONS },
+      recent_days: LINEAR_RECENT_DAYS,
+      cutoff,
+      current: { ...this.baselineImportOptions(settings, settings.sync_status), chosen: Boolean(settings.import_options) },
     };
   }
 
@@ -1237,14 +1338,17 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const { teams, apiKey, notVisible, blockedPrivate, settings: previewSettings } = await this.fetchTeams(membership.workspaceId, { fetcher });
     const matcher = new MemberMatcher(await this.memberDirectory(membership.workspaceId));
     const outboxByTeam = (await statusPushCounts(this.db, membership.workspaceId)).by_team;
+    const previewCutoffAtStart = scopeCutoff(this.clock());
     const summary = {
       dry_run: true,
+      /** Ticket #1393 - the scope and history choices, and the cutoff the per-scope counts below were taken at. */
+      import_choices: this.importChoices(previewSettings, previewCutoffAtStart),
       /** Ticket #1367 — configured team keys this API key cannot see (a typo, or a private team it does not belong to): they would never import. */
       teams_not_visible: notVisible,
       /** Ticket #1367 — private teams among those chosen, and whether a sync would import them (it refuses while private teams are switched off). */
       private_teams: teams.filter((t) => t.private === true).map((t) => ({ key: t.key, would_import: !blockedPrivate.includes(t.key) })),
       teams: [] as Array<{
-        key: string; name: string; owner: 'linear' | 'storyos'; sync_writes: boolean; status_write_back: { enabled: boolean; pending: number; failed: number; unmapped: number }; issues: number; linear_issue_total: number; comments: number; sprints: number; projects: number; labels: number;
+        key: string; name: string; owner: 'linear' | 'storyos'; sync_writes: boolean; status_write_back: { enabled: boolean; pending: number; failed: number; unmapped: number }; issues: number; linear_issue_total: number; issues_by_scope: { all: number; open_and_recent: number; open: number; closed_recent: number }; comments: number; sprints: number; projects: number; labels: number;
         /** #902 — how many of this team's issues each Linear project will bring (and how many have none). */
         issues_by_project: Array<{ project_id: string | null; name: string; issues: number }>;
         /** #904 — per Linear status, in Linear's order: the numbers to check against Linear's own per-status counts. */
@@ -1257,6 +1361,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       relations_cross_team_policy: CROSS_TEAM_RELATION_POLICY as string,
     };
     const previewCrossTeam = new Map<string, string>();
+    const previewCutoff = previewCutoffAtStart;
     // Every read is paged to the end and count-checked (fetchTeamData), so these counts are uncapped and the same
     // numbers the sync will act on. The adapter below is handed the data rather than re-reading it.
     const prefetched = new Map<string, LinearTeamComplete>();
@@ -1279,6 +1384,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
         status_write_back: { enabled: statusWriteBack(previewSettings, team.key).allowed, ...pickCounts(outboxByTeam[team.key]) },
         issues: data.issues.nodes.length,
         linear_issue_total: data.issueTotal ?? data.issues.nodes.length, // preview is always a full read, which always has a total
+        issues_by_scope: await this.scopeCounts(fetcher, apiKey, team, previewCutoff, data.issueTotal ?? data.issues.nodes.length),
         comments: data.comments.nodes.length,
         sprints: data.cycles.nodes.length,
         projects: data.projects.nodes.length,
@@ -1327,7 +1433,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
    * admin sees is true whichever one made it. A failure is stored with its message and re-thrown, never swallowed: a
    * job that fails quietly every hour looks exactly like one with nothing to do.
    */
-  async sync(membership: Membership, actorId: string, opts: { runHeld?: boolean; scheduled?: boolean } = {}) {
+  async sync(membership: Membership, actorId: string, opts: { runHeld?: boolean; scheduled?: boolean; options?: LinearImportOptions } = {}) {
     const started = Date.now();
     const workspaceId = membership.workspaceId;
     // One run at a time per workspace. A scheduled run already holds the lock (claimRun took it); a manual one must take it,
@@ -1336,19 +1442,19 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('A Linear sync is already running for this workspace — try again when it finishes');
     }
     try {
-      return await this.syncRecorded(membership, actorId, started, Boolean(opts.scheduled));
+      return await this.syncRecorded(membership, actorId, started, Boolean(opts.scheduled), opts.options);
     } finally {
       await this.releaseRun(workspaceId).catch(() => undefined);
     }
   }
 
-  private async syncRecorded(membership: Membership, actorId: string, started: number, scheduled: boolean) {
+  private async syncRecorded(membership: Membership, actorId: string, started: number, scheduled: boolean, options?: LinearImportOptions) {
     const workspaceId = membership.workspaceId;
     const before = await this.readLinear(workspaceId);
     await this.writeLinear(workspaceId, { ...before, sync_status: { ...before.sync_status, last_attempt_at: new Date(started).toISOString() } });
     try {
       // #1377 - the whole run is an import run: Slack channel subscriptions post nothing for a record it creates, and a status change only for an incremental read (runSync sets the mode once it has planned it).
-      const summary = await runAsImportRun(() => this.runSync(membership, actorId, { scheduled, status: before.sync_status, startedAt: new Date(started).toISOString() }));
+      const summary = await runAsImportRun(() => this.runSync(membership, actorId, { scheduled, status: before.sync_status, startedAt: new Date(started).toISOString(), options }));
       const after = await this.readLinear(workspaceId);
       await this.writeLinear(workspaceId, {
         ...after,
@@ -1361,6 +1467,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
           cursor_at: summary.resumed?.started_at ?? new Date(started).toISOString(),
           last_full_at: summary.mode === 'full' ? (summary.resumed?.started_at ?? new Date(started).toISOString()) : before.sync_status?.last_full_at,
           synced_teams: summary.teams,
+          // Ticket #1393 — what this run read under: an incremental run is planned only while the choice is unchanged.
+          synced_options: { scope: summary.options.scope, include_history: summary.options.include_history },
           last_run: { issues: summary.issues, comments: summary.comments.fetched, drift_flagged: summary.drift_flagged, left_scope: summary.left_scope, duration_ms: Date.now() - started, mode: summary.mode },
         },
       });
@@ -1657,7 +1765,17 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus; only?: string[]; startedAt?: string } = {}) {
+  /**
+   * Ticket #1393 - what a workspace imports when nobody says: the stored choice if an admin made one; otherwise, for a workspace that
+   * already imported under the old importer (a successful run on record), EVERYTHING with history - what it has been getting, so an
+   * upgrade does not quietly stop refreshing its older issues; otherwise the defaults (open + recent, no history).
+   */
+  private baselineImportOptions(settings: LinearSettings, status?: LinearSyncStatus): ResolvedLinearImportOptions {
+    if (settings.import_options) return { scope: settings.import_options.scope, include_history: settings.import_options.include_history };
+    return status?.last_success_at ? LEGACY_IMPORT_OPTIONS : DEFAULT_LINEAR_IMPORT_OPTIONS;
+  }
+
+  private async runSync(membership: Membership, actorId: string, run: { scheduled?: boolean; status?: LinearSyncStatus; only?: string[]; startedAt?: string; options?: LinearImportOptions } = {}) {
     const fetcher = this.runFetcher(membership.workspaceId);
     const fetchedTeams = await this.fetchTeams(membership.workspaceId, { forSync: true, fetcher });
     const { apiKey, settings, notVisible } = fetchedTeams;
@@ -1665,23 +1783,44 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     // ONE team that is still Linear's; it narrows the run, it never widens it past the ownership guard below.
     const skippedStoryosOwned = run.only ? [] : storyosOwnedKeys(settings, fetchedTeams.teams.map((t) => t.key));
     const teams = fetchedTeams.teams.filter((t) => (run.only ? run.only.includes(t.key) : !skippedStoryosOwned.includes(t.key)));
-    // #1027 — a manual Import is always a full read; only a scheduled run with a trustworthy cursor reads just the changes.
-    const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled));
-    const incremental = plan.mode === 'incremental';
-    setImportRunMode(plan.mode); // #1377
-    // Ticket #1392 — an earlier run of this import that stopped partway (rate limit, outage, one team failing) recorded which teams it
-    // finished. Those are not read again. It is only continued while fresh, and an incremental partial run never stands in for a full read.
+    // Ticket #1393 - the scope and history this run uses. An unfinished import continues under the choice it started with; a request that
+    // asks for DIFFERENT ones is a different import and starts over. A field the request leaves out comes from the stored choice (or
+    // the baseline above), never from a half-finished import it is not continuing.
     const resumable = !run.only;
     const prior = resumable ? run.status?.resume : undefined;
+    const priorOptions = prior ? (prior.options ?? LEGACY_IMPORT_OPTIONS) : undefined;
+    const continuesPrior = Boolean(priorOptions) && sameImportOptions(resolveLinearImportOptions(run.options, priorOptions), priorOptions!);
+    const options: ResolvedLinearImportOptions = continuesPrior ? priorOptions! : resolveLinearImportOptions(run.options, this.baselineImportOptions(settings, run.status));
+    const chosenNow = run.options !== undefined && (run.options.scope !== undefined || run.options.include_history !== undefined);
+    // Remembered when an admin chose (a manual run that sent options), and when the FIRST import of a workspace ran under the defaults - so the
+    // scheduled mirror and a later run that sends nothing follow what the import actually used. Never for a workspace that imported before the
+    // choice existed: it stays on what it has always got until someone chooses, and `chosen` stays false.
+    const firstEver = !settings.import_options && !run.status?.last_success_at;
+    if (!run.only && ((chosenNow && !run.scheduled) || firstEver) && !(settings.import_options && sameImportOptions(settings.import_options, options))) {
+      await this.writeLinear(membership.workspaceId, { ...(await this.readLinear(membership.workspaceId)), import_options: { ...options, set_at: new Date(this.clock()).toISOString(), set_by: actorId } });
+    }
+    // #1027 - a manual Import is always a full read; only a scheduled run with a trustworthy cursor reads just the changes.
+    // Ticket #1393 - and only while the scope/history are the ones the last successful run read under (a run from before the choice read everything).
+    const plan = planSyncMode(run.status, new Date(), teams.map((t) => t.key), Boolean(run.scheduled), sameImportOptions(run.status?.synced_options ?? LEGACY_IMPORT_OPTIONS, options));
+    const incremental = plan.mode === 'incremental';
+    setImportRunMode(plan.mode); // #1377
+    // Ticket #1392 - an earlier run of this import that stopped partway (rate limit, outage, one team failing) recorded which teams it
+    // finished. Those are not read again. It is only continued while fresh, and an incremental partial run never stands in for a full read.
     const resuming = Boolean(prior)
+      && continuesPrior
       && this.clock() - new Date(prior!.started_at).getTime() < RESUME_MAX_AGE_HOURS * 3_600_000
       && (prior!.mode === 'full' || (plan.mode === 'incremental' && prior!.since === plan.since));
+    // Ticket #1393 - where the "recent" window starts. Fixed for the whole of one import (a resumed import keeps its own), so the first team and
+    // the last are cut at the same instant even when a pause sits between them. Scope `all` has none.
+    const scopeStart = options.scope === 'all' ? undefined : (resuming && prior!.cutoff ? prior!.cutoff : cutoffFor(options.scope, this.clock()));
     const resumeState: LinearResumeState = resuming
-      ? { ...prior!, teams: teams.map((t) => t.key), completed: { ...prior!.completed } }
-      : { started_at: run.startedAt ?? new Date(this.clock()).toISOString(), mode: plan.mode, since: plan.since, teams: teams.map((t) => t.key), completed: {} };
+      ? { ...prior!, options, cutoff: scopeStart, teams: teams.map((t) => t.key), completed: { ...prior!.completed } }
+      : { options, cutoff: scopeStart, started_at: run.startedAt ?? new Date(this.clock()).toISOString(), mode: plan.mode, since: plan.since, teams: teams.map((t) => t.key), completed: {} };
     const summary = {
       dry_run: false,
       mode: plan.mode, issues: 0, sprints: 0, projects: 0, labels: 0, teams: teams.map((t) => t.key),
+      /** Ticket #1393 - what this run imported: the scope, whether history was requested, and where the "recent" window began (null for everything). */
+      options: { scope: options.scope, include_history: options.include_history, recent_days: scopeStart ? LINEAR_RECENT_DAYS : null, cutoff: scopeStart ?? null },
       /** Ticket #1392 — teams an earlier unfinished run had already imported, which this run did not read or write again. Null = a fresh run. */
       resumed: resuming ? { started_at: resumeState.started_at, skipped_teams: [] as string[] } : null,
       /** Ticket #1370 — teams StoryOS owns: left out of this run entirely (not read, not written). */
@@ -1698,6 +1837,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       description_hidden_in: [] as string[],
       /** #906 — mirrored issues Linear no longer returns (archived, deleted, moved out): marked, never deleted. */
       left_scope: 0,
+      /** Ticket #1393 - false when the read could not tell "gone" from "not asked for" (a filtered scope, or an incremental read), so `left_scope` is 0 by construction, not by finding. */
+      left_scope_checked: !(plan.mode === 'incremental' || scopeStart !== undefined),
       /** #1365 — per team, what the relations came to and what was NOT imported (cross-team, unplaced, unknown type), and the Duplicate state check. */
       relations: { cross_team_policy: CROSS_TEAM_RELATION_POLICY as string, cross_team_total: 0, per_team: [] as Array<{ key: string; duplicate_state: DuplicateStateReport } & RelationReport> },
       /** Ticket #1367 — per team: written under Linear's own numbers (with the identifier prefix), or kept in import order, and why. */
@@ -1705,7 +1846,7 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       /** Ticket #1367 — issues whose created/updated times were set to Linear's. */
       dates_stamped: 0,
       /** Ticket #1367 — state changes kept as history rows at their real times (replaces the imported rows of the issues read; people's own are untouched). */
-      history: { issues: 0, rows: 0, skipped_unknown_state: 0, kept: true },
+      history: { issues: 0, rows: 0, skipped_unknown_state: 0, kept: true, /** Ticket #1393 - whether this run was asked to fetch history at all (off by default). `kept` is the plan's say. */ requested: options.include_history },
       /** Ticket #1367 — people matched to members by email; every one that did not match is listed, never dropped. */
       members: { assignees: null as ReturnType<MemberMatcher['report']> | null, comment_authors: null as ReturnType<MemberMatcher['report']> | null },
       /** Ticket #1367 — private teams imported into restricted spaces, who got a grant and who could not be matched. */
@@ -1725,14 +1866,17 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
     const keepsHistory = await this.importHistory.keepsFieldHistory(membership.workspaceId);
     summary.history.kept = keepsHistory;
     const readTeam = async (team: LinearTeam) => {
-      const data = await fetchTeamData(fetcher, apiKey, team, { since: plan.since });
-      // #1365 — relations are read and verified here too, before anything is written (a full read must cover every issue read).
-      const relations = await fetchTeamRelations(fetcher, apiKey, team, { since: plan.since, expectIssues: incremental ? undefined : data.issues.nodes.length });
-      // Ticket #1367 — the rest of what the writes need: issue history (when the plan keeps field history at all) and, for a private team, its members.
-      const history = keepsHistory ? await fetchTeamIssueHistory(fetcher, apiKey, team, { since: plan.since }) : undefined;
+      const data = await fetchTeamData(fetcher, apiKey, team, { since: plan.since, scopeCutoff: scopeStart });
+      // Ticket #1393 - under a filtered scope everything that follows is asked for EXACTLY the issues just read (by id), never for whatever a
+      // filter would match a moment later: relations, history and attachments are never fetched for an issue outside the scope.
+      const inScope = scopeStart ? data.issues.nodes.map((i) => i.id) : undefined;
+      // #1365 - relations are read and verified here too, before anything is written (a full read must cover every issue read).
+      const relations = await fetchTeamRelations(fetcher, apiKey, team, { since: plan.since, expectIssues: incremental ? undefined : data.issues.nodes.length, ids: inScope });
+      // Ticket #1367 - the rest of what the writes need: issue history (only when it was asked for AND the plan keeps field history at all) and, for a private team, its members.
+      const history = keepsHistory && options.include_history ? await fetchTeamIssueHistory(fetcher, apiKey, team, { since: plan.since, ids: inScope }) : undefined;
       const members = team.private === true ? await fetchTeamMembers(fetcher, apiKey, team) : [];
-      // Ticket #1366 — the team's attachments.
-      const attachments = await fetchTeamAttachments(fetcher, apiKey, team, { since: plan.since });
+      // Ticket #1366 - the team's attachments.
+      const attachments = await fetchTeamAttachments(fetcher, apiKey, team, { since: plan.since, ids: inScope });
       return { data, relations, history, members, attachments };
     };
     const crossTeamEdges = new Map<string, string>();
@@ -1936,7 +2080,8 @@ export class LinearService implements OnModuleInit, OnModuleDestroy {
       // reliable. It reverts by itself if the issue comes back (the upsert rewrites linear_status).
       const fetchedIds = new Set(data.issues.nodes.map((i) => i.id));
       // An incremental read returns only what changed, so "absent" proves nothing: the daily full read does this.
-      for (const [linearId, prior] of incremental ? [] : mirrored) {
+      // Ticket #1393 - nor does a read under a filtered scope: an issue it did not return may simply be outside the window.
+      for (const [linearId, prior] of summary.left_scope_checked ? mirrored : []) {
         if (fetchedIds.has(linearId) || prior.linearStatus?.startsWith(LEFT_SCOPE_PREFIX)) continue;
         await this.recordsService.update(
           membership.workspaceId, issuesDb.id, prior.id,

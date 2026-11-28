@@ -43,6 +43,8 @@ import { GithubWebhookService } from './github-webhook.service';
 import type { ReviewBucket } from './github-reviews.service';
 import { GithubReviewsService } from './github-reviews.service';
 import { INTEGRATION_REGISTRY, SOCIAL_INGEST } from './integration-registry';
+import { linearImportOptionsSchema } from '@storyos/schemas';
+import type { LinearImportOptions } from '@storyos/schemas';
 import { LinearService } from './linear.service';
 import { PreferencesService } from '../users/preferences.service';
 import { SlackService } from './slack.service';
@@ -180,6 +182,8 @@ class LinearConfigDto extends createZodDto(
     write_back: z.object({ enabled: z.boolean().optional(), /** #1179 — hold a comment an agent wrote for a person's approval before it goes to Linear. Off by default. */ require_approval_for_agent_comments: z.boolean().optional() }).optional(),
     /** Ticket #1367 — import PRIVATE teams too (into restricted spaces). Off by default; refused loudly while off. */
     allow_private_teams: z.boolean().optional(),
+    /** Ticket #1393 - the import's scope and history choice, saved without running an import. Same shape as the sync body; unknown keys and values are refused. */
+    import_options: linearImportOptionsSchema.optional(),
     /** Ticket #1367 — per team key: the space to use (by id) and the name to give a NEW one; replaces the lookup by "<Team> (Linear)". */
     team_spaces: z.record(z.string().min(1).max(20), z.object({ space_id: z.string().uuid().optional(), space_name: z.string().trim().min(1).max(100).optional() })).optional(),
   }),
@@ -621,10 +625,18 @@ export class LinearIntegrationsController {
 
   @Post('sync')
   @ApiOperation({
-    summary: 'Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID',
+    summary: 'Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID. Optional body: `scope` (open_and_recent = open issues + closed in the last 90 days, the default; or all) and `include_history` (each issue\'s change history; default false)',
   })
-  sync(@Req() req: WorkspaceRequest) {
-    return this.linear.sync(req.membership, req.user.id);
+  sync(@Req() req: WorkspaceRequest, @Body() body?: unknown) {
+    // Ticket #1393 - the body is OPTIONAL (every caller from before it existed sends none), so it is validated here rather than by a DTO pipe, which would
+    // refuse an absent body. Anything present must match the schema exactly: an unknown scope, a non-boolean history or a stray key is a 400, before the run is locked or Linear is called.
+    let options: LinearImportOptions | undefined;
+    if (body !== undefined && body !== null && !(typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 0)) {
+      const parsed = linearImportOptionsSchema.safeParse(body);
+      if (!parsed.success) throw new BadRequestException(`Invalid import options: ${parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ')}`);
+      options = parsed.data;
+    }
+    return this.linear.sync(req.membership, req.user.id, { options });
   }
 
   /**

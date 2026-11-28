@@ -7,6 +7,7 @@ import type { FieldsService } from '../fields/fields.service';
 import type { RelationsService } from '../relations/relations.service';
 import type { Membership } from '../workspaces/workspace-access.guard';
 import { pageAll } from './linear-paging';
+import { chunked, deriveQuery, IDS_CHUNK } from './linear-import-scope';
 import type { LinearFetcher, LinearTeam } from './linear.service';
 
 /**
@@ -55,6 +56,12 @@ if (!TEAM_RELATIONS_SINCE_QUERY.includes('updatedAt') || !TEAM_RELATIONS_SINCE_Q
   throw new Error('TEAM_RELATIONS_SINCE_QUERY no longer derives from TEAM_RELATIONS_QUERY');
 }
 
+/** Ticket #1393 — the same read for an explicit list of issues (`id: { in: $ids }`): a scoped import asks only about the issues it imported. */
+export const TEAM_RELATIONS_BY_IDS_QUERY = deriveQuery(TEAM_RELATIONS_QUERY, [
+  ['query TeamRelations($id: String!, $after: String)', 'query TeamRelations($id: String!, $after: String, $ids: [ID!]!)'],
+  [`issues(first: ${RELATIONS_ISSUE_PAGE_SIZE}, after: $after)`, `issues(first: ${RELATIONS_ISSUE_PAGE_SIZE}, after: $after, filter: { id: { in: $ids } })`],
+], 'TEAM_RELATIONS_BY_IDS_QUERY');
+
 export interface LinearRelationEdge {
   id: string;
   type: string;
@@ -84,15 +91,22 @@ export async function fetchTeamRelations(
   fetcher: LinearFetcher,
   apiKey: string,
   team: LinearTeam,
-  opts: { since?: string; expectIssues?: number } = {},
+  opts: { since?: string; expectIssues?: number; ids?: string[] } = {},
 ): Promise<LinearIssueRelations[]> {
-  const nodes = await pageAll<RawNode>(
-    fetcher, apiKey,
-    opts.since ? TEAM_RELATIONS_SINCE_QUERY : TEAM_RELATIONS_QUERY,
-    opts.since ? { id: team.id, since: opts.since } : { id: team.id },
-    (d: { team: { issues: never } }) => d.team?.issues,
-    `relations of ${team.key}`,
-  );
+  const nodes: RawNode[] = [];
+  const pick = (d: { team: { issues: never } }) => d.team?.issues;
+  if (opts.ids) {
+    // Ticket #1393 — an explicit id list (a scoped import): only those issues, in chunks. An empty list asks nothing.
+    for (const ids of chunked(opts.ids, IDS_CHUNK)) nodes.push(...(await pageAll<RawNode>(fetcher, apiKey, TEAM_RELATIONS_BY_IDS_QUERY, { id: team.id, ids }, pick, `relations of ${team.key}`)));
+  } else {
+    nodes.push(...(await pageAll<RawNode>(
+      fetcher, apiKey,
+      opts.since ? TEAM_RELATIONS_SINCE_QUERY : TEAM_RELATIONS_QUERY,
+      opts.since ? { id: team.id, since: opts.since } : { id: team.id },
+      pick,
+      `relations of ${team.key}`,
+    )));
+  }
   const out: LinearIssueRelations[] = [];
   for (const n of nodes) {
     if (!n.relations?.pageInfo || n.relations.pageInfo.hasNextPage || !n.inverseRelations?.pageInfo || n.inverseRelations.pageInfo.hasNextPage) {

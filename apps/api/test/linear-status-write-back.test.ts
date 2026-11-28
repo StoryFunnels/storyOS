@@ -160,7 +160,7 @@ beforeAll(async () => {
   const idOf = (p: Person) => members.find((m) => m.user.email === p.email)!.id;
   expect((await adm('PATCH', `/workspaces/${ws}/members/${idOf(demoted)}`, { role: 'member' })).statusCode).toBe(200);
   expect((await adm('DELETE', `/workspaces/${ws}/members/${idOf(left)}`)).statusCode).toBe(200);
-  expect((await adm('POST', urls.config(), { api_key: KEY, team_keys: ['ENG', 'QUA'], auto_sync: { enabled: true } })).statusCode).toBe(201);
+  expect((await adm('POST', urls.config(), { api_key: KEY, team_keys: ['ENG', 'QUA'], import_options: { scope: 'all', include_history: true }, auto_sync: { enabled: true } })).statusCode).toBe(201);
   updates = []; reads = [];
   use([
     { team: ENG, issues: [1, 2, 3, 4, 5].map((n) => issueShape(ENG, n, { title: `Secret engineering title ${n}`, state: TODO })) },

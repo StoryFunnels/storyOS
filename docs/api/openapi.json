@@ -7098,7 +7098,7 @@
             "description": ""
           }
         },
-        "summary": "Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID",
+        "summary": "Import teams → spaces (Issues/Sprints/Projects), idempotent by Linear ID. Optional body: `scope` (open_and_recent = open issues + closed in the last 90 days, the default; or all) and `include_history` (each issue's change history; default false)",
         "tags": [
           "integrations"
         ],
@@ -18593,6 +18593,22 @@
           },
           "allow_private_teams": {
             "type": "boolean"
+          },
+          "import_options": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "open_and_recent",
+                  "all"
+                ]
+              },
+              "include_history": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
           },
           "team_spaces": {
             "type": "object",

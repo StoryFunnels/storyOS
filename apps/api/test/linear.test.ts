@@ -52,7 +52,7 @@ describe('Linear importer (MN-066)', () => {
     const early = await inject('POST', `/workspaces/${wsId}/integrations/linear/dry-run?detail=full`);
     expect(early.statusCode).toBe(422);
     const save = await inject('POST', `/workspaces/${wsId}/integrations/linear`, {
-      api_key: 'lin_api_test', team_keys: ['ENG'],
+      api_key: 'lin_api_test', team_keys: ['ENG'], import_options: { scope: 'all', include_history: true }, // this suite reads the whole import
     });
     expect(save.statusCode, save.body).toBe(201);
     const config = (await inject('GET', `/workspaces/${wsId}/integrations/linear`)).json();
@@ -69,6 +69,8 @@ describe('Linear importer (MN-066)', () => {
       // ticket #1390: and whether status write-back is on for it, with the outbox counts (off, nothing waiting)
       status_write_back: { enabled: false, pending: 0, failed: 0, unmapped: 0 },
       issues: 3, linear_issue_total: 3, comments: 0, sprints: 1, projects: 1, labels: 3,
+      // ticket #1393: what each import scope would bring (the canceled issue has no close date in this fixture, so it is outside "recently closed")
+      issues_by_scope: { all: 3, open_and_recent: 2, open: 2, closed_recent: 0 },
       // #902 AC3: the preview says how many issues each Linear project will bring, and how many have none
       issues_by_project: [{ project_id: null, name: '(no project)', issues: 2 }, { project_id: 'proj-1', name: 'Sharing flow', issues: 1 }],
       issues_by_status: [{ status: 'In Progress', type: 'started', issues: 1 }, { status: 'Triage', type: 'triage', issues: 1 }, { status: 'Canceled', type: 'canceled', issues: 1 }],

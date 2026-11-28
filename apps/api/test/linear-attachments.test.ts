@@ -74,7 +74,7 @@ beforeAll(async () => {
   db = app.get<Db>(DB);
   admin = await signUpUser(app, 'Linear Attach');
   ws = (await asAdmin('POST', '/workspaces', { name: 'Linear Attach WS' })).json().id;
-  expect((await asAdmin('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', team_keys: ['AT'] })).statusCode).toBe(201);
+  expect((await asAdmin('POST', `/workspaces/${ws}/integrations/linear`, { api_key: 'lin_api_test', import_options: { scope: 'all', include_history: true }, team_keys: ['AT'] })).statusCode).toBe(201);
 }, 120_000);
 afterAll(async () => { await app.close(); });
 
