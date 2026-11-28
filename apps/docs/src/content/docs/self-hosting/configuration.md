@@ -38,6 +38,7 @@ Never commit your real `.env` — it holds secrets. The repo ships an `.env.exam
 | `PDF_RENDERER_URL`                                                 | unset                             | Base URL of the optional PDF renderer. Unset = PDF export unavailable — see [PDF export](/self-hosting/pdf-export/).                                                                                  |
 | `ATTACHMENT_MAX_BYTES`                                             | `20971520` (20 MB)                | Per-file upload cap.                                                                                                                                                                                 |
 | `RATE_LIMIT_PER_MINUTE`                                            | `300`                             | Per token/session.                                                                                                                                                                                   |
+| `SLACK_SIGNING_SECRET`                                             | unset                             | Your Slack app's signing secret, for [Slack link previews](/guides/slack-link-previews/). Unset = the Slack Events endpoint refuses every request (no previews).                                    |
 
 ## Integrations: what's available self-hosted
 
